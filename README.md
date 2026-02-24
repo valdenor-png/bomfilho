@@ -48,9 +48,7 @@ Criar uma base sólida para um e-commerce de supermercado local, pronta para uso
 
 ## 🖼️ Imagens
 
-### Exemplo de criativo interno (ads)
 
-![Anúncio interno](img/ads/coca-cola-placeholder.svg)
 
 ## 🏗️ Arquitetura
 
