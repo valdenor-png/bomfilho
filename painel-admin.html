@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Bom Filho | Dashboard</title>
+    <link rel="stylesheet" href="css/admin-novo.css">
+</head>
+<body>
+    <div class="admin-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-section">
+                <div class="logo">
+                    <span class="logo-icon">🛒</span>
+                    <span class="logo-text">Bom Filho</span>
+                </div>
+                <p class="subtitle">Painel Administrativo</p>
+            </div>
+
+            <nav class="nav-menu">
+                <a href="#dashboard" class="nav-item active" onclick="navegarPara('dashboard')">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-label">Dashboard</span>
+                </a>
+                
+                <a href="#pedidos" class="nav-item" onclick="navegarPara('pedidos')">
+                    <span class="nav-icon">📦</span>
+                    <span class="nav-label">Pedidos</span>
+                    <span class="nav-badge" id="badgePedidos">0</span>
+                </a>
+                
+                <a href="#clientes" class="nav-item" onclick="navegarPara('clientes')">
+                    <span class="nav-icon">👥</span>
+                    <span class="nav-label">Clientes</span>
+                </a>
+                
+                <a href="#produtos" class="nav-item" onclick="navegarPara('produtos')">
+                    <span class="nav-icon">📋</span>
+                    <span class="nav-label">Produtos</span>
+                </a>
+                
+                <a href="#financeiro" class="nav-item" onclick="navegarPara('financeiro')">
+                    <span class="nav-icon">💰</span>
+                    <span class="nav-label">Financeiro</span>
+                </a>
+
+                <div class="nav-divider"></div>
+
+                <a href="index.html" class="nav-item" target="_blank">
+                    <span class="nav-icon">🌐</span>
+                    <span class="nav-label">Ver Site</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar">👤</div>
+                    <div class="user-details">
+                        <p class="user-name">Administrador</p>
+                        <p class="user-role">Admin</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-container">
+            <!-- Header -->
+            <header class="top-header">
+                <div class="header-left">
+                    <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+                    <h1 class="page-title" id="pageTitle">Dashboard</h1>
+                </div>
+                <div class="header-right">
+                    <button class="header-btn" onclick="atualizar()">
+                        <span>🔄</span>
+                        <span>Atualizar</span>
+                    </button>
+                    <div class="notifications">
+                        <button class="notif-btn">🔔</button>
+                        <span class="notif-badge" id="notifCount">0</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <div class="content-area" id="contentArea">
+                
+                <!-- DASHBOARD -->
+                <div id="secao-dashboard" class="secao active">
+                    <!-- KPIs -->
+                    <div class="kpi-grid">
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <span class="kpi-icon">💰</span>
+                                <span class="kpi-trend positive">+12%</span>
+                            </div>
+                            <div class="kpi-value" id="vendas-hoje">R$ 0,00</div>
+                            <div class="kpi-label">Vendas Hoje</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <span class="kpi-icon">📦</span>
+                                <span class="kpi-trend positive">+5%</span>
+                            </div>
+                            <div class="kpi-value" id="pedidos-hoje">0</div>
+                            <div class="kpi-label">Pedidos Hoje</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <span class="kpi-icon">🎯</span>
+                            </div>
+                            <div class="kpi-value" id="ticket-medio">R$ 0,00</div>
+                            <div class="kpi-label">Ticket Médio</div>
+                        </div>
+                        <div class="kpi-card">
+                            <div class="kpi-header">
+                                <span class="kpi-icon">📊</span>
+                            </div>
+                            <div class="kpi-value" id="produtos-ativos">0</div>
+                            <div class="kpi-label">Produtos Ativos</div>
+                        </div>
+                    </div>
+
+                    <!-- Pedidos Recentes -->
+                    <div class="table-card">
+                        <div class="card-header">
+                            <h3>Pedidos Recentes</h3>
+                        </div>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Cliente</th>
+                                    <th>Valor</th>
+                                    <th>Status</th>
+                                    <th>Data</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pedidos-recentes">
+                                <tr><td colspan="5" class="loading-cell">Carregando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- PEDIDOS -->
+                <div id="secao-pedidos" class="secao">
+                    <div class="section-header">
+                        <div class="filters-bar">
+                            <input type="search" class="search-input" id="busca-pedidos" placeholder="Buscar por ID ou cliente..." onkeyup="filtrarPedidos()">
+                            <select class="filter-input" id="filtro-status" onchange="filtrarPedidos()">
+                                <option value="">Todos os Status</option>
+                                <option value="pendente">Pendente</option>
+                                <option value="pago">Pago</option>
+                                <option value="preparando">Preparando</option>
+                                <option value="enviado">Enviado</option>
+                                <option value="entregue">Entregue</option>
+                                <option value="cancelado">Cancelado</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="table-card">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Cliente</th>
+                                    <th>Data</th>
+                                    <th>Valor</th>
+                                    <th>Status</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-pedidos">
+                                <tr><td colspan="6" class="loading-cell">Carregando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- CLIENTES -->
+                <div id="secao-clientes" class="secao">
+                    <div class="section-header">
+                        <div class="filters-bar">
+                            <input type="search" class="search-input" id="busca-clientes" placeholder="Buscar por nome ou email..." onkeyup="filtrarClientes()">
+                        </div>
+                    </div>
+
+                    <div class="table-card">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Nome</th>
+                                    <th>Email</th>
+                                    <th>Telefone</th>
+                                    <th>Cadastro</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-clientes">
+                                <tr><td colspan="5" class="loading-cell">Carregando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- PRODUTOS -->
+                <div id="secao-produtos" class="secao">
+                    <div class="section-header">
+                        <div class="filters-bar">
+                            <input type="search" class="search-input" id="busca-produtos" placeholder="Buscar produtos..." onkeyup="filtrarProdutos()">
+                            <button class="btn-primary" onclick="novoProduto()">➕ Novo Produto</button>
+                        </div>
+                    </div>
+
+                    <div class="products-grid" id="grid-produtos">
+                        <div class="empty-state">Carregando...</div>
+                    </div>
+                </div>
+
+                <!-- FINANCEIRO -->
+                <div id="secao-financeiro" class="secao">
+                    <div class="financial-grid">
+                        <div class="financial-card">
+                            <h3>Faturamento Total</h3>
+                            <div class="financial-value">
+                                <span class="value-main positive" id="faturamento-total">R$ 0,00</span>
+                                <span class="value-period">Desde o início</span>
+                            </div>
+                        </div>
+                        <div class="financial-card">
+                            <h3>Faturamento do Mês</h3>
+                            <div class="financial-value">
+                                <span class="value-main" id="faturamento-mes">R$ 0,00</span>
+                                <span class="value-period">Mês atual</span>
+                            </div>
+                        </div>
+                        <div class="financial-card">
+                            <h3>Valores Pendentes</h3>
+                            <div class="financial-value">
+                                <span class="value-main" id="valores-pendentes">R$ 0,00</span>
+                                <span class="value-period">A receber</span>
+                            </div>
+                        </div>
+                        <div class="financial-card">
+                            <h3>Valores Cancelados</h3>
+                            <div class="financial-value">
+                                <span class="value-main" id="valores-cancelados">R$ 0,00</span>
+                                <span class="value-period">Perdidos</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-card">
+                        <div class="card-header">
+                            <h3>Transações</h3>
+                            <button class="btn-secondary" onclick="exportarFinanceiro()">📥 Exportar CSV</button>
+                        </div>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Data</th>
+                                    <th>Cliente</th>
+                                    <th>Valor</th>
+                                    <th>Status</th>
+                                    <th>Pagamento</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabela-financeiro">
+                                <tr><td colspan="6" class="loading-cell">Carregando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL DETALHES DO PEDIDO -->
+    <div id="modal-pedido" class="modal">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h2>Detalhes do Pedido <span id="detalhe-pedido-id"></span></h2>
+                <button class="modal-close" onclick="fecharModal('modal-pedido')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Cliente:</label>
+                        <div id="detalhe-cliente"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Telefone:</label>
+                        <div id="detalhe-telefone"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Endereço de Entrega:</label>
+                    <div id="detalhe-endereco"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Data do Pedido:</label>
+                        <div id="detalhe-data"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Status:</label>
+                        <div id="detalhe-status"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Itens do Pedido:</label>
+                    <div id="detalhe-itens"></div>
+                </div>
+                <div class="form-group">
+                    <label>Valor Total:</label>
+                    <div id="detalhe-total" style="font-size: 24px; font-weight: 700; color: var(--primary);"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL PRODUTO -->
+    <div id="modal-produto" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Produto</h2>
+                <button class="modal-close" onclick="fecharModal('modal-produto')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="form-produto" onsubmit="event.preventDefault(); salvarProduto();">
+                    <input type="hidden" id="produto-id">
+                    <div class="form-group">
+                        <label>Nome*</label>
+                        <input type="text" id="produto-nome" class="form-input" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Preço*</label>
+                            <input type="number" step="0.01" id="produto-preco" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Estoque</label>
+                            <input type="number" id="produto-estoque" class="form-input" value="0">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Categoria</label>
+                        <input type="text" id="produto-categoria" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label>Descrição</label>
+                        <textarea id="produto-descricao" class="form-input" rows="3"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn-secondary" onclick="fecharModal('modal-produto')">Cancelar</button>
+                        <button type="submit" class="btn-primary">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/admin-novo.js"></script>
+</body>
+</html>
+    <script src="js/admin-novo.js"></script>
+</body>
+</html>

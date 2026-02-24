@@ -1,0 +1,1 @@
+ALTER TABLE usuarios ADD COLUMN whatsapp_opt_in BOOLEAN DEFAULT FALSE;

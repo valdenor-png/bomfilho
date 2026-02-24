@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bom Filho \- Mercado (POO)</title>
+  <link rel="stylesheet" href="../styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <div class="logo">Bom Filho</div>
+      <div class="header-right">
+        <button id="userBtn" class="user-btn" aria-label="Conta">👤 <span id="userName">Entrar</span></button>
+        <button id="cartBtn" class="cart-btn" aria-label="Carrinho">🛒 <span id="cartCount" class="cart-count">0</span></button>
+        <button id="menuToggle" class="menu-toggle" aria-label="Abrir menu">☰</button>
+      </div>
+      <nav class="main-nav" id="mainNav">
+        <a href="#home">Início</a>
+        <a href="#sobre">Sobre</a>
+        <a href="#produtos">Produtos</a>
+        <a href="#contato">Contato</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Carrossel de Promoções -->
+    <section class="carousel">
+      <div class="carousel-container">
+        
+        <div class="carousel-slide active">
+          <div class="carousel-content">
+            <h2>🎉 Promoção de Inauguração</h2>
+            <p>Até 50% OFF em produtos selecionados!</p>
+            <a href="#produtos" class="btn">Aproveitar Ofertas</a>
+          </div>
+        </div>
+
+        <div class="carousel-slide">
+          <div class="carousel-content">
+            <h2>🥦 Hortifruti Fresquinho</h2>
+            <p>Frutas e verduras fresquinhas todos os dias</p>
+            <a href="#produtos" class="btn">Conferir</a>
+          </div>
+        </div>
+
+        <div class="carousel-slide">
+          <div class="carousel-content">
+            <h2>🚚 Entrega Grátis</h2>
+            <p>Nas compras acima de R$ 100,00</p>
+            <a href="#produtos" class="btn">Comprar Agora</a>
+          </div>
+        </div>
+
+        <div class="carousel-slide">
+          <div class="carousel-content">
+            <h2>🥩 Açougue Premium</h2>
+            <p>Carnes nobres selecionadas com o melhor preço</p>
+            <a href="#produtos" class="btn">Ver Carnes</a>
+          </div>
+        </div>
+
+        <button class="carousel-btn prev" aria-label="Anterior">❮</button>
+        <button class="carousel-btn next" aria-label="Próximo">❯</button>
+      </div>
+
+      <div class="carousel-dots">
+        <span class="carousel-dot active"></span>
+        <span class="carousel-dot"></span>
+        <span class="carousel-dot"></span>
+        <span class="carousel-dot"></span>
+      </div>
+    </section>
+
+    <section id="home" class="hero">
+      <div class="container">
+        <h1>Bom Filho — Seu mercado de confiança</h1>
+        <p>Produtos frescos, ofertas diárias e entrega rápida.</p>
+        <a class="btn" href="#produtos">Ver produtos</a>
+      </div>
+    </section>
+
+    <section id="sobre" class="container cards">
+      <article class="card">
+        <h3>Qualidade</h3>
+        <p>Produtos selecionados e frescos todos os dias.</p>
+      </article>
+      <article class="card">
+        <h3>Preços baixos</h3>
+        <p>Ofertas semanais em diversas categorias.</p>
+      </article>
+      <article class="card">
+        <h3>Entrega</h3>
+        <p>Entrega rápida e segura na sua região.</p>
+      </article>
+    </section>
+
+    <section id="produtos" class="container product-grid">
+      <h2>Produtos em destaque</h2>
+      
+      <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="🔍 Buscar produtos..." />
+      </div>
+
+      <div class="categories">
+        <button class="category-btn active" data-category="todas">🛒 Todas</button>
+        <button class="category-btn" data-category="hortifruti">🥦 Hortifruti</button>
+        <button class="category-btn" data-category="mercearia">🍞 Mercearia</button>
+        <button class="category-btn" data-category="bebidas">🥤 Bebidas</button>
+        <button class="category-btn" data-category="acougue">🥩 Açougue</button>
+        <button class="category-btn" data-category="limpeza">🧴 Limpeza</button>
+      </div>
+
+      <div class="products"></div>
+    </section>
+
+    <section id="contato" class="container contact">
+      <h2>Contato / Pedidos</h2>
+      <form id="contactForm" novalidate>
+        <label>
+          Nome
+          <input type="text" name="name" id="name" required />
+        </label>
+        <label>
+          E-mail
+          <input type="email" name="email" id="email" required />
+        </label>
+        <label>
+          Mensagem
+          <textarea name="message" id="message" rows="5" required></textarea>
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="btn">Enviar</button>
+          <p class="form-message" id="formMessage"></p>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>&copy; 2026 Bom Filho Mercado - Versão POO. Todos os direitos reservados.</p>
+    </div>
+  </footer>
+
+  <!-- Scripts POO - Ordem importa! -->
+  <script src="ApiClient.js"></script>
+  <script src="AuthManager.js"></script>
+  <script src="CartManager.js"></script>
+  <script src="ProductManager.js"></script>
+  <script src="CarouselManager.js"></script>
+  <script src="App.js"></script>
+</body>
+</html>

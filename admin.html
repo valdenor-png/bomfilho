@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Painel Admin - Bom Filho Mercado</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .admin-container { max-width: 1200px; margin: 2rem auto; padding: 1rem; }
+    .admin-header { background: var(--primary); color: white; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; }
+    .admin-tabs { display: flex; gap: 1rem; margin-bottom: 2rem; }
+    .admin-tab { padding: 0.75rem 1.5rem; background: white; border: 2px solid #e2e8f0; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    .admin-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+    .pedidos-list { display: grid; gap: 1rem; }
+    .pedido-card { background: white; padding: 1.5rem; border-radius: 8px; border: 1px solid #e2e8f0; }
+    .pedido-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #e2e8f0; }
+    .pedido-status { padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; }
+    .status-pendente { background: #fef3c7; color: #92400e; }
+    .status-preparando { background: #dbeafe; color: #1e40af; }
+    .status-enviado { background: #d1fae5; color: #065f46; }
+    .status-entregue { background: #e2e8f0; color: #1e293b; }
+    .pedido-itens { margin: 1rem 0; }
+    .item-linha { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #f1f5f9; }
+    .pedido-acoes { display: flex; gap: 0.5rem; margin-top: 1rem; }
+    .btn-small { padding: 0.5rem 1rem; font-size: 0.9rem; }
+    .cliente-info { color: #64748b; font-size: 0.95rem; margin-bottom: 0.5rem; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .stat-card { background: white; padding: 1.5rem; border-radius: 8px; text-align: center; border: 1px solid #e2e8f0; }
+    .stat-number { font-size: 2rem; font-weight: 700; color: var(--primary); }
+    .stat-label { color: #64748b; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <div class="logo">🏪 Bom Filho Admin</div>
+      <div class="header-right">
+        <span style="font-weight: 600;">👤 Administrador</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="admin-container">
+    <div class="admin-header">
+      <h1>Painel Administrativo</h1>
+      <p>Gerenciamento de pedidos e operações</p>
+    </div>
+
+    <!-- Estatísticas -->
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-number" id="totalPedidos">0</div>
+        <div class="stat-label">Total de Pedidos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="pedidosPendentes">0</div>
+        <div class="stat-label">Pendentes</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="faturamentoTotal">R$ 0,00</div>
+        <div class="stat-label">Faturamento Total</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="pedidosHoje">0</div>
+        <div class="stat-label">Pedidos Hoje</div>
+      </div>
+    </div>
+
+    <!-- Filtros por Status -->
+    <div class="admin-tabs">
+      <button class="admin-tab active" data-view="pedidos">📋 Pedidos</button>
+      <button class="admin-tab" data-view="produtos">📦 Produtos</button>
+      <button class="admin-tab" data-view="importar">📤 Importar</button>
+    </div>
+
+    <!-- Seção de Pedidos -->
+    <div id="viewPedidos" class="admin-view">
+      <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+        <button class="admin-tab" data-status="todos">📋 Todos</button>
+        <button class="admin-tab" data-status="pendente">⏱️ Pendentes</button>
+        <button class="admin-tab" data-status="preparando">📦 Preparando</button>
+        <button class="admin-tab" data-status="enviado">🚚 Enviados</button>
+        <button class="admin-tab" data-status="entregue">✅ Entregues</button>
+      </div>
+      
+      <!-- Lista de Pedidos -->
+      <div id="pedidosList" class="pedidos-list">
+        <p style="text-align: center; color: #64748b; padding: 2rem;">Carregando pedidos...</p>
+      </div>
+    </div>
+
+    <!-- Seção de Produtos -->
+    <div id="viewProdutos" class="admin-view" style="display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h2>Gerenciar Produtos</h2>
+        <button class="btn" onclick="abrirModalCadastroProduto()">➕ Novo Produto</button>
+      </div>
+      
+      <div id="produtosList" class="pedidos-list">
+        <p style="text-align: center; color: #64748b; padding: 2rem;">Carregando produtos...</p>
+      </div>
+    </div>
+
+    <!-- Seção de Importação -->
+    <div id="viewImportar" class="admin-view" style="display: none;">
+      <h2>Importar Produtos em Massa</h2>
+      
+      <div class="card" style="background: white; padding: 2rem; border-radius: 8px; margin-top: 1.5rem;">
+        <h3>📤 Importar via Planilha (CSV)</h3>
+        <p style="color: #64748b; margin-bottom: 1rem;">Faça upload de um arquivo CSV com seus produtos. A planilha deve ter as seguintes colunas:</p>
+        
+        <div style="background: #f7fafc; padding: 1rem; border-radius: 6px; margin-bottom: 1.5rem;">
+          <code style="display: block; font-family: monospace; font-size: 0.9rem;">
+            nome, preco, unidade, categoria, emoji, estoque
+          </code>
+          <p style="margin-top: 0.5rem; font-size: 0.9rem; color: #64748b;">
+            <strong>Exemplo:</strong> Arroz Branco,12.90,kg,mercearia,🍚,50
+          </p>
+        </div>
+
+        <input type="file" id="csvFile" accept=".csv" style="margin-bottom: 1rem;" />
+        <button class="btn" onclick="importarCSV()">📥 Importar CSV</button>
+        
+        <button class="btn btn-secondary" onclick="baixarModeloCSV()" style="margin-left: 1rem;">📄 Baixar Modelo</button>
+      </div>
+
+      <div class="card" style="background: white; padding: 2rem; border-radius: 8px; margin-top: 1.5rem;">
+        <h3>🔗 Integração via API</h3>
+        <p style="color: #64748b; margin-bottom: 1rem;">Se seu sistema atual tem uma API, você pode integrar automaticamente usando este endpoint:</p>
+        
+        <div style="background: #f7fafc; padding: 1rem; border-radius: 6px;">
+          <code style="display: block; font-family: monospace; font-size: 0.9rem; margin-bottom: 0.5rem;">
+            POST http://localhost:3000/api/admin/produtos/bulk
+          </code>
+          <pre style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow-x: auto; margin-top: 1rem;">
+{
+  "produtos": [
+    {
+      "nome": "Arroz Branco",
+      "preco": 12.90,
+      "unidade": "kg",
+      "categoria": "mercearia",
+      "emoji": "🍚",
+      "estoque": 50
+    }
+  ]
+}</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Cadastro de Produto -->
+    <div id="modalProduto" class="user-modal">
+      <div class="user-modal-content" style="max-width: 600px;">
+        <div class="user-header">
+          <h3>➕ Cadastrar Novo Produto</h3>
+          <button class="close-user" onclick="fecharModalProduto()">✕</button>
+        </div>
+        <div class="user-content">
+          <form id="formProduto" onsubmit="salvarProduto(event)">
+            <input type="text" id="prodNome" placeholder="Nome do produto" required />
+            <input type="number" step="0.01" id="prodPreco" placeholder="Preço (ex: 12.90)" required />
+            <input type="text" id="prodUnidade" placeholder="Unidade (kg, un, L)" required />
+            
+            <select id="prodCategoria" required style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 0.75rem;">
+              <option value="">Selecione a categoria</option>
+              <option value="hortifruti">Hortifruti</option>
+              <option value="mercearia">Mercearia</option>
+              <option value="bebidas">Bebidas</option>
+              <option value="acougue">Açougue</option>
+              <option value="limpeza">Limpeza</option>
+            </select>
+            
+            <input type="text" id="prodEmoji" placeholder="Emoji (ex: 🍚)" maxlength="2" />
+            <input type="number" id="prodEstoque" placeholder="Estoque inicial" value="0" />
+            
+            <button type="submit" class="btn" style="width: 100%; margin-top: 1rem;">💾 Salvar Produto</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="api-config.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

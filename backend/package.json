@@ -1,0 +1,31 @@
+{
+  "name": "bom-filho-backend",
+  "version": "1.0.0",
+  "description": "Backend API para supermercado Bom Filho",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "tunnel": "npx --yes localtunnel --port 3000 --local-host localhost --host https://loca.lt"
+  },
+  "keywords": [
+    "supermercado",
+    "ecommerce",
+    "api"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+      "mysql2": "^3.6.5",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

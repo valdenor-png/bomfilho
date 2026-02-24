@@ -1,0 +1,110 @@
+# ============================================
+# .GITIGNORE - BOM FILHO SUPERMERCADO
+# ============================================
+
+# Dependências do Node.js
+node_modules/
+/package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Variáveis de ambiente (NUNCA enviar para o Git)
+.env
+.env.local
+.env.production
+*.env
+!.env.example
+
+# Banco de Dados
+*.sql.backup
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Arquivos do sistema operacional
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Editores e IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Build e distribuição
+dist/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+temp/
+tmp/
+
+# Uploads e arquivos temporários
+uploads/
+temp-uploads/
+*.tmp
+
+# Testes
+coverage/
+.nyc_output/
+*.test.js.snap
+
+# Certificados e chaves
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+
+# Arquivos de configuração locais
+config.local.js
+config.local.json
+
+# Cache do npm
+.npm
+.eslintcache
+
+# Dados sensíveis (exemplo)
+credenciais.txt
+senhas.txt
+tokens.txt
+
+# Backup local
+backup/
+*.backup
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Windows
+$RECYCLE.BIN/
+Desktop.ini
+
+# Linux
+.directory
+.Trash-*

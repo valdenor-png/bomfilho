@@ -1,0 +1,259 @@
+<!-- File: `site/index.html` -->
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Bom Filho \- Mercado</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="css/checkout.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <div class="logo">Bom Filho</div>
+      <div class="header-right">
+        <button id="listasBtn" class="icon-btn" aria-label="Listas" onclick="mostrarListas()">📝</button>
+        <button id="cuponsBtn" class="icon-btn" aria-label="Cupons" onclick="mostrarCuponsDisponiveis()">🎟️</button>
+        <button id="historicoBtn" class="icon-btn" aria-label="Histórico" onclick="mostrarHistorico()">📋</button>
+        <button id="userBtn" class="user-btn" aria-label="Conta">👤 <span id="userName">Entrar</span></button>
+        <button id="cartBtn" class="cart-btn" aria-label="Carrinho">🛒 <span id="cartCount" class="cart-count">0</span></button>
+        <button id="menuToggle" class="menu-toggle" aria-label="Abrir menu">☰</button>
+      </div>
+      <nav class="main-nav" id="mainNav">
+        <a href="#home">Início</a>
+        <a href="#sobre">Sobre</a>
+        <a href="#produtos">Produtos</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Carrossel de Promoções -->
+    <section class="carousel">
+      <div class="carousel-container">
+        
+        <div class="carousel-slide active">
+          <div class="carousel-content">
+            <h2>🎉 Promoção de Inauguração</h2>
+            <p>Até 50% OFF em produtos selecionados!</p>
+            <a href="#produtos" class="btn">Aproveitar Ofertas</a>
+          </div>
+        </div>
+
+        <div class="carousel-slide">
+          <div class="carousel-content">
+            <h2>🥦 Hortifruti Fresquinho</h2>
+            <p>Frutas e verduras fresquinhas todos os dias</p>
+            <a href="#produtos" class="btn">Conferir</a>
+          </div>
+        </div>
+
+        <div class="carousel-slide">
+          <div class="carousel-content">
+            <h2>🚚 Entrega Grátis</h2>
+            <p>Nas compras acima de R$ 100,00</p>
+            <a href="#produtos" class="btn">Comprar Agora</a>
+          </div>
+        </div>
+
+        <div class="carousel-slide">
+          <div class="carousel-content">
+            <h2>🥩 Açougue Premium</h2>
+            <p>Carnes nobres selecionadas com o melhor preço</p>
+            <a href="#produtos" class="btn">Ver Carnes</a>
+          </div>
+        </div>
+
+        <!-- Botões de navegação -->
+        <button class="carousel-btn prev" aria-label="Anterior">❮</button>
+        <button class="carousel-btn next" aria-label="Próximo">❯</button>
+      </div>
+
+      <!-- Indicadores -->
+      <div class="carousel-dots">
+        <span class="carousel-dot active"></span>
+        <span class="carousel-dot"></span>
+        <span class="carousel-dot"></span>
+        <span class="carousel-dot"></span>
+      </div>
+    </section>
+
+    <section id="home" class="hero">
+      <div class="container">
+        <h1>Bom Filho — Seu mercado de confiança</h1>
+        <p>Produtos frescos, ofertas diárias e entrega rápida.</p>
+        <a class="btn" href="#produtos">Ver produtos</a>
+      </div>
+    </section>
+
+    <section class="benefits-strip" aria-label="Benefícios">
+      <div class="container benefits-grid">
+        <div class="benefit-item">
+          <div class="benefit-icon">🏪</div>
+          <div class="benefit-text">
+            <strong>Retirada na loja</strong>
+            <span>Sem taxa de entrega</span>
+          </div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">🚚</div>
+          <div class="benefit-text">
+            <strong>Entrega rápida</strong>
+            <span>Na sua região</span>
+          </div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">💳</div>
+          <div class="benefit-text">
+            <strong>Pagamento fácil</strong>
+            <span>PIX ou na entrega</span>
+          </div>
+        </div>
+        <div class="benefit-item">
+          <div class="benefit-icon">📲</div>
+          <div class="benefit-text">
+            <strong>WhatsApp</strong>
+            <span>Atendimento rápido</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="container best-sellers" aria-label="Mais vendidos">
+      <div class="best-sellers-head">
+        <h2>🔥 Mais vendidos</h2>
+        <p>Os mais pedidos da semana.</p>
+      </div>
+      <div class="best-sellers-list" id="bestSellersList"></div>
+    </section>
+
+    <section class="container sector-section" aria-label="Navegar por setores">
+      <div class="sector-header">
+        <h2>Compre por setor</h2>
+        <p>Atalhos rápidos para chegar nas seções mais pedidas.</p>
+      </div>
+      <div class="sector-grid">
+        <button class="sector-card" type="button" data-category="bebidas" data-search="cerveja" style="--bg:url('https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=900&q=60')">
+          <span class="sector-label">Cervejas</span>
+          <span class="sector-cta">Quero ver</span>
+        </button>
+        <button class="sector-card" type="button" data-category="bebidas" data-search="agua" style="--bg:url('https://images.unsplash.com/photo-1548839140-29a749e1cf4d?auto=format&fit=crop&w=900&q=60')">
+          <span class="sector-label">Águas</span>
+          <span class="sector-cta">Quero ver</span>
+        </button>
+        <button class="sector-card" type="button" data-category="mercearia" data-search="" style="--bg:url('https://images.unsplash.com/photo-1580915411980-d133e3b4bd35?auto=format&fit=crop&w=900&q=60')">
+          <span class="sector-label">Mercearia</span>
+          <span class="sector-cta">Quero ver</span>
+        </button>
+        <button class="sector-card" type="button" data-category="hortifruti" data-search="" style="--bg:url('https://images.unsplash.com/photo-1506806732259-39c2d0268443?auto=format&fit=crop&w=900&q=60')">
+          <span class="sector-label">Hortifruti</span>
+          <span class="sector-cta">Quero ver</span>
+        </button>
+        <button class="sector-card" type="button" data-category="acougue" data-search="carne" style="--bg:url('https://images.unsplash.com/photo-1559050194-0023eda1885d?auto=format&fit=crop&w=900&q=60')">
+          <span class="sector-label">Açougue</span>
+          <span class="sector-cta">Quero ver</span>
+        </button>
+        <button class="sector-card" type="button" data-category="limpeza" data-search="limpeza" style="--bg:url('https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=900&q=60')">
+          <span class="sector-label">Limpeza de casa</span>
+          <span class="sector-cta">Quero ver</span>
+        </button>
+      </div>
+    </section>
+
+    <section id="sobre" class="container cards">
+      <article class="card">
+        <h3>Qualidade</h3>
+        <p>Produtos selecionados e frescos todos os dias.</p>
+      </article>
+      <article class="card">
+        <h3>Preços baixos</h3>
+        <p>Ofertas semanais em diversas categorias.</p>
+      </article>
+      <article class="card">
+        <h3>Entrega</h3>
+        <p>Entrega rápida e segura na sua região.</p>
+      </article>
+    </section>
+
+    <section id="produtos" class="container product-grid">
+      <h2>Produtos em destaque</h2>
+      
+      <!-- Barra de busca -->
+      <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="🔍 Buscar produtos..." />
+      </div>
+
+      <!-- Filtros de categoria -->
+      <div class="categories">
+        <button class="category-btn active" data-category="todas">🛒 Todas</button>
+        <button class="category-btn category-promocoes" data-category="promocoes">🔥 Promoções</button>
+        <button class="category-btn" data-category="hortifruti">🥦 Hortifruti</button>
+        <button class="category-btn" data-category="mercearia">🍞 Mercearia</button>
+        <button class="category-btn" data-category="bebidas">🥤 Bebidas</button>
+        <button class="category-btn" data-category="acougue">🥩 Açougue</button>
+        <button class="category-btn" data-category="limpeza">🧴 Limpeza</button>
+      </div>
+
+      <!-- Os produtos serão carregados dinamicamente via JavaScript -->
+      <div class="products"></div>
+    </section>
+
+  </main>
+
+  <aside class="ad-sidebar" id="adSidebar" aria-label="Anúncio">
+    <button class="ad-close" id="adClose" type="button" aria-label="Fechar anúncio">×</button>
+    <a class="ad-card" href="#produtos" aria-label="Ver oferta de refrigerante" data-ad="refrigerante-cola">
+      <img class="ad-image" src="img/ads/coca-cola-placeholder.svg" alt="Anúncio: refrigerante cola" loading="lazy" />
+      <div class="ad-body">
+        <div class="ad-title">Refrigerante cola 2L</div>
+        <div class="ad-text">Promoção da semana (oferta interna).</div>
+        <div class="ad-cta">Ver ofertas</div>
+      </div>
+    </a>
+    <div class="ad-disclaimer">Anúncio (interno)</div>
+  </aside>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-info-simple" aria-label="Informações da loja">
+        <div class="footer-info-line"><strong>Bom Filho — Supermercado</strong></div>
+        <div class="footer-info-line">Endereço: Travessa 07 de setembro | Nº 70</div>
+        <div class="footer-info-line">
+          Mapa:
+          <a class="footer-link" href="https://share.google/0Ss9eHp9dv9AC4h1t" target="_blank" rel="noopener">Ver no Google Maps</a>
+        </div>
+        <div class="footer-info-line">
+          WhatsApp:
+          <a class="footer-link" href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener">(91) 99965-2790</a>
+        </div>
+        <div class="footer-info-line">Horário: Seg a Sáb 07:00–19:00 | Dom 07:00–12:00</div>
+      </div>
+      <small>© 2026 Bom Filho \- Supermercado — Construído com HTML, CSS e JS</small>
+    </div>
+  </footer>
+
+  <!-- Configuração da API -->
+  <script src="api-config.js"></script>
+  
+  <!-- Módulos separados por funcionalidade -->
+  <script src="js/carousel.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/products.js"></script>
+  <script src="js/cart.js"></script>
+  <script src="js/checkout.js"></script>
+  <script src="js/busca.js"></script>
+  <script src="js/listas.js"></script>
+  <script src="js/historico-cupons.js"></script>
+  <script src="js/rastreamento.js"></script>
+  <script src="js/ofertas-avaliacoes.js"></script>
+
+  <!-- Anúncios (interno) -->
+  <script src="js/ads.js"></script>
+  
+  <!-- Arquivo principal deve ser carregado por último -->
+  <script src="js/main.js"></script>
+</body>
+</html>
+
+

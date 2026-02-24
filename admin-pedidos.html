@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Pedidos | Bom Filho</title>
+    <link rel="stylesheet" href="css/admin-pedidos.css">
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <h1>🛒 Bom Filho</h1>
+                <p>Admin Panel</p>
+            </div>
+            <nav class="menu">
+                <a href="admin-pedidos.html" class="menu-item active">
+                    <span class="icon">📦</span>
+                    <span>Pedidos</span>
+                    <span class="badge" id="totalPedidos">0</span>
+                </a>
+                <a href="admin-produtos.html" class="menu-item">
+                    <span class="icon">📋</span>
+                    <span>Produtos</span>
+                </a>
+                <a href="admin-relatorios.html" class="menu-item">
+                    <span class="icon">📊</span>
+                    <span>Relatórios</span>
+                </a>
+                <a href="index.html" class="menu-item" target="_blank">
+                    <span class="icon">🌐</span>
+                    <span>Ver Site</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="header">
+                <h2>Gerenciar Pedidos</h2>
+                <div class="header-actions">
+                    <button class="btn-refresh" onclick="carregarPedidos()">🔄 Atualizar</button>
+                    <button class="btn-export" onclick="exportarPedidos()">📥 Exportar</button>
+                </div>
+            </header>
+
+            <!-- Dashboard Cards -->
+            <div class="dashboard-cards">
+                <div class="card">
+                    <div class="card-icon">⏳</div>
+                    <div class="card-info">
+                        <h3 id="pedidosPendentes">0</h3>
+                        <p>Pendentes</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">✅</div>
+                    <div class="card-info">
+                        <h3 id="pedidosPagos">0</h3>
+                        <p>Pagos</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🚚</div>
+                    <div class="card-info">
+                        <h3 id="pedidosEnviados">0</h3>
+                        <p>Em Entrega</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">💰</div>
+                    <div class="card-info">
+                        <h3 id="faturamentoTotal">R$ 0,00</h3>
+                        <p>Faturamento Hoje</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filtros -->
+            <div class="filtros">
+                <select id="filtroStatus" onchange="filtrarPedidos()">
+                    <option value="">Todos os Status</option>
+                    <option value="pendente">Pendente</option>
+                    <option value="pago">Pago</option>
+                    <option value="preparando">Preparando</option>
+                    <option value="enviado">Enviado</option>
+                    <option value="entregue">Entregue</option>
+                    <option value="cancelado">Cancelado</option>
+                </select>
+
+                <input type="date" id="filtroData" onchange="filtrarPedidos()">
+                
+                <input type="text" id="busca" placeholder="🔍 Buscar por cliente, pedido..." onkeyup="buscarPedidos()">
+            </div>
+
+            <!-- Tabela de Pedidos -->
+            <div class="table-container">
+                <table class="pedidos-table">
+                    <thead>
+                        <tr>
+                            <th>Pedido</th>
+                            <th>Data/Hora</th>
+                            <th>Cliente</th>
+                            <th>Itens</th>
+                            <th>Total</th>
+                            <th>Status</th>
+                            <th>Pagamento</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabelaPedidos">
+                        <tr>
+                            <td colspan="8" style="text-align: center; padding: 40px;">
+                                <p style="color: #999;">Carregando pedidos...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal Detalhes do Pedido -->
+    <div id="modalDetalhes" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="fecharModal()">&times;</span>
+            <h2>Detalhes do Pedido #<span id="modalPedidoId"></span></h2>
+            
+            <div class="pedido-detalhes">
+                <div class="secao">
+                    <h3>📋 Informações do Cliente</h3>
+                    <p><strong>Nome:</strong> <span id="detNome"></span></p>
+                    <p><strong>Email:</strong> <span id="detEmail"></span></p>
+                    <p><strong>Telefone:</strong> <span id="detTelefone"></span></p>
+                </div>
+
+                <div class="secao">
+                    <h3>📍 Endereço de Entrega</h3>
+                    <p id="detEndereco"></p>
+                </div>
+
+                <div class="secao">
+                    <h3>🛒 Produtos</h3>
+                    <div id="detProdutos"></div>
+                </div>
+
+                <div class="secao">
+                    <h3>💳 Pagamento</h3>
+                    <p><strong>Método:</strong> <span id="detMetodo"></span></p>
+                    <p><strong>Status:</strong> <span id="detStatusPag"></span></p>
+                    <p><strong>Código PIX:</strong> <span id="detPixCodigo" style="word-break: break-all;"></span></p>
+                </div>
+
+                <div class="secao">
+                    <h3>🚚 Atualizar Status</h3>
+                    <select id="novoStatus" class="select-status">
+                        <option value="pendente">Pendente</option>
+                        <option value="pago">Pago</option>
+                        <option value="preparando">Preparando</option>
+                        <option value="enviado">Enviado</option>
+                        <option value="entregue">Entregue</option>
+                        <option value="cancelado">Cancelado</option>
+                    </select>
+                    <button class="btn-salvar" onclick="atualizarStatus()">💾 Salvar Status</button>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-imprimir" onclick="imprimirPedido()">🖨️ Imprimir</button>
+                <button class="btn-close" onclick="fecharModal()">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/admin-pedidos.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-label="Anúncio interno - Refrigerante cola">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#C8102E"/>
+      <stop offset="1" stop-color="#EA1D2C"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="700" fill="url(#g)"/>
+  <rect x="70" y="70" width="1060" height="560" rx="36" fill="#ffffff" opacity="0.12"/>
+
+  <text x="90" y="140" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700" opacity="0.92">ANÚNCIO (INTERNO)</text>
+
+  <text x="90" y="300" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="84" font-weight="800">Refrigerante cola 2L</text>
+  <text x="90" y="370" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="600" opacity="0.92">Oferta interna da semana</text>
+
+  <g transform="translate(90, 440)">
+    <rect width="340" height="86" rx="43" fill="#ffffff"/>
+    <text x="170" y="56" text-anchor="middle" fill="#C8102E" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="800">Ver ofertas</text>
+  </g>
+
+  <text x="90" y="640" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="22" opacity="0.8">Troque esta arte por uma foto sua (ou imagem com licença comercial).</text>
+</svg>
