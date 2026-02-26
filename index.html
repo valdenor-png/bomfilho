@@ -11,22 +11,27 @@
 <body>
   <header class="site-header">
     <div class="container">
-      <div class="logo">Bom Filho</div>
+      <div class="logo" aria-label="Comércio Bom Filho">
+        <img src="img/logo-oficial.png" alt="Comércio Bom Filho" class="logo-image" />
+      </div>
       <div class="header-right">
-        <button id="listasBtn" class="icon-btn" aria-label="Listas" onclick="mostrarListas()">📝</button>
-        <button id="cuponsBtn" class="icon-btn" aria-label="Cupons" onclick="mostrarCuponsDisponiveis()">🎟️</button>
-        <button id="historicoBtn" class="icon-btn" aria-label="Histórico" onclick="mostrarHistorico()">📋</button>
         <button id="userBtn" class="user-btn" aria-label="Conta">👤 <span id="userName">Entrar</span></button>
         <button id="cartBtn" class="cart-btn" aria-label="Carrinho">🛒 <span id="cartCount" class="cart-count">0</span></button>
-        <button id="menuToggle" class="menu-toggle" aria-label="Abrir menu">☰</button>
       </div>
       <nav class="main-nav" id="mainNav">
-        <a href="#home">Início</a>
-        <a href="#sobre">Sobre</a>
-        <a href="#produtos">Produtos</a>
+        <div class="sidebar-head">
+          <button id="menuToggle" class="menu-toggle" aria-label="Expandir ou recolher barra lateral" title="Menu">☰</button>
+        </div>
+        <a href="#home" title="Início" aria-label="Início"><span class="sidebar-icon">🏠</span><span class="sidebar-label">Início</span></a>
+        <a href="#produtos" title="Produtos" aria-label="Produtos"><span class="sidebar-icon">🛍️</span><span class="sidebar-label">Produtos</span></a>
+        <a href="http://127.0.0.1:5173/#/sobre" title="Sobre" aria-label="Sobre"><span class="sidebar-icon">ℹ️</span><span class="sidebar-label">Sobre</span></a>
+        <a href="#" data-action="cart" title="Carrinho" aria-label="Carrinho"><span class="sidebar-icon">🛒</span><span class="sidebar-label">Carrinho</span></a>
+        <a href="http://127.0.0.1:5173/#/conta" title="Conta" aria-label="Conta"><span class="sidebar-icon">👤</span><span class="sidebar-label">Conta</span></a>
       </nav>
     </div>
   </header>
+
+  <div class="sidebar-overlay" id="sidebarOverlay" aria-hidden="true"></div>
 
   <main>
     <!-- Carrossel de Promoções -->

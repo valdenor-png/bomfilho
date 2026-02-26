@@ -15,12 +15,24 @@ img,svg,video,canvas{max-width:100%;height:auto}
 .container{max-width:var(--container);margin:0 auto;padding:1rem}
 .site-header{background:#fff;border-bottom:1px solid #e2f0ea}
 .site-header .container{display:flex;align-items:center;justify-content:space-between;gap:1rem}
-.logo{font-weight:800;color:var(--primary);font-size:1.25rem}
+.logo{width:200px;height:80px;display:flex;align-items:center;overflow:hidden}
+.logo-image{width:100%;height:100%;max-width:none;object-fit:cover;object-position:center}
 .header-right{display:flex;align-items:center;gap:.5rem}
-.main-nav{display:flex;gap:1rem}
-.main-nav a{color:var(--text);text-decoration:none;padding:.5rem;border-radius:6px}
+.main-nav{position:fixed;top:0;right:0;height:100vh;width:72px;background:#fff;border-left:1px solid #e2e8f0;display:flex;flex-direction:column;gap:.25rem;padding:5rem .5rem 1rem;z-index:1200;transition:width .25s ease,padding .25s ease;box-shadow:-8px 0 24px rgba(0,0,0,.12);overflow:hidden}
+.main-nav a{color:var(--text);text-decoration:none;padding:.75rem .8rem;border-radius:8px;font-size:1.35rem;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .main-nav a:hover{background:#edfef3}
-.menu-toggle{display:none;background:none;border:0;font-size:1.4rem}
+.main-nav.show{width:min(300px,84vw);padding:5rem 1rem 1rem}
+.menu-toggle{display:inline-flex;background:none;border:0;font-size:1.4rem;cursor:pointer;align-items:center;justify-content:center;width:38px;height:38px;border-radius:999px}
+.menu-toggle:hover{background:#edfef3}
+
+.sidebar-head{display:flex;align-items:center;justify-content:center;padding:.2rem .2rem .6rem;margin-bottom:.35rem;border-bottom:1px solid #e2e8f0}
+
+.main-nav.show a{justify-content:flex-start}
+.sidebar-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;flex:0 0 24px}
+.sidebar-label{max-width:0;opacity:0;margin-left:0;font-size:1rem;font-weight:600;transition:max-width .2s ease,opacity .2s ease,margin-left .2s ease;overflow:hidden}
+.main-nav.show .sidebar-label{max-width:180px;opacity:1;margin-left:.55rem}
+
+.sidebar-overlay{display:none}
 
 .icon-btn{background:none;border:0;font-size:1rem;cursor:pointer;position:relative;padding:.25rem .5rem;border-radius:6px;transition:background .2s}
 .icon-btn:hover{background:#e2f0ea}
@@ -1121,11 +1133,6 @@ img,svg,video,canvas{max-width:100%;height:auto}
 
 /* Responsivo */
 @media(max-width:768px){
-  .menu-toggle{display:inline-block}
-  .main-nav{position:absolute;top:64px;right:1rem;background:#fff;border:1px solid #e2e8f0;padding:.5rem;border-radius:8px;flex-direction:column;display:none}
-  .main-nav.show{display:flex}
-  .site-header .container{position:relative}
-
   .site-header .container{flex-wrap:wrap}
   .header-right{flex-wrap:wrap;justify-content:flex-end;gap:.25rem}
   
