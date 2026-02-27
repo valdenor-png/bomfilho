@@ -52,21 +52,10 @@ export default function HomePage() {
     }
   ];
   const slides = [
-    {
-      title: '🎉 Promoção de Inauguração',
-      text: 'Até 50% OFF em produtos selecionados!'
-    },
+  
     {
       title: '🥦 Hortifruti Fresquinho',
       text: 'Frutas e verduras fresquinhas todos os dias.'
-    },
-    {
-      title: '🚚 Entrega Grátis',
-      text: 'Nas compras acima de R$ 100,00.'
-    },
-    {
-      title: '🥩 Açougue Premium',
-      text: 'Carnes selecionadas com o melhor preço.'
     },
     {
       title: 'ℹ️ Sobre o Bom Filho',
@@ -200,9 +189,6 @@ export default function HomePage() {
         <div className={`carousel-slide-react slide-${slideAtivo + 1}`}>
           <h2>{slides[slideAtivo].title}</h2>
           <p>{slides[slideAtivo].text}</p>
-          <a href={slides[slideAtivo].ctaHref || '#produtos-lista'} className="btn-primary" style={{ width: 'fit-content' }}>
-            {slides[slideAtivo].ctaLabel || 'Aproveitar ofertas'}
-          </a>
         </div>
         <button className="carousel-btn-react prev" type="button" onClick={() => mudarSlide(-1)} aria-label="Slide anterior">❮</button>
         <button className="carousel-btn-react next" type="button" onClick={() => mudarSlide(1)} aria-label="Próximo slide">❯</button>
