@@ -1,5 +1,6 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const TOKEN_KEY = 'bomfilho_token';
+const ADMIN_TOKEN_KEY = 'bomfilho_admin_token';
 
 function buildHeaders(token, hasBody) {
   const headers = {};
@@ -39,6 +40,25 @@ export function setStoredToken(token) {
 
 export function clearStoredToken() {
   localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getStoredAdminToken() {
+  return localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+}
+
+export function setStoredAdminToken(token) {
+  localStorage.setItem(ADMIN_TOKEN_KEY, token);
+}
+
+export function clearStoredAdminToken() {
+  localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+export function adminLogin(usuario, senha) {
+  return request('/api/admin/login', {
+    method: 'POST',
+    body: { usuario, senha }
+  });
 }
 
 export function login(email, senha) {
@@ -89,5 +109,32 @@ export function gerarPix(token, pedidoId) {
     method: 'POST',
     token,
     body: { pedido_id: pedidoId }
+  });
+}
+
+export function adminGetPedidos(adminToken) {
+  return request('/api/admin/pedidos', { token: adminToken });
+}
+
+export function adminAtualizarStatusPedido(adminToken, pedidoId, status) {
+  return request(`/api/admin/pedidos/${pedidoId}/status`, {
+    method: 'PUT',
+    token: adminToken,
+    body: { status }
+  });
+}
+
+export function adminCadastrarProduto(adminToken, dadosProduto) {
+  return request('/api/admin/produtos', {
+    method: 'POST',
+    token: adminToken,
+    body: dadosProduto
+  });
+}
+
+export function adminExcluirProduto(adminToken, produtoId) {
+  return request(`/api/admin/produtos/${produtoId}`, {
+    method: 'DELETE',
+    token: adminToken
   });
 }

@@ -1,120 +1,53 @@
-import { useEffect, useState } from 'react';
-import {
-  criarPedido,
-  gerarPix,
-  getPedidos,
-  getProdutos,
-  getStoredToken
-} from '../lib/api';
+import React from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { criarPedido, gerarPix, getStoredToken } from '../lib/api';
+import { useCart } from '../context/CartContext';
 
 export default function PagamentoPage() {
-  const [produtos, setProdutos] = useState([]);
-  const [quantidades, setQuantidades] = useState({});
-  const [pedidos, setPedidos] = useState([]);
+  const { itens, resumo, updateItemQuantity, removeItem, clearCart } = useCart();
   const [resultadoPedido, setResultadoPedido] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
   const [resultadoPix, setResultadoPix] = useState(null);
   const token = getStoredToken();
 
-  const resumoPedido = produtos.reduce(
-    (acumulado, produto) => {
-      const quantidade = Number(quantidades[produto.id] || 0);
-      if (quantidade <= 0) {
-        return acumulado;
-      }
-
-      return {
-        itens: acumulado.itens + quantidade,
-        total: acumulado.total + Number(produto.preco || 0) * quantidade
-      };
-    },
-    { itens: 0, total: 0 }
+  const itensPedido = useMemo(
+    () =>
+      itens.map((item) => ({
+        produto_id: item.id,
+        nome: item.nome,
+        preco: Number(item.preco || 0),
+        quantidade: Number(item.quantidade || 1)
+      })),
+    [itens]
   );
 
   useEffect(() => {
     if (!token) {
       return;
     }
-
-    carregarDadosIniciais();
   }, [token]);
-
-  async function carregarDadosIniciais() {
-    setCarregando(true);
-    setErro('');
-
-    try {
-      const [produtosData, pedidosData] = await Promise.all([
-        getProdutos(),
-        getPedidos(token)
-      ]);
-      setProdutos(produtosData.produtos || []);
-      setPedidos(pedidosData.pedidos || []);
-    } catch (error) {
-      setErro(error.message);
-    } finally {
-      setCarregando(false);
-    }
-  }
-
-  async function carregarPedidos() {
-    setCarregando(true);
-    setErro('');
-    try {
-      const data = await getPedidos(token);
-      setPedidos(data.pedidos || []);
-    } catch (error) {
-      setErro(error.message);
-    } finally {
-      setCarregando(false);
-    }
-  }
-
-  function atualizarQuantidade(produtoId, valor) {
-    const quantidade = Math.max(0, Number(valor || 0));
-    setQuantidades((estadoAtual) => ({
-      ...estadoAtual,
-      [produtoId]: quantidade
-    }));
-  }
 
   async function handleCriarPedido() {
     setResultadoPix(null);
     setResultadoPedido(null);
     setErro('');
 
-    const itens = produtos
-      .map((produto) => {
-        const quantidade = Number(quantidades[produto.id] || 0);
-        if (quantidade <= 0) {
-          return null;
-        }
-
-        return {
-          produto_id: produto.id,
-          nome: produto.nome,
-          preco: Number(produto.preco),
-          quantidade
-        };
-      })
-      .filter(Boolean);
-
-    if (itens.length === 0) {
-      setErro('Selecione ao menos 1 produto com quantidade maior que zero.');
+    if (itensPedido.length === 0) {
+      setErro('Adicione produtos ao carrinho para criar o pedido.');
       return;
     }
 
     setCarregando(true);
     try {
       const data = await criarPedido(token, {
-        itens,
+        itens: itensPedido,
         formaPagamento: 'pix'
       });
 
       setResultadoPedido(data);
-      setQuantidades({});
-      await carregarPedidos();
+      clearCart();
 
       if (data?.pix_codigo) {
         setResultadoPix({
@@ -148,7 +81,23 @@ export default function PagamentoPage() {
     return (
       <section className="page">
         <h1>Pagamento</h1>
-        <p>Você precisa fazer login na página Conta para gerar PIX.</p>
+        <p>Você precisa fazer login para concluir pedido e gerar PIX.</p>
+
+        <div className="card-box">
+          <p><strong>Como finalizar seu pedido</strong></p>
+          <p>1. Entre na sua conta.</p>
+          <p>2. Revise o carrinho e confirme o total.</p>
+          <p>3. Gere o PIX e pague pelo app do banco.</p>
+          <Link to="/conta" className="btn-primary" style={{ display: 'inline-block', marginTop: '0.4rem' }}>
+            Ir para Conta
+          </Link>
+        </div>
+
+        <div className="card-box">
+          <p><strong>Atendimento</strong></p>
+          <p>Dúvidas no pagamento? Fale com a loja:</p>
+          <p>WhatsApp: (91) 99965-2790</p>
+        </div>
       </section>
     );
   }
@@ -156,46 +105,61 @@ export default function PagamentoPage() {
   return (
     <section className="page">
       <h1>Pagamento</h1>
-      <p>Monte seu pedido e gere o pagamento PIX.</p>
-
-      <button className="btn-primary" type="button" onClick={carregarDadosIniciais} disabled={carregando}>
-        {carregando ? 'Carregando...' : 'Atualizar dados'}
-      </button>
+      <p>Revise o carrinho, crie o pedido e finalize no PIX.</p>
 
       {erro ? <p className="error-text">{erro}</p> : null}
 
       <div className="card-box">
-        <p><strong>Novo pedido</strong></p>
-        {produtos.length === 0 ? (
-          <p className="muted-text">Nenhum produto disponível no catálogo.</p>
+        <p><strong>Carrinho atual</strong></p>
+        {itens.length === 0 ? (
+          <>
+            <p className="muted-text">Carrinho vazio. Adicione produtos na página inicial.</p>
+            <Link to="/" className="btn-secondary" style={{ display: 'inline-block' }}>
+              Voltar para produtos
+            </Link>
+          </>
         ) : (
           <div className="produto-lista">
-            {produtos.slice(0, 12).map((produto) => (
-              <div className="produto-item" key={produto.id}>
+            {itens.map((item) => (
+              <div className="produto-item" key={item.id}>
                 <div>
-                  <p><strong>{produto.emoji || '📦'} {produto.nome}</strong></p>
-                  <p>R$ {Number(produto.preco || 0).toFixed(2)}</p>
+                  <p><strong>{item.emoji || '📦'} {item.nome}</strong></p>
+                  <p>R$ {Number(item.preco || 0).toFixed(2)}</p>
                 </div>
-                <input
-                  className="qtd-input"
-                  type="number"
-                  min="0"
-                  value={quantidades[produto.id] || 0}
-                  onChange={(event) => atualizarQuantidade(produto.id, event.target.value)}
-                />
+                <div className="cart-item-actions">
+                  <input
+                    className="qtd-input"
+                    type="number"
+                    min="1"
+                    value={item.quantidade}
+                    onChange={(event) => updateItemQuantity(item.id, event.target.value)}
+                  />
+                  <button className="btn-secondary" type="button" onClick={() => removeItem(item.id)}>
+                    Remover
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
 
         <div className="pedido-resumo">
-          <p><strong>Resumo:</strong> {resumoPedido.itens} item(ns)</p>
-          <p><strong>Total previsto:</strong> R$ {resumoPedido.total.toFixed(2)}</p>
+          <p><strong>Resumo:</strong> {resumo.itens} item(ns)</p>
+          <p><strong>Total previsto:</strong> R$ {resumo.total.toFixed(2)}</p>
         </div>
 
-        <button className="btn-primary" type="button" onClick={handleCriarPedido} disabled={carregando}>
+        <button className="btn-primary" type="button" onClick={handleCriarPedido} disabled={carregando || itens.length === 0}>
           Criar pedido com PIX
         </button>
+      </div>
+
+      <div className="card-box">
+        <p><strong>Status do pedido</strong></p>
+        {resultadoPedido ? (
+          <p>Pedido #{resultadoPedido.pedido_id} criado. Gere novamente o PIX se precisar atualizar o código.</p>
+        ) : (
+          <p className="muted-text">Nenhum pedido criado ainda nesta sessão.</p>
+        )}
       </div>
 
       {resultadoPedido ? (
@@ -204,27 +168,16 @@ export default function PagamentoPage() {
           <p>Número: #{resultadoPedido.pedido_id}</p>
           <p>Total: R$ {Number(resultadoPedido.total || 0).toFixed(2)}</p>
           <p>Forma de pagamento: {resultadoPedido.forma_pagamento}</p>
+          <button
+            className="btn-secondary"
+            type="button"
+            disabled={carregando}
+            onClick={() => handleGerarPix(resultadoPedido.pedido_id)}
+          >
+            Gerar PIX novamente
+          </button>
         </div>
       ) : null}
-
-      {pedidos.length === 0 ? (
-        <p className="muted-text">Nenhum pedido encontrado para este usuário.</p>
-      ) : (
-        <div className="list-box">
-          {pedidos.map((pedido) => (
-            <div className="item-box" key={pedido.id}>
-              <div>
-                <p><strong>Pedido #{pedido.id}</strong></p>
-                <p>Total: R$ {Number(pedido.total || 0).toFixed(2)}</p>
-                <p>Status: {pedido.status}</p>
-              </div>
-              <button className="btn-primary" type="button" disabled={carregando} onClick={() => handleGerarPix(pedido.id)}>
-                Gerar PIX
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
 
       {resultadoPix ? (
         <div className="card-box">
@@ -247,6 +200,12 @@ export default function PagamentoPage() {
           ) : null}
         </div>
       ) : null}
+
+      <div className="card-box">
+        <p><strong>Ajuda rápida</strong></p>
+        <p>Se o QR não abrir no banco, copie o código PIX e cole no app manualmente.</p>
+        <p>Após o pagamento, a loja confirma e inicia a preparação do pedido.</p>
+      </div>
     </section>
   );
 }

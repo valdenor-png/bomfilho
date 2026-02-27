@@ -7,9 +7,14 @@ const jwt = require('jsonwebtoken');
 const mysql = require('mysql2/promise');
 const fetch = global.fetch || require('node-fetch');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
+const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
+const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
 
 // Configuração Evolution API (WhatsApp)
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
@@ -58,6 +63,10 @@ if (PAGBANK_TOKEN) {
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+if (SHOULD_SERVE_REACT && fs.existsSync(FRONTEND_DIST_PATH)) {
+  app.use(express.static(FRONTEND_DIST_PATH));
+}
 
 // Diagnóstico PagBank: valida token e mostra URLs configuradas
 app.get('/api/pagbank/status', async (req, res) => {
@@ -448,6 +457,53 @@ const autenticarToken = (req, res, next) => {
   });
 };
 
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_LOCAL_ONLY = process.env.ADMIN_LOCAL_ONLY !== 'false';
+
+function extrairIpRequisicao(req) {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (forwardedFor) {
+    return String(forwardedFor).split(',')[0].trim();
+  }
+  return req.socket?.remoteAddress || req.ip || '';
+}
+
+function isIpLocal(ip) {
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost';
+}
+
+const exigirAcessoLocalAdmin = (req, res, next) => {
+  if (!ADMIN_LOCAL_ONLY) {
+    return next();
+  }
+
+  const ip = extrairIpRequisicao(req);
+  if (!isIpLocal(ip)) {
+    return res.status(403).json({ erro: 'Acesso administrativo permitido apenas no computador da loja' });
+  }
+
+  next();
+};
+
+const autenticarAdminToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ erro: 'Token admin não fornecido' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, payload) => {
+    if (err || !payload || payload.role !== 'admin') {
+      return res.status(403).json({ erro: 'Token admin inválido' });
+    }
+
+    req.admin = payload;
+    next();
+  });
+};
+
 // ============================================
 // ROTAS DE AUTENTICAÇÃO
 // ============================================
@@ -545,6 +601,40 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (erro) {
     console.error('Erro ao fazer login:', erro);
     res.status(500).json({ erro: 'Erro ao fazer login' });
+  }
+});
+
+// Login administrativo (somente acesso local)
+app.post('/api/admin/login', exigirAcessoLocalAdmin, async (req, res) => {
+  try {
+    const { usuario, senha } = req.body || {};
+
+    if (!ADMIN_PASSWORD) {
+      return res.status(503).json({ erro: 'ADMIN_PASSWORD não configurado no servidor' });
+    }
+
+    if (!usuario || !senha) {
+      return res.status(400).json({ erro: 'Usuário e senha admin são obrigatórios' });
+    }
+
+    if (usuario !== ADMIN_USER || senha !== ADMIN_PASSWORD) {
+      return res.status(401).json({ erro: 'Credenciais admin inválidas' });
+    }
+
+    const token = jwt.sign(
+      { role: 'admin', usuario: ADMIN_USER },
+      process.env.JWT_SECRET,
+      { expiresIn: '12h' }
+    );
+
+    return res.json({
+      mensagem: 'Login admin realizado com sucesso',
+      token,
+      usuario: ADMIN_USER
+    });
+  } catch (erro) {
+    console.error('Erro no login admin:', erro);
+    return res.status(500).json({ erro: 'Erro ao fazer login admin' });
   }
 });
 
@@ -687,7 +777,7 @@ app.get('/api/produtos/:id', async (req, res) => {
 });
 
 // Cadastrar produto (admin)
-app.post('/api/admin/produtos', async (req, res) => {
+app.post('/api/admin/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
   try {
     const { nome, preco, unidade, categoria, emoji, estoque } = req.body;
 
@@ -711,7 +801,7 @@ app.post('/api/admin/produtos', async (req, res) => {
 });
 
 // Importação em massa de produtos (admin)
-app.post('/api/admin/produtos/bulk', async (req, res) => {
+app.post('/api/admin/produtos/bulk', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
   const connection = await pool.getConnection();
   
   try {
@@ -753,7 +843,7 @@ app.post('/api/admin/produtos/bulk', async (req, res) => {
 });
 
 // Excluir produto (admin) - soft delete
-app.delete('/api/admin/produtos/:id', async (req, res) => {
+app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
   try {
     await pool.query(
       'UPDATE produtos SET ativo = FALSE WHERE id = ?',
@@ -1136,7 +1226,7 @@ app.get('/api/cupons/disponiveis', async (req, res) => {
 // ============================================
 
 // Listar todos os pedidos (admin)
-app.get('/api/admin/pedidos', async (req, res) => {
+app.get('/api/admin/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
   try {
     const [pedidos] = await pool.query(`
       SELECT 
@@ -1175,7 +1265,7 @@ app.get('/api/admin/pedidos', async (req, res) => {
 });
 
 // Atualizar status do pedido (admin)
-app.put('/api/admin/pedidos/:id/status', async (req, res) => {
+app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
   try {
     const { status } = req.body;
     const pedidoId = req.params.id;
@@ -1308,9 +1398,9 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
 });
 
 // ============================================
-// ROTA DE TESTE
+// ROTA DE TESTE DA API
 // ============================================
-app.get('/', (req, res) => {
+app.get('/api', (req, res) => {
   res.json({
     mensagem: '🛒 API Bom Filho Supermercado',
     versao: '1.0.0',
@@ -1377,6 +1467,12 @@ app.post('/api/avaliacoes', autenticarToken, async (req, res) => {
   }
 });
 
+if (SHOULD_SERVE_REACT && fs.existsSync(REACT_DIST_INDEX)) {
+  app.get(/^\/(?!api).*/, (req, res) => {
+    res.sendFile(REACT_DIST_INDEX);
+  });
+}
+
 // ============================================
 // INICIAR SERVIDOR
 // ============================================
@@ -1396,6 +1492,13 @@ app.listen(PORT, () => {
   console.log(`   GET    /api/pedidos/:id`);
   console.log(`   GET    /api/avaliacoes/:produto_id`);
   console.log(`   POST   /api/avaliacoes`);
+  if (SHOULD_SERVE_REACT) {
+    if (fs.existsSync(REACT_DIST_INDEX)) {
+      console.log(`\n🧩 Frontend React servido em: http://localhost:${PORT}`);
+    } else {
+      console.log(`\n⚠️ Build React não encontrada em frontend-react/dist (rode: cd frontend-react && npm run build)`);
+    }
+  }
   console.log(`\n✅ Pronto para receber requisições!\n`);
 });
 

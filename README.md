@@ -18,6 +18,25 @@ O **Bom Filho Web** integra frontend e backend para oferecer um fluxo de compra 
 
 O projeto foi estruturado para ser **fácil de evoluir**, com separação por módulos no frontend e uma API REST no backend.
 
+## ✅ Direção atual: React no frontend + Node.js no backend
+
+O padrão de evolução do projeto passa a ser:
+
+- **Frontend principal em React** (`frontend-react`)
+- **Backend em Node.js/Express** (`backend`)
+- Em desenvolvimento, o Vite usa proxy para `/api`
+- Em produção, o backend pode servir a build do React em `frontend-react/dist`
+
+Isso permite centralizar tudo em JavaScript, mantendo as rotas de API já existentes.
+
+### Rotas React atuais
+
+- `/#/` catálogo e busca de produtos
+- `/#/pagamento` carrinho, pedido e PIX
+- `/#/conta` autenticação e perfil
+- `/#/sobre` informações do negócio
+- `/#/admin` painel administrativo (pedidos e produtos)
+
 ## 🧭 Objetivo do Projeto
 
 Criar uma base sólida para um e-commerce de supermercado local, pronta para uso prático e melhoria contínua, sem depender de frameworks complexos no frontend.
@@ -73,9 +92,9 @@ site/
 ├── index.html
 ├── styles.css
 ├── api-config.js
-├── admin.html
-├── admin-pedidos.html
-├── painel-admin.html
+├── admin.html (redireciona para /#/admin)
+├── admin-pedidos.html (redireciona para /#/admin)
+├── painel-admin.html (redireciona para /#/admin)
 ├── css/
 ├── js/
 │   ├── main.js
@@ -88,6 +107,15 @@ site/
 │   ├── historico-cupons.js
 │   ├── rastreamento.js
 │   └── ofertas-avaliacoes.js
+├── frontend-react/
+│   ├── src/
+│   │   └── pages/
+│   │       ├── HomePage.jsx
+│   │       ├── PagamentoPage.jsx
+│   │       ├── ContaPage.jsx
+│   │       ├── SobrePage.jsx
+│   │       └── AdminPage.jsx
+│   └── dist/
 ├── img/
 ├── docs/
 ├── scripts/
@@ -102,9 +130,8 @@ site/
 
 ### Frontend
 
-- HTML5
-- CSS3
-- JavaScript (Vanilla)
+- React + Vite (principal)
+- HTML/CSS/JS legado (apenas fluxo antigo e compatibilidade)
 
 ### Backend
 
@@ -149,9 +176,29 @@ npm run dev
 npm start
 ```
 
-### 5) Iniciar frontend
+### 5) Iniciar frontend (React)
 
-Abra o `index.html` com servidor estático local (recomendado).
+```bash
+cd frontend-react
+npm install
+npm run dev
+```
+
+Abra: `http://127.0.0.1:5173`
+
+> Alternativa rápida (Windows): `scripts/start-servicos.bat`
+
+### 6) Produção com Node servindo React
+
+```bash
+cd frontend-react
+npm run build
+
+cd ../backend
+npm start
+```
+
+Com a build gerada, o backend serve o frontend React no mesmo host/porta da API.
 
 ## 🔌 Endpoints Principais da API
 
