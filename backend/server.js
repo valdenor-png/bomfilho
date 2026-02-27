@@ -534,6 +534,78 @@ function inferirEmojiPorCategoria(categoria) {
   return '📦';
 }
 
+async function buscarProdutoOpenFoodFacts(codigo) {
+  const resposta = await fetch(`https://world.openfoodfacts.org/api/v2/product/${codigo}.json`);
+  if (!resposta.ok) {
+    return null;
+  }
+
+  const dados = await resposta.json();
+  if (!dados || dados.status !== 1 || !dados.product) {
+    return null;
+  }
+
+  const produtoApi = dados.product;
+  const nome = String(produtoApi.product_name_pt || produtoApi.product_name || produtoApi.generic_name || '').trim();
+  if (!nome) {
+    return null;
+  }
+
+  const descricao = String(produtoApi.ingredients_text_pt || produtoApi.ingredients_text || produtoApi.quantity || '').trim();
+  const marca = String(produtoApi.brands || '').split(',')[0].trim();
+  const imagem = String(produtoApi.image_front_url || produtoApi.image_url || '').trim();
+  const categoria = inferirCategoriaProduto(`${produtoApi.categories || ''} ${nome} ${descricao}`);
+
+  return {
+    fonte: 'openfoodfacts',
+    produto: {
+      codigo_barras: codigo,
+      nome,
+      descricao,
+      marca,
+      categoria,
+      emoji: inferirEmojiPorCategoria(categoria),
+      imagem
+    }
+  };
+}
+
+async function buscarProdutoUpcItemDb(codigo) {
+  const resposta = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`);
+  if (!resposta.ok) {
+    return null;
+  }
+
+  const dados = await resposta.json();
+  const item = Array.isArray(dados?.items) ? dados.items[0] : null;
+  if (!item) {
+    return null;
+  }
+
+  const nome = String(item.title || item.description || '').trim();
+  if (!nome) {
+    return null;
+  }
+
+  const descricao = String(item.description || '').trim();
+  const marca = String(item.brand || '').trim();
+  const imagem = Array.isArray(item.images) && item.images.length > 0 ? String(item.images[0] || '').trim() : '';
+  const categoria = inferirCategoriaProduto(`${item.category || ''} ${nome} ${descricao}`);
+
+  return {
+    fonte: 'upcitemdb',
+    produto: {
+      codigo_barras: codigo,
+      nome,
+      descricao,
+      marca,
+      categoria,
+      emoji: inferirEmojiPorCategoria(categoria),
+      imagem
+    }
+  };
+}
+
 // ============================================
 // ROTAS DE AUTENTICAÇÃO
 // ============================================
@@ -816,10 +888,21 @@ app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autentica
       return res.status(400).json({ erro: 'Código de barras inválido' });
     }
 
+    const externoOpenFoodFacts = await buscarProdutoOpenFoodFacts(codigo);
+    if (externoOpenFoodFacts) {
+      return res.json(externoOpenFoodFacts);
+    }
+
+    const externoUpcItemDb = await buscarProdutoUpcItemDb(codigo);
+    if (externoUpcItemDb) {
+      return res.json(externoUpcItemDb);
+    }
+
     const colunas = await obterColunasProdutos();
     if (colunas.has('codigo_barras')) {
+      const campoImagem = colunas.has('imagem_url') ? 'imagem_url AS imagem, ' : '';
       const [locais] = await pool.query(
-        `SELECT id, nome, descricao, marca, categoria, emoji, ${colunas.has('imagem_url') ? 'imagem_url AS imagem,' : ''} codigo_barras
+        `SELECT id, nome, descricao, marca, categoria, emoji, ${campoImagem}codigo_barras
          FROM produtos
          WHERE codigo_barras = ?
          LIMIT 1`,
@@ -831,40 +914,7 @@ app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autentica
       }
     }
 
-    const resposta = await fetch(`https://world.openfoodfacts.org/api/v2/product/${codigo}.json`);
-    if (!resposta.ok) {
-      return res.status(502).json({ erro: 'Falha ao consultar base de produtos' });
-    }
-
-    const dados = await resposta.json();
-    if (!dados || dados.status !== 1 || !dados.product) {
-      return res.status(404).json({ erro: 'Produto não encontrado para este código de barras' });
-    }
-
-    const produtoApi = dados.product;
-    const nome = String(produtoApi.product_name_pt || produtoApi.product_name || produtoApi.generic_name || '').trim();
-    const descricao = String(produtoApi.ingredients_text_pt || produtoApi.ingredients_text || produtoApi.quantity || '').trim();
-    const marca = String(produtoApi.brands || '').split(',')[0].trim();
-    const imagem = String(produtoApi.image_front_url || produtoApi.image_url || '').trim();
-    const categoria = inferirCategoriaProduto(`${produtoApi.categories || ''} ${nome} ${descricao}`);
-    const emoji = inferirEmojiPorCategoria(categoria);
-
-    if (!nome) {
-      return res.status(404).json({ erro: 'Produto encontrado sem nome utilizável' });
-    }
-
-    return res.json({
-      fonte: 'openfoodfacts',
-      produto: {
-        codigo_barras: codigo,
-        nome,
-        descricao,
-        marca,
-        categoria,
-        emoji,
-        imagem
-      }
-    });
+    return res.status(404).json({ erro: 'Produto não encontrado em APIs externas nem na base local' });
   } catch (erro) {
     console.error('Erro ao buscar produto por código de barras:', erro);
     return res.status(500).json({ erro: 'Erro ao buscar produto por código de barras' });
