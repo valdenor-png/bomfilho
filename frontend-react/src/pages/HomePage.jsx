@@ -81,7 +81,6 @@ export default function HomePage() {
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [slideAtivo, setSlideAtivo] = useState(0);
-  const [mostrarAnuncio, setMostrarAnuncio] = useState(true);
 
   useEffect(() => {
     carregarProdutos();
@@ -331,21 +330,6 @@ export default function HomePage() {
           ))}
         </div>
       )}
-
-      {mostrarAnuncio ? (
-        <aside className="ad-box" aria-label="Anúncio interno">
-          <button className="ad-close" type="button" onClick={() => setMostrarAnuncio(false)} aria-label="Fechar anúncio">×</button>
-          <a className="ad-card-react" href="#produtos-lista" aria-label="Ver ofertas de bebidas">
-            <img className="ad-image-react" src="/img/ads/coca-cola-placeholder.svg" alt="Anúncio: refrigerante cola" loading="lazy" />
-            <div className="ad-body-react">
-              <div className="ad-title-react">Refrigerante cola 2L</div>
-              <div className="ad-text-react">Promoção da semana (oferta interna).</div>
-              <div className="ad-cta-react">Ver ofertas</div>
-            </div>
-          </a>
-          <div className="ad-disclaimer-react">Anúncio (interno)</div>
-        </aside>
-      ) : null}
 
       <footer className="home-footer">
         <div className="footer-info-simple" aria-label="Informações da loja">
