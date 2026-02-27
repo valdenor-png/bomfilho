@@ -923,11 +923,19 @@ body {
   padding: 0.65rem 0.5rem;
 }
 
-.floating-cart {
+.floating-cart-wrapper {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
   z-index: 30;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.floating-cart-wrapper.dragging {
+  cursor: grabbing;
+}
+
+.floating-cart {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -1133,8 +1141,6 @@ body {
   }
 
   .floating-cart {
-    right: 10px;
-    bottom: 10px;
     padding: 0.4rem 0.62rem;
   }
 }
