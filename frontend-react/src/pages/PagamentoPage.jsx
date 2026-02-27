@@ -7,6 +7,7 @@ import { useCart } from '../context/CartContext';
 const ETAPAS = {
   CARRINHO: 'carrinho',
   PAGAMENTO: 'pagamento',
+  PIX: 'pix',
   STATUS: 'status'
 };
 
@@ -18,6 +19,7 @@ export default function PagamentoPage() {
   const [resultadoPix, setResultadoPix] = useState(null);
   const [etapaAtual, setEtapaAtual] = useState(ETAPAS.CARRINHO);
   const [statusPedidoAtual, setStatusPedidoAtual] = useState('');
+  const [pagamentoConfirmado, setPagamentoConfirmado] = useState(false);
   const token = getStoredToken();
 
   const itensPedido = useMemo(
@@ -43,7 +45,11 @@ export default function PagamentoPage() {
         const data = await getPedidos(token);
         const pedido = (data.pedidos || []).find((item) => Number(item.id) === Number(resultadoPedido.pedido_id));
         if (ativo && pedido?.status) {
-          setStatusPedidoAtual(String(pedido.status));
+          const novoStatus = String(pedido.status);
+          setStatusPedidoAtual(novoStatus);
+          if (novoStatus === 'pago' || novoStatus === 'entregue') {
+            setPagamentoConfirmado(true);
+          }
         }
       } catch (_) {
       }
@@ -78,7 +84,7 @@ export default function PagamentoPage() {
       setResultadoPedido(data);
       setStatusPedidoAtual('pendente');
       clearCart();
-      setEtapaAtual(ETAPAS.PAGAMENTO);
+      setEtapaAtual(ETAPAS.PIX);
 
       if (data?.pix_codigo) {
         setResultadoPix({
@@ -92,6 +98,14 @@ export default function PagamentoPage() {
     } finally {
       setCarregando(false);
     }
+  }
+
+  async function handleIrParaPix() {
+    if (resultadoPedido?.pedido_id) {
+      setEtapaAtual(ETAPAS.PIX);
+      return;
+    }
+    await handleCriarPedido();
   }
 
   async function handleGerarPix(pedidoId) {
@@ -111,7 +125,8 @@ export default function PagamentoPage() {
   function getIndiceEtapa(etapa) {
     if (etapa === ETAPAS.CARRINHO) return 0;
     if (etapa === ETAPAS.PAGAMENTO) return 1;
-    return 2;
+    if (etapa === ETAPAS.PIX) return 2;
+    return 3;
   }
 
   const etapaIndex = getIndiceEtapa(etapaAtual);
@@ -145,10 +160,10 @@ export default function PagamentoPage() {
   return (
     <section className="page">
       <h1>Pagamento</h1>
-      <p>Fluxo em etapas: carrinho, pagamento e status do pedido.</p>
+      <p>Fluxo em etapas: carrinho, forma de pagamento, pagamento PIX e confirmação.</p>
 
       <div className="checkout-steps" aria-label="Etapas do checkout">
-        {['Carrinho', 'Pagamento', 'Status do pedido'].map((titulo, index) => (
+        {['Carrinho', 'Pagamento', 'PIX', 'Confirmação'].map((titulo, index) => (
           <div key={titulo} className={`checkout-step ${etapaIndex >= index ? 'active' : ''}`}>
             <span className="checkout-step-index">{index + 1}</span>
             <span className="checkout-step-label">{titulo}</span>
@@ -198,20 +213,36 @@ export default function PagamentoPage() {
             <p><strong>Total previsto:</strong> R$ {resumo.total.toFixed(2)}</p>
           </div>
 
-          <button className="btn-primary" type="button" onClick={handleCriarPedido} disabled={carregando || itens.length === 0}>
-            {carregando ? 'Criando pedido...' : 'Continuar para pagamento PIX'}
+          <button className="btn-primary" type="button" onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)} disabled={itens.length === 0}>
+            Ir para pagamento
           </button>
         </div>
       ) : null}
 
       {etapaAtual === ETAPAS.PAGAMENTO ? (
         <div className="card-box">
-          <p><strong>Etapa 2: Pagamento PIX</strong></p>
+          <p><strong>Etapa 2: Escolha a forma de pagamento</strong></p>
+          <div className="card-box" style={{ marginTop: '0.3rem' }}>
+            <p><strong>✅ PIX</strong> (única opção disponível)</p>
+            <p className="muted-text" style={{ marginTop: '0.2rem' }}>Pagamento instantâneo via QR Code ou copia e cola.</p>
+          </div>
+
+          <button className="btn-primary" type="button" onClick={handleIrParaPix} disabled={carregando || itens.length === 0 && !resultadoPedido?.pedido_id}>
+            {carregando ? 'Preparando pagamento...' : 'Continuar com PIX'}
+          </button>
+          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.CARRINHO)}>
+            Voltar para carrinho
+          </button>
+        </div>
+      ) : null}
+
+      {etapaAtual === ETAPAS.PIX ? (
+        <div className="card-box">
+          <p><strong>Etapa 3: Fazer pagamento PIX</strong></p>
           {resultadoPedido ? (
             <>
-              <p>Pedido #{resultadoPedido.pedido_id} criado com sucesso.</p>
+              <p>Pedido #{resultadoPedido.pedido_id} criado.</p>
               <p>Total: R$ {Number(resultadoPedido.total || 0).toFixed(2)}</p>
-              <p>Forma de pagamento: {resultadoPedido.forma_pagamento}</p>
             </>
           ) : null}
 
@@ -244,27 +275,36 @@ export default function PagamentoPage() {
               ) : null}
             </>
           ) : (
-            <p className="muted-text">Gere o PIX para exibir QR Code e código copia e cola.</p>
+            <p className="muted-text">Clique em gerar PIX para exibir QR Code e código copia e cola.</p>
           )}
 
-          <button className="btn-primary" type="button" onClick={() => setEtapaAtual(ETAPAS.STATUS)}>
-            Já paguei, acompanhar status
+          <button className="btn-primary" type="button" onClick={() => {
+            setPagamentoConfirmado(true);
+            setEtapaAtual(ETAPAS.STATUS);
+          }}>
+            Confirmar pagamento
           </button>
-          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.CARRINHO)}>
-            Voltar para carrinho
+          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}>
+            Voltar
           </button>
         </div>
       ) : null}
 
       {etapaAtual === ETAPAS.STATUS ? (
         <div className="card-box">
-          <p><strong>Etapa 3: Status do pedido</strong></p>
+          <p><strong>Etapa 4: Status do pedido</strong></p>
           {resultadoPedido ? (
             <>
               <p>Pedido: #{resultadoPedido.pedido_id}</p>
               <p>
                 Situação atual: <span className="pedido-status-badge">{labelStatus}</span>
               </p>
+              {pagamentoConfirmado ? (
+                <div className="pagamento-ok" aria-label="Pagamento confirmado com sucesso">
+                  <span className="pagamento-ok-icon">✅</span>
+                  <span>Pagamento efetuado com sucesso</span>
+                </div>
+              ) : null}
               <p className="muted-text">Atualização automática a cada 15 segundos.</p>
             </>
           ) : (
@@ -277,7 +317,7 @@ export default function PagamentoPage() {
             <p>Após o pagamento, a loja confirma e inicia a preparação/envio do pedido.</p>
           </div>
 
-          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}>
+          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.PIX)}>
             Voltar para pagamento
           </button>
         </div>
