@@ -173,11 +173,29 @@ export default function HomePage() {
         </div>
       </header>
 
-      <div className="hero-box">
-        <p><strong>Ofertas e entrega rápida</strong></p>
-        <p>Monte seu carrinho e finalize em poucos cliques.</p>
-        <a href="#produtos-lista" className="btn-secondary" style={{ width: 'fit-content' }}>Ver produtos</a>
-      </div>
+      <section className="sector-section" aria-label="Navegar por setor">
+        <div className="sector-header">
+          <h2>Compre por setor</h2>
+          <p>Atalhos rápidos para as categorias mais buscadas.</p>
+        </div>
+        <div className="sector-grid">
+          {setores.map((setor) => (
+            <button
+              key={`${setor.categoria}-${setor.label}`}
+              className="sector-card"
+              type="button"
+              style={{ '--bg': `url('${setor.imagem}')` }}
+              onClick={() => {
+                selecionarCategoria(setor.categoria);
+                setBusca(setor.busca);
+              }}
+            >
+              <span className="sector-label">{setor.label}</span>
+              <span className="sector-cta">Quero ver</span>
+            </button>
+          ))}
+        </div>
+      </section>
 
       <section className="carousel-box" aria-label="Promoções">
         <div className={`carousel-slide-react slide-${slideAtivo + 1}`}>
@@ -222,30 +240,6 @@ export default function HomePage() {
               <p className="best-item-name">{produto.emoji || '📦'} {produto.nome}</p>
               <p className="best-item-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
             </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="sector-section" aria-label="Navegar por setor">
-        <div className="sector-header">
-          <h2>Compre por setor</h2>
-          <p>Atalhos rápidos para as categorias mais buscadas.</p>
-        </div>
-        <div className="sector-grid">
-          {setores.map((setor) => (
-            <button
-              key={`${setor.categoria}-${setor.label}`}
-              className="sector-card"
-              type="button"
-              style={{ '--bg': `url('${setor.imagem}')` }}
-              onClick={() => {
-                selecionarCategoria(setor.categoria);
-                setBusca(setor.busca);
-              }}
-            >
-              <span className="sector-label">{setor.label}</span>
-              <span className="sector-cta">Quero ver</span>
-            </button>
           ))}
         </div>
       </section>
