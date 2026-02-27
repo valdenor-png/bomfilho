@@ -724,6 +724,23 @@ body {
   align-items: center;
 }
 
+.barcode-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.produto-preview-image {
+  width: 100%;
+  max-width: 220px;
+  height: 140px;
+  object-fit: cover;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
 .pix-image {
   max-width: 220px;
   border: 1px solid #e2e8f0;
@@ -973,6 +990,10 @@ body {
   }
 
   .toolbar-box {
+    grid-template-columns: 1fr;
+  }
+
+  .barcode-row {
     grid-template-columns: 1fr;
   }
 

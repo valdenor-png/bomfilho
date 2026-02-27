@@ -504,6 +504,36 @@ const autenticarAdminToken = (req, res, next) => {
   });
 };
 
+let produtosColumnsCache = null;
+
+async function obterColunasProdutos() {
+  if (produtosColumnsCache) {
+    return produtosColumnsCache;
+  }
+
+  const [colunas] = await pool.query('SHOW COLUMNS FROM produtos');
+  produtosColumnsCache = new Set(colunas.map((coluna) => String(coluna.Field || '').toLowerCase()));
+  return produtosColumnsCache;
+}
+
+function inferirCategoriaProduto(texto) {
+  const valor = String(texto || '').toLowerCase();
+
+  if (!valor) return 'mercearia';
+  if (/agua|suco|refrigerante|cerveja|bebida|café|cha|chá|leite/.test(valor)) return 'bebidas';
+  if (/alface|tomate|banana|maçã|maca|batata|fruta|verdura|legume|hortifruti/.test(valor)) return 'hortifruti';
+  if (/sabao|sabão|detergente|desinfetante|limpeza|amaciante|alvejante/.test(valor)) return 'limpeza';
+  return 'mercearia';
+}
+
+function inferirEmojiPorCategoria(categoria) {
+  const cat = String(categoria || '').toLowerCase();
+  if (cat === 'bebidas') return '🥤';
+  if (cat === 'hortifruti') return '🥬';
+  if (cat === 'limpeza') return '🧴';
+  return '📦';
+}
+
 // ============================================
 // ROTAS DE AUTENTICAÇÃO
 // ============================================
@@ -747,13 +777,97 @@ app.post('/api/endereco', autenticarToken, async (req, res) => {
 // Listar todos os produtos ativos
 app.get('/api/produtos', async (req, res) => {
   try {
+    const colunas = await obterColunasProdutos();
+    const campos = [
+      'id',
+      'nome',
+      'descricao',
+      'marca',
+      'preco',
+      'unidade',
+      'categoria',
+      'emoji',
+      'estoque',
+      'validade'
+    ];
+
+    if (colunas.has('codigo_barras')) {
+      campos.push('codigo_barras');
+    }
+
+    if (colunas.has('imagem_url')) {
+      campos.push('imagem_url AS imagem');
+    }
+
     const [produtos] = await pool.query(
-      'SELECT id, nome, descricao, marca, preco, unidade, categoria, emoji, estoque, validade FROM produtos WHERE ativo = TRUE ORDER BY categoria, nome'
+      `SELECT ${campos.join(', ')} FROM produtos WHERE ativo = TRUE ORDER BY categoria, nome`
     );
     res.json({ produtos: produtos });
   } catch (erro) {
     console.error('Erro ao buscar produtos:', erro);
     res.status(500).json({ erro: 'Erro ao buscar produtos' });
+  }
+});
+
+app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const codigo = String(req.params.codigo || '').replace(/\D/g, '');
+    if (codigo.length < 8) {
+      return res.status(400).json({ erro: 'Código de barras inválido' });
+    }
+
+    const colunas = await obterColunasProdutos();
+    if (colunas.has('codigo_barras')) {
+      const [locais] = await pool.query(
+        `SELECT id, nome, descricao, marca, categoria, emoji, ${colunas.has('imagem_url') ? 'imagem_url AS imagem,' : ''} codigo_barras
+         FROM produtos
+         WHERE codigo_barras = ?
+         LIMIT 1`,
+        [codigo]
+      );
+
+      if (locais.length > 0) {
+        return res.json({ fonte: 'local', produto: locais[0] });
+      }
+    }
+
+    const resposta = await fetch(`https://world.openfoodfacts.org/api/v2/product/${codigo}.json`);
+    if (!resposta.ok) {
+      return res.status(502).json({ erro: 'Falha ao consultar base de produtos' });
+    }
+
+    const dados = await resposta.json();
+    if (!dados || dados.status !== 1 || !dados.product) {
+      return res.status(404).json({ erro: 'Produto não encontrado para este código de barras' });
+    }
+
+    const produtoApi = dados.product;
+    const nome = String(produtoApi.product_name_pt || produtoApi.product_name || produtoApi.generic_name || '').trim();
+    const descricao = String(produtoApi.ingredients_text_pt || produtoApi.ingredients_text || produtoApi.quantity || '').trim();
+    const marca = String(produtoApi.brands || '').split(',')[0].trim();
+    const imagem = String(produtoApi.image_front_url || produtoApi.image_url || '').trim();
+    const categoria = inferirCategoriaProduto(`${produtoApi.categories || ''} ${nome} ${descricao}`);
+    const emoji = inferirEmojiPorCategoria(categoria);
+
+    if (!nome) {
+      return res.status(404).json({ erro: 'Produto encontrado sem nome utilizável' });
+    }
+
+    return res.json({
+      fonte: 'openfoodfacts',
+      produto: {
+        codigo_barras: codigo,
+        nome,
+        descricao,
+        marca,
+        categoria,
+        emoji,
+        imagem
+      }
+    });
+  } catch (erro) {
+    console.error('Erro ao buscar produto por código de barras:', erro);
+    return res.status(500).json({ erro: 'Erro ao buscar produto por código de barras' });
   }
 });
 
@@ -779,15 +893,51 @@ app.get('/api/produtos/:id', async (req, res) => {
 // Cadastrar produto (admin)
 app.post('/api/admin/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
   try {
-    const { nome, preco, unidade, categoria, emoji, estoque } = req.body;
+    const {
+      nome,
+      preco,
+      unidade,
+      categoria,
+      emoji,
+      estoque,
+      descricao,
+      marca,
+      codigo_barras,
+      imagem
+    } = req.body;
 
     if (!nome || !preco || !unidade || !categoria) {
       return res.status(400).json({ erro: 'Campos obrigatórios faltando' });
     }
 
+    const colunas = await obterColunasProdutos();
+    const insertCols = ['nome', 'preco', 'unidade', 'categoria', 'emoji', 'estoque', 'ativo'];
+    const valores = [nome, preco, unidade, categoria, emoji || '📦', estoque || 0, true];
+
+    if (colunas.has('descricao')) {
+      insertCols.push('descricao');
+      valores.push(descricao || null);
+    }
+
+    if (colunas.has('marca')) {
+      insertCols.push('marca');
+      valores.push(marca || null);
+    }
+
+    if (colunas.has('codigo_barras')) {
+      insertCols.push('codigo_barras');
+      valores.push(codigo_barras || null);
+    }
+
+    if (colunas.has('imagem_url')) {
+      insertCols.push('imagem_url');
+      valores.push(imagem || null);
+    }
+
+    const placeholders = insertCols.map(() => '?').join(', ');
     const [resultado] = await pool.query(
-      'INSERT INTO produtos (nome, preco, unidade, categoria, emoji, estoque, ativo) VALUES (?, ?, ?, ?, ?, ?, TRUE)',
-      [nome, preco, unidade, categoria, emoji || '📦', estoque || 0]
+      `INSERT INTO produtos (${insertCols.join(', ')}) VALUES (${placeholders})`,
+      valores
     );
 
     res.status(201).json({

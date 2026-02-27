@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   adminLogin,
   adminAtualizarStatusPedido,
+  adminBuscarProdutoPorCodigoBarras,
   adminCadastrarProduto,
   adminExcluirProduto,
   adminGetPedidos,
@@ -15,7 +16,11 @@ import {
 const STATUS_OPTIONS = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado'];
 
 const initialProduto = {
+  codigo_barras: '',
   nome: '',
+  descricao: '',
+  marca: '',
+  imagem: '',
   preco: '',
   unidade: 'un',
   categoria: '',
@@ -35,6 +40,7 @@ export default function AdminPage() {
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [salvandoProduto, setSalvandoProduto] = useState(false);
+  const [buscandoCodigo, setBuscandoCodigo] = useState(false);
   const [filtroFinanceiroStatus, setFiltroFinanceiroStatus] = useState('todos');
   const [filtroFinanceiroPeriodo, setFiltroFinanceiroPeriodo] = useState('mes');
   const [filtroFinanceiroBusca, setFiltroFinanceiroBusca] = useState('');
@@ -265,7 +271,11 @@ export default function AdminPage() {
     setSalvandoProduto(true);
     try {
       await adminCadastrarProduto(adminToken, {
+        codigo_barras: produtoForm.codigo_barras.trim(),
         nome: produtoForm.nome.trim(),
+        descricao: produtoForm.descricao.trim(),
+        marca: produtoForm.marca.trim(),
+        imagem: produtoForm.imagem.trim(),
         preco: Number(produtoForm.preco),
         unidade: produtoForm.unidade.trim() || 'un',
         categoria: produtoForm.categoria.trim(),
@@ -294,6 +304,36 @@ export default function AdminPage() {
       await carregarTudo(adminToken);
     } catch (error) {
       setErro(error.message);
+    }
+  }
+
+  async function handleBuscarProdutoPorCodigoBarras() {
+    setErro('');
+    const codigo = String(produtoForm.codigo_barras || '').replace(/\D/g, '');
+
+    if (codigo.length < 8) {
+      setErro('Informe um código de barras válido (mínimo 8 dígitos).');
+      return;
+    }
+
+    setBuscandoCodigo(true);
+    try {
+      const data = await adminBuscarProdutoPorCodigoBarras(adminToken, codigo);
+      const produto = data?.produto || {};
+      setProdutoForm((atual) => ({
+        ...atual,
+        codigo_barras: produto.codigo_barras || codigo,
+        nome: produto.nome || atual.nome,
+        descricao: produto.descricao || atual.descricao,
+        marca: produto.marca || atual.marca,
+        imagem: produto.imagem || atual.imagem,
+        categoria: produto.categoria || atual.categoria,
+        emoji: produto.emoji || atual.emoji
+      }));
+    } catch (error) {
+      setErro(error.message);
+    } finally {
+      setBuscandoCodigo(false);
     }
   }
 
@@ -467,12 +507,57 @@ export default function AdminPage() {
         <>
           <form className="form-box" style={{ marginTop: '1rem' }} onSubmit={handleCadastrarProduto}>
             <p><strong>Novo produto</strong></p>
+            <div className="barcode-row">
+              <input
+                className="field-input"
+                placeholder="Código de barras (EAN)"
+                value={produtoForm.codigo_barras}
+                onChange={(event) => setProdutoForm((atual) => ({ ...atual, codigo_barras: event.target.value }))}
+              />
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={buscandoCodigo}
+                onClick={handleBuscarProdutoPorCodigoBarras}
+              >
+                {buscandoCodigo ? 'Buscando...' : 'Buscar por código'}
+              </button>
+            </div>
             <input
               className="field-input"
               placeholder="Nome"
               value={produtoForm.nome}
               onChange={(event) => setProdutoForm((atual) => ({ ...atual, nome: event.target.value }))}
             />
+            <textarea
+              className="field-input"
+              placeholder="Descrição"
+              rows={3}
+              value={produtoForm.descricao}
+              onChange={(event) => setProdutoForm((atual) => ({ ...atual, descricao: event.target.value }))}
+            />
+            <input
+              className="field-input"
+              placeholder="Marca"
+              value={produtoForm.marca}
+              onChange={(event) => setProdutoForm((atual) => ({ ...atual, marca: event.target.value }))}
+            />
+            <input
+              className="field-input"
+              placeholder="URL da imagem"
+              value={produtoForm.imagem}
+              onChange={(event) => setProdutoForm((atual) => ({ ...atual, imagem: event.target.value }))}
+            />
+            {produtoForm.imagem ? (
+              <img
+                className="produto-preview-image"
+                src={produtoForm.imagem}
+                alt="Prévia do produto"
+                onError={(event) => {
+                  event.currentTarget.style.display = 'none';
+                }}
+              />
+            ) : null}
             <input
               className="field-input"
               placeholder="Preço"

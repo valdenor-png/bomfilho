@@ -2,6 +2,16 @@
 
 ## Como atualizar o banco para incluir a forma de pagamento
 
+## Nova migração (código de barras + imagem de produto)
+
+Para habilitar cadastro por código de barras no Admin com foto automática:
+
+```powershell
+mysql -u root -p bom_filho_db < backend\migrate_produtos_codigo_barras_imagem.sql
+```
+
+Se pedir senha no Laragon, normalmente é só pressionar **Enter**.
+
 ### Opção 1: Via Laragon Terminal (Recomendado) 🚀
 
 1. Abra o **Laragon**

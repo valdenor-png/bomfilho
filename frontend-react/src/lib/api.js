@@ -132,6 +132,13 @@ export function adminCadastrarProduto(adminToken, dadosProduto) {
   });
 }
 
+export function adminBuscarProdutoPorCodigoBarras(adminToken, codigoBarras) {
+  const codigo = String(codigoBarras || '').replace(/\D/g, '');
+  return request(`/api/admin/produtos/barcode/${codigo}`, {
+    token: adminToken
+  });
+}
+
 export function adminExcluirProduto(adminToken, produtoId) {
   return request(`/api/admin/produtos/${produtoId}`, {
     method: 'DELETE',
