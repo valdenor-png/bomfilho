@@ -4,6 +4,33 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { getProdutos } from '../lib/api';
 import { useCart } from '../context/CartContext';
 
+const DRINK_SECTIONS_BEBIDAS = [
+  {
+    id: 'agua',
+    label: 'Água',
+    image: 'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['agua', 'água', 'mineral', 'sem gas', 'sem gás', 'com gas', 'com gás']
+  },
+  {
+    id: 'refrigerante',
+    label: 'Refrigerante',
+    image: 'https://images.unsplash.com/photo-1581636625402-29b2a704ef13?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['refrigerante', 'coca', 'pepsi', 'guarana', 'guaraná', 'fanta', 'sprite']
+  },
+  {
+    id: 'cervejas',
+    label: 'Cervejas',
+    image: 'https://images.unsplash.com/photo-1566633806327-68e152aaf26d?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['cerveja', 'beer', 'heineken', 'brahma', 'skol', 'antarctica', 'itaipava']
+  },
+  {
+    id: 'vinho',
+    label: 'Vinho',
+    image: 'https://images.unsplash.com/photo-1516594798947-e65505dbb29d?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['vinho', 'wine', 'tinto', 'branco', 'rose', 'rosé']
+  }
+];
+
 const CATEGORY_IMAGES = {
   hortifruti: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=60',
   bebidas: 'https://images.unsplash.com/photo-1497534446932-c925b458314e?auto=format&fit=crop&w=900&q=60',
@@ -20,6 +47,22 @@ function getProdutoImagem(produto) {
 
   const categoria = String(produto?.categoria || '').toLowerCase();
   return CATEGORY_IMAGES[categoria] || 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?auto=format&fit=crop&w=900&q=60';
+}
+
+function getTextoProduto(produto) {
+  return [
+    String(produto?.nome || '').toLowerCase(),
+    String(produto?.marca || '').toLowerCase(),
+    String(produto?.categoria || '').toLowerCase(),
+    String(produto?.descricao || '').toLowerCase()
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function belongsToDrinkSection(produto, sectionConfig) {
+  const texto = getTextoProduto(produto);
+  return sectionConfig.matchers.some((matcher) => texto.includes(matcher));
 }
 
 export default function ProdutosPage() {
@@ -95,6 +138,65 @@ export default function ProdutosPage() {
     });
   }, [produtos, busca, categoria]);
 
+  const secoesBebidas = useMemo(() => {
+    if (categoria !== 'bebidas') {
+      return [];
+    }
+
+    const usados = new Set();
+    const secoes = DRINK_SECTIONS_BEBIDAS.map((section) => {
+      const itens = produtosFiltrados.filter((produto) => {
+        const match = belongsToDrinkSection(produto, section);
+        if (match) {
+          usados.add(produto.id);
+        }
+        return match;
+      });
+
+      return {
+        ...section,
+        itens
+      };
+    });
+
+    const outrasBebidas = produtosFiltrados.filter((produto) => !usados.has(produto.id));
+
+    if (outrasBebidas.length > 0) {
+      secoes.push({
+        id: 'outras-bebidas',
+        label: 'Outras bebidas',
+        image: CATEGORY_IMAGES.bebidas,
+        itens: outrasBebidas
+      });
+    }
+
+    return secoes.filter((secao) => secao.itens.length > 0);
+  }, [produtosFiltrados, categoria]);
+
+  function renderProdutoCard(produto) {
+    return (
+      <article className="produto-card" key={produto.id}>
+        <img
+          className="produto-image"
+          src={getProdutoImagem(produto)}
+          alt={produto.nome}
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.src = '/img/logo-oficial.png';
+          }}
+        />
+        <p className="produto-title">
+          <span>{produto.emoji || '📦'}</span> {produto.nome}
+        </p>
+        <p className="muted-text">{produto.categoria || 'Sem categoria'}</p>
+        <p className="produto-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
+        <button className="btn-primary" type="button" onClick={() => addItem(produto, 1)}>
+          Adicionar ao carrinho
+        </button>
+      </article>
+    );
+  }
+
   return (
     <section className="page">
       <section className="product-highlight-section" id="produtos" aria-label="Página de produtos">
@@ -163,29 +265,23 @@ export default function ProdutosPage() {
 
       {produtosFiltrados.length === 0 ? (
         <p className="muted-text">Nenhum produto encontrado com os filtros atuais.</p>
+      ) : categoria === 'bebidas' ? (
+        <div className="brand-sections-list" id="produtos-lista">
+          {secoesBebidas.map((secao) => (
+            <section className="brand-section" key={secao.id} aria-label={`Produtos da categoria ${secao.label}`}>
+              <div className="brand-section-banner" style={{ '--brand-bg': `url('${secao.image}')` }}>
+                <h2>{secao.label}</h2>
+                <p>{secao.itens.length} item(ns) nesta categoria</p>
+              </div>
+              <div className="produto-grid brand-produto-grid">
+                {secao.itens.map((produto) => renderProdutoCard(produto))}
+              </div>
+            </section>
+          ))}
+        </div>
       ) : (
         <div className="produto-grid" id="produtos-lista">
-          {produtosFiltrados.map((produto) => (
-            <article className="produto-card" key={produto.id}>
-              <img
-                className="produto-image"
-                src={getProdutoImagem(produto)}
-                alt={produto.nome}
-                loading="lazy"
-                onError={(event) => {
-                  event.currentTarget.src = '/img/logo-oficial.png';
-                }}
-              />
-              <p className="produto-title">
-                <span>{produto.emoji || '📦'}</span> {produto.nome}
-              </p>
-              <p className="muted-text">{produto.categoria || 'Sem categoria'}</p>
-              <p className="produto-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
-              <button className="btn-primary" type="button" onClick={() => addItem(produto, 1)}>
-                Adicionar ao carrinho
-              </button>
-            </article>
-          ))}
+          {produtosFiltrados.map((produto) => renderProdutoCard(produto))}
         </div>
       )}
     </section>

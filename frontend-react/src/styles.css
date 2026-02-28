@@ -612,6 +612,43 @@ body {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 }
 
+.brand-sections-list {
+  margin-top: 1rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.brand-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #fff;
+}
+
+.brand-section-banner {
+  border-radius: 10px;
+  padding: 0.85rem;
+  min-height: 88px;
+  color: #fff;
+  background-image: linear-gradient(140deg, rgba(10, 18, 12, 0.65), rgba(10, 18, 12, 0.35)), var(--brand-bg);
+  background-size: cover;
+  background-position: center;
+}
+
+.brand-section-banner h2 {
+  margin: 0;
+  color: #fff;
+}
+
+.brand-section-banner p {
+  margin-top: 0.2rem;
+  color: #dcfce7;
+}
+
+.brand-produto-grid {
+  margin-top: 0.75rem;
+}
+
 .produto-card {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
