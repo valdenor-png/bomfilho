@@ -79,18 +79,13 @@ Write-Host ""
 Write-Host "📊 ESTRUTURA FINAL:" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "📁 Raiz (arquivos principais):" -ForegroundColor White
-Write-Host "   - index.html" -ForegroundColor Gray
-Write-Host "   - admin.html (redireciona para /#/admin)" -ForegroundColor Gray
-Write-Host "   - api-config.js" -ForegroundColor Gray
-Write-Host "   - styles.css" -ForegroundColor Gray
 Write-Host "   - README.md" -ForegroundColor Gray
 Write-Host "   - .gitignore" -ForegroundColor Gray
 Write-Host ""
 Write-Host "📁 Pastas:" -ForegroundColor White
 Write-Host "   - backend/     (API e banco de dados)" -ForegroundColor Gray
 Write-Host "   - frontend-react/ (frontend principal React)" -ForegroundColor Gray
-Write-Host "   - js/          (módulos JavaScript)" -ForegroundColor Gray
-Write-Host "   - css/         (estilos)" -ForegroundColor Gray
+Write-Host "   - legacy/      (frontend HTML/CSS/JS antigo)" -ForegroundColor Gray
 Write-Host "   - docs/        (documentação)" -ForegroundColor Gray
 Write-Host "   - scripts/     (scripts auxiliares)" -ForegroundColor Gray
 Write-Host ""

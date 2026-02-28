@@ -62,6 +62,11 @@ out/
 temp/
 tmp/
 
+# Documentação (manter apenas o contexto principal no Git)
+docs/**
+!docs/
+!docs/CONTEXTO_PROJETO.md
+
 # Uploads e arquivos temporários
 uploads/
 temp-uploads/

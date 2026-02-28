@@ -73,9 +73,8 @@ Criar uma base sólida para um e-commerce de supermercado local, pronta para uso
 
 ### Frontend
 
-- HTML, CSS e JavaScript puro
-- Organização por módulos em `js/`
-- Comunicação com API via `api-config.js`
+- React + Vite em `frontend-react/` (principal)
+- Frontend legado em `legacy/` (HTML/CSS/JS antigo para referência/compatibilidade)
 
 ### Backend
 
@@ -89,24 +88,15 @@ Criar uma base sólida para um e-commerce de supermercado local, pronta para uso
 
 ```text
 site/
-├── index.html
-├── styles.css
-├── api-config.js
-├── admin.html (redireciona para /#/admin)
-├── admin-pedidos.html (redireciona para /#/admin)
-├── painel-admin.html (redireciona para /#/admin)
-├── css/
-├── js/
-│   ├── main.js
-│   ├── auth.js
-│   ├── products.js
-│   ├── cart.js
-│   ├── checkout.js
-│   ├── busca.js
-│   ├── listas.js
-│   ├── historico-cupons.js
-│   ├── rastreamento.js
-│   └── ofertas-avaliacoes.js
+├── legacy/
+│   ├── index.html
+│   ├── styles.css
+│   ├── api-config.js
+│   ├── admin.html
+│   ├── admin-pedidos.html
+│   ├── painel-admin.html
+│   ├── css/
+│   └── js/
 ├── frontend-react/
 │   ├── src/
 │   │   └── pages/
@@ -131,7 +121,7 @@ site/
 ### Frontend
 
 - React + Vite (principal)
-- HTML/CSS/JS legado (apenas fluxo antigo e compatibilidade)
+- HTML/CSS/JS legado em `legacy/`
 
 ### Backend
 

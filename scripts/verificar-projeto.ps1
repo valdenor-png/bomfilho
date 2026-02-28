@@ -1,196 +1,147 @@
 # ============================================
 # VERIFICADOR DE PROJETO
-# Verifica se está tudo pronto para transferir
+# Verifica se a estrutura minima esta correta
 # ============================================
 
-Write-Host ""
-Write-Host "🔍 VERIFICANDO PROJETO..." -ForegroundColor Cyan
-Write-Host ""
+$ErrorActionPreference = 'Stop'
 
-$erros = 0
-$avisos = 0
+$projectRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $projectRoot
 
-# Função auxiliar
+Write-Host ''
+Write-Host 'VERIFYING PROJECT STRUCTURE...' -ForegroundColor Cyan
+Write-Host ''
+
+$errors = 0
+$warnings = 0
+
 function Test-FileExists {
-    param($path, $nome)
-    if (Test-Path $path) {
-        Write-Host "✅ $nome encontrado" -ForegroundColor Green
+    param([string]$Path, [string]$Name)
+
+    if (Test-Path $Path) {
+        Write-Host "OK: $Name" -ForegroundColor Green
         return $true
-    } else {
-        Write-Host "❌ $nome NÃO encontrado: $path" -ForegroundColor Red
-        $script:erros++
-        return $false
     }
+
+    Write-Host "ERROR: $Name not found -> $Path" -ForegroundColor Red
+    $script:errors++
+    return $false
 }
 
 function Test-FileNotExists {
-    param($path, $nome)
-    if (Test-Path $path) {
-        Write-Host "⚠️  $nome ENCONTRADO (não deveria estar no Git)" -ForegroundColor Yellow
-        $script:avisos++
+    param([string]$Path, [string]$Name)
+
+    if (Test-Path $Path) {
+        Write-Host "WARN: $Name found (should not be in repository)" -ForegroundColor Yellow
+        $script:warnings++
         return $false
-    } else {
-        Write-Host "✅ $nome ausente (correto)" -ForegroundColor Green
-        return $true
     }
+
+    Write-Host "OK: $Name absent" -ForegroundColor Green
+    return $true
 }
 
-# ==================================================
-# VERIFICAR ARQUIVOS ESSENCIAIS
-# ==================================================
-Write-Host "📁 Verificando arquivos principais..." -ForegroundColor White
-Write-Host ""
+Write-Host 'Checking core files...' -ForegroundColor White
+Write-Host ''
 
-Test-FileExists "index.html" "index.html"
-Test-FileExists "api-config.js" "api-config.js"
-Test-FileExists "styles.css" "styles.css"
-Test-FileExists ".gitignore" ".gitignore"
-Test-FileExists "backend/server.js" "backend/server.js"
-Test-FileExists "backend/package.json" "backend/package.json"
-Test-FileExists "backend/database.sql" "backend/database.sql"
-Test-FileExists "backend/.env.example" "backend/.env.example"
+Test-FileExists '.gitignore' '.gitignore'
+Test-FileExists 'README.md' 'README.md'
+Test-FileExists 'backend/server.js' 'backend/server.js'
+Test-FileExists 'backend/package.json' 'backend/package.json'
+Test-FileExists 'backend/database.sql' 'backend/database.sql'
+Test-FileExists 'backend/.env.example' 'backend/.env.example'
+Test-FileExists 'frontend-react/package.json' 'frontend-react/package.json'
+Test-FileExists 'frontend-react/src/main.jsx' 'frontend-react/src/main.jsx'
+Test-FileExists 'legacy/index.html' 'legacy/index.html'
 
-Write-Host ""
+Write-Host ''
+Write-Host 'Checking folders...' -ForegroundColor White
+Write-Host ''
 
-# ==================================================
-# VERIFICAR PASTAS
-# ==================================================
-Write-Host "📂 Verificando pastas..." -ForegroundColor White
-Write-Host ""
+Test-FileExists 'backend' 'backend folder'
+Test-FileExists 'frontend-react' 'frontend-react folder'
+Test-FileExists 'legacy' 'legacy folder'
+Test-FileExists 'docs' 'docs folder'
+Test-FileExists 'scripts' 'scripts folder'
 
-Test-FileExists "js" "Pasta js/"
-Test-FileExists "css" "Pasta css/"
-Test-FileExists "backend" "Pasta backend/"
+Write-Host ''
+Write-Host 'Checking sensitive artifacts...' -ForegroundColor White
+Write-Host ''
 
-Write-Host ""
+Test-FileNotExists 'backend/.env' 'backend/.env'
+Test-FileNotExists 'backend/node_modules' 'backend/node_modules'
 
-# ==================================================
-# VERIFICAR ARQUIVOS QUE NÃO DEVEM EXISTIR
-# ==================================================
-Write-Host "🔒 Verificando arquivos sensíveis..." -ForegroundColor White
-Write-Host ""
-
-Test-FileNotExists "backend/.env" ".env (arquivo sensível)"
-Test-FileNotExists "backend/node_modules" "node_modules/ (muito pesado)"
-
-Write-Host ""
-
-# ==================================================
-# VERIFICAR GIT
-# ==================================================
-Write-Host "🔧 Verificando Git..." -ForegroundColor White
-Write-Host ""
+Write-Host ''
+Write-Host 'Checking git and node...' -ForegroundColor White
+Write-Host ''
 
 try {
     $gitVersion = git --version 2>$null
-    Write-Host "✅ Git instalado: $gitVersion" -ForegroundColor Green
+    Write-Host "OK: $gitVersion" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Git NÃO instalado" -ForegroundColor Red
-    Write-Host "   Baixe em: https://git-scm.com/download/win" -ForegroundColor Yellow
-    $erros++
+    Write-Host 'WARN: git is not installed' -ForegroundColor Yellow
+    $warnings++
 }
-
-if (Test-Path ".git") {
-    Write-Host "✅ Repositório Git inicializado" -ForegroundColor Green
-} else {
-    Write-Host "⚠️  Repositório Git NÃO inicializado" -ForegroundColor Yellow
-    Write-Host "   Execute: .\setup-git.ps1" -ForegroundColor Yellow
-    $avisos++
-}
-
-Write-Host ""
-
-# ==================================================
-# VERIFICAR NODE.JS
-# ==================================================
-Write-Host "🟢 Verificando Node.js..." -ForegroundColor White
-Write-Host ""
 
 try {
     $nodeVersion = node --version 2>$null
-    Write-Host "✅ Node.js instalado: $nodeVersion" -ForegroundColor Green
+    Write-Host "OK: Node.js $nodeVersion" -ForegroundColor Green
 } catch {
-    Write-Host "⚠️  Node.js NÃO instalado" -ForegroundColor Yellow
-    Write-Host "   Baixe em: https://nodejs.org/" -ForegroundColor Yellow
-    $avisos++
+    Write-Host 'WARN: Node.js is not installed' -ForegroundColor Yellow
+    $warnings++
 }
 
 try {
     $npmVersion = npm --version 2>$null
-    Write-Host "✅ npm instalado: v$npmVersion" -ForegroundColor Green
+    Write-Host "OK: npm v$npmVersion" -ForegroundColor Green
 } catch {
-    Write-Host "⚠️  npm NÃO instalado" -ForegroundColor Yellow
-    $avisos++
+    Write-Host 'WARN: npm is not installed' -ForegroundColor Yellow
+    $warnings++
 }
 
-Write-Host ""
+Write-Host ''
+Write-Host 'Checking legacy key modules...' -ForegroundColor White
+Write-Host ''
 
-# ==================================================
-# VERIFICAR MÓDULOS JAVASCRIPT
-# ==================================================
-Write-Host "📜 Verificando módulos JavaScript..." -ForegroundColor White
-Write-Host ""
-
-$modulosJS = @(
-    "js/main.js",
-    "js/auth.js",
-    "js/cart.js",
-    "js/products.js",
-    "js/carousel.js"
+$legacyModules = @(
+    'legacy/js/main.js',
+    'legacy/js/auth.js',
+    'legacy/js/cart.js',
+    'legacy/js/products.js',
+    'legacy/js/carousel.js'
 )
 
-foreach ($modulo in $modulosJS) {
-    Test-FileExists $modulo $modulo
+foreach ($module in $legacyModules) {
+    Test-FileExists $module $module
 }
 
-Write-Host ""
+Write-Host ''
+Write-Host 'Project size...' -ForegroundColor White
+Write-Host ''
 
-# ==================================================
-# VERIFICAR TAMANHO DO PROJETO
-# ==================================================
-Write-Host "📊 Tamanho do projeto..." -ForegroundColor White
-Write-Host ""
-
-$tamanho = (Get-ChildItem -Recurse -File | 
-    Where-Object { $_.FullName -notmatch "node_modules" } |
+$sizeMB = (Get-ChildItem -Recurse -File |
+    Where-Object { $_.FullName -notmatch 'node_modules' } |
     Measure-Object -Property Length -Sum).Sum / 1MB
 
-Write-Host ("   {0:N2} MB (sem node_modules)" -f $tamanho) -ForegroundColor Cyan
+Write-Host ('{0:N2} MB (without node_modules)' -f $sizeMB) -ForegroundColor Cyan
 
-if ($tamanho -gt 100) {
-    Write-Host "⚠️  Projeto muito grande (>100MB)" -ForegroundColor Yellow
-    $avisos++
+if ($sizeMB -gt 100) {
+    Write-Host 'WARN: project is larger than 100MB' -ForegroundColor Yellow
+    $warnings++
 }
 
-Write-Host ""
+Write-Host ''
+Write-Host ('=' * 50) -ForegroundColor Cyan
+Write-Host 'VERIFICATION RESULT' -ForegroundColor Cyan
+Write-Host ('=' * 50) -ForegroundColor Cyan
+Write-Host ''
 
-# ==================================================
-# RESULTADO FINAL
-# ==================================================
-Write-Host "=" * 50 -ForegroundColor Cyan
-Write-Host "RESULTADO DA VERIFICAÇÃO" -ForegroundColor Cyan
-Write-Host "=" * 50 -ForegroundColor Cyan
-Write-Host ""
-
-if ($erros -eq 0 -and $avisos -eq 0) {
-    Write-Host "🎉 PROJETO PERFEITO!" -ForegroundColor Green
-    Write-Host "   Tudo está pronto para transferir via Git/GitHub" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "📋 PRÓXIMO PASSO:" -ForegroundColor Cyan
-    Write-Host "   1. Execute: .\setup-git.ps1" -ForegroundColor White
-    Write-Host "   2. Crie repositório no GitHub" -ForegroundColor White
-    Write-Host "   3. Faça push do código" -ForegroundColor White
-} elseif ($erros -eq 0) {
-    Write-Host "✅ Projeto BOM (apenas avisos)" -ForegroundColor Yellow
-    Write-Host "   $avisos aviso(s) encontrado(s)" -ForegroundColor Yellow
-    Write-Host "   Você pode prosseguir, mas verifique os avisos acima" -ForegroundColor Yellow
+if ($errors -eq 0 -and $warnings -eq 0) {
+    Write-Host 'STATUS: PERFECT' -ForegroundColor Green
+} elseif ($errors -eq 0) {
+    Write-Host "STATUS: GOOD WITH WARNINGS ($warnings)" -ForegroundColor Yellow
 } else {
-    Write-Host "❌ PROJETO COM PROBLEMAS" -ForegroundColor Red
-    Write-Host "   $erros erro(s) encontrado(s)" -ForegroundColor Red
-    Write-Host "   $avisos aviso(s) encontrado(s)" -ForegroundColor Yellow
-    Write-Host "   Corrija os erros antes de transferir" -ForegroundColor Red
+    Write-Host "STATUS: FAIL - ERRORS: $errors, WARNINGS: $warnings" -ForegroundColor Red
 }
 
-Write-Host ""
-Write-Host "📖 Para ajuda, veja: GUIA_GITHUB.md ou TRANSFERIR.md" -ForegroundColor Cyan
-Write-Host ""
+Write-Host ''

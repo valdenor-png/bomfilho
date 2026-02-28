@@ -11,29 +11,29 @@ Este arquivo ajuda a entender rapidamente o projeto quando trabalhar em outra m�
 **Nome:** Bom Filho Supermercado  
 **Tipo:** E-commerce completo (Frontend + Backend + Banco de Dados)  
 **Status:** 80% completo, pronto para deploy  
-**Tecnologias:** HTML5, CSS3, JavaScript (ES5), Node.js, MySQL
+**Tecnologias:** React (Vite), Node.js, Express, MySQL, HTML/CSS/JS (legado)
 
 ---
 
 ## 🏗️ **Arquitetura**
 
-### **Frontend (Modular)**
+### **Frontend principal (React)**
 ```
-index.html           → Página principal
-api-config.js        → Configuração da API
-styles.css           → Estilos globais
-js/
-  ├── main.js              → Coordenação geral
-  ├── auth.js              → Login/Cadastro
-  ├── cart.js              → Carrinho de compras
-  ├── products.js          → Listagem de produtos
-  ├── checkout.js          → Finalização de pedidos
-  ├── carousel.js          → Carrossel de ofertas
-  ├── busca.js             → Busca inteligente
-  ├── listas.js            → Listas de compras
-  ├── historico-cupons.js  → Histórico e cupons
-  ├── rastreamento.js      → Rastreamento de pedidos
-  └── ofertas-avaliacoes.js
+frontend-react/
+  ├── src/main.jsx         → Bootstrap da SPA
+  ├── src/App.jsx          → Rotas e layout principal
+  ├── src/pages/           → Páginas (Home, Conta, Pagamento, Admin)
+  └── src/lib/api.js       → Cliente HTTP com VITE_API_URL
+```
+
+### **Frontend legado (referência)**
+```
+legacy/
+  ├── index.html
+  ├── api-config.js
+  ├── styles.css
+  ├── css/
+  └── js/
 ```
 
 ### **Backend (Node.js + Express)**
@@ -62,11 +62,9 @@ Tabelas principais:
 ## 🎨 **Padrões de Código**
 
 ### **JavaScript**
-- ✅ ES5 (compatibilidade)
-- ✅ Sem arrow functions
-- ✅ `var` em vez de `let`/`const`
-- ✅ Funções declaradas com `function nome()`
-- ✅ Comentários descritivos em blocos
+- ✅ Frontend principal com React moderno (ES Modules)
+- ✅ Backend Node.js com Express
+- ✅ Código legado preservado em `legacy/`
 
 ### **Nomenclatura**
 - ✅ Variáveis: `camelCase` (ex: `usuarioLogado`)
@@ -113,10 +111,8 @@ MP_ACCESS_TOKEN=seu_token
 
 ### **API Base URL**
 ```javascript
-// api-config.js
-const API_CONFIG = {
-  baseURL: 'http://localhost:3000/api'
-};
+// frontend-react/src/lib/api.js
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 ```
 
 ---
@@ -143,20 +139,19 @@ const API_CONFIG = {
 
 ## 📝 **Decisões de Design**
 
-### **Por que ES5?**
-- Compatibilidade com navegadores antigos
-- Mais fácil para quem está aprendendo
-- Funciona sem build/transpilação
+### **Por que React + Vite no principal?**
+- Deploy mais previsível
+- Organização por componentes/páginas
+- Build otimizada para produção
 
 ### **Por que módulos separados?**
 - Organização e manutenibilidade
 - Facilita debug
 - Cada arquivo tem uma responsabilidade clara
 
-### **Por que não usar framework?**
-- Projeto educacional
-- Vanilla JS mais leve
-- Sem dependências frontend
+### **Por que manter o legado?**
+- Referência histórica do projeto
+- Compatibilidade temporária enquanto a migração consolida
 
 ---
 
@@ -182,8 +177,11 @@ const API_CONFIG = {
 ```bash
 cd backend
 npm install
-npm start
-# Abrir index.html no navegador
+npm run dev
+
+cd ../frontend-react
+npm install
+npm run dev
 ```
 
 ### **Adicionar Nova Funcionalidade**
@@ -269,8 +267,11 @@ window.funcaoPublica = funcaoPublica;
 
 ```bash
 # Backend
-npm start              # Iniciar servidor
-npm run dev            # Iniciar com nodemon (auto-reload)
+npm run dev            # Iniciar backend (desenvolvimento)
+
+# Frontend React
+cd ../frontend-react
+npm run dev            # Iniciar frontend em http://127.0.0.1:5173
 
 # Git
 git status             # Ver status
