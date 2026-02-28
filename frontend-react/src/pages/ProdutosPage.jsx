@@ -9,7 +9,7 @@ const DRINK_SECTIONS_BEBIDAS = [
     id: 'agua',
     label: 'Água',
     image: 'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1400&q=60',
-    matchers: ['agua', 'água', 'mineral', 'sem gas', 'sem gás', 'com gas', 'com gás']
+    matchers: ['agua', 'mineral', 'sem gas', 'com gas']
   },
   {
     id: 'refrigerante',
@@ -31,6 +31,114 @@ const DRINK_SECTIONS_BEBIDAS = [
   }
 ];
 
+const BRAND_GROUPS_BY_SUBCATEGORY = {
+  refrigerante: [
+    {
+      id: 'coca-cola',
+      label: 'Coca-Cola',
+      image: 'https://images.unsplash.com/photo-1629203432180-71e9bfe03d94?auto=format&fit=crop&w=1400&q=60',
+      matchers: ['coca-cola', 'coca cola', 'coca']
+    },
+    {
+      id: 'pepsi',
+      label: 'Pepsi',
+      image: 'https://images.unsplash.com/photo-1581006852262-e4307cf6283a?auto=format&fit=crop&w=1400&q=60',
+      matchers: ['pepsi']
+    },
+    {
+      id: 'guarana-e-outros',
+      label: 'Guaraná e Outros',
+      image: 'https://images.unsplash.com/photo-1571068316344-75bc76f77890?auto=format&fit=crop&w=1400&q=60',
+      matchers: ['guarana', 'guaraná', 'fanta', 'sprite', 'kuat', 'sukita', 'garoto']
+    }
+  ],
+  cervejas: [
+    {
+      id: 'heineken',
+      label: 'Heineken',
+      image: 'https://images.unsplash.com/photo-1566633806327-68e152aaf26d?auto=format&fit=crop&w=1400&q=60',
+      matchers: ['heineken']
+    },
+    {
+      id: 'brahma-e-skol',
+      label: 'Brahma e Skol',
+      image: 'https://images.unsplash.com/photo-1618885472179-5e474019f2a9?auto=format&fit=crop&w=1400&q=60',
+      matchers: ['brahma', 'skol', 'antarctica']
+    }
+  ],
+  vinho: [
+    {
+      id: 'vinhos-tintos',
+      label: 'Vinhos Tintos',
+      image: 'https://images.unsplash.com/photo-1516594798947-e65505dbb29d?auto=format&fit=crop&w=1400&q=60',
+      matchers: ['tinto']
+    },
+    {
+      id: 'vinhos-brancos',
+      label: 'Vinhos Brancos',
+      image: 'https://images.unsplash.com/photo-1474722883778-792e7990302f?auto=format&fit=crop&w=1400&q=60',
+      matchers: ['branco', 'rose', 'rosé']
+    }
+  ],
+  agua: [
+    {
+      id: 'agua-sem-gas',
+      label: 'Água sem gás',
+      image: 'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1400&q=60',
+      matchers: ['sem gas']
+    },
+    {
+      id: 'agua-com-gas',
+      label: 'Água com gás',
+      image: 'https://images.unsplash.com/photo-1564417947365-8dbc9d0e718e?auto=format&fit=crop&w=1400&q=60',
+      matchers: ['com gas']
+    }
+  ]
+};
+
+const TEST_BEBIDAS_ITEMS = [
+  {
+    id: 990001,
+    nome: 'Água Mineral 500ml (Teste)',
+    marca: 'Cristal',
+    categoria: 'bebidas',
+    descricao: 'agua mineral sem gas',
+    preco: 2.5,
+    emoji: '💧',
+    imagem: 'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=900&q=60'
+  },
+  {
+    id: 990002,
+    nome: 'Refrigerante Cola 2L (Teste)',
+    marca: 'Coca-Cola',
+    categoria: 'bebidas',
+    descricao: 'refrigerante cola',
+    preco: 10.9,
+    emoji: '🥤',
+    imagem: 'https://images.unsplash.com/photo-1581636625402-29b2a704ef13?auto=format&fit=crop&w=900&q=60'
+  },
+  {
+    id: 990003,
+    nome: 'Cerveja Pilsen Lata 350ml (Teste)',
+    marca: 'Heineken',
+    categoria: 'bebidas',
+    descricao: 'cerveja pilsen lager',
+    preco: 5.99,
+    emoji: '🍺',
+    imagem: 'https://images.unsplash.com/photo-1566633806327-68e152aaf26d?auto=format&fit=crop&w=900&q=60'
+  },
+  {
+    id: 990004,
+    nome: 'Vinho Tinto Suave 750ml (Teste)',
+    marca: 'Pérgola',
+    categoria: 'bebidas',
+    descricao: 'vinho tinto suave',
+    preco: 29.9,
+    emoji: '🍷',
+    imagem: 'https://images.unsplash.com/photo-1516594798947-e65505dbb29d?auto=format&fit=crop&w=900&q=60'
+  }
+];
+
 const CATEGORY_IMAGES = {
   hortifruti: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=60',
   bebidas: 'https://images.unsplash.com/photo-1497534446932-c925b458314e?auto=format&fit=crop&w=900&q=60',
@@ -49,12 +157,25 @@ function getProdutoImagem(produto) {
   return CATEGORY_IMAGES[categoria] || 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?auto=format&fit=crop&w=900&q=60';
 }
 
+function normalizeText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isBebidasCategoria(value) {
+  return normalizeText(value).includes('bebida');
+}
+
 function getTextoProduto(produto) {
   return [
-    String(produto?.nome || '').toLowerCase(),
-    String(produto?.marca || '').toLowerCase(),
-    String(produto?.categoria || '').toLowerCase(),
-    String(produto?.descricao || '').toLowerCase()
+    normalizeText(produto?.nome),
+    normalizeText(produto?.marca),
+    normalizeText(produto?.categoria),
+    normalizeText(produto?.descricao)
   ]
     .filter(Boolean)
     .join(' ');
@@ -62,7 +183,17 @@ function getTextoProduto(produto) {
 
 function belongsToDrinkSection(produto, sectionConfig) {
   const texto = getTextoProduto(produto);
-  return sectionConfig.matchers.some((matcher) => texto.includes(matcher));
+  return sectionConfig.matchers.some((matcher) => texto.includes(normalizeText(matcher)));
+}
+
+function getBebidaSubcategoriaId(produto) {
+  const found = DRINK_SECTIONS_BEBIDAS.find((section) => belongsToDrinkSection(produto, section));
+  return found?.id || 'outras-bebidas';
+}
+
+function belongsToBrandGroup(produto, brandConfig) {
+  const texto = getTextoProduto(produto);
+  return brandConfig.matchers.some((matcher) => texto.includes(normalizeText(matcher)));
 }
 
 export default function ProdutosPage() {
@@ -82,6 +213,7 @@ export default function ProdutosPage() {
   const [produtos, setProdutos] = useState([]);
   const [busca, setBusca] = useState(buscaInicial);
   const [categoria, setCategoria] = useState(categoriaInicial || 'todas');
+  const [bebidaSubcategoria, setBebidaSubcategoria] = useState('todas');
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
 
@@ -93,6 +225,12 @@ export default function ProdutosPage() {
     setBusca(String(searchParams.get('busca') || ''));
     setCategoria(String(searchParams.get('categoria') || 'todas').toLowerCase());
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!isBebidasCategoria(categoria)) {
+      setBebidaSubcategoria('todas');
+    }
+  }, [categoria]);
 
   async function carregarProdutos() {
     setCarregando(true);
@@ -107,21 +245,38 @@ export default function ProdutosPage() {
     }
   }
 
+  const produtosComTeste = useMemo(() => {
+    const base = [...produtos];
+
+    TEST_BEBIDAS_ITEMS.forEach((teste) => {
+      const jaExiste = base.some((item) => normalizeText(item.nome) === normalizeText(teste.nome));
+      if (!jaExiste) {
+        base.push(teste);
+      }
+    });
+
+    return base;
+  }, [produtos]);
+
   const categorias = useMemo(() => {
     const values = new Set();
-    produtos.forEach((produto) => {
+    produtosComTeste.forEach((produto) => {
       if (produto.categoria) {
         values.add(String(produto.categoria));
       }
     });
     return ['todas', ...Array.from(values).sort((a, b) => a.localeCompare(b))];
-  }, [produtos]);
+  }, [produtosComTeste]);
 
   const produtosFiltrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    return produtos.filter((produto) => {
-      const nome = String(produto.nome || '').toLowerCase();
+    const termoNormalizado = normalizeText(busca);
+    const termo = isBebidasCategoria(categoria) && (termoNormalizado === 'bebida' || termoNormalizado === 'bebidas')
+      ? ''
+      : termoNormalizado;
+    return produtosComTeste.filter((produto) => {
+      const nome = normalizeText(produto.nome);
       const categoriaAtual = String(produto.categoria || '').toLowerCase();
+      const categoriaAtualNormalizada = normalizeText(categoriaAtual);
       const emPromocao =
         Number(produto.desconto || 0) > 0
         || Number(produto.percentual_desconto || 0) > 0
@@ -133,13 +288,15 @@ export default function ProdutosPage() {
         ? true
         : categoria === 'promocoes'
           ? emPromocao
-          : categoriaAtual === categoria;
+          : categoria === 'bebidas'
+            ? categoriaAtualNormalizada.includes('bebida')
+            : categoriaAtual === categoria;
       return matchBusca && matchCategoria;
     });
-  }, [produtos, busca, categoria]);
+  }, [produtosComTeste, busca, categoria]);
 
   const secoesBebidas = useMemo(() => {
-    if (categoria !== 'bebidas') {
+    if (!isBebidasCategoria(categoria)) {
       return [];
     }
 
@@ -172,6 +329,48 @@ export default function ProdutosPage() {
 
     return secoes.filter((secao) => secao.itens.length > 0);
   }, [produtosFiltrados, categoria]);
+
+  const produtosBebidasSubcategoria = useMemo(() => {
+    if (!isBebidasCategoria(categoria) || bebidaSubcategoria === 'todas') {
+      return [];
+    }
+    return produtosFiltrados.filter((produto) => getBebidaSubcategoriaId(produto) === bebidaSubcategoria);
+  }, [categoria, bebidaSubcategoria, produtosFiltrados]);
+
+  const gruposMarcaBebidas = useMemo(() => {
+    if (!isBebidasCategoria(categoria) || bebidaSubcategoria === 'todas') {
+      return [];
+    }
+
+    const defs = BRAND_GROUPS_BY_SUBCATEGORY[bebidaSubcategoria] || [];
+    const usados = new Set();
+    const grupos = defs.map((def) => {
+      const itens = produtosBebidasSubcategoria.filter((produto) => {
+        const match = belongsToBrandGroup(produto, def);
+        if (match) {
+          usados.add(produto.id);
+        }
+        return match;
+      });
+
+      return {
+        ...def,
+        itens
+      };
+    }).filter((grupo) => grupo.itens.length > 0);
+
+    const outros = produtosBebidasSubcategoria.filter((produto) => !usados.has(produto.id));
+    if (outros.length > 0) {
+      grupos.push({
+        id: 'outras-marcas',
+        label: 'Outras marcas',
+        image: CATEGORY_IMAGES.bebidas,
+        itens: outros
+      });
+    }
+
+    return grupos;
+  }, [categoria, bebidaSubcategoria, produtosBebidasSubcategoria]);
 
   function renderProdutoCard(produto) {
     return (
@@ -241,12 +440,42 @@ export default function ProdutosPage() {
               key={item.id}
               type="button"
               className={`category-btn-react ${item.destaque ? 'category-promocoes-react' : ''} ${categoria === item.id ? 'active' : ''}`}
-              onClick={() => setCategoria(item.id)}
+              onClick={() => {
+                setCategoria(item.id);
+                if (item.id !== 'bebidas') {
+                  setBebidaSubcategoria('todas');
+                }
+              }}
             >
               {item.label}
             </button>
           ))}
         </div>
+
+        {isBebidasCategoria(categoria) ? (
+          <div className="bebidas-subcats" aria-label="Subcategorias de bebidas">
+            <p className="bebidas-subcats-title">Subcategorias de bebidas</p>
+            <div className="bebidas-subcats-actions">
+              <button
+                type="button"
+                className={`category-btn-react ${bebidaSubcategoria === 'todas' ? 'active' : ''}`}
+                onClick={() => setBebidaSubcategoria('todas')}
+              >
+                Todas
+              </button>
+              {secoesBebidas.map((secao) => (
+                <button
+                  key={secao.id}
+                  type="button"
+                  className={`category-btn-react ${bebidaSubcategoria === secao.id ? 'active' : ''}`}
+                  onClick={() => setBebidaSubcategoria(secao.id)}
+                >
+                  {secao.label} ({secao.itens.length})
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <div className="pedido-resumo" style={{ marginTop: '0.9rem' }}>
@@ -265,20 +494,35 @@ export default function ProdutosPage() {
 
       {produtosFiltrados.length === 0 ? (
         <p className="muted-text">Nenhum produto encontrado com os filtros atuais.</p>
-      ) : categoria === 'bebidas' ? (
-        <div className="brand-sections-list" id="produtos-lista">
-          {secoesBebidas.map((secao) => (
-            <section className="brand-section" key={secao.id} aria-label={`Produtos da categoria ${secao.label}`}>
-              <div className="brand-section-banner" style={{ '--brand-bg': `url('${secao.image}')` }}>
-                <h2>{secao.label}</h2>
-                <p>{secao.itens.length} item(ns) nesta categoria</p>
-              </div>
-              <div className="produto-grid brand-produto-grid">
-                {secao.itens.map((produto) => renderProdutoCard(produto))}
-              </div>
-            </section>
-          ))}
-        </div>
+      ) : isBebidasCategoria(categoria) ? (
+        bebidaSubcategoria === 'todas' ? (
+          <div className="brand-sections-list" id="produtos-lista">
+            {secoesBebidas.map((secao) => (
+              <section className="brand-section" key={secao.id} aria-label={`Produtos da categoria ${secao.label}`}>
+                <div className="brand-section-banner" style={{ '--brand-bg': `url('${secao.image}')` }}>
+                  <h2>{secao.label}</h2>
+                  <p>{secao.itens.length} item(ns) nesta categoria</p>
+                </div>
+              </section>
+            ))}
+          </div>
+        ) : gruposMarcaBebidas.length === 0 ? (
+          <p className="muted-text">Nenhum item encontrado para essa subcategoria.</p>
+        ) : (
+          <div className="brand-sections-list" id="produtos-lista">
+            {gruposMarcaBebidas.map((grupo) => (
+              <section className="brand-section" key={grupo.id} aria-label={`Produtos da marca ${grupo.label}`}>
+                <div className="brand-section-banner" style={{ '--brand-bg': `url('${grupo.image}')` }}>
+                  <h2>{grupo.label}</h2>
+                  <p>{grupo.itens.length} item(ns) nesta marca</p>
+                </div>
+                <div className="produto-grid brand-produto-grid">
+                  {grupo.itens.map((produto) => renderProdutoCard(produto))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )
       ) : (
         <div className="produto-grid" id="produtos-lista">
           {produtosFiltrados.map((produto) => renderProdutoCard(produto))}

@@ -27,7 +27,7 @@ export default function HomePage() {
     {
       categoria: 'bebidas',
       label: 'Bebidas',
-      busca: 'bebida',
+      busca: '',
       imagem: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=900&q=60'
     },
     {
