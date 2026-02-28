@@ -2,6 +2,7 @@ import React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import HomePage from './pages/HomePage';
+import ProdutosPage from './pages/ProdutosPage';
 import PagamentoPage from './pages/PagamentoPage';
 import SobrePage from './pages/SobrePage';
 import ContaPage from './pages/ContaPage';
@@ -9,7 +10,8 @@ import AdminPage from './pages/AdminPage';
 import { useCart } from './context/CartContext';
 
 const links = [
-  { to: '/', icon: '🛍️', label: 'Produtos' },
+  { to: '/', icon: '🏠', label: 'Início' },
+  { to: '/produtos', icon: '🛍️', label: 'Produtos' },
   { to: '/sobre', icon: 'ℹ️', label: 'Sobre' },
   { to: '/conta', icon: '👤', label: 'Conta' }
 ];
@@ -123,6 +125,7 @@ export default function App() {
       <main className="content">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/produtos" element={<ProdutosPage />} />
           <Route path="/pagamento" element={<PagamentoPage />} />
           <Route path="/admin" element={isLocalHost ? <Navigate to="/admin" replace /> : <Navigate to="/" replace />} />
           <Route path="/sobre" element={<SobrePage />} />

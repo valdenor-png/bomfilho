@@ -178,8 +178,8 @@ export default function PagamentoPage() {
           <p><strong>Etapa 1: Carrinho</strong></p>
           {itens.length === 0 ? (
             <>
-              <p className="muted-text">Carrinho vazio. Adicione produtos na página inicial.</p>
-              <Link to="/" className="btn-secondary" style={{ display: 'inline-block' }}>
+              <p className="muted-text">Carrinho vazio. Adicione produtos na página de produtos.</p>
+              <Link to="/produtos" className="btn-secondary" style={{ display: 'inline-block' }}>
                 Voltar para produtos
               </Link>
             </>

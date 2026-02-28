@@ -74,6 +74,19 @@ body {
   gap: 0.9rem;
 }
 
+.footer-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.footer-brand p {
+  margin-top: 0.2rem;
+  color: #4a5568;
+}
+
 .store-brand h1 {
   margin: 0;
   font-size: 1.55rem;
@@ -462,6 +475,14 @@ body {
 
 .search-bar-react {
   margin-top: 0.6rem;
+}
+
+.search-bar-highlight {
+  margin-top: 0.8rem;
+  border: 2px solid #2f855a;
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #f0fdf4;
 }
 
 .legacy-categories {

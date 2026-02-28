@@ -1,8 +1,7 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { getProdutos } from '../lib/api';
-import { useCart } from '../context/CartContext';
 
 const CATEGORY_IMAGES = {
   hortifruti: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=60',
@@ -23,14 +22,7 @@ function getProdutoImagem(produto) {
 }
 
 export default function HomePage() {
-  const { addItem, resumo } = useCart();
-  const categoriasLegado = [
-    { id: 'todas', label: '🛒 Todas' },
-    { id: 'promocoes', label: '🔥 Promoções', destaque: true },
-    { id: 'hortifruti', label: '🥦 Hortifruti' },
-    { id: 'bebidas', label: '🥤 Bebidas' },
-    { id: 'limpeza', label: '🧴 Limpeza' }
-  ];
+  const navigate = useNavigate();
   const setores = [
     {
       categoria: 'bebidas',
@@ -52,21 +44,16 @@ export default function HomePage() {
     }
   ];
   const slides = [
-  
     {
       title: '🥦 Hortifruti Fresquinho',
       text: 'Frutas e verduras fresquinhas todos os dias.'
     },
     {
-      title: 'ℹ️ Sobre o Bom Filho',
-      text: 'Mercado local com foco em entrega rápida, compra simples e atendimento de confiança.',
-      ctaLabel: 'Ver página Sobre',
-      ctaHref: '/#/sobre'
+      title: '⚡ Ofertas da Semana',
+      text: 'Aproveite preços especiais nos produtos mais procurados.'
     }
   ];
   const [produtos, setProdutos] = useState([]);
-  const [busca, setBusca] = useState('');
-  const [categoria, setCategoria] = useState('todas');
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [slideAtivo, setSlideAtivo] = useState(0);
@@ -95,49 +82,22 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, [slides.length]);
 
-  const categorias = useMemo(() => {
-    const values = new Set();
-    produtos.forEach((produto) => {
-      if (produto.categoria) {
-        values.add(String(produto.categoria));
-      }
-    });
-    return ['todas', ...Array.from(values).sort((a, b) => a.localeCompare(b))];
-  }, [produtos]);
-
-  const produtosFiltrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    return produtos.filter((produto) => {
-      const nome = String(produto.nome || '').toLowerCase();
-      const categoriaAtual = String(produto.categoria || '').toLowerCase();
-      const emPromocao =
-        Number(produto.desconto || 0) > 0
-        || Number(produto.percentual_desconto || 0) > 0
-        || Number(produto.preco_promocional || 0) > 0
-        || produto.promocao === true
-        || Number(produto.promocao || 0) === 1;
-      const matchBusca = !termo || nome.includes(termo);
-      const matchCategoria = categoria === 'todas'
-        ? true
-        : categoria === 'promocoes'
-          ? emPromocao
-          : categoriaAtual === categoria;
-      return matchBusca && matchCategoria;
-    });
-  }, [produtos, busca, categoria]);
-
   const maisVendidos = useMemo(() => {
     return [...produtos]
       .sort((a, b) => Number(b.estoque || 0) - Number(a.estoque || 0))
       .slice(0, 4);
   }, [produtos]);
 
-  function selecionarCategoria(cat) {
-    setCategoria(cat);
-    const alvo = document.getElementById('produtos-lista');
-    if (alvo) {
-      alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  function abrirProdutos(params = {}) {
+    const query = new URLSearchParams();
+    if (params.categoria) {
+      query.set('categoria', params.categoria);
     }
+    if (params.busca) {
+      query.set('busca', params.busca);
+    }
+    const suffix = query.toString();
+    navigate(`/produtos${suffix ? `?${suffix}` : ''}`);
   }
 
   function mudarSlide(direcao) {
@@ -151,15 +111,8 @@ export default function HomePage() {
 
   return (
     <section className="page">
-      <header className="store-header">
-        <div className="store-brand">
-          <img src="/img/logo-oficial.png" alt="Comércio Bom Filho" className="store-logo" />
-          <div>
-            <h1>Comércio Bom Filho</h1>
-            <p>Seu mercado de confiança com pedidos online.</p>
-          </div>
-        </div>
-      </header>
+      <h1>Início</h1>
+      <p>Escolha uma categoria, veja o carrossel e confira os mais vendidos.</p>
 
       <section className="sector-section" aria-label="Navegar por setor">
         <div className="sector-header">
@@ -173,10 +126,7 @@ export default function HomePage() {
               className="sector-card"
               type="button"
               style={{ '--bg': `url('${setor.imagem}')` }}
-              onClick={() => {
-                selecionarCategoria(setor.categoria);
-                setBusca(setor.busca);
-              }}
+              onClick={() => abrirProdutos({ categoria: setor.categoria, busca: setor.busca })}
             >
               <span className="sector-label">{setor.label}</span>
               <span className="sector-cta">Quero ver</span>
@@ -224,100 +174,29 @@ export default function HomePage() {
               />
               <p className="best-item-name">{produto.emoji || '📦'} {produto.nome}</p>
               <p className="best-item-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="product-highlight-section" id="produtos" aria-label="Produtos em destaque">
-        <h2>Produtos em destaque</h2>
-        <p className="product-highlight-subtitle">Escolha por categoria ou pesquise direto pelo nome.</p>
-
-        <div className="search-bar-react">
-          <input
-            className="field-input"
-            type="search"
-            value={busca}
-            onChange={(event) => setBusca(event.target.value)}
-            placeholder="🔍 Buscar produtos..."
-          />
-        </div>
-
-        <div className="toolbar-box">
-          <select
-            className="field-input"
-            value={categoria}
-            onChange={(event) => setCategoria(String(event.target.value).toLowerCase())}
-          >
-            {categorias.map((item) => (
-              <option key={item} value={item}>
-                {item === 'todas' ? 'Todas as categorias' : item}
-              </option>
-            ))}
-          </select>
-
-          <button className="btn-primary" type="button" onClick={carregarProdutos} disabled={carregando}>
-            {carregando ? 'Atualizando...' : 'Atualizar produtos'}
-          </button>
-        </div>
-
-        <div className="legacy-categories" aria-label="Filtros de categoria">
-          {categoriasLegado.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`category-btn-react ${item.destaque ? 'category-promocoes-react' : ''} ${categoria === item.id ? 'active' : ''}`}
-              onClick={() => setCategoria(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <div className="pedido-resumo" style={{ marginTop: '0.9rem' }}>
-        <p><strong>Carrinho:</strong> {resumo.itens} item(ns)</p>
-        <p><strong>Total parcial:</strong> R$ {resumo.total.toFixed(2)}</p>
-        {resumo.itens > 0 ? (
-          <Link to="/pagamento" className="btn-primary" style={{ display: 'inline-block', marginTop: '0.6rem' }}>
-            Finalizar pedido
-          </Link>
-        ) : (
-          <p className="muted-text" style={{ marginTop: '0.4rem' }}>Adicione itens para liberar o pagamento.</p>
-        )}
-      </div>
-
-      {erro ? <p className="error-text">{erro}</p> : null}
-
-      {produtosFiltrados.length === 0 ? (
-        <p className="muted-text">Nenhum produto encontrado com os filtros atuais.</p>
-      ) : (
-        <div className="produto-grid" id="produtos-lista">
-          {produtosFiltrados.map((produto) => (
-            <article className="produto-card" key={produto.id}>
-              <img
-                className="produto-image"
-                src={getProdutoImagem(produto)}
-                alt={produto.nome}
-                loading="lazy"
-                onError={(event) => {
-                  event.currentTarget.src = '/img/logo-oficial.png';
-                }}
-              />
-              <p className="produto-title">
-                <span>{produto.emoji || '📦'}</span> {produto.nome}
-              </p>
-              <p className="muted-text">{produto.categoria || 'Sem categoria'}</p>
-              <p className="produto-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
-              <button className="btn-primary" type="button" onClick={() => addItem(produto, 1)}>
-                Adicionar ao carrinho
+              <button className="btn-secondary" type="button" onClick={() => abrirProdutos({ busca: produto.nome })}>
+                Ver produto
               </button>
             </article>
           ))}
         </div>
-      )}
+      </section>
+
+      <div style={{ marginTop: '0.85rem' }}>
+        <Link to="/produtos" className="btn-primary">Ir para página de produtos</Link>
+      </div>
+
+      {erro ? <p className="error-text">{erro}</p> : null}
+      {carregando ? <p className="muted-text">Atualizando produtos...</p> : null}
 
       <footer className="home-footer">
+        <div className="footer-brand">
+          <img src="/img/logo-oficial.png" alt="Comércio Bom Filho" className="store-logo" />
+          <div>
+            <strong>Comércio Bom Filho</strong>
+            <p>Seu mercado de confiança com pedidos online.</p>
+          </div>
+        </div>
         <div className="footer-info-simple" aria-label="Informações da loja">
           <div className="footer-info-line"><strong>Bom Filho — Supermercado</strong></div>
           <div className="footer-info-line">Endereço: Travessa 07 de setembro | Nº 70</div>
