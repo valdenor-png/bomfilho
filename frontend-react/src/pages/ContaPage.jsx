@@ -7,6 +7,15 @@ import {
   login,
   logout
 } from '../lib/api';
+import {
+  FONT_SCALE_OPTIONS,
+  getStoredFontScale,
+  getStoredHighContrast,
+  getStoredReducedMotion,
+  setStoredFontScale,
+  setStoredHighContrast,
+  setStoredReducedMotion
+} from '../lib/accessibility';
 
 export default function ContaPage() {
   const [modo, setModo] = useState('login');
@@ -18,6 +27,9 @@ export default function ContaPage() {
   const [usuario, setUsuario] = useState(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
+  const [fontScale, setFontScale] = useState(() => getStoredFontScale());
+  const [highContrast, setHighContrast] = useState(() => getStoredHighContrast());
+  const [reducedMotion, setReducedMotion] = useState(() => getStoredReducedMotion());
 
   useEffect(() => {
     let ativo = true;
@@ -111,9 +123,64 @@ export default function ContaPage() {
     setCarregando(false);
   }
 
+  function handleFontScaleChange(scaleValue) {
+    const normalizedScale = setStoredFontScale(scaleValue);
+    setFontScale(normalizedScale);
+  }
+
+  function handleHighContrastChange(enabled) {
+    const normalizedEnabled = setStoredHighContrast(enabled);
+    setHighContrast(normalizedEnabled);
+  }
+
+  function handleReducedMotionChange(enabled) {
+    const normalizedEnabled = setStoredReducedMotion(enabled);
+    setReducedMotion(normalizedEnabled);
+  }
+
   return (
     <section className="page">
       <h1>Conta</h1>
+
+      <div className="card-box accessibility-box">
+        <p><strong>Acessibilidade</strong></p>
+        <p className="muted-text accessibility-helper">Ajuste o tamanho da letra em todo o app.</p>
+        <div className="accessibility-controls" role="group" aria-label="Ajustar tamanho da fonte">
+          {FONT_SCALE_OPTIONS.map((option) => (
+            <button
+              key={option.label}
+              type="button"
+              className={`btn-secondary accessibility-btn ${fontScale === option.value ? 'active' : ''}`}
+              aria-pressed={fontScale === option.value}
+              onClick={() => handleFontScaleChange(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="accessibility-toggles">
+          <label className="check-row accessibility-toggle" htmlFor="toggle-high-contrast">
+            <input
+              id="toggle-high-contrast"
+              type="checkbox"
+              checked={highContrast}
+              onChange={(event) => handleHighContrastChange(event.target.checked)}
+            />
+            Alto contraste
+          </label>
+
+          <label className="check-row accessibility-toggle" htmlFor="toggle-reduced-motion">
+            <input
+              id="toggle-reduced-motion"
+              type="checkbox"
+              checked={reducedMotion}
+              onChange={(event) => handleReducedMotionChange(event.target.checked)}
+            />
+            Reduzir animações
+          </label>
+        </div>
+      </div>
 
       {usuario ? (
         <div className="card-box">
