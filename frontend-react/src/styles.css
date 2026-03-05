@@ -25,11 +25,11 @@ body {
 
 .content {
   padding: 2rem;
-  padding-right: 90px;
+  padding-bottom: 6.7rem;
 }
 
 .admin-content {
-  padding-right: 2rem;
+  padding-bottom: 2rem;
 }
 
 .page {
@@ -872,6 +872,27 @@ body {
   align-items: center;
 }
 
+.pedido-history-actions {
+  display: grid;
+  justify-items: end;
+  gap: 0.45rem;
+}
+
+.pedido-history-details {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.pedido-history-item-name {
+  font-weight: 700;
+}
+
+.pedido-history-item-meta {
+  color: #4a5568;
+  font-size: 0.9rem;
+}
+
 .barcode-row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -897,109 +918,50 @@ body {
   background: #fff;
 }
 
-.sidebar {
+.bottom-nav {
   position: fixed;
-  top: 0;
+  left: 0;
   right: 0;
-  height: 100vh;
-  border-left: 1px solid #e2e8f0;
+  bottom: 0;
+  height: 72px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.35rem 0.45rem calc(0.35rem + env(safe-area-inset-bottom));
+  border-top: 1px solid #e2e8f0;
   background: #fff;
-  padding: 0.8rem;
-  transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1), padding 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
-  overflow: hidden;
-  z-index: 10;
-  will-change: width;
+  z-index: 40;
 }
 
-.sidebar-expanded {
-  width: 250px;
-}
-
-.sidebar-collapsed {
-  width: 72px;
-}
-
-.sidebar-title {
-  font-weight: 800;
-  color: #2f855a;
-  margin: 0;
-}
-
-.sidebar-head-react {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.8rem;
-  padding-bottom: 0.55rem;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.menu-toggle-react {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  cursor: pointer;
-  font-size: 1.2rem;
-}
-
-.menu-toggle-react:hover {
-  background: #edfef3;
-}
-
-.sidebar-nav {
+.bottom-nav-link {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-}
-
-.sidebar-link {
-  display: flex;
   align-items: center;
-  gap: 0.6rem;
+  justify-content: center;
+  gap: 0.18rem;
   text-decoration: none;
   color: #2d3748;
   border-radius: 10px;
-  padding: 0.65rem 0.75rem;
-  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 
-.sidebar-link:hover {
+.bottom-nav-link:hover {
   background: #edfef3;
 }
 
-.sidebar-link.active {
+.bottom-nav-link.active {
   background: #e2f0ea;
-  font-weight: 700;
+  color: #2f855a;
 }
 
-.sidebar-icon {
-  width: 24px;
-  display: inline-flex;
-  justify-content: center;
+.bottom-nav-icon {
+  font-size: 1rem;
+  line-height: 1;
 }
 
-.sidebar-label {
-  max-width: 180px;
-  opacity: 1;
-  margin-left: 0;
-  overflow: hidden;
-  transition: max-width 0.22s ease, opacity 0.18s ease, margin-left 0.22s ease;
-}
-
-.sidebar-collapsed .sidebar-label {
-  max-width: 0;
-  opacity: 0;
-  margin-left: 0;
-}
-
-.sidebar-collapsed .sidebar-link {
-  justify-content: center;
-  padding: 0.65rem 0.5rem;
+.bottom-nav-label {
+  line-height: 1.1;
 }
 
 .floating-cart-wrapper {
@@ -1041,47 +1003,16 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar,
-  .sidebar-label,
-  .sidebar-overlay-react {
+  .bottom-nav-link,
+  .floating-cart {
     transition: none;
   }
 }
 
-.sidebar-overlay-react {
-  display: none;
-}
-
 @media (max-width: 900px) {
-  .sidebar {
-    width: min(84vw, 300px);
-    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.1);
-  }
-
-  .sidebar-overlay-react {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 9;
-    border: 0;
-    background: rgba(15, 23, 42, 0.36);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s ease;
-  }
-
-  .sidebar-overlay-react.active {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .sidebar-collapsed {
-    width: 56px;
-  }
-
   .content {
     padding: 0.85rem;
-    padding-right: 70px;
+    padding-bottom: 6.2rem;
   }
 
   .page {
@@ -1142,7 +1073,17 @@ body {
   }
 
   .admin-content {
-    padding-right: 1rem;
+    padding-bottom: 1rem;
+  }
+
+  .bottom-nav {
+    height: 70px;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+  }
+
+  .bottom-nav-label {
+    font-size: 0.74rem;
   }
 
   .toolbar-box {
@@ -1155,6 +1096,10 @@ body {
 
   .barcode-row {
     grid-template-columns: 1fr;
+  }
+
+  .pedido-history-actions {
+    justify-items: stretch;
   }
 
   .ad-card-react {
@@ -1170,7 +1115,7 @@ body {
 @media (max-width: 520px) {
   .content {
     padding: 0.65rem;
-    padding-right: 62px;
+    padding-bottom: 5.9rem;
   }
 
   .page {

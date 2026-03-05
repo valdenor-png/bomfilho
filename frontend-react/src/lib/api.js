@@ -89,6 +89,10 @@ export function getPedidos(token) {
   return request('/api/pedidos', { token });
 }
 
+export function getPedidoById(token, pedidoId) {
+  return request(`/api/pedidos/${pedidoId}`, { token });
+}
+
 export function getProdutos() {
   return request('/api/produtos');
 }
