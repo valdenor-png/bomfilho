@@ -2,11 +2,10 @@ import React from 'react';
 import { useEffect, useState } from 'react';
 import {
   cadastrar,
-  clearStoredToken,
   getMe,
-  getStoredToken,
+  isAuthErrorMessage,
   login,
-  setStoredToken
+  logout
 } from '../lib/api';
 
 export default function ContaPage() {
@@ -21,19 +20,35 @@ export default function ContaPage() {
   const [carregando, setCarregando] = useState(false);
 
   useEffect(() => {
-    const token = getStoredToken();
-    if (!token) {
-      return;
-    }
+    let ativo = true;
 
     setCarregando(true);
-    getMe(token)
-      .then((data) => setUsuario(data.usuario))
-      .catch(() => {
-        clearStoredToken();
+    getMe()
+      .then((data) => {
+        if (ativo) {
+          setUsuario(data.usuario || null);
+        }
+      })
+      .catch((error) => {
+        if (!ativo) {
+          return;
+        }
+
+        if (!isAuthErrorMessage(error.message)) {
+          setErro(error.message);
+        }
+
         setUsuario(null);
       })
-      .finally(() => setCarregando(false));
+      .finally(() => {
+        if (ativo) {
+          setCarregando(false);
+        }
+      });
+
+    return () => {
+      ativo = false;
+    };
   }, []);
 
   async function handleLogin(event) {
@@ -43,7 +58,6 @@ export default function ContaPage() {
 
     try {
       const data = await login(email.trim(), senha);
-      setStoredToken(data.token);
       setUsuario(data.usuario);
       setSenha('');
     } catch (error) {
@@ -66,7 +80,6 @@ export default function ContaPage() {
         telefone: telefone.trim(),
         whatsappOptIn
       });
-      setStoredToken(data.token);
       setUsuario(data.usuario);
       setSenha('');
     } catch (error) {
@@ -76,15 +89,26 @@ export default function ContaPage() {
     }
   }
 
-  function handleLogout() {
-    clearStoredToken();
+  async function handleLogout() {
+    setCarregando(true);
+    let mensagemErro = '';
+
+    try {
+      await logout();
+    } catch (error) {
+      if (!isAuthErrorMessage(error.message)) {
+        mensagemErro = error.message;
+      }
+    }
+
     setUsuario(null);
     setNome('');
     setEmail('');
     setSenha('');
     setTelefone('');
     setWhatsappOptIn(true);
-    setErro('');
+    setErro(mensagemErro);
+    setCarregando(false);
   }
 
   return (
@@ -96,7 +120,7 @@ export default function ContaPage() {
           <p><strong>Nome:</strong> {usuario.nome}</p>
           <p><strong>E-mail:</strong> {usuario.email}</p>
           <p><strong>Telefone:</strong> {usuario.telefone || 'Não informado'}</p>
-          <button className="btn-primary" type="button" onClick={handleLogout}>
+          <button className="btn-primary" type="button" onClick={handleLogout} disabled={carregando}>
             Sair
           </button>
         </div>

@@ -45,11 +45,23 @@ DB_PORT=3306
 
 PORT=3000
 
+# CORS (origens permitidas, separadas por vírgula)
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+
+# Se estiver atrás de proxy reverso confiável (Nginx/Cloudflare)
+TRUST_PROXY=false
+
 JWT_SECRET=sua_chave_secreta_muito_segura
+
+# Proteção opcional para rotas de diagnóstico
+DIAGNOSTIC_TOKEN=
 
 # PagBank (PIX)
 PAGBANK_ENV=sandbox
 PAGBANK_TOKEN=SEU_TOKEN_PAGBANK
+
+# Proteção do webhook PagBank
+PAGBANK_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
 BASE_URL=https://SUA_URL_PUBLICA
 ```
 

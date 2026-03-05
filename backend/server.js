@@ -2,6 +2,9 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mysql = require('mysql2/promise');
@@ -23,12 +26,166 @@ const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'loja';
 
 // Configuração PagBank
 const PAGBANK_TOKEN = process.env.PAGBANK_TOKEN;
+const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
 const PAGBANK_API_URL = process.env.PAGBANK_ENV === 'production' 
   ? 'https://api.pagseguro.com' 
   : 'https://sandbox.api.pagseguro.com';
 
-// (Legado) Mercado Pago - mantido para não quebrar rota antiga
-const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
+const JWT_SECRET = String(process.env.JWT_SECRET || '');
+const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
+const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
+const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const USER_AUTH_COOKIE_NAME = 'bf_access_token';
+const ADMIN_AUTH_COOKIE_NAME = 'bf_admin_token';
+const CSRF_COOKIE_NAME = 'bf_csrf_token';
+const USER_AUTH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const ADMIN_AUTH_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
+const CSRF_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
+const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
+
+if (JWT_SECRET.length < 32) {
+  const aviso = 'JWT_SECRET deve ter no mínimo 32 caracteres para segurança adequada.';
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(aviso);
+  }
+  console.warn(`⚠️ ${aviso}`);
+}
+
+function normalizarIp(ip) {
+  return String(ip || '').replace('::ffff:', '').trim();
+}
+
+function getCookieOptions({ httpOnly = true, maxAge } = {}) {
+  const options = {
+    httpOnly,
+    secure: COOKIE_SECURE,
+    sameSite: 'strict',
+    path: '/'
+  };
+
+  if (Number.isFinite(maxAge)) {
+    options.maxAge = maxAge;
+  }
+
+  if (COOKIE_DOMAIN) {
+    options.domain = COOKIE_DOMAIN;
+  }
+
+  return options;
+}
+
+function definirCookieAuth(res, nome, token, maxAge) {
+  res.cookie(nome, token, getCookieOptions({ httpOnly: true, maxAge }));
+}
+
+function limparCookie(res, nome, { httpOnly = true } = {}) {
+  res.clearCookie(nome, getCookieOptions({ httpOnly }));
+}
+
+function emitirCsrfToken(res) {
+  const csrfToken = crypto.randomBytes(24).toString('hex');
+  res.cookie(CSRF_COOKIE_NAME, csrfToken, getCookieOptions({ httpOnly: false, maxAge: CSRF_COOKIE_MAX_AGE }));
+  return csrfToken;
+}
+
+function isOriginPermitida(origin) {
+  if (!origin) {
+    return true;
+  }
+
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+    return true;
+  }
+
+  return CORS_ORIGINS.includes(origin);
+}
+
+function montarWebhookPagBankUrl({ incluirToken = true } = {}) {
+  const baseUrl = String(process.env.BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  const webhookBase = `${baseUrl}/api/webhooks/pagbank`;
+
+  if (incluirToken && PAGBANK_WEBHOOK_TOKEN) {
+    return `${webhookBase}?token=${encodeURIComponent(PAGBANK_WEBHOOK_TOKEN)}`;
+  }
+
+  return webhookBase;
+}
+
+function extrairBearerToken(req) {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return '';
+  }
+  return String(authHeader.slice(7)).trim();
+}
+
+function extrairTokenUsuarioRequest(req) {
+  return extrairBearerToken(req) || String(req.cookies?.[USER_AUTH_COOKIE_NAME] || '').trim();
+}
+
+function extrairTokenAdminRequest(req) {
+  return extrairBearerToken(req) || String(req.cookies?.[ADMIN_AUTH_COOKIE_NAME] || '').trim();
+}
+
+function extrairTokenDiagnostico(req) {
+  const headerToken = req.headers['x-diagnostic-token'];
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : '';
+
+  return String(headerToken || bearerToken || '').trim();
+}
+
+function protegerDiagnostico(req, res, next) {
+  const ip = normalizarIp(req.ip || req.socket?.remoteAddress);
+  const acessoLocal = ip === '127.0.0.1' || ip === '::1';
+
+  if (!acessoLocal) {
+    return res.status(403).json({ erro: 'Rota de diagnóstico permitida apenas localmente' });
+  }
+
+  if (DIAGNOSTIC_TOKEN) {
+    const token = extrairTokenDiagnostico(req);
+    if (!token || token !== DIAGNOSTIC_TOKEN) {
+      return res.status(401).json({ erro: 'Token de diagnóstico inválido' });
+    }
+  }
+
+  return next();
+}
+
+function compararTextoSegura(valorA, valorB) {
+  const bufferA = Buffer.from(String(valorA || ''));
+  const bufferB = Buffer.from(String(valorB || ''));
+
+  if (bufferA.length !== bufferB.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(bufferA, bufferB);
+}
+
+function criarErroHttp(status, mensagem) {
+  const erro = new Error(mensagem);
+  erro.httpStatus = status;
+  return erro;
+}
+
+function validarWebhookPagBank(req) {
+  if (!PAGBANK_WEBHOOK_TOKEN) {
+    return true;
+  }
+
+  const tokenHeader = String(req.headers['x-webhook-token'] || '').trim();
+  const tokenQuery = String(req.query?.token || '').trim();
+
+  return tokenHeader === PAGBANK_WEBHOOK_TOKEN || tokenQuery === PAGBANK_WEBHOOK_TOKEN;
+}
 
 // Cache simples de diagnóstico do PagBank
 let pagbankLastAuthCheck = {
@@ -60,19 +217,111 @@ if (PAGBANK_TOKEN) {
 // ============================================
 // MIDDLEWARES
 // ============================================
-app.use(cors());
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.disable('x-powered-by');
+
+if (TRUST_PROXY) {
+  app.set('trust proxy', 1);
+}
+
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
+
+app.use(cors({
+  origin(origin, callback) {
+    if (isOriginPermitida(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-diagnostic-token', 'x-webhook-token', 'x-csrf-token'],
+  maxAge: 600
+}));
+
+app.use(bodyParser.json({ limit: '200kb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '200kb' }));
+app.use(cookieParser());
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas requisições. Tente novamente em alguns minutos.' }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas tentativas de autenticação. Aguarde 15 minutos.' }
+});
+
+const adminAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas tentativas de login admin. Aguarde 15 minutos.' }
+});
+
+app.use('/api', apiLimiter);
+
+const csrfIgnoredPaths = new Set([
+  '/api/auth/login',
+  '/api/auth/cadastro',
+  '/api/admin/login',
+  '/api/pagbank/test-pix'
+]);
+
+const metodosMutaveis = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+app.use((req, res, next) => {
+  const pathAtual = req.path || '';
+
+  if (!pathAtual.startsWith('/api/')) {
+    return next();
+  }
+
+  if (!metodosMutaveis.has(req.method)) {
+    return next();
+  }
+
+  if (pathAtual.startsWith('/api/webhooks/')) {
+    return next();
+  }
+
+  if (csrfIgnoredPaths.has(pathAtual)) {
+    return next();
+  }
+
+  if (extrairBearerToken(req)) {
+    return next();
+  }
+
+  const csrfCookie = String(req.cookies?.[CSRF_COOKIE_NAME] || '').trim();
+  const csrfHeader = String(req.headers['x-csrf-token'] || '').trim();
+
+  if (!csrfCookie || !csrfHeader || !compararTextoSegura(csrfCookie, csrfHeader)) {
+    return res.status(403).json({ erro: 'Falha de validação CSRF' });
+  }
+
+  return next();
+});
 
 if (SHOULD_SERVE_REACT && fs.existsSync(FRONTEND_DIST_PATH)) {
   app.use(express.static(FRONTEND_DIST_PATH));
 }
 
 // Diagnóstico PagBank: valida token e mostra URLs configuradas
-app.get('/api/pagbank/status', async (req, res) => {
+app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
   try {
-    const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-    const webhookUrl = `${baseUrl}/api/webhooks/pagbank`;
+    const baseUrl = String(process.env.BASE_URL || 'http://localhost:3000');
+    const webhookUrl = montarWebhookPagBankUrl({ incluirToken: false });
     const token = process.env.PAGBANK_TOKEN || '';
 
     // Atualiza o cache se nunca foi checado ou se está velho
@@ -89,7 +338,7 @@ app.get('/api/pagbank/status', async (req, res) => {
       base_url: baseUrl,
       webhook_url: webhookUrl,
       token_present: !!token,
-      token_preview: token ? `${token.slice(0, 6)}...${token.slice(-4)}` : null,
+      webhook_protected: !!PAGBANK_WEBHOOK_TOKEN,
       auth_check: pagbankLastAuthCheck
     });
   } catch (e) {
@@ -98,7 +347,7 @@ app.get('/api/pagbank/status', async (req, res) => {
 });
 
 // Teste de criação de pedido PIX no PagBank (diagnóstico)
-app.post('/api/pagbank/test-pix', async (req, res) => {
+app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
   try {
     const valueReais = Number(req.body?.valor_reais ?? 1.00);
     const valor = Number.isFinite(valueReais) ? Math.max(0.5, valueReais) : 1.0;
@@ -132,7 +381,8 @@ app.post('/api/pagbank/test-pix', async (req, res) => {
     return res.json({
       ok: true,
       pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
-      notification_url: `${process.env.BASE_URL || 'http://localhost:3000'}/api/webhooks/pagbank`,
+      notification_url: montarWebhookPagBankUrl({ incluirToken: false }),
+      webhook_protected: !!PAGBANK_WEBHOOK_TOKEN,
       pagbank_order_id: resultadoPix?.id || null,
       pix_codigo: pixCodigo,
       pix_qrcode: pixQrCode,
@@ -363,7 +613,7 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
       }
     ],
     notification_urls: [
-      `${process.env.BASE_URL || 'http://localhost:3000'}/api/webhooks/pagbank`
+      montarWebhookPagBankUrl()
     ]
   };
 
@@ -441,14 +691,13 @@ async function enviarWhatsappPedido({ telefone, nome, pedidoId, total, pixCodigo
 // MIDDLEWARE DE AUTENTICAÇÃO
 // ============================================
 const autenticarToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = extrairTokenUsuarioRequest(req);
 
   if (!token) {
     return res.status(401).json({ erro: 'Token não fornecido' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, usuario) => {
+  jwt.verify(token, JWT_SECRET, (err, usuario) => {
     if (err) {
       return res.status(403).json({ erro: 'Token inválido' });
     }
@@ -462,15 +711,12 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const ADMIN_LOCAL_ONLY = process.env.ADMIN_LOCAL_ONLY !== 'false';
 
 function extrairIpRequisicao(req) {
-  const forwardedFor = req.headers['x-forwarded-for'];
-  if (forwardedFor) {
-    return String(forwardedFor).split(',')[0].trim();
-  }
-  return req.socket?.remoteAddress || req.ip || '';
+  return normalizarIp(req.ip || req.socket?.remoteAddress || '');
 }
 
 function isIpLocal(ip) {
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost';
+  const ipNormalizado = normalizarIp(ip);
+  return ipNormalizado === '127.0.0.1' || ipNormalizado === '::1' || ipNormalizado === 'localhost';
 }
 
 const exigirAcessoLocalAdmin = (req, res, next) => {
@@ -487,14 +733,13 @@ const exigirAcessoLocalAdmin = (req, res, next) => {
 };
 
 const autenticarAdminToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  const token = extrairTokenAdminRequest(req);
 
   if (!token) {
     return res.status(401).json({ erro: 'Token admin não fornecido' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, payload) => {
+  jwt.verify(token, JWT_SECRET, (err, payload) => {
     if (err || !payload || payload.role !== 'admin') {
       return res.status(403).json({ erro: 'Token admin inválido' });
     }
@@ -611,13 +856,21 @@ async function buscarProdutoUpcItemDb(codigo) {
 // ============================================
 
 // Cadastro de usuário
-app.post('/api/auth/cadastro', async (req, res) => {
+app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
   try {
     const { nome, email, senha, telefone, whatsapp_opt_in } = req.body;
     const optIn = !!whatsapp_opt_in;
 
     if (!nome || !email || !senha || !telefone) {
       return res.status(400).json({ erro: 'Todos os campos são obrigatórios' });
+    }
+
+    if (!/^\S+@\S+\.\S+$/.test(String(email))) {
+      return res.status(400).json({ erro: 'E-mail inválido' });
+    }
+
+    if (String(senha).length < 8) {
+      return res.status(400).json({ erro: 'A senha deve ter ao menos 8 caracteres' });
     }
 
     // Verificar se o email já existe
@@ -638,13 +891,16 @@ app.post('/api/auth/cadastro', async (req, res) => {
     // Gerar token
     const token = jwt.sign(
       { id: resultado.insertId, email: email },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       { expiresIn: '7d' }
     );
 
+    const csrfToken = emitirCsrfToken(res);
+    definirCookieAuth(res, USER_AUTH_COOKIE_NAME, token, USER_AUTH_COOKIE_MAX_AGE);
+
     res.status(201).json({
       mensagem: 'Usuário cadastrado com sucesso',
-      token: token,
+      csrfToken,
       usuario: {
         id: resultado.insertId,
         nome: nome,
@@ -660,7 +916,7 @@ app.post('/api/auth/cadastro', async (req, res) => {
 });
 
 // Login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, senha } = req.body;
 
@@ -685,13 +941,16 @@ app.post('/api/auth/login', async (req, res) => {
     // Gerar token
     const token = jwt.sign(
       { id: usuario.id, email: usuario.email },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       { expiresIn: '7d' }
     );
 
+    const csrfToken = emitirCsrfToken(res);
+    definirCookieAuth(res, USER_AUTH_COOKIE_NAME, token, USER_AUTH_COOKIE_MAX_AGE);
+
     res.json({
       mensagem: 'Login realizado com sucesso',
-      token: token,
+      csrfToken,
       usuario: {
         id: usuario.id,
         nome: usuario.nome,
@@ -707,7 +966,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Login administrativo (somente acesso local)
-app.post('/api/admin/login', exigirAcessoLocalAdmin, async (req, res) => {
+app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (req, res) => {
   try {
     const { usuario, senha } = req.body || {};
 
@@ -719,25 +978,49 @@ app.post('/api/admin/login', exigirAcessoLocalAdmin, async (req, res) => {
       return res.status(400).json({ erro: 'Usuário e senha admin são obrigatórios' });
     }
 
-    if (usuario !== ADMIN_USER || senha !== ADMIN_PASSWORD) {
+    if (!compararTextoSegura(String(usuario).trim(), ADMIN_USER) || !compararTextoSegura(String(senha), ADMIN_PASSWORD)) {
       return res.status(401).json({ erro: 'Credenciais admin inválidas' });
     }
 
     const token = jwt.sign(
       { role: 'admin', usuario: ADMIN_USER },
-      process.env.JWT_SECRET,
+      JWT_SECRET,
       { expiresIn: '12h' }
     );
 
+    const csrfToken = emitirCsrfToken(res);
+    definirCookieAuth(res, ADMIN_AUTH_COOKIE_NAME, token, ADMIN_AUTH_COOKIE_MAX_AGE);
+
     return res.json({
       mensagem: 'Login admin realizado com sucesso',
-      token,
-      usuario: ADMIN_USER
+      usuario: ADMIN_USER,
+      csrfToken
     });
   } catch (erro) {
     console.error('Erro no login admin:', erro);
     return res.status(500).json({ erro: 'Erro ao fazer login admin' });
   }
+});
+
+app.get('/api/auth/csrf', (req, res) => {
+  const csrfToken = emitirCsrfToken(res);
+  return res.json({ csrfToken });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  limparCookie(res, USER_AUTH_COOKIE_NAME, { httpOnly: true });
+  limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
+  return res.json({ mensagem: 'Logout realizado com sucesso' });
+});
+
+app.get('/api/admin/me', exigirAcessoLocalAdmin, autenticarAdminToken, (req, res) => {
+  return res.json({ admin: { usuario: req.admin?.usuario || ADMIN_USER } });
+});
+
+app.post('/api/admin/logout', exigirAcessoLocalAdmin, (req, res) => {
+  limparCookie(res, ADMIN_AUTH_COOKIE_NAME, { httpOnly: true });
+  limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
+  return res.json({ mensagem: 'Logout admin realizado com sucesso' });
 });
 
 // Obter dados do usuário logado
@@ -1061,15 +1344,15 @@ app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminTok
 // ROTAS DE PEDIDOS
 // ============================================
 
-// Gerar QR Code PIX (Mercado Pago) para um pedido existente
+// Gerar QR Code PIX (PagBank) para um pedido existente
 app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
   try {
     const { pedido_id } = req.body;
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
 
-    if (!MP_ACCESS_TOKEN) {
-      return res.status(503).json({ erro: 'Mercado Pago não configurado' });
+    if (!PAGBANK_TOKEN) {
+      return res.status(503).json({ erro: 'PagBank não configurado' });
     }
 
     if (!pedido_id) {
@@ -1136,16 +1419,66 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
 // Criar pedido
 app.post('/api/pedidos', autenticarToken, async (req, res) => {
   const connection = await pool.getConnection();
+  let transacaoAberta = false;
   
   try {
-    const { itens, forma_pagamento, cupom_id, desconto } = req.body;
+    const { itens, forma_pagamento, cupom_id } = req.body || {};
     let usuarioPedido = null;
 
-    if (!itens || itens.length === 0) {
-      return res.status(400).json({ erro: 'Carrinho vazio' });
+    if (!Array.isArray(itens) || itens.length === 0) {
+      throw criarErroHttp(400, 'Carrinho vazio');
     }
 
-    const formaPagamento = forma_pagamento || 'pix';
+    if (itens.length > 100) {
+      throw criarErroHttp(400, 'Quantidade máxima de itens por pedido excedida');
+    }
+
+    const formaPagamento = String(forma_pagamento || 'pix').toLowerCase();
+    const formasPermitidas = new Set(['pix', 'dinheiro', 'debito', 'credito', 'cartao']);
+    if (!formasPermitidas.has(formaPagamento)) {
+      throw criarErroHttp(400, 'Forma de pagamento inválida');
+    }
+
+    const itensNormalizados = itens.map((item) => ({
+      produto_id: Number(item?.produto_id),
+      quantidade: Math.floor(Number(item?.quantidade || 1))
+    }));
+
+    if (itensNormalizados.some((item) => !Number.isInteger(item.produto_id) || item.produto_id <= 0 || !Number.isInteger(item.quantidade) || item.quantidade <= 0 || item.quantidade > 100)) {
+      throw criarErroHttp(400, 'Itens do pedido inválidos');
+    }
+
+    const idsProdutos = [...new Set(itensNormalizados.map((item) => item.produto_id))];
+    const placeholdersProdutos = idsProdutos.map(() => '?').join(', ');
+
+    const [produtos] = await connection.query(
+      `SELECT id, nome, preco FROM produtos WHERE ativo = TRUE AND id IN (${placeholdersProdutos})`,
+      idsProdutos
+    );
+
+    if (produtos.length !== idsProdutos.length) {
+      throw criarErroHttp(400, 'Um ou mais produtos são inválidos ou estão inativos');
+    }
+
+    const produtosPorId = new Map(produtos.map((produto) => [Number(produto.id), produto]));
+    const itensCalculados = itensNormalizados.map((item) => {
+      const produto = produtosPorId.get(item.produto_id);
+      const precoUnitario = Number(produto.preco || 0);
+      const subtotal = Number((precoUnitario * item.quantidade).toFixed(2));
+
+      return {
+        produto_id: item.produto_id,
+        nome: produto.nome,
+        preco: precoUnitario,
+        quantidade: item.quantidade,
+        subtotal
+      };
+    });
+
+    const total = Number(itensCalculados.reduce((acumulado, item) => acumulado + item.subtotal, 0).toFixed(2));
+    if (!Number.isFinite(total) || total <= 0) {
+      throw criarErroHttp(400, 'Total do pedido inválido');
+    }
 
     const [usuarioPedidoRows] = await connection.query(
       'SELECT nome, email, telefone, whatsapp_opt_in FROM usuarios WHERE id = ? LIMIT 1',
@@ -1153,26 +1486,66 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     );
     usuarioPedido = usuarioPedidoRows.length ? usuarioPedidoRows[0] : null;
 
-    await connection.beginTransaction();
-
-    // Calcular total
-    let total = 0;
-    itens.forEach(item => {
-      total += item.preco * (item.quantidade || 1);
-    });
-
-    // Aplicar desconto se houver cupom
-    let totalFinal = total;
-    if (cupom_id && desconto > 0) {
-      totalFinal = total - desconto;
-      if (totalFinal < 0) totalFinal = 0;
-
-      // Atualizar uso do cupom
-      await connection.query(
-        'UPDATE cupons SET uso_atual = uso_atual + 1 WHERE id = ?',
-        [cupom_id]
-      );
+    if (!usuarioPedido) {
+      throw criarErroHttp(404, 'Usuário não encontrado');
     }
+
+    await connection.beginTransaction();
+    transacaoAberta = true;
+
+    let descontoAplicado = 0;
+    let cupomIdValidado = null;
+
+    if (cupom_id !== undefined && cupom_id !== null && String(cupom_id).trim() !== '') {
+      const cupomIdNumerico = Number(cupom_id);
+      if (!Number.isInteger(cupomIdNumerico) || cupomIdNumerico <= 0) {
+        throw criarErroHttp(400, 'Cupom inválido');
+      }
+
+      const [cupons] = await connection.query(
+        `SELECT * FROM cupons 
+         WHERE id = ?
+         AND ativo = TRUE
+         AND (validade IS NULL OR validade >= CURDATE())
+         AND (uso_maximo IS NULL OR uso_atual < uso_maximo)
+         LIMIT 1`,
+        [cupomIdNumerico]
+      );
+
+      if (cupons.length === 0) {
+        throw criarErroHttp(400, 'Cupom inválido ou expirado');
+      }
+
+      const cupom = cupons[0];
+      const valorMinimo = Number(cupom.valor_minimo || 0);
+      if (total < valorMinimo) {
+        throw criarErroHttp(400, `Valor mínimo do pedido para este cupom: R$ ${valorMinimo.toFixed(2)}`);
+      }
+
+      const [usados] = await connection.query(
+        'SELECT id FROM cupons_usados WHERE cupom_id = ? AND usuario_id = ? LIMIT 1',
+        [cupom.id, req.usuario.id]
+      );
+
+      if (usados.length > 0) {
+        throw criarErroHttp(400, 'Você já utilizou este cupom');
+      }
+
+      if (cupom.tipo === 'percentual') {
+        descontoAplicado = total * (Number(cupom.valor || 0) / 100);
+      } else {
+        descontoAplicado = Number(cupom.valor || 0);
+      }
+
+      if (descontoAplicado > total) {
+        descontoAplicado = total;
+      }
+
+      descontoAplicado = Number(descontoAplicado.toFixed(2));
+      cupomIdValidado = cupom.id;
+    }
+
+    const totalFinal = Number((total - descontoAplicado).toFixed(2));
 
     // Criar pedido
     const [pedidoResultado] = await connection.query(
@@ -1183,25 +1556,28 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     const pedidoId = pedidoResultado.insertId;
 
     // Inserir itens do pedido
-    for (const item of itens) {
-      const quantidade = item.quantidade || 1;
-      const subtotal = item.preco * quantidade;
-      
+    for (const item of itensCalculados) {
       await connection.query(
         'INSERT INTO pedido_itens (pedido_id, produto_id, nome_produto, preco, quantidade, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
-        [pedidoId, item.produto_id, item.nome, item.preco, quantidade, subtotal]
+        [pedidoId, item.produto_id, item.nome, item.preco, item.quantidade, item.subtotal]
       );
     }
 
     // Registrar uso do cupom
-    if (cupom_id) {
+    if (cupomIdValidado) {
+      await connection.query(
+        'UPDATE cupons SET uso_atual = uso_atual + 1 WHERE id = ?',
+        [cupomIdValidado]
+      );
+
       await connection.query(
         'INSERT INTO cupons_usados (cupom_id, usuario_id, pedido_id) VALUES (?, ?, ?)',
-        [cupom_id, req.usuario.id, pedidoId]
+        [cupomIdValidado, req.usuario.id, pedidoId]
       );
     }
 
     await connection.commit();
+    transacaoAberta = false;
 
     // Gerar PIX real usando PagBank se for pagamento via PIX
     let pixCodigo = null;
@@ -1267,7 +1643,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       mensagem: 'Pedido realizado com sucesso',
       pedido_id: pedidoId,
       total: totalFinal,
-      desconto_aplicado: desconto || 0,
+      desconto_aplicado: descontoAplicado,
       forma_pagamento: formaPagamento,
       pix_codigo: pixCodigo,
       pix_qrcode: pixQrCode,
@@ -1275,7 +1651,14 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       pix_erro: pixErro
     });
   } catch (erro) {
-    await connection.rollback();
+    if (transacaoAberta) {
+      await connection.rollback();
+    }
+
+    if (erro?.httpStatus) {
+      return res.status(erro.httpStatus).json({ erro: erro.message });
+    }
+
     console.error('Erro ao criar pedido:', erro);
     res.status(500).json({ erro: 'Erro ao criar pedido' });
   } finally {
@@ -1526,9 +1909,16 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
 // ============================================
 app.post('/api/webhooks/pagbank', async (req, res) => {
   try {
+    if (!validarWebhookPagBank(req)) {
+      return res.status(401).json({ erro: 'Webhook não autorizado' });
+    }
+
     const notificacao = req.body;
-    
-    console.log('📩 Webhook PagBank recebido:', JSON.stringify(notificacao, null, 2));
+
+    console.log('📩 Webhook PagBank recebido:', {
+      id: notificacao?.id || null,
+      reference_id: notificacao?.reference_id || null
+    });
 
     // PagBank envia notificações com estrutura:
     // { id, reference_id, charges: [{ id, status, ... }] }
@@ -1564,7 +1954,8 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
     // Extrair pedidoId do reference_id (formato: "pedido_123")
     let pedidoId = null;
     if (referenceId && referenceId.startsWith('pedido_')) {
-      pedidoId = parseInt(referenceId.replace('pedido_', ''));
+      const parsedPedidoId = Number.parseInt(referenceId.replace('pedido_', ''), 10);
+      pedidoId = Number.isInteger(parsedPedidoId) ? parsedPedidoId : null;
     }
 
     if (pedidoId) {

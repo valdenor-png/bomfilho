@@ -98,6 +98,9 @@ credenciais.txt
 senhas.txt
 tokens.txt
 
+# Scripts
+.Scripts
+
 # Backup local
 backup/
 *.backup
@@ -113,3 +116,5 @@ Desktop.ini
 # Linux
 .directory
 .Trash-*
+
+

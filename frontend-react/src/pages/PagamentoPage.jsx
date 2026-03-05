@@ -1,7 +1,7 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { criarPedido, gerarPix, getPedidos, getStoredToken } from '../lib/api';
+import { criarPedido, gerarPix, getMe, getPedidos, isAuthErrorMessage } from '../lib/api';
 import { useCart } from '../context/CartContext';
 
 const ETAPAS = {
@@ -20,7 +20,8 @@ export default function PagamentoPage() {
   const [etapaAtual, setEtapaAtual] = useState(ETAPAS.CARRINHO);
   const [statusPedidoAtual, setStatusPedidoAtual] = useState('');
   const [pagamentoConfirmado, setPagamentoConfirmado] = useState(false);
-  const token = getStoredToken();
+  const [autenticado, setAutenticado] = useState(null);
+  const [verificandoSessao, setVerificandoSessao] = useState(true);
 
   const itensPedido = useMemo(
     () =>
@@ -34,7 +35,40 @@ export default function PagamentoPage() {
   );
 
   useEffect(() => {
-    if (!resultadoPedido?.pedido_id || !token) {
+    let ativo = true;
+    setVerificandoSessao(true);
+
+    getMe()
+      .then(() => {
+        if (ativo) {
+          setAutenticado(true);
+        }
+      })
+      .catch((error) => {
+        if (!ativo) {
+          return;
+        }
+
+        if (isAuthErrorMessage(error.message)) {
+          setAutenticado(false);
+        } else {
+          setAutenticado(false);
+          setErro(error.message || 'Não foi possível validar sua sessão.');
+        }
+      })
+      .finally(() => {
+        if (ativo) {
+          setVerificandoSessao(false);
+        }
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!resultadoPedido?.pedido_id || autenticado !== true) {
       return;
     }
 
@@ -42,7 +76,7 @@ export default function PagamentoPage() {
 
     async function atualizarStatus() {
       try {
-        const data = await getPedidos(token);
+        const data = await getPedidos();
         const pedido = (data.pedidos || []).find((item) => Number(item.id) === Number(resultadoPedido.pedido_id));
         if (ativo && pedido?.status) {
           const novoStatus = String(pedido.status);
@@ -51,7 +85,10 @@ export default function PagamentoPage() {
             setPagamentoConfirmado(true);
           }
         }
-      } catch (_) {
+      } catch (error) {
+        if (isAuthErrorMessage(error.message)) {
+          setAutenticado(false);
+        }
       }
     }
 
@@ -62,12 +99,18 @@ export default function PagamentoPage() {
       ativo = false;
       clearInterval(interval);
     };
-  }, [resultadoPedido?.pedido_id, token]);
+  }, [resultadoPedido?.pedido_id, autenticado]);
 
   async function handleCriarPedido() {
     setResultadoPix(null);
     setResultadoPedido(null);
     setErro('');
+
+    if (autenticado !== true) {
+      setAutenticado(false);
+      setErro('Faça login na conta para concluir pedido e gerar PIX.');
+      return;
+    }
 
     if (itensPedido.length === 0) {
       setErro('Adicione produtos ao carrinho para criar o pedido.');
@@ -76,7 +119,7 @@ export default function PagamentoPage() {
 
     setCarregando(true);
     try {
-      const data = await criarPedido(token, {
+      const data = await criarPedido({
         itens: itensPedido,
         formaPagamento: 'pix'
       });
@@ -94,6 +137,9 @@ export default function PagamentoPage() {
         });
       }
     } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAutenticado(false);
+      }
       setErro(error.message);
     } finally {
       setCarregando(false);
@@ -113,9 +159,12 @@ export default function PagamentoPage() {
     setErro('');
     setCarregando(true);
     try {
-      const data = await gerarPix(token, pedidoId);
+      const data = await gerarPix(pedidoId);
       setResultadoPix(data);
     } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAutenticado(false);
+      }
       setErro(error.message);
     } finally {
       setCarregando(false);
@@ -132,7 +181,16 @@ export default function PagamentoPage() {
   const etapaIndex = getIndiceEtapa(etapaAtual);
   const labelStatus = statusPedidoAtual || resultadoPedido?.status || 'pendente';
 
-  if (!token) {
+  if (verificandoSessao) {
+    return (
+      <section className="page">
+        <h1>Pagamento</h1>
+        <p>Verificando sua sessão...</p>
+      </section>
+    );
+  }
+
+  if (autenticado === false) {
     return (
       <section className="page">
         <h1>Pagamento</h1>

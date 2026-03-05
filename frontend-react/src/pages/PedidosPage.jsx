@@ -1,7 +1,7 @@
 import React from 'react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getPedidoById, getPedidos, getStoredToken } from '../lib/api';
+import { getPedidoById, getPedidos, isAuthErrorMessage } from '../lib/api';
 
 function formatarDataPedido(dataRaw) {
   if (!dataRaw) {
@@ -22,30 +22,48 @@ export default function PedidosPage() {
   const [detalhesPorPedido, setDetalhesPorPedido] = useState({});
   const [carregandoDetalhesId, setCarregandoDetalhesId] = useState(null);
   const [carregando, setCarregando] = useState(false);
+  const [autenticado, setAutenticado] = useState(null);
   const [erro, setErro] = useState('');
-  const token = getStoredToken();
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
+    let ativo = true;
 
     async function carregarPedidos() {
       setCarregando(true);
       setErro('');
 
       try {
-        const data = await getPedidos(token);
+        const data = await getPedidos();
+        if (!ativo) {
+          return;
+        }
+
         setPedidos(Array.isArray(data.pedidos) ? data.pedidos : []);
+        setAutenticado(true);
       } catch (error) {
-        setErro(error.message || 'Não foi possível carregar o histórico de pedidos.');
+        if (!ativo) {
+          return;
+        }
+
+        if (isAuthErrorMessage(error.message)) {
+          setAutenticado(false);
+          setPedidos([]);
+        } else {
+          setErro(error.message || 'Não foi possível carregar o histórico de pedidos.');
+        }
       } finally {
-        setCarregando(false);
+        if (ativo) {
+          setCarregando(false);
+        }
       }
     }
 
     carregarPedidos();
-  }, [token]);
+
+    return () => {
+      ativo = false;
+    };
+  }, []);
 
   async function toggleDetalhesPedido(pedidoId) {
     if (pedidoAbertoId === pedidoId) {
@@ -61,7 +79,7 @@ export default function PedidosPage() {
 
     setCarregandoDetalhesId(pedidoId);
     try {
-      const data = await getPedidoById(token, pedidoId);
+      const data = await getPedidoById(pedidoId);
       setDetalhesPorPedido((atual) => ({
         ...atual,
         [pedidoId]: {
@@ -70,6 +88,12 @@ export default function PedidosPage() {
         }
       }));
     } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAutenticado(false);
+        setPedidoAbertoId(null);
+        return;
+      }
+
       setDetalhesPorPedido((atual) => ({
         ...atual,
         [pedidoId]: {
@@ -82,7 +106,7 @@ export default function PedidosPage() {
     }
   }
 
-  if (!token) {
+  if (autenticado === false) {
     return (
       <section className="page">
         <h1>Pedidos</h1>
