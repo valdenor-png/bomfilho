@@ -503,6 +503,9 @@ export default function ProdutosPage() {
                   <h2>{secao.label}</h2>
                   <p>{secao.itens.length} item(ns) nesta categoria</p>
                 </div>
+                <div className="produto-grid brand-produto-grid">
+                  {secao.itens.map((produto) => renderProdutoCard(produto))}
+                </div>
               </section>
             ))}
           </div>

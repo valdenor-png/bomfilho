@@ -1350,6 +1350,7 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
     const { pedido_id } = req.body;
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
+    const taxId = taxIdDigits || (process.env.PAGBANK_ENV === 'production' ? null : '12345678909');
 
     if (!PAGBANK_TOKEN) {
       return res.status(503).json({ erro: 'PagBank não configurado' });
@@ -1357,6 +1358,10 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
 
     if (!pedido_id) {
       return res.status(400).json({ erro: 'pedido_id é obrigatório' });
+    }
+
+    if (!taxId) {
+      return res.status(400).json({ erro: 'tax_id (CPF/CNPJ) é obrigatório para gerar PIX no PagBank em produção' });
     }
 
     // Buscar pedido e dados do usuário
@@ -1381,21 +1386,31 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
       descricao: `Pedido #${pedido.id}`,
       email: pedido.email,
       nome: pedido.nome,
-      taxId: taxIdDigits
+      taxId
     });
 
-    const txData = pagamento?.point_of_interaction?.transaction_data || {};
-    const paymentId = pagamento?.id;
-    const statusMp = pagamento?.status || 'pending';
-    const statusInterno = mapearStatusPedido(statusMp);
+    const qrCodePrincipal = pagamento?.qr_codes?.[0] || {};
+    const paymentId = pagamento?.id || null;
+    const statusPagBank = String(
+      pagamento?.charges?.[0]?.status ||
+      pagamento?.status ||
+      qrCodePrincipal?.status ||
+      'WAITING'
+    ).toUpperCase();
+    const statusInterno = mapearStatusPedido(statusPagBank);
+
+    const pixCodigo = qrCodePrincipal?.text || null;
+    const pixQrCode = qrCodePrincipal?.links?.find((link) => String(link?.media || '').includes('image/png'))?.href
+      || qrCodePrincipal?.links?.[0]?.href
+      || null;
 
     // Tentar persistir dados do pagamento (ignora erro se colunas não existirem)
     try {
       await pool.query(
         `UPDATE pedidos 
-         SET mp_payment_id = ?, pix_status = ?, pix_qr_data = ?, pix_qr_base64 = ?
+         SET pix_id = ?, pix_status = ?, pix_codigo = ?, pix_qrcode = ?
          WHERE id = ?`,
-        [paymentId || null, statusMp, txData.qr_code || null, txData.qr_code_base64 || null, pedido.id]
+        [paymentId, statusPagBank, pixCodigo, pixQrCode, pedido.id]
       );
     } catch (err) {
       console.warn('Não foi possível salvar dados do PIX (faltam colunas?):', err.message);
@@ -1403,12 +1418,13 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
 
     res.json({
       payment_id: paymentId,
-      status: statusMp,
+      status: statusPagBank,
       status_interno: statusInterno,
-      qr_code: txData.qr_code,
-      qr_code_base64: txData.qr_code_base64,
-      qr_data: txData.qr_data || txData.qr_code,
-      ticket_url: txData.ticket_url
+      qr_code: pixCodigo,
+      qr_code_base64: null,
+      qr_data: pixCodigo,
+      pix_codigo: pixCodigo,
+      pix_qrcode: pixQrCode
     });
   } catch (erro) {
     console.error('Erro ao gerar PIX:', erro);

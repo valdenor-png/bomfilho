@@ -190,35 +190,20 @@ export default function PagamentoPage() {
     );
   }
 
-  if (autenticado === false) {
-    return (
-      <section className="page">
-        <h1>Pagamento</h1>
-        <p>Você precisa fazer login para concluir pedido e gerar PIX.</p>
-
-        <div className="card-box">
-          <p><strong>Como finalizar seu pedido</strong></p>
-          <p>1. Entre na sua conta.</p>
-          <p>2. Revise o carrinho e confirme o total.</p>
-          <p>3. Gere o PIX e pague pelo app do banco.</p>
-          <Link to="/conta" className="btn-primary" style={{ display: 'inline-block', marginTop: '0.4rem' }}>
-            Ir para Conta
-          </Link>
-        </div>
-
-        <div className="card-box">
-          <p><strong>Atendimento</strong></p>
-          <p>Dúvidas no pagamento? Fale com a loja:</p>
-          <p>WhatsApp: (91) 99965-2790</p>
-        </div>
-      </section>
-    );
-  }
-
   return (
     <section className="page">
       <h1>Pagamento</h1>
       <p>Fluxo em etapas: carrinho, forma de pagamento, pagamento PIX e confirmação.</p>
+
+      {autenticado === false ? (
+        <div className="card-box">
+          <p><strong>Faça login para concluir o pedido e gerar PIX.</strong></p>
+          <p>Você pode revisar e editar o carrinho normalmente antes do login.</p>
+          <Link to="/conta" className="btn-primary" style={{ display: 'inline-block', marginTop: '0.4rem' }}>
+            Ir para Conta
+          </Link>
+        </div>
+      ) : null}
 
       <div className="checkout-steps" aria-label="Etapas do checkout">
         {['Carrinho', 'Pagamento', 'PIX', 'Confirmação'].map((titulo, index) => (
@@ -280,14 +265,25 @@ export default function PagamentoPage() {
       {etapaAtual === ETAPAS.PAGAMENTO ? (
         <div className="card-box">
           <p><strong>Etapa 2: Escolha a forma de pagamento</strong></p>
-          <div className="card-box" style={{ marginTop: '0.3rem' }}>
-            <p><strong>✅ PIX</strong> (única opção disponível)</p>
-            <p className="muted-text" style={{ marginTop: '0.2rem' }}>Pagamento instantâneo via QR Code ou copia e cola.</p>
-          </div>
+          {autenticado === true ? (
+            <>
+              <div className="card-box" style={{ marginTop: '0.3rem' }}>
+                <p><strong>✅ PIX</strong> (única opção disponível)</p>
+                <p className="muted-text" style={{ marginTop: '0.2rem' }}>Pagamento instantâneo via QR Code ou copia e cola.</p>
+              </div>
 
-          <button className="btn-primary" type="button" onClick={handleIrParaPix} disabled={carregando || itens.length === 0 && !resultadoPedido?.pedido_id}>
-            {carregando ? 'Preparando pagamento...' : 'Continuar com PIX'}
-          </button>
+              <button className="btn-primary" type="button" onClick={handleIrParaPix} disabled={carregando || itens.length === 0 && !resultadoPedido?.pedido_id}>
+                {carregando ? 'Preparando pagamento...' : 'Continuar com PIX'}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="muted-text">Entre na sua conta para continuar para o PIX.</p>
+              <Link to="/conta" className="btn-primary" style={{ display: 'inline-block' }}>
+                Ir para Conta
+              </Link>
+            </>
+          )}
           <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.CARRINHO)}>
             Voltar para carrinho
           </button>

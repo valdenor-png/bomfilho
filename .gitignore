@@ -99,7 +99,7 @@ senhas.txt
 tokens.txt
 
 # Scripts
-.Scripts
+scripts/
 
 # Backup local
 backup/

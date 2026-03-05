@@ -51,6 +51,12 @@ CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 # Se estiver atrás de proxy reverso confiável (Nginx/Cloudflare)
 TRUST_PROXY=false
 
+# Cookies de sessão (HttpOnly)
+# Em produção HTTPS, use true
+COOKIE_SECURE=false
+# Opcional: domínio dos cookies (ex: .seusite.com)
+COOKIE_DOMAIN=
+
 JWT_SECRET=sua_chave_secreta_muito_segura
 
 # Proteção opcional para rotas de diagnóstico
@@ -146,12 +152,24 @@ Content-Type: application/json
 }
 ```
 
-Retorna: `{ token: "...", usuario: {...} }`
+Retorna: `{ usuario: {...}, csrfToken: "..." }` e define cookie HttpOnly de sessão.
+
+#### Token CSRF
+```http
+GET /api/auth/csrf
+```
+
+Retorna: `{ csrfToken: "..." }` e define cookie CSRF.
+
+#### Logout
+```http
+POST /api/auth/logout
+x-csrf-token: TOKEN_CSRF
+```
 
 #### Dados do usuário logado
 ```http
 GET /api/auth/me
-Authorization: Bearer SEU_TOKEN_JWT
 ```
 
 ### Endereços
@@ -159,13 +177,12 @@ Authorization: Bearer SEU_TOKEN_JWT
 #### Obter endereço
 ```http
 GET /api/endereco
-Authorization: Bearer SEU_TOKEN_JWT
 ```
 
 #### Salvar/Atualizar endereço
 ```http
 POST /api/endereco
-Authorization: Bearer SEU_TOKEN_JWT
+x-csrf-token: TOKEN_CSRF
 Content-Type: application/json
 
 {
@@ -195,7 +212,7 @@ GET /api/produtos/1
 #### Criar pedido
 ```http
 POST /api/pedidos
-Authorization: Bearer SEU_TOKEN_JWT
+x-csrf-token: TOKEN_CSRF
 Content-Type: application/json
 
 {
@@ -219,20 +236,21 @@ Content-Type: application/json
 #### Listar pedidos do usuário
 ```http
 GET /api/pedidos
-Authorization: Bearer SEU_TOKEN_JWT
 ```
 
 #### Detalhes de um pedido
 ```http
 GET /api/pedidos/1
-Authorization: Bearer SEU_TOKEN_JWT
 ```
 
 ## 🔒 Segurança
 
 - Senhas criptografadas com bcryptjs
-- Autenticação via JWT (JSON Web Tokens)
-- CORS habilitado para requisições do frontend
+- Autenticação via JWT armazenado em cookie HttpOnly
+- Proteção CSRF com validação de cookie + header `x-csrf-token`
+- CORS com allowlist de origens e `credentials`
+- Rate limit para API e endpoints sensíveis
+- Proteções para webhook/diagnóstico por token dedicado
 - Prepared statements para prevenir SQL Injection
 
 ## 📦 Dependências
@@ -256,7 +274,8 @@ Authorization: Bearer SEU_TOKEN_JWT
 
 ## 📝 Notas
 
-- O token JWT expira em 7 dias
+- Sessão do cliente expira em 7 dias (cookie HttpOnly)
+- Sessão do admin expira em 12 horas (cookie HttpOnly)
 - Produtos inativos não aparecem na listagem
 - Pedidos iniciam com status "pendente"
 - Relacionamentos CASCADE para deleções

@@ -1,16 +1,16 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  adminGetMe,
   adminLogin,
+  adminLogout,
   adminAtualizarStatusPedido,
   adminBuscarProdutoPorCodigoBarras,
   adminCadastrarProduto,
   adminExcluirProduto,
   adminGetPedidos,
-  clearStoredAdminToken,
-  getStoredAdminToken,
-  setStoredAdminToken,
-  getProdutos
+  getProdutos,
+  isAuthErrorMessage
 } from '../lib/api';
 
 const STATUS_OPTIONS = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado'];
@@ -31,7 +31,7 @@ const initialProduto = {
 export default function AdminPage() {
   const [adminUsuario, setAdminUsuario] = useState('admin');
   const [adminSenha, setAdminSenha] = useState('');
-  const [adminToken, setAdminToken] = useState(() => getStoredAdminToken());
+  const [adminAutenticado, setAdminAutenticado] = useState(null);
   const [tab, setTab] = useState('pedidos');
   const [pedidos, setPedidos] = useState([]);
   const [produtos, setProdutos] = useState([]);
@@ -52,13 +52,57 @@ export default function AdminPage() {
   const isLocalHost = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
 
   useEffect(() => {
-    if (adminToken && isLocalHost) {
-      carregarTudo(adminToken);
+    if (!isLocalHost) {
+      return;
     }
-  }, [adminToken, isLocalHost]);
 
-  async function carregarTudo(tokenAtual = adminToken) {
-    if (!tokenAtual) {
+    let ativo = true;
+
+    async function validarSessaoAdmin() {
+      setCarregando(true);
+      setErro('');
+
+      try {
+        const data = await adminGetMe();
+        if (!ativo) {
+          return;
+        }
+
+        setAdminAutenticado(true);
+        if (data?.admin?.usuario) {
+          setAdminUsuario(String(data.admin.usuario));
+        }
+      } catch (error) {
+        if (!ativo) {
+          return;
+        }
+
+        setAdminAutenticado(false);
+        if (!isAuthErrorMessage(error.message)) {
+          setErro(error.message);
+        }
+      } finally {
+        if (ativo) {
+          setCarregando(false);
+        }
+      }
+    }
+
+    validarSessaoAdmin();
+
+    return () => {
+      ativo = false;
+    };
+  }, [isLocalHost]);
+
+  useEffect(() => {
+    if (adminAutenticado === true && isLocalHost) {
+      carregarTudo();
+    }
+  }, [adminAutenticado, isLocalHost]);
+
+  async function carregarTudo() {
+    if (adminAutenticado !== true) {
       return;
     }
 
@@ -66,7 +110,7 @@ export default function AdminPage() {
     setErro('');
     try {
       const [pedidosData, produtosData] = await Promise.all([
-        adminGetPedidos(tokenAtual),
+        adminGetPedidos(),
         getProdutos()
       ]);
       const pedidosList = pedidosData.pedidos || [];
@@ -79,9 +123,10 @@ export default function AdminPage() {
       });
       setStatusDraft(draft);
     } catch (error) {
-      if (/token|credenciais|acesso|401|403/i.test(error.message)) {
-        clearStoredAdminToken();
-        setAdminToken('');
+      if (isAuthErrorMessage(error.message)) {
+        setAdminAutenticado(false);
+        setPedidos([]);
+        setProdutos([]);
       }
       setErro(error.message);
     } finally {
@@ -92,22 +137,36 @@ export default function AdminPage() {
   async function handleAdminLogin(event) {
     event.preventDefault();
     setErro('');
+    setCarregando(true);
 
     try {
       const data = await adminLogin(adminUsuario.trim(), adminSenha);
-      setAdminToken(data.token || '');
-      if (data.token) {
-        setStoredAdminToken(data.token);
+      setAdminAutenticado(true);
+      if (data?.usuario) {
+        setAdminUsuario(String(data.usuario));
       }
       setAdminSenha('');
     } catch (error) {
       setErro(error.message);
+    } finally {
+      setCarregando(false);
     }
   }
 
-  function handleAdminLogout() {
-    clearStoredAdminToken();
-    setAdminToken('');
+  async function handleAdminLogout() {
+    setErro('');
+    setCarregando(true);
+    try {
+      await adminLogout();
+    } catch (error) {
+      if (!isAuthErrorMessage(error.message)) {
+        setErro(error.message);
+      }
+    } finally {
+      setCarregando(false);
+    }
+
+    setAdminAutenticado(false);
     setAdminSenha('');
     setPedidos([]);
     setProdutos([]);
@@ -252,8 +311,8 @@ export default function AdminPage() {
     }
 
     try {
-      await adminAtualizarStatusPedido(adminToken, pedidoId, status);
-      await carregarTudo(adminToken);
+      await adminAtualizarStatusPedido(pedidoId, status);
+      await carregarTudo();
     } catch (error) {
       setErro(error.message);
     }
@@ -270,7 +329,7 @@ export default function AdminPage() {
 
     setSalvandoProduto(true);
     try {
-      await adminCadastrarProduto(adminToken, {
+      await adminCadastrarProduto({
         codigo_barras: produtoForm.codigo_barras.trim(),
         nome: produtoForm.nome.trim(),
         descricao: produtoForm.descricao.trim(),
@@ -284,7 +343,7 @@ export default function AdminPage() {
       });
 
       setProdutoForm(initialProduto);
-      await carregarTudo(adminToken);
+      await carregarTudo();
     } catch (error) {
       setErro(error.message);
     } finally {
@@ -300,8 +359,8 @@ export default function AdminPage() {
 
     setErro('');
     try {
-      await adminExcluirProduto(adminToken, produtoId);
-      await carregarTudo(adminToken);
+      await adminExcluirProduto(produtoId);
+      await carregarTudo();
     } catch (error) {
       setErro(error.message);
     }
@@ -318,7 +377,7 @@ export default function AdminPage() {
 
     setBuscandoCodigo(true);
     try {
-      const data = await adminBuscarProdutoPorCodigoBarras(adminToken, codigo);
+      const data = await adminBuscarProdutoPorCodigoBarras(codigo);
       const produto = data?.produto || {};
       setProdutoForm((atual) => ({
         ...atual,
@@ -372,7 +431,7 @@ export default function AdminPage() {
     );
   }
 
-  if (!adminToken) {
+  if (adminAutenticado !== true) {
     return (
       <section className="page">
         <h1>Login Admin</h1>
@@ -400,7 +459,9 @@ export default function AdminPage() {
 
           {erro ? <p className="error-text">{erro}</p> : null}
 
-          <button className="btn-primary" type="submit">Entrar no Admin</button>
+          <button className="btn-primary" type="submit" disabled={carregando}>
+            {carregando ? 'Processando...' : 'Entrar no Admin'}
+          </button>
         </form>
       </section>
     );
@@ -442,7 +503,7 @@ export default function AdminPage() {
         </button>
       </div>
 
-      <button className="btn-primary" type="button" style={{ marginTop: '0.8rem' }} onClick={() => carregarTudo(adminToken)} disabled={carregando}>
+      <button className="btn-primary" type="button" style={{ marginTop: '0.8rem' }} onClick={() => carregarTudo()} disabled={carregando}>
         {carregando ? 'Atualizando...' : 'Atualizar painel'}
       </button>
       <button className="btn-secondary" type="button" style={{ marginTop: '0.8rem', marginLeft: '0.5rem' }} onClick={handleAdminLogout}>
