@@ -56,6 +56,26 @@ curl http://localhost:8080/instance/connectionState/loja \
   -H "apikey: CHANGE_THIS_TO_RANDOM_KEY_123456"
 ```
 
+## 🤖 Auto-resposta via webhook
+
+Para responder automaticamente quando cliente mandar mensagem:
+
+1. Configure no backend (`.env`):
+
+```env
+WHATSAPP_AUTO_REPLY_ENABLED=true
+WHATSAPP_AUTO_REPLY_TEXT=Estamos com o site do Bom Filho no ar. Faca seu pedido por la.
+EVOLUTION_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
+```
+
+2. No Manager da Evolution, configure o webhook para:
+
+- URL: `https://SUA_URL_PUBLICA/api/webhooks/evolution`
+- Método: `POST`
+- Token: `EVOLUTION_WEBHOOK_TOKEN` (opcional, mas recomendado)
+
+3. O backend ignora eventos sem mensagem, grupos/broadcast e mensagens do proprio bot.
+
 ## 📞 Suporte
 
 - Documentação: https://doc.evolution-api.com/

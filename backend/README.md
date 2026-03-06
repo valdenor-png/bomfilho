@@ -54,6 +54,9 @@ TRUST_PROXY=false
 # Cookies de sessão (HttpOnly)
 # Em produção HTTPS, use true
 COOKIE_SECURE=false
+# strict | lax | none
+# Para frontend em outro domínio (Vercel + Render), use none
+COOKIE_SAME_SITE=strict
 # Opcional: domínio dos cookies (ex: .seusite.com)
 COOKIE_DOMAIN=
 
@@ -69,6 +72,17 @@ PAGBANK_TOKEN=SEU_TOKEN_PAGBANK
 # Proteção do webhook PagBank
 PAGBANK_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
 BASE_URL=https://SUA_URL_PUBLICA
+
+# Evolution API (WhatsApp)
+EVOLUTION_API_URL=http://localhost:8080
+EVOLUTION_API_KEY=SUA_CHAVE_EVOLUTION
+EVOLUTION_INSTANCE=loja
+EVOLUTION_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
+
+# Auto-resposta para mensagens recebidas no WhatsApp
+WHATSAPP_AUTO_REPLY_ENABLED=false
+WHATSAPP_AUTO_REPLY_TEXT=Estamos com o site do Bom Filho no ar. Faca seu pedido por la.
+WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS=0
 ```
 
 ## 💠 PIX automático (PagBank)
@@ -109,6 +123,28 @@ GET /api/pagbank/status
 ```
 
 Ele retorna `auth_check` com `ok=true/false` e também mostra qual `webhook_url` está sendo usado.
+
+## 💬 Auto-resposta no WhatsApp (Evolution)
+
+Quando o webhook da Evolution estiver configurado, o backend pode responder automaticamente
+sempre que um cliente enviar mensagem para o numero da loja.
+
+### 1) Ative no `.env`
+
+- `WHATSAPP_AUTO_REPLY_ENABLED=true`
+- `WHATSAPP_AUTO_REPLY_TEXT=Estamos com o site do Bom Filho no ar. Faca seu pedido por la.`
+- Opcional: `WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS=30`
+
+### 2) Configure o webhook na Evolution
+
+- URL: `https://SUA_URL_PUBLICA/api/webhooks/evolution`
+- Método: `POST`
+- Token (opcional): use o mesmo valor de `EVOLUTION_WEBHOOK_TOKEN`
+
+### 3) Observações
+
+- O backend ignora mensagens enviadas pelo proprio bot (`fromMe`) para evitar loop.
+- Mensagens em grupos/broadcast tambem sao ignoradas.
 
 ### 4. Iniciar o servidor
 

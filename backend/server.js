@@ -23,6 +23,16 @@ const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
 const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'loja';
+const EVOLUTION_WEBHOOK_TOKEN = String(process.env.EVOLUTION_WEBHOOK_TOKEN || '').trim();
+const WHATSAPP_AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY_ENABLED === 'true';
+const WHATSAPP_AUTO_REPLY_TEXT = String(
+  process.env.WHATSAPP_AUTO_REPLY_TEXT ||
+  'Estamos com o site do Bom Filho no ar. Faca seu pedido por la.'
+).trim();
+const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
+  process.env.WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS || '0',
+  10
+);
 
 // Configuração PagBank
 const PAGBANK_TOKEN = process.env.PAGBANK_TOKEN;
@@ -46,6 +56,10 @@ const ADMIN_AUTH_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
 const CSRF_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
 const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
 const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
+const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').trim().toLowerCase();
+const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW)
+  ? COOKIE_SAME_SITE_RAW
+  : 'strict';
 
 if (JWT_SECRET.length < 32) {
   const aviso = 'JWT_SECRET deve ter no mínimo 32 caracteres para segurança adequada.';
@@ -63,7 +77,7 @@ function getCookieOptions({ httpOnly = true, maxAge } = {}) {
   const options = {
     httpOnly,
     secure: COOKIE_SECURE,
-    sameSite: 'strict',
+    sameSite: COOKIE_SAME_SITE,
     path: '/'
   };
 
@@ -187,6 +201,61 @@ function validarWebhookPagBank(req) {
   return tokenHeader === PAGBANK_WEBHOOK_TOKEN || tokenQuery === PAGBANK_WEBHOOK_TOKEN;
 }
 
+function validarWebhookEvolution(req) {
+  if (!EVOLUTION_WEBHOOK_TOKEN) {
+    return true;
+  }
+
+  const tokenHeader = String(req.headers['x-webhook-token'] || req.headers['x-evolution-token'] || '').trim();
+  const tokenQuery = String(req.query?.token || '').trim();
+
+  return tokenHeader === EVOLUTION_WEBHOOK_TOKEN || tokenQuery === EVOLUTION_WEBHOOK_TOKEN;
+}
+
+function limparCacheEvolution() {
+  const agora = Date.now();
+  const ttlMensagemMs = 30 * 60 * 1000;
+  const ttlNumeroMs = 24 * 60 * 60 * 1000;
+
+  for (const [id, ts] of evolutionProcessedMessageIds.entries()) {
+    if (agora - ts > ttlMensagemMs) {
+      evolutionProcessedMessageIds.delete(id);
+    }
+  }
+
+  for (const [numero, ts] of evolutionLastReplyByNumber.entries()) {
+    if (agora - ts > ttlNumeroMs) {
+      evolutionLastReplyByNumber.delete(numero);
+    }
+  }
+}
+
+function extrairDadosMensagemEvolution(payload) {
+  const data = payload?.data || payload || {};
+  const key = data?.key || payload?.key || {};
+  const remoteJid = String(
+    key?.remoteJid || data?.remoteJid || payload?.remoteJid || data?.from || payload?.from || ''
+  ).trim();
+  const fromMe = Boolean(key?.fromMe ?? data?.fromMe ?? payload?.fromMe);
+  const messageId = String(key?.id || data?.id || payload?.id || '').trim();
+
+  const messageObject = data?.message || payload?.message;
+  const textual = String(data?.body || payload?.body || data?.text || payload?.text || '').trim();
+  const temConteudo = Boolean(messageObject) || textual.length > 0;
+
+  return {
+    remoteJid,
+    fromMe,
+    messageId,
+    temConteudo
+  };
+}
+
+function isJidGrupoOuBroadcast(remoteJid) {
+  const jid = String(remoteJid || '').toLowerCase();
+  return jid.includes('@g.us') || jid.includes('status@broadcast') || jid.includes('@broadcast');
+}
+
 // Cache simples de diagnóstico do PagBank
 let pagbankLastAuthCheck = {
   checkedAt: null,
@@ -195,6 +264,9 @@ let pagbankLastAuthCheck = {
   httpStatus: null,
   message: null
 };
+
+const evolutionProcessedMessageIds = new Map();
+const evolutionLastReplyByNumber = new Map();
 
 if (PAGBANK_TOKEN) {
   console.log('✅ PagBank configurado com sucesso!');
@@ -641,22 +713,21 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
   return resultado;
 }
 
-async function enviarWhatsappPedido({ telefone, nome, pedidoId, total, pixCodigo, mensagemExtra }) {
+async function enviarWhatsappTexto({ telefone, mensagem }) {
   if (!EVOLUTION_API_KEY) {
     console.warn('⚠️ Evolution API não configurada. WhatsApp desabilitado.');
-    return; // Integração não configurada
+    return false;
   }
 
   const numero = formatarTelefoneWhatsapp(telefone);
-  if (!numero) return;
-  if (typeof fetch !== 'function') {
-    console.warn('Fetch indisponível; mensagem de WhatsApp não enviada.');
-    return;
+  if (!numero || !mensagem) {
+    return false;
   }
 
-  const mensagemBase = mensagemExtra || `Recebemos o seu pedido #${pedidoId}! Total: R$ ${Number(total || 0).toFixed(2)}.`;
-  const detalhePix = pixCodigo ? ` Código PIX: ${pixCodigo}` : '';
-  const mensagem = `Olá ${nome || 'cliente'}! ${mensagemBase}${detalhePix}`;
+  if (typeof fetch !== 'function') {
+    console.warn('Fetch indisponível; mensagem de WhatsApp não enviada.');
+    return false;
+  }
   
   // URL da Evolution API
   const url = `${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`;
@@ -678,13 +749,27 @@ async function enviarWhatsappPedido({ telefone, nome, pedidoId, total, pixCodigo
     if (!resp.ok) {
       const erroTexto = await resp.text();
       console.error('❌ Erro ao enviar WhatsApp:', erroTexto);
+      return false;
     } else {
       const resultado = await resp.json();
       console.log('✅ WhatsApp enviado:', resultado);
+      return true;
     }
   } catch (erro) {
     console.error('❌ Erro ao enviar WhatsApp:', erro.message);
+    return false;
   }
+}
+
+async function enviarWhatsappPedido({ telefone, nome, pedidoId, total, pixCodigo, mensagemExtra }) {
+  const mensagemBase = mensagemExtra || `Recebemos o seu pedido #${pedidoId}! Total: R$ ${Number(total || 0).toFixed(2)}.`;
+  const detalhePix = pixCodigo ? ` Codigo PIX: ${pixCodigo}` : '';
+  const mensagem = `Ola ${nome || 'cliente'}! ${mensagemBase}${detalhePix}`;
+
+  await enviarWhatsappTexto({
+    telefone,
+    mensagem
+  });
 }
 
 // ============================================
@@ -901,6 +986,7 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     res.status(201).json({
       mensagem: 'Usuário cadastrado com sucesso',
       csrfToken,
+      accessToken: token,
       usuario: {
         id: resultado.insertId,
         nome: nome,
@@ -951,6 +1037,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     res.json({
       mensagem: 'Login realizado com sucesso',
       csrfToken,
+      accessToken: token,
       usuario: {
         id: usuario.id,
         nome: usuario.nome,
@@ -994,7 +1081,8 @@ app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (re
     return res.json({
       mensagem: 'Login admin realizado com sucesso',
       usuario: ADMIN_USER,
-      csrfToken
+      csrfToken,
+      accessToken: token
     });
   } catch (erro) {
     console.error('Erro no login admin:', erro);
@@ -1917,6 +2005,71 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
   } catch (erro) {
     console.error('Erro ao atualizar status:', erro);
     res.status(500).json({ erro: 'Erro ao atualizar status' });
+  }
+});
+
+// ============================================
+// WEBHOOK EVOLUTION (WHATSAPP)
+// ============================================
+app.post('/api/webhooks/evolution', async (req, res) => {
+  try {
+    if (!validarWebhookEvolution(req)) {
+      return res.status(401).json({ erro: 'Webhook Evolution nao autorizado' });
+    }
+
+    if (!WHATSAPP_AUTO_REPLY_ENABLED || !WHATSAPP_AUTO_REPLY_TEXT) {
+      return res.sendStatus(200);
+    }
+
+    const payload = req.body || {};
+    const evento = String(payload?.event || payload?.type || '').toLowerCase();
+    const { remoteJid, fromMe, messageId, temConteudo } = extrairDadosMensagemEvolution(payload);
+
+    if (evento && !evento.includes('message')) {
+      return res.sendStatus(200);
+    }
+
+    if (!remoteJid || fromMe || isJidGrupoOuBroadcast(remoteJid) || !temConteudo) {
+      return res.sendStatus(200);
+    }
+
+    limparCacheEvolution();
+
+    if (messageId) {
+      if (evolutionProcessedMessageIds.has(messageId)) {
+        return res.sendStatus(200);
+      }
+      evolutionProcessedMessageIds.set(messageId, Date.now());
+    }
+
+    const telefone = formatarTelefoneWhatsapp(remoteJid);
+    if (!telefone) {
+      return res.sendStatus(200);
+    }
+
+    const cooldown = Number.isInteger(WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS)
+      ? Math.max(0, WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS)
+      : 0;
+    const agora = Date.now();
+    const ultimaResposta = evolutionLastReplyByNumber.get(telefone) || 0;
+    if (cooldown > 0 && (agora - ultimaResposta) < cooldown * 1000) {
+      return res.sendStatus(200);
+    }
+
+    const enviado = await enviarWhatsappTexto({
+      telefone,
+      mensagem: WHATSAPP_AUTO_REPLY_TEXT
+    });
+
+    if (enviado) {
+      evolutionLastReplyByNumber.set(telefone, agora);
+      console.log('✅ Auto-resposta WhatsApp enviada para:', telefone);
+    }
+
+    return res.sendStatus(200);
+  } catch (erro) {
+    console.error('Erro no webhook Evolution:', erro?.message || erro);
+    return res.sendStatus(500);
   }
 });
 

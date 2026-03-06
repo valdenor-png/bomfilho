@@ -1,6 +1,69 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const CSRF_COOKIE_KEY = 'bf_csrf_token';
+const USER_ACCESS_TOKEN_KEY = 'bf_user_access_token';
+const ADMIN_ACCESS_TOKEN_KEY = 'bf_admin_access_token';
 let csrfTokenCache = '';
+
+function readStorage(key) {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  try {
+    return String(window.localStorage.getItem(key) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function writeStorage(key, value) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    const normalized = String(value || '').trim();
+    if (!normalized) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, normalized);
+  } catch {
+    // Ignora falhas de storage para nao bloquear a navegacao.
+  }
+}
+
+function clearUserAccessToken() {
+  writeStorage(USER_ACCESS_TOKEN_KEY, '');
+}
+
+function clearAdminAccessToken() {
+  writeStorage(ADMIN_ACCESS_TOKEN_KEY, '');
+}
+
+function getUserAccessToken() {
+  return readStorage(USER_ACCESS_TOKEN_KEY);
+}
+
+function getAdminAccessToken() {
+  return readStorage(ADMIN_ACCESS_TOKEN_KEY);
+}
+
+function salvarTokenPorRota(path, token) {
+  const normalizedPath = String(path || '');
+  const normalizedToken = String(token || '').trim();
+
+  if (!normalizedToken) {
+    return;
+  }
+
+  if (normalizedPath.startsWith('/api/admin/')) {
+    writeStorage(ADMIN_ACCESS_TOKEN_KEY, normalizedToken);
+    return;
+  }
+
+  writeStorage(USER_ACCESS_TOKEN_KEY, normalizedToken);
+}
 
 function isMutatingMethod(method) {
   return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(method || '').toUpperCase());
@@ -84,8 +147,11 @@ export function isAuthErrorMessage(message) {
 async function request(path, options = {}, tentativa = 0) {
   const { method = 'GET', token, body } = options;
   const methodUpper = String(method || 'GET').toUpperCase();
+  const isAdminPath = String(path || '').startsWith('/api/admin/');
+  const persistedToken = isAdminPath ? getAdminAccessToken() : getUserAccessToken();
+  const tokenToUse = String(token || persistedToken || '').trim();
   const hasBody = body !== undefined;
-  const precisaCsrf = isMutatingMethod(methodUpper);
+  const precisaCsrf = isMutatingMethod(methodUpper) && !tokenToUse;
 
   let csrfToken = '';
   if (precisaCsrf) {
@@ -95,12 +161,13 @@ async function request(path, options = {}, tentativa = 0) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: methodUpper,
     credentials: 'include',
-    headers: buildHeaders({ token, hasBody, csrfToken }),
+    headers: buildHeaders({ token: tokenToUse, hasBody, csrfToken }),
     body: hasBody ? JSON.stringify(body) : undefined
   });
 
   const data = await response.json().catch(() => ({}));
   atualizarCsrfToken(data?.csrfToken);
+  salvarTokenPorRota(path, data?.accessToken);
 
   if (!response.ok) {
     const message = data?.erro || data?.mensagem || `Erro HTTP ${response.status}`;
@@ -108,6 +175,14 @@ async function request(path, options = {}, tentativa = 0) {
     if (response.status === 403 && /csrf/i.test(message) && precisaCsrf && tentativa === 0) {
       await garantirCsrfToken(true);
       return request(path, options, 1);
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      if (isAdminPath) {
+        clearAdminAccessToken();
+      } else if (String(path || '').startsWith('/api/auth/')) {
+        clearUserAccessToken();
+      }
     }
 
     throw new Error(message);
@@ -123,10 +198,14 @@ export function adminLogin(usuario, senha) {
   });
 }
 
-export function adminLogout() {
-  return request('/api/admin/logout', {
-    method: 'POST'
-  });
+export async function adminLogout() {
+  try {
+    return await request('/api/admin/logout', {
+      method: 'POST'
+    });
+  } finally {
+    clearAdminAccessToken();
+  }
 }
 
 export function adminGetMe() {
@@ -153,10 +232,14 @@ export function cadastrar({ nome, email, senha, telefone, whatsappOptIn }) {
   });
 }
 
-export function logout() {
-  return request('/api/auth/logout', {
-    method: 'POST'
-  });
+export async function logout() {
+  try {
+    return await request('/api/auth/logout', {
+      method: 'POST'
+    });
+  } finally {
+    clearUserAccessToken();
+  }
 }
 
 export function getMe() {
