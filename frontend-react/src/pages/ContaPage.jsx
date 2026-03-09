@@ -1,5 +1,6 @@
 import React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import ReCAPTCHA from 'react-google-recaptcha';
 import {
   cadastrar,
   getMe,
@@ -18,12 +19,16 @@ import {
 } from '../lib/accessibility';
 
 export default function ContaPage() {
+  const recaptchaSiteKey = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
+  const recaptchaEnabled = recaptchaSiteKey.length > 0;
+  const recaptchaRef = useRef(null);
   const [modo, setModo] = useState('login');
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [telefone, setTelefone] = useState('');
   const [whatsappOptIn, setWhatsappOptIn] = useState(true);
+  const [recaptchaToken, setRecaptchaToken] = useState('');
   const [usuario, setUsuario] = useState(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -63,25 +68,45 @@ export default function ContaPage() {
     };
   }, []);
 
+  function resetRecaptcha() {
+    setRecaptchaToken('');
+    if (recaptchaRef.current && typeof recaptchaRef.current.reset === 'function') {
+      recaptchaRef.current.reset();
+    }
+  }
+
   async function handleLogin(event) {
     event.preventDefault();
     setErro('');
+
+    if (recaptchaEnabled && !recaptchaToken) {
+      setErro('Confirme o reCAPTCHA para continuar.');
+      return;
+    }
+
     setCarregando(true);
 
     try {
-      const data = await login(email.trim(), senha);
+      const data = await login(email.trim(), senha, recaptchaToken);
       setUsuario(data.usuario);
       setSenha('');
     } catch (error) {
       setErro(error.message);
     } finally {
       setCarregando(false);
+      resetRecaptcha();
     }
   }
 
   async function handleCadastro(event) {
     event.preventDefault();
     setErro('');
+
+    if (recaptchaEnabled && !recaptchaToken) {
+      setErro('Confirme o reCAPTCHA para continuar.');
+      return;
+    }
+
     setCarregando(true);
 
     try {
@@ -90,7 +115,8 @@ export default function ContaPage() {
         email: email.trim(),
         senha,
         telefone: telefone.trim(),
-        whatsappOptIn
+        whatsappOptIn,
+        recaptchaToken
       });
       setUsuario(data.usuario);
       setSenha('');
@@ -98,6 +124,7 @@ export default function ContaPage() {
       setErro(error.message);
     } finally {
       setCarregando(false);
+      resetRecaptcha();
     }
   }
 
@@ -200,6 +227,7 @@ export default function ContaPage() {
               onClick={() => {
                 setModo('login');
                 setErro('');
+                resetRecaptcha();
               }}
             >
               Entrar
@@ -210,6 +238,7 @@ export default function ContaPage() {
               onClick={() => {
                 setModo('cadastro');
                 setErro('');
+                resetRecaptcha();
               }}
             >
               Cadastrar
@@ -278,6 +307,19 @@ export default function ContaPage() {
           ) : null}
 
           {erro ? <p className="error-text">{erro}</p> : null}
+
+          {recaptchaEnabled ? (
+            <div style={{ marginBottom: '12px' }}>
+              <ReCAPTCHA
+                ref={recaptchaRef}
+                sitekey={recaptchaSiteKey}
+                hl="pt-BR"
+                onChange={(token) => setRecaptchaToken(String(token || '').trim())}
+                onExpired={() => setRecaptchaToken('')}
+                onErrored={() => setRecaptchaToken('')}
+              />
+            </div>
+          ) : null}
 
           <button className="btn-primary" type="submit" disabled={carregando}>
             {carregando

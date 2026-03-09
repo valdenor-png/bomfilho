@@ -14,6 +14,33 @@ import {
 } from '../lib/api';
 
 const STATUS_OPTIONS = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado'];
+const ADMIN_PEDIDOS_POR_PAGINA = 30;
+const ADMIN_PRODUTOS_POR_PAGINA = 60;
+
+function criarPaginacaoInicial(limite) {
+  return {
+    pagina: 1,
+    limite,
+    total: 0,
+    total_paginas: 1,
+    tem_mais: false
+  };
+}
+
+function normalizarPaginacao(paginacaoRaw, paginaFallback, limiteFallback) {
+  const pagina = Number(paginacaoRaw?.pagina || paginaFallback || 1);
+  const limite = Number(paginacaoRaw?.limite || limiteFallback || 1);
+  const total = Number(paginacaoRaw?.total || 0);
+  const totalPaginas = Number(paginacaoRaw?.total_paginas || 1);
+
+  return {
+    pagina: Number.isFinite(pagina) && pagina > 0 ? pagina : 1,
+    limite: Number.isFinite(limite) && limite > 0 ? limite : limiteFallback,
+    total: Number.isFinite(total) && total >= 0 ? total : 0,
+    total_paginas: Number.isFinite(totalPaginas) && totalPaginas > 0 ? totalPaginas : 1,
+    tem_mais: Boolean(paginacaoRaw?.tem_mais)
+  };
+}
 
 const initialProduto = {
   codigo_barras: '',
@@ -35,10 +62,14 @@ export default function AdminPage() {
   const [tab, setTab] = useState('pedidos');
   const [pedidos, setPedidos] = useState([]);
   const [produtos, setProdutos] = useState([]);
+  const [paginacaoPedidos, setPaginacaoPedidos] = useState(() => criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
+  const [paginacaoProdutos, setPaginacaoProdutos] = useState(() => criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
   const [statusDraft, setStatusDraft] = useState({});
   const [produtoForm, setProdutoForm] = useState(initialProduto);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
+  const [carregandoPedidos, setCarregandoPedidos] = useState(false);
+  const [carregandoProdutos, setCarregandoProdutos] = useState(false);
   const [salvandoProduto, setSalvandoProduto] = useState(false);
   const [buscandoCodigo, setBuscandoCodigo] = useState(false);
   const [filtroFinanceiroStatus, setFiltroFinanceiroStatus] = useState('todos');
@@ -97,40 +128,126 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (adminAutenticado === true && isLocalHost) {
-      carregarTudo();
+      void carregarTudo({ resetPagina: true });
     }
   }, [adminAutenticado, isLocalHost]);
 
-  async function carregarTudo() {
+  function aplicarDadosPedidos(pedidosData, paginaSolicitada) {
+    const pedidosList = Array.isArray(pedidosData?.pedidos) ? pedidosData.pedidos : [];
+    setPedidos(pedidosList);
+    setPaginacaoPedidos(normalizarPaginacao(pedidosData?.paginacao, paginaSolicitada, ADMIN_PEDIDOS_POR_PAGINA));
+
+    setStatusDraft((atual) => {
+      const draft = {};
+      pedidosList.forEach((pedido) => {
+        draft[pedido.id] = atual[pedido.id] || pedido.status;
+      });
+      return draft;
+    });
+  }
+
+  function aplicarDadosProdutos(produtosData, paginaSolicitada) {
+    const produtosList = Array.isArray(produtosData?.produtos) ? produtosData.produtos : [];
+    setProdutos(produtosList);
+    setPaginacaoProdutos(normalizarPaginacao(produtosData?.paginacao, paginaSolicitada, ADMIN_PRODUTOS_POR_PAGINA));
+  }
+
+  async function carregarPedidosPagina(paginaDestino) {
     if (adminAutenticado !== true) {
       return;
     }
 
-    setCarregando(true);
+    const paginaNormalizada = Math.max(1, Number(paginaDestino || 1));
+    setCarregandoPedidos(true);
     setErro('');
+
+    try {
+      const pedidosData = await adminGetPedidos({
+        page: paginaNormalizada,
+        limit: ADMIN_PEDIDOS_POR_PAGINA
+      });
+      aplicarDadosPedidos(pedidosData, paginaNormalizada);
+    } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAdminAutenticado(false);
+        setPedidos([]);
+        setStatusDraft({});
+        setPaginacaoPedidos(criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
+      }
+      setErro(error.message);
+    } finally {
+      setCarregandoPedidos(false);
+    }
+  }
+
+  async function carregarProdutosPagina(paginaDestino) {
+    if (adminAutenticado !== true) {
+      return;
+    }
+
+    const paginaNormalizada = Math.max(1, Number(paginaDestino || 1));
+    setCarregandoProdutos(true);
+    setErro('');
+
+    try {
+      const produtosData = await getProdutos({
+        page: paginaNormalizada,
+        limit: ADMIN_PRODUTOS_POR_PAGINA
+      });
+      aplicarDadosProdutos(produtosData, paginaNormalizada);
+    } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAdminAutenticado(false);
+        setProdutos([]);
+        setPaginacaoProdutos(criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
+      }
+      setErro(error.message);
+    } finally {
+      setCarregandoProdutos(false);
+    }
+  }
+
+  async function carregarTudo({ resetPagina = false } = {}) {
+    if (adminAutenticado !== true) {
+      return;
+    }
+
+    const paginaPedidosDestino = resetPagina ? 1 : Math.max(1, Number(paginacaoPedidos.pagina || 1));
+    const paginaProdutosDestino = resetPagina ? 1 : Math.max(1, Number(paginacaoProdutos.pagina || 1));
+
+    setCarregando(true);
+    setCarregandoPedidos(true);
+    setCarregandoProdutos(true);
+    setErro('');
+
     try {
       const [pedidosData, produtosData] = await Promise.all([
-        adminGetPedidos(),
-        getProdutos()
+        adminGetPedidos({
+          page: paginaPedidosDestino,
+          limit: ADMIN_PEDIDOS_POR_PAGINA
+        }),
+        getProdutos({
+          page: paginaProdutosDestino,
+          limit: ADMIN_PRODUTOS_POR_PAGINA
+        })
       ]);
-      const pedidosList = pedidosData.pedidos || [];
-      setPedidos(pedidosList);
-      setProdutos(produtosData.produtos || []);
 
-      const draft = {};
-      pedidosList.forEach((pedido) => {
-        draft[pedido.id] = pedido.status;
-      });
-      setStatusDraft(draft);
+      aplicarDadosPedidos(pedidosData, paginaPedidosDestino);
+      aplicarDadosProdutos(produtosData, paginaProdutosDestino);
     } catch (error) {
       if (isAuthErrorMessage(error.message)) {
         setAdminAutenticado(false);
         setPedidos([]);
         setProdutos([]);
+        setStatusDraft({});
+        setPaginacaoPedidos(criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
+        setPaginacaoProdutos(criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
       }
       setErro(error.message);
     } finally {
       setCarregando(false);
+      setCarregandoPedidos(false);
+      setCarregandoProdutos(false);
     }
   }
 
@@ -170,6 +287,9 @@ export default function AdminPage() {
     setAdminSenha('');
     setPedidos([]);
     setProdutos([]);
+    setStatusDraft({});
+    setPaginacaoPedidos(criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
+    setPaginacaoProdutos(criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
   }
 
   const kpis = useMemo(() => {
@@ -312,7 +432,7 @@ export default function AdminPage() {
 
     try {
       await adminAtualizarStatusPedido(pedidoId, status);
-      await carregarTudo();
+      await carregarPedidosPagina(paginacaoPedidos.pagina);
     } catch (error) {
       setErro(error.message);
     }
@@ -343,7 +463,7 @@ export default function AdminPage() {
       });
 
       setProdutoForm(initialProduto);
-      await carregarTudo();
+      await carregarProdutosPagina(paginacaoProdutos.pagina);
     } catch (error) {
       setErro(error.message);
     } finally {
@@ -360,7 +480,7 @@ export default function AdminPage() {
     setErro('');
     try {
       await adminExcluirProduto(produtoId);
-      await carregarTudo();
+      await carregarProdutosPagina(paginacaoProdutos.pagina);
     } catch (error) {
       setErro(error.message);
     }
@@ -479,6 +599,12 @@ export default function AdminPage() {
         <div className="kpi-card"><strong>Faturamento:</strong> R$ {kpis.faturamento.toFixed(2)}</div>
       </div>
 
+      {paginacaoPedidos.total > pedidos.length ? (
+        <p className="muted-text" style={{ marginTop: '0.5rem' }}>
+          Indicadores acima refletem os pedidos da página atual ({paginacaoPedidos.pagina}/{paginacaoPedidos.total_paginas}).
+        </p>
+      ) : null}
+
       <div className="auth-switch" style={{ marginTop: '1rem' }}>
         <button
           type="button"
@@ -503,7 +629,15 @@ export default function AdminPage() {
         </button>
       </div>
 
-      <button className="btn-primary" type="button" style={{ marginTop: '0.8rem' }} onClick={() => carregarTudo()} disabled={carregando}>
+      <button
+        className="btn-primary"
+        type="button"
+        style={{ marginTop: '0.8rem' }}
+        onClick={() => {
+          void carregarTudo();
+        }}
+        disabled={carregando}
+      >
         {carregando ? 'Atualizando...' : 'Atualizar painel'}
       </button>
       <button className="btn-secondary" type="button" style={{ marginTop: '0.8rem', marginLeft: '0.5rem' }} onClick={handleAdminLogout}>
@@ -513,57 +647,87 @@ export default function AdminPage() {
       {erro ? <p className="error-text">{erro}</p> : null}
 
       {tab === 'pedidos' ? (
-        <div className="table-wrap" style={{ marginTop: '1rem' }}>
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Cliente</th>
-                <th>Total</th>
-                <th>Status</th>
-                <th>Data</th>
-                <th>Ação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pedidos.length === 0 ? (
+        <>
+          <div className="table-wrap" style={{ marginTop: '1rem' }}>
+            <table className="admin-table">
+              <thead>
                 <tr>
-                  <td colSpan={6}>Nenhum pedido encontrado.</td>
+                  <th>ID</th>
+                  <th>Cliente</th>
+                  <th>Total</th>
+                  <th>Status</th>
+                  <th>Data</th>
+                  <th>Ação</th>
                 </tr>
-              ) : (
-                pedidos.map((pedido) => (
-                  <tr key={pedido.id}>
-                    <td>#{pedido.id}</td>
-                    <td>{pedido.cliente_nome || '-'}</td>
-                    <td>R$ {Number(pedido.total || 0).toFixed(2)}</td>
-                    <td>
-                      <select
-                        className="field-input"
-                        value={statusDraft[pedido.id] || pedido.status}
-                        onChange={(event) =>
-                          setStatusDraft((atual) => ({
-                            ...atual,
-                            [pedido.id]: event.target.value
-                          }))
-                        }
-                      >
-                        {STATUS_OPTIONS.map((status) => (
-                          <option key={status} value={status}>{status}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>{new Date(pedido.criado_em || pedido.data_pedido).toLocaleString('pt-BR')}</td>
-                    <td>
-                      <button className="btn-secondary" type="button" onClick={() => salvarStatusPedido(pedido.id)}>
-                        Salvar
-                      </button>
-                    </td>
+              </thead>
+              <tbody>
+                {pedidos.length === 0 ? (
+                  <tr>
+                    <td colSpan={6}>Nenhum pedido encontrado.</td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  pedidos.map((pedido) => (
+                    <tr key={pedido.id}>
+                      <td>#{pedido.id}</td>
+                      <td>{pedido.cliente_nome || '-'}</td>
+                      <td>R$ {Number(pedido.total || 0).toFixed(2)}</td>
+                      <td>
+                        <select
+                          className="field-input"
+                          value={statusDraft[pedido.id] || pedido.status}
+                          onChange={(event) =>
+                            setStatusDraft((atual) => ({
+                              ...atual,
+                              [pedido.id]: event.target.value
+                            }))
+                          }
+                        >
+                          {STATUS_OPTIONS.map((status) => (
+                            <option key={status} value={status}>{status}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>{new Date(pedido.criado_em || pedido.data_pedido).toLocaleString('pt-BR')}</td>
+                      <td>
+                        <button className="btn-secondary" type="button" onClick={() => salvarStatusPedido(pedido.id)}>
+                          Salvar
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="toolbar-box" style={{ marginTop: '0.8rem', alignItems: 'center' }}>
+            <p className="muted-text" style={{ margin: 0 }}>
+              Página {paginacaoPedidos.pagina} de {paginacaoPedidos.total_paginas} • {paginacaoPedidos.total} pedido(s)
+            </p>
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={carregandoPedidos || paginacaoPedidos.pagina <= 1}
+              onClick={() => {
+                void carregarPedidosPagina(paginacaoPedidos.pagina - 1);
+              }}
+            >
+              Anterior
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={carregandoPedidos || !paginacaoPedidos.tem_mais}
+              onClick={() => {
+                void carregarPedidosPagina(paginacaoPedidos.pagina + 1);
+              }}
+            >
+              Próxima
+            </button>
+          </div>
+
+          {carregandoPedidos ? <p className="muted-text" style={{ marginTop: '0.5rem' }}>Carregando pedidos...</p> : null}
+        </>
       ) : tab === 'produtos' ? (
         <>
           <form className="form-box" style={{ marginTop: '1rem' }} onSubmit={handleCadastrarProduto}>
@@ -698,9 +862,64 @@ export default function AdminPage() {
               </tbody>
             </table>
           </div>
+
+          <div className="toolbar-box" style={{ marginTop: '0.8rem', alignItems: 'center' }}>
+            <p className="muted-text" style={{ margin: 0 }}>
+              Página {paginacaoProdutos.pagina} de {paginacaoProdutos.total_paginas} • {paginacaoProdutos.total} produto(s)
+            </p>
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={carregandoProdutos || paginacaoProdutos.pagina <= 1}
+              onClick={() => {
+                void carregarProdutosPagina(paginacaoProdutos.pagina - 1);
+              }}
+            >
+              Anterior
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={carregandoProdutos || !paginacaoProdutos.tem_mais}
+              onClick={() => {
+                void carregarProdutosPagina(paginacaoProdutos.pagina + 1);
+              }}
+            >
+              Próxima
+            </button>
+          </div>
+
+          {carregandoProdutos ? <p className="muted-text" style={{ marginTop: '0.5rem' }}>Carregando produtos...</p> : null}
         </>
       ) : (
         <>
+          <p className="muted-text" style={{ marginTop: '1rem' }}>
+            Financeiro calculado com base nos pedidos da página atual ({paginacaoPedidos.pagina}/{paginacaoPedidos.total_paginas}).
+          </p>
+
+          <div className="toolbar-box" style={{ marginTop: '0.6rem', alignItems: 'center' }}>
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={carregandoPedidos || paginacaoPedidos.pagina <= 1}
+              onClick={() => {
+                void carregarPedidosPagina(paginacaoPedidos.pagina - 1);
+              }}
+            >
+              Página anterior de pedidos
+            </button>
+            <button
+              className="btn-secondary"
+              type="button"
+              disabled={carregandoPedidos || !paginacaoPedidos.tem_mais}
+              onClick={() => {
+                void carregarPedidosPagina(paginacaoPedidos.pagina + 1);
+              }}
+            >
+              Próxima página de pedidos
+            </button>
+          </div>
+
           <div className="admin-kpis" style={{ marginTop: '1rem' }}>
             <div className="kpi-card"><strong>Faturamento total:</strong> R$ {financeiro.faturamentoTotal.toFixed(2)}</div>
             <div className="kpi-card"><strong>Faturamento hoje:</strong> R$ {financeiro.faturamentoHoje.toFixed(2)}</div>

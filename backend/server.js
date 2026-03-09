@@ -40,6 +40,14 @@ const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').tr
 const PAGBANK_API_URL = process.env.PAGBANK_ENV === 'production' 
   ? 'https://api.pagseguro.com' 
   : 'https://sandbox.api.pagseguro.com';
+const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
+const RECAPTCHA_MIN_SCORE = (() => {
+  const valor = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
+  if (!Number.isFinite(valor)) {
+    return 0.5;
+  }
+  return Math.min(1, Math.max(0, valor));
+})();
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '');
 const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
@@ -60,6 +68,177 @@ const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').tr
 const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW)
   ? COOKIE_SAME_SITE_RAW
   : 'strict';
+const PRECO_COMBUSTIVEL_LITRO = Number(process.env.PRECO_COMBUSTIVEL_LITRO || 6.2);
+const CEP_MERCADO = String(process.env.CEP_MERCADO || '68740-180').replace(/\D/g, '');
+const NUMERO_MERCADO = String(process.env.NUMERO_MERCADO || '70').trim() || '70';
+const LIMITE_BIKE_KM = (() => {
+  const valor = Number(process.env.LIMITE_BIKE_KM || 1);
+  return Number.isFinite(valor) && valor > 0 ? valor : 1;
+})();
+const CEP_GEO_TTL_MS = 24 * 60 * 60 * 1000;
+const cepGeoCache = new Map();
+const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 20000);
+const produtosQueryCache = new Map();
+
+const VEICULOS_ENTREGA = {
+  bike: {
+    consumoKmLitro: null,
+    custoManutencaoKm: 0.12,
+    fatorReparo: 1.1,
+    taxaBase: 3.5
+  },
+  moto: {
+    consumoKmLitro: 30,
+    custoManutencaoKm: 0.2,
+    fatorReparo: 1.5,
+    taxaBase: 5
+  },
+  carro: {
+    consumoKmLitro: 12,
+    custoManutencaoKm: 0.45,
+    fatorReparo: 2.2,
+    taxaBase: 7.5
+  }
+};
+
+function normalizarCep(valor) {
+  return String(valor || '').replace(/\D/g, '').slice(0, 8);
+}
+
+function formatarCep(valor) {
+  const cep = normalizarCep(valor);
+  if (cep.length !== 8) {
+    return cep;
+  }
+
+  return `${cep.slice(0, 5)}-${cep.slice(5)}`;
+}
+
+function normalizarDistanciaEntregaKm(valor) {
+  const numero = Number(valor);
+  if (!Number.isFinite(numero) || numero <= 0) {
+    return 0.5;
+  }
+
+  return Number(Math.min(numero, 80).toFixed(1));
+}
+
+function calcularFreteEntrega(veiculoKey, distanciaKm) {
+  const veiculo = VEICULOS_ENTREGA[veiculoKey] || VEICULOS_ENTREGA.moto;
+  const distanciaNormalizada = normalizarDistanciaEntregaKm(distanciaKm);
+  const custoCombustivelKm = veiculo.consumoKmLitro
+    ? PRECO_COMBUSTIVEL_LITRO / veiculo.consumoKmLitro
+    : 0;
+  const custoOperacionalKm = (custoCombustivelKm + veiculo.custoManutencaoKm) * veiculo.fatorReparo;
+  const frete = veiculo.taxaBase + (distanciaNormalizada * custoOperacionalKm);
+
+  return Number(frete.toFixed(2));
+}
+
+function calcularDistanciaHaversineKm(latA, lonA, latB, lonB) {
+  const toRad = (grau) => (grau * Math.PI) / 180;
+  const terraKm = 6371;
+
+  const dLat = toRad(latB - latA);
+  const dLon = toRad(lonB - lonA);
+  const latArad = toRad(latA);
+  const latBrad = toRad(latB);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(latArad) * Math.cos(latBrad);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return terraKm * c;
+}
+
+async function buscarCoordenadasPorCep(cep) {
+  const cepNormalizado = normalizarCep(cep);
+  if (cepNormalizado.length !== 8) {
+    throw criarErroHttp(400, 'CEP inválido. Informe 8 dígitos.');
+  }
+
+  const cache = cepGeoCache.get(cepNormalizado);
+  if (cache && Date.now() - cache.cachedAt < CEP_GEO_TTL_MS) {
+    return cache.data;
+  }
+
+  let response;
+  try {
+    response = await fetch(`https://brasilapi.com.br/api/cep/v2/${cepNormalizado}`);
+  } catch {
+    throw criarErroHttp(503, 'Serviço de CEP indisponível no momento.');
+  }
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw criarErroHttp(400, 'CEP não encontrado.');
+    }
+    throw criarErroHttp(503, 'Falha ao consultar CEP.');
+  }
+
+  const dados = await response.json().catch(() => ({}));
+  const latitude = Number(dados?.location?.coordinates?.latitude);
+  const longitude = Number(dados?.location?.coordinates?.longitude);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw criarErroHttp(400, 'CEP sem coordenadas para cálculo de entrega.');
+  }
+
+  const resultado = {
+    cep: formatarCep(cepNormalizado),
+    latitude,
+    longitude,
+    cidade: String(dados?.city || '').trim(),
+    estado: String(dados?.state || '').trim(),
+    bairro: String(dados?.neighborhood || '').trim(),
+    rua: String(dados?.street || '').trim()
+  };
+
+  cepGeoCache.set(cepNormalizado, {
+    cachedAt: Date.now(),
+    data: resultado
+  });
+
+  return resultado;
+}
+
+async function calcularEntregaPorCep({ cepDestino, veiculo }) {
+  const veiculoKey = String(veiculo || 'moto').trim().toLowerCase();
+  if (!VEICULOS_ENTREGA[veiculoKey]) {
+    throw criarErroHttp(400, 'Veículo de entrega inválido');
+  }
+
+  const origem = await buscarCoordenadasPorCep(CEP_MERCADO);
+  const destino = await buscarCoordenadasPorCep(cepDestino);
+  const distanciaKm = Number(
+    calcularDistanciaHaversineKm(origem.latitude, origem.longitude, destino.latitude, destino.longitude).toFixed(2)
+  );
+
+  if (!Number.isFinite(distanciaKm)) {
+    throw criarErroHttp(500, 'Não foi possível calcular a distância da entrega.');
+  }
+
+  if (veiculoKey === 'bike' && distanciaKm > LIMITE_BIKE_KM) {
+    throw criarErroHttp(
+      400,
+      `Bike disponível apenas para até ${LIMITE_BIKE_KM.toFixed(1)} km do mercado (${formatarCep(CEP_MERCADO)}).`
+    );
+  }
+
+  const frete = calcularFreteEntrega(veiculoKey, distanciaKm);
+
+  return {
+    veiculo: veiculoKey,
+    frete,
+    distancia_km: distanciaKm,
+    cep_origem: origem.cep,
+    numero_origem: NUMERO_MERCADO,
+    cep_destino: destino.cep,
+    cidade_destino: destino.cidade,
+    bairro_destino: destino.bairro
+  };
+}
 
 if (JWT_SECRET.length < 32) {
   const aviso = 'JWT_SECRET deve ter no mínimo 32 caracteres para segurança adequada.';
@@ -188,6 +367,132 @@ function criarErroHttp(status, mensagem) {
   const erro = new Error(mensagem);
   erro.httpStatus = status;
   return erro;
+}
+
+function extrairRecaptchaErrorCodes(payload) {
+  if (!payload || !Array.isArray(payload['error-codes'])) {
+    return [];
+  }
+
+  return payload['error-codes']
+    .map((codigo) => String(codigo || '').trim())
+    .filter(Boolean);
+}
+
+async function validarRecaptcha({ token, req, action = '' } = {}) {
+  if (!RECAPTCHA_SECRET_KEY) {
+    return;
+  }
+
+  const recaptchaToken = String(token || '').trim();
+  if (!recaptchaToken) {
+    throw criarErroHttp(400, 'Confirme o reCAPTCHA para continuar.');
+  }
+
+  const formData = new URLSearchParams();
+  formData.set('secret', RECAPTCHA_SECRET_KEY);
+  formData.set('response', recaptchaToken);
+
+  const ipCliente = normalizarIp(req?.ip || req?.socket?.remoteAddress);
+  if (ipCliente) {
+    formData.set('remoteip', ipCliente);
+  }
+
+  let response;
+  try {
+    response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formData.toString()
+    });
+  } catch {
+    throw criarErroHttp(503, 'Nao foi possivel validar o reCAPTCHA no momento.');
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw criarErroHttp(503, 'Falha ao validar reCAPTCHA. Tente novamente.');
+  }
+
+  if (!payload?.success) {
+    const codigos = extrairRecaptchaErrorCodes(payload);
+    if (codigos.includes('timeout-or-duplicate')) {
+      throw criarErroHttp(400, 'reCAPTCHA expirado. Confirme novamente.');
+    }
+
+    throw criarErroHttp(400, 'Falha na validacao do reCAPTCHA. Tente novamente.');
+  }
+
+  if (typeof payload?.score === 'number' && payload.score < RECAPTCHA_MIN_SCORE) {
+    throw criarErroHttp(403, 'Verificacao de seguranca reprovada. Tente novamente.');
+  }
+
+  if (action && payload?.action && String(payload.action).trim() !== String(action).trim()) {
+    throw criarErroHttp(400, 'Falha na validacao do reCAPTCHA. Tente novamente.');
+  }
+}
+
+function toLowerTrim(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function parsePositiveInt(value, fallback, { min = 1, max = 1000 } = {}) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function escapeLike(value) {
+  return String(value || '').replace(/[\\%_]/g, '\\$&');
+}
+
+function montarPaginacao(total, pagina, limite) {
+  const totalSeguro = Number.isFinite(total) ? Math.max(0, total) : 0;
+  const totalPaginas = totalSeguro > 0 ? Math.ceil(totalSeguro / limite) : 1;
+  const paginaAtual = Math.min(Math.max(1, pagina), totalPaginas);
+  const temMais = paginaAtual < totalPaginas;
+
+  return {
+    pagina: paginaAtual,
+    limite,
+    total: totalSeguro,
+    total_paginas: totalPaginas,
+    tem_mais: temMais
+  };
+}
+
+function limparCacheProdutos() {
+  produtosQueryCache.clear();
+}
+
+function montarChaveCacheProdutos({ pagina, limite, busca, categoria, ordenacao }) {
+  return JSON.stringify({ pagina, limite, busca, categoria, ordenacao });
+}
+
+function obterCacheProdutos(chave) {
+  const cached = produtosQueryCache.get(chave);
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.cachedAt > PRODUTOS_QUERY_CACHE_TTL_MS) {
+    produtosQueryCache.delete(chave);
+    return null;
+  }
+
+  return cached.payload;
+}
+
+function salvarCacheProdutos(chave, payload) {
+  produtosQueryCache.set(chave, {
+    cachedAt: Date.now(),
+    payload
+  });
 }
 
 function validarWebhookPagBank(req) {
@@ -639,6 +944,10 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
     throw new Error('CPF/CNPJ ausente (customer.tax_id) - necessário para gerar PIX PagBank');
   }
 
+  if (![11, 14].includes(taxIdDigits.length)) {
+    throw new Error('CPF/CNPJ inválido (customer.tax_id) - informe 11 ou 14 dígitos');
+  }
+
   // PagBank costuma exigir `expiration_date` com offset (ex.: -03:00).
   // Para evitar rejeição por "data no passado", enviamos o horário LOCAL com o offset real da máquina.
   const formatIsoLocalWithOffset = (date) => {
@@ -943,8 +1252,14 @@ async function buscarProdutoUpcItemDb(codigo) {
 // Cadastro de usuário
 app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
   try {
-    const { nome, email, senha, telefone, whatsapp_opt_in } = req.body;
+    const { nome, email, senha, telefone, whatsapp_opt_in, recaptcha_token } = req.body || {};
     const optIn = !!whatsapp_opt_in;
+
+    await validarRecaptcha({
+      token: recaptcha_token,
+      req,
+      action: 'auth_cadastro'
+    });
 
     if (!nome || !email || !senha || !telefone) {
       return res.status(400).json({ erro: 'Todos os campos são obrigatórios' });
@@ -996,15 +1311,25 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
       }
     });
   } catch (erro) {
+    if (erro?.httpStatus) {
+      return res.status(erro.httpStatus).json({ erro: erro.message });
+    }
+
     console.error('Erro ao cadastrar usuário:', erro);
-    res.status(500).json({ erro: 'Erro ao cadastrar usuário' });
+    return res.status(500).json({ erro: 'Erro ao cadastrar usuário' });
   }
 });
 
 // Login
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
-    const { email, senha } = req.body;
+    const { email, senha, recaptcha_token } = req.body || {};
+
+    await validarRecaptcha({
+      token: recaptcha_token,
+      req,
+      action: 'auth_login'
+    });
 
     if (!email || !senha) {
       return res.status(400).json({ erro: 'E-mail e senha são obrigatórios' });
@@ -1047,8 +1372,12 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       }
     });
   } catch (erro) {
+    if (erro?.httpStatus) {
+      return res.status(erro.httpStatus).json({ erro: erro.message });
+    }
+
     console.error('Erro ao fazer login:', erro);
-    res.status(500).json({ erro: 'Erro ao fazer login' });
+    return res.status(500).json({ erro: 'Erro ao fazer login' });
   }
 });
 
@@ -1242,10 +1571,96 @@ app.get('/api/produtos', async (req, res) => {
       campos.push('imagem_url AS imagem');
     }
 
-    const [produtos] = await pool.query(
-      `SELECT ${campos.join(', ')} FROM produtos WHERE ativo = TRUE ORDER BY categoria, nome`
+    const busca = toLowerTrim(req.query?.busca);
+    const categoriaRaw = toLowerTrim(req.query?.categoria);
+    const categoria = categoriaRaw && categoriaRaw !== 'todas' ? categoriaRaw : '';
+    const ordenacaoRaw = toLowerTrim(req.query?.sort || req.query?.ordenacao);
+    const ordenacaoMap = {
+      nome_asc: 'categoria ASC, nome ASC',
+      nome_desc: 'categoria DESC, nome DESC',
+      preco_asc: 'preco ASC, nome ASC',
+      preco_desc: 'preco DESC, nome ASC',
+      recentes: 'id DESC'
+    };
+    const ordenacaoSql = ordenacaoMap[ordenacaoRaw] || 'categoria ASC, nome ASC';
+
+    const usarPaginacao = ['page', 'pagina', 'limit', 'limite', 'busca', 'categoria', 'sort', 'ordenacao']
+      .some((chave) => req.query?.[chave] !== undefined);
+
+    const limite = parsePositiveInt(req.query?.limit || req.query?.limite, 60, { min: 1, max: 200 });
+    const paginaSolicitada = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
+
+    const filtros = ['ativo = TRUE'];
+    const params = [];
+
+    if (categoria) {
+      filtros.push('LOWER(categoria) = ?');
+      params.push(categoria);
+    }
+
+    if (busca) {
+      const termo = `%${escapeLike(busca)}%`;
+      filtros.push(`(
+        LOWER(nome) LIKE ? ESCAPE '\\\\'
+        OR LOWER(COALESCE(descricao, '')) LIKE ? ESCAPE '\\\\'
+        OR LOWER(COALESCE(marca, '')) LIKE ? ESCAPE '\\\\'
+      )`);
+      params.push(termo, termo, termo);
+    }
+
+    const whereSql = filtros.length ? `WHERE ${filtros.join(' AND ')}` : '';
+
+    if (!usarPaginacao) {
+      const [produtos] = await pool.query(
+        `SELECT ${campos.join(', ')} FROM produtos ${whereSql} ORDER BY ${ordenacaoSql}`,
+        params
+      );
+
+      return res.json({
+        produtos,
+        total: produtos.length
+      });
+    }
+
+    const chaveCache = montarChaveCacheProdutos({
+      pagina: paginaSolicitada,
+      limite,
+      busca,
+      categoria,
+      ordenacao: ordenacaoSql
+    });
+    const cachePayload = obterCacheProdutos(chaveCache);
+    if (cachePayload) {
+      return res.json({
+        ...cachePayload,
+        cache: true
+      });
+    }
+
+    const [[countRow]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM produtos ${whereSql}`,
+      params
     );
-    res.json({ produtos: produtos });
+    const total = Number(countRow?.total || 0);
+    const paginacao = montarPaginacao(total, paginaSolicitada, limite);
+    const offset = (paginacao.pagina - 1) * paginacao.limite;
+
+    const [produtos] = await pool.query(
+      `SELECT ${campos.join(', ')}
+       FROM produtos
+       ${whereSql}
+       ORDER BY ${ordenacaoSql}
+       LIMIT ? OFFSET ?`,
+      [...params, paginacao.limite, offset]
+    );
+
+    const payload = {
+      produtos,
+      paginacao
+    };
+    salvarCacheProdutos(chaveCache, payload);
+
+    return res.json(payload);
   } catch (erro) {
     console.error('Erro ao buscar produtos:', erro);
     res.status(500).json({ erro: 'Erro ao buscar produtos' });
@@ -1361,6 +1776,8 @@ app.post('/api/admin/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, as
       valores
     );
 
+    limparCacheProdutos();
+
     res.status(201).json({
       mensagem: 'Produto cadastrado com sucesso',
       produto_id: resultado.insertId
@@ -1399,6 +1816,7 @@ app.post('/api/admin/produtos/bulk', exigirAcessoLocalAdmin, autenticarAdminToke
     }
 
     await connection.commit();
+    limparCacheProdutos();
 
     res.status(201).json({
       mensagem: 'Produtos importados com sucesso',
@@ -1420,6 +1838,8 @@ app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminTok
       'UPDATE produtos SET ativo = FALSE WHERE id = ?',
       [req.params.id]
     );
+
+    limparCacheProdutos();
 
     res.json({ mensagem: 'Produto excluído com sucesso' });
   } catch (erro) {
@@ -1450,6 +1870,10 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
 
     if (!taxId) {
       return res.status(400).json({ erro: 'tax_id (CPF/CNPJ) é obrigatório para gerar PIX no PagBank em produção' });
+    }
+
+    if (![11, 14].includes(String(taxId).length)) {
+      return res.status(400).json({ erro: 'tax_id inválido. Informe CPF (11 dígitos) ou CNPJ (14 dígitos).' });
     }
 
     // Buscar pedido e dados do usuário
@@ -1520,13 +1944,39 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
   }
 });
 
+// Simular frete por CEP
+app.get('/api/frete/simular', async (req, res) => {
+  try {
+    const cep = String(req.query?.cep || '').trim();
+    const veiculo = String(req.query?.veiculo || 'moto').trim().toLowerCase();
+
+    const entrega = await calcularEntregaPorCep({
+      cepDestino: cep,
+      veiculo
+    });
+
+    return res.json({
+      mensagem: 'Frete calculado com sucesso',
+      ...entrega,
+      limite_bike_km: LIMITE_BIKE_KM
+    });
+  } catch (erro) {
+    if (erro?.httpStatus) {
+      return res.status(erro.httpStatus).json({ erro: erro.message });
+    }
+
+    console.error('Erro ao simular frete por CEP:', erro);
+    return res.status(500).json({ erro: 'Erro ao simular frete' });
+  }
+});
+
 // Criar pedido
 app.post('/api/pedidos', autenticarToken, async (req, res) => {
   const connection = await pool.getConnection();
   let transacaoAberta = false;
   
   try {
-    const { itens, forma_pagamento, cupom_id } = req.body || {};
+    const { itens, forma_pagamento, cupom_id, entrega } = req.body || {};
     let usuarioPedido = null;
 
     if (!Array.isArray(itens) || itens.length === 0) {
@@ -1541,6 +1991,18 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     const formasPermitidas = new Set(['pix', 'dinheiro', 'debito', 'credito', 'cartao']);
     if (!formasPermitidas.has(formaPagamento)) {
       throw criarErroHttp(400, 'Forma de pagamento inválida');
+    }
+
+    const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
+    const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
+    const pagbankProducao = process.env.PAGBANK_ENV === 'production';
+
+    if (formaPagamento === 'pix' && pagbankProducao && !PAGBANK_TOKEN) {
+      throw criarErroHttp(503, 'PagBank não configurado para PIX em produção.');
+    }
+
+    if (formaPagamento === 'pix' && pagbankProducao && ![11, 14].includes(taxIdDigits.length)) {
+      throw criarErroHttp(400, 'Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para gerar PIX.');
     }
 
     const itensNormalizados = itens.map((item) => ({
@@ -1583,6 +2045,31 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     if (!Number.isFinite(total) || total <= 0) {
       throw criarErroHttp(400, 'Total do pedido inválido');
     }
+
+    if (!entrega || typeof entrega !== 'object') {
+      throw criarErroHttp(400, 'Informe os dados de entrega (CEP e veículo).');
+    }
+
+    const veiculoEntrega = String(entrega.veiculo || 'moto').trim().toLowerCase();
+    const cepDestinoEntrega = normalizarCep(entrega.cep_destino || entrega.cep);
+
+    if (cepDestinoEntrega.length !== 8) {
+      throw criarErroHttp(400, 'CEP de entrega inválido.');
+    }
+
+    const entregaCalculada = await calcularEntregaPorCep({
+      cepDestino: cepDestinoEntrega,
+      veiculo: veiculoEntrega
+    });
+
+    const freteEntrega = entregaCalculada.frete;
+    const entregaNormalizada = {
+      veiculo: entregaCalculada.veiculo,
+      distancia_km: entregaCalculada.distancia_km,
+      cep_origem: entregaCalculada.cep_origem,
+      numero_origem: entregaCalculada.numero_origem,
+      cep_destino: entregaCalculada.cep_destino
+    };
 
     const [usuarioPedidoRows] = await connection.query(
       'SELECT nome, email, telefone, whatsapp_opt_in FROM usuarios WHERE id = ? LIMIT 1',
@@ -1649,7 +2136,8 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       cupomIdValidado = cupom.id;
     }
 
-    const totalFinal = Number((total - descontoAplicado).toFixed(2));
+    const totalProdutos = Number((total - descontoAplicado).toFixed(2));
+    const totalFinal = Number((totalProdutos + freteEntrega).toFixed(2));
 
     // Criar pedido
     const [pedidoResultado] = await connection.query(
@@ -1689,9 +2177,6 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     let pixId = null;
     let pixErro = null;
 
-    const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
-    const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
-    
     if (formaPagamento === 'pix' && PAGBANK_TOKEN) {
       try {
         const resultadoPix = await criarPagamentoPix({
@@ -1721,10 +2206,13 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       } catch (erro) {
         console.error('Erro ao gerar PIX PagBank:', erro.message);
         pixErro = erro.message;
-        // Gerar código simulado como fallback
-        pixCodigo = '00020126580014BR.GOV.BCB.PIX' + pedidoId.toString().padStart(10, '0');
+
+        if (!pagbankProducao) {
+          // Em sandbox/dev, mantém fallback para facilitar testes locais.
+          pixCodigo = '00020126580014BR.GOV.BCB.PIX' + pedidoId.toString().padStart(10, '0');
+        }
       }
-    } else if (formaPagamento === 'pix') {
+    } else if (formaPagamento === 'pix' && !pagbankProducao) {
       // Gerar código PIX simulado se PagBank não estiver configurado
       pixCodigo = '00020126580014BR.GOV.BCB.PIX' + pedidoId.toString().padStart(10, '0');
     }
@@ -1747,6 +2235,13 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       mensagem: 'Pedido realizado com sucesso',
       pedido_id: pedidoId,
       total: totalFinal,
+      total_produtos: totalProdutos,
+      frete_entrega: freteEntrega,
+      veiculo_entrega: entregaNormalizada?.veiculo || null,
+      distancia_entrega_km: entregaNormalizada?.distancia_km || null,
+      cep_origem_entrega: entregaNormalizada?.cep_origem || null,
+      numero_origem_entrega: entregaNormalizada?.numero_origem || null,
+      cep_destino_entrega: entregaNormalizada?.cep_destino || null,
       desconto_aplicado: descontoAplicado,
       forma_pagamento: formaPagamento,
       pix_codigo: pixCodigo,
@@ -1773,12 +2268,41 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
 // Listar pedidos do usuário
 app.get('/api/pedidos', autenticarToken, async (req, res) => {
   try {
-    const [pedidos] = await pool.query(
-      'SELECT * FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC',
+    const usarPaginacao = ['page', 'pagina', 'limit', 'limite']
+      .some((chave) => req.query?.[chave] !== undefined);
+
+    if (!usarPaginacao) {
+      const [pedidos] = await pool.query(
+        'SELECT * FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC',
+        [req.usuario.id]
+      );
+
+      return res.json({
+        pedidos,
+        total: pedidos.length
+      });
+    }
+
+    const limite = parsePositiveInt(req.query?.limit || req.query?.limite, 20, { min: 1, max: 100 });
+    const paginaSolicitada = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
+
+    const [[countRow]] = await pool.query(
+      'SELECT COUNT(*) AS total FROM pedidos WHERE usuario_id = ?',
       [req.usuario.id]
     );
+    const total = Number(countRow?.total || 0);
+    const paginacao = montarPaginacao(total, paginaSolicitada, limite);
+    const offset = (paginacao.pagina - 1) * paginacao.limite;
 
-    res.json({ pedidos: pedidos });
+    const [pedidos] = await pool.query(
+      'SELECT * FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC LIMIT ? OFFSET ?',
+      [req.usuario.id, paginacao.limite, offset]
+    );
+
+    return res.json({
+      pedidos,
+      paginacao
+    });
   } catch (erro) {
     console.error('Erro ao buscar pedidos:', erro);
     res.status(500).json({ erro: 'Erro ao buscar pedidos' });
@@ -1915,36 +2439,108 @@ app.get('/api/cupons/disponiveis', async (req, res) => {
 // Listar todos os pedidos (admin)
 app.get('/api/admin/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
   try {
-    const [pedidos] = await pool.query(`
-      SELECT 
-        p.*,
-        u.nome as cliente_nome,
-        u.email as cliente_email,
-        u.telefone as cliente_telefone
-      FROM pedidos p
-      LEFT JOIN usuarios u ON p.usuario_id = u.id
-      ORDER BY p.criado_em DESC
-    `);
+    const usarPaginacao = ['page', 'pagina', 'limit', 'limite']
+      .some((chave) => req.query?.[chave] !== undefined);
+    const limite = parsePositiveInt(req.query?.limit || req.query?.limite, 200, { min: 1, max: 500 });
+    const paginaSolicitada = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
 
-    // Buscar itens de cada pedido
-    for (let pedido of pedidos) {
-      const [itens] = await pool.query(
-        'SELECT * FROM pedido_itens WHERE pedido_id = ?',
-        [pedido.id]
-      );
-      pedido.itens = itens;
+    let pedidosBase = [];
+    let paginacao = null;
 
-      // Buscar endereço do cliente
-      const [enderecos] = await pool.query(
-        'SELECT * FROM enderecos WHERE usuario_id = ? LIMIT 1',
-        [pedido.usuario_id]
+    if (usarPaginacao) {
+      const [[countRow]] = await pool.query('SELECT COUNT(*) AS total FROM pedidos');
+      const total = Number(countRow?.total || 0);
+      paginacao = montarPaginacao(total, paginaSolicitada, limite);
+      const offset = (paginacao.pagina - 1) * paginacao.limite;
+
+      [pedidosBase] = await pool.query(
+        `SELECT
+          p.*,
+          u.nome AS cliente_nome,
+          u.email AS cliente_email,
+          u.telefone AS cliente_telefone
+         FROM pedidos p
+         LEFT JOIN usuarios u ON p.usuario_id = u.id
+         ORDER BY p.criado_em DESC
+         LIMIT ? OFFSET ?`,
+        [paginacao.limite, offset]
       );
-      if (enderecos.length > 0) {
-        pedido.endereco = enderecos[0];
+    } else {
+      [pedidosBase] = await pool.query(`
+        SELECT
+          p.*,
+          u.nome AS cliente_nome,
+          u.email AS cliente_email,
+          u.telefone AS cliente_telefone
+        FROM pedidos p
+        LEFT JOIN usuarios u ON p.usuario_id = u.id
+        ORDER BY p.criado_em DESC
+      `);
+    }
+
+    if (pedidosBase.length === 0) {
+      if (paginacao) {
+        return res.json({ pedidos: [], paginacao });
+      }
+      return res.json({ pedidos: [] });
+    }
+
+    const pedidoIds = pedidosBase
+      .map((pedido) => Number(pedido.id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    const usuariosIds = [...new Set(
+      pedidosBase
+        .map((pedido) => Number(pedido.usuario_id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    )];
+
+    const itensPorPedido = new Map();
+    if (pedidoIds.length > 0) {
+      const placeholdersPedidos = pedidoIds.map(() => '?').join(', ');
+      const [itensRows] = await pool.query(
+        `SELECT * FROM pedido_itens WHERE pedido_id IN (${placeholdersPedidos}) ORDER BY pedido_id, id`,
+        pedidoIds
+      );
+
+      for (const item of itensRows) {
+        const pedidoId = Number(item.pedido_id);
+        const atual = itensPorPedido.get(pedidoId) || [];
+        atual.push(item);
+        itensPorPedido.set(pedidoId, atual);
       }
     }
 
-    res.json({ pedidos: pedidos });
+    const enderecosPorUsuario = new Map();
+    if (usuariosIds.length > 0) {
+      const placeholdersUsuarios = usuariosIds.map(() => '?').join(', ');
+      const [enderecosRows] = await pool.query(
+        `SELECT * FROM enderecos WHERE usuario_id IN (${placeholdersUsuarios}) ORDER BY usuario_id, atualizado_em DESC`,
+        usuariosIds
+      );
+
+      for (const endereco of enderecosRows) {
+        const usuarioId = Number(endereco.usuario_id);
+        if (!enderecosPorUsuario.has(usuarioId)) {
+          enderecosPorUsuario.set(usuarioId, endereco);
+        }
+      }
+    }
+
+    const pedidos = pedidosBase.map((pedido) => {
+      const pedidoId = Number(pedido.id);
+      const usuarioId = Number(pedido.usuario_id);
+      return {
+        ...pedido,
+        itens: itensPorPedido.get(pedidoId) || [],
+        endereco: enderecosPorUsuario.get(usuarioId) || null
+      };
+    });
+
+    if (paginacao) {
+      return res.json({ pedidos, paginacao });
+    }
+
+    return res.json({ pedidos });
   } catch (erro) {
     console.error('Erro ao buscar pedidos (admin):', erro);
     res.status(500).json({ erro: 'Erro ao buscar pedidos' });
@@ -2247,6 +2843,7 @@ app.listen(PORT, () => {
   console.log(`   POST   /api/endereco`);
   console.log(`   GET    /api/produtos`);
   console.log(`   GET    /api/produtos/:id`);
+  console.log(`   GET    /api/frete/simular?cep=68740180&veiculo=moto`);
   console.log(`   POST   /api/pedidos`);
   console.log(`   GET    /api/pedidos`);
   console.log(`   GET    /api/pedidos/:id`);

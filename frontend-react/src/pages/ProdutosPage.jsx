@@ -96,49 +96,6 @@ const BRAND_GROUPS_BY_SUBCATEGORY = {
   ]
 };
 
-const TEST_BEBIDAS_ITEMS = [
-  {
-    id: 990001,
-    nome: 'Água Mineral 500ml (Teste)',
-    marca: 'Cristal',
-    categoria: 'bebidas',
-    descricao: 'agua mineral sem gas',
-    preco: 2.5,
-    emoji: '💧',
-    imagem: 'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=900&q=60'
-  },
-  {
-    id: 990002,
-    nome: 'Refrigerante Cola 2L (Teste)',
-    marca: 'Coca-Cola',
-    categoria: 'bebidas',
-    descricao: 'refrigerante cola',
-    preco: 10.9,
-    emoji: '🥤',
-    imagem: 'https://images.unsplash.com/photo-1581636625402-29b2a704ef13?auto=format&fit=crop&w=900&q=60'
-  },
-  {
-    id: 990003,
-    nome: 'Cerveja Pilsen Lata 350ml (Teste)',
-    marca: 'Heineken',
-    categoria: 'bebidas',
-    descricao: 'cerveja pilsen lager',
-    preco: 5.99,
-    emoji: '🍺',
-    imagem: 'https://images.unsplash.com/photo-1566633806327-68e152aaf26d?auto=format&fit=crop&w=900&q=60'
-  },
-  {
-    id: 990004,
-    nome: 'Vinho Tinto Suave 750ml (Teste)',
-    marca: 'Pérgola',
-    categoria: 'bebidas',
-    descricao: 'vinho tinto suave',
-    preco: 29.9,
-    emoji: '🍷',
-    imagem: 'https://images.unsplash.com/photo-1516594798947-e65505dbb29d?auto=format&fit=crop&w=900&q=60'
-  }
-];
-
 const CATEGORY_IMAGES = {
   hortifruti: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=60',
   bebidas: 'https://images.unsplash.com/photo-1497534446932-c925b458314e?auto=format&fit=crop&w=900&q=60',
@@ -191,6 +148,32 @@ function getBebidaSubcategoriaId(produto) {
   return found?.id || 'outras-bebidas';
 }
 
+function getCategoriaApi(categoria) {
+  const valor = String(categoria || '').toLowerCase();
+  if (!valor || valor === 'todas' || valor === 'promocoes') {
+    return '';
+  }
+
+  if (valor.includes('bebida')) {
+    return 'bebidas';
+  }
+
+  return valor;
+}
+
+function mergeProdutosById(listaAtual, novosProdutos) {
+  const mapa = new Map();
+
+  [...listaAtual, ...novosProdutos].forEach((produto) => {
+    const chave = Number.isFinite(Number(produto?.id)) ? Number(produto.id) : String(produto?.id || Math.random());
+    mapa.set(chave, produto);
+  });
+
+  return Array.from(mapa.values());
+}
+
+const PRODUTOS_POR_PAGINA = 60;
+
 function belongsToBrandGroup(produto, brandConfig) {
   const texto = getTextoProduto(produto);
   return brandConfig.matchers.some((matcher) => texto.includes(normalizeText(matcher)));
@@ -216,10 +199,10 @@ export default function ProdutosPage() {
   const [bebidaSubcategoria, setBebidaSubcategoria] = useState('todas');
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
-
-  useEffect(() => {
-    carregarProdutos();
-  }, []);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [temMaisProdutos, setTemMaisProdutos] = useState(false);
+  const [totalProdutosBackend, setTotalProdutosBackend] = useState(0);
 
   useEffect(() => {
     setBusca(String(searchParams.get('busca') || ''));
@@ -232,49 +215,100 @@ export default function ProdutosPage() {
     }
   }, [categoria]);
 
-  async function carregarProdutos() {
-    setCarregando(true);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void carregarProdutos({
+        append: false,
+        pagina: 1,
+        categoriaAlvo: categoria,
+        buscaAlvo: busca
+      });
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [categoria, busca]);
+
+  async function carregarProdutos({ append = false, pagina = 1, categoriaAlvo = categoria, buscaAlvo = busca } = {}) {
+    if (append) {
+      setCarregandoMais(true);
+    } else {
+      setCarregando(true);
+    }
+
     setErro('');
+
     try {
-      const data = await getProdutos();
-      setProdutos(data.produtos || []);
+      const params = {
+        page: pagina,
+        limit: PRODUTOS_POR_PAGINA
+      };
+
+      const categoriaApi = getCategoriaApi(categoriaAlvo);
+      if (categoriaApi) {
+        params.categoria = categoriaApi;
+      }
+
+      const buscaNormalizada = String(buscaAlvo || '').trim();
+      if (buscaNormalizada) {
+        params.busca = buscaNormalizada;
+      }
+
+      const data = await getProdutos(params);
+      const lista = Array.isArray(data?.produtos) ? data.produtos : [];
+      const paginacao = data?.paginacao || {};
+
+      setProdutos((atual) => (append ? mergeProdutosById(atual, lista) : lista));
+      setPaginaAtual(Number(paginacao.pagina || pagina));
+      setTemMaisProdutos(Boolean(paginacao.tem_mais));
+      setTotalProdutosBackend(Number(paginacao.total || lista.length));
     } catch (error) {
       setErro(error.message);
+
+      if (!append) {
+        setProdutos([]);
+        setPaginaAtual(1);
+        setTemMaisProdutos(false);
+        setTotalProdutosBackend(0);
+      }
     } finally {
-      setCarregando(false);
+      if (append) {
+        setCarregandoMais(false);
+      } else {
+        setCarregando(false);
+      }
     }
   }
 
-  const produtosComTeste = useMemo(() => {
-    const base = [...produtos];
+  async function handleCarregarMais() {
+    if (carregando || carregandoMais || !temMaisProdutos) {
+      return;
+    }
 
-    TEST_BEBIDAS_ITEMS.forEach((teste) => {
-      const jaExiste = base.some((item) => normalizeText(item.nome) === normalizeText(teste.nome));
-      if (!jaExiste) {
-        base.push(teste);
-      }
+    await carregarProdutos({
+      append: true,
+      pagina: paginaAtual + 1,
+      categoriaAlvo: categoria,
+      buscaAlvo: busca
     });
-
-    return base;
-  }, [produtos]);
+  }
 
   const categorias = useMemo(() => {
     const values = new Set();
-    produtosComTeste.forEach((produto) => {
+    produtos.forEach((produto) => {
       if (produto.categoria) {
         values.add(String(produto.categoria));
       }
     });
     return ['todas', ...Array.from(values).sort((a, b) => a.localeCompare(b))];
-  }, [produtosComTeste]);
+  }, [produtos]);
 
   const produtosFiltrados = useMemo(() => {
     const termoNormalizado = normalizeText(busca);
     const termo = isBebidasCategoria(categoria) && (termoNormalizado === 'bebida' || termoNormalizado === 'bebidas')
       ? ''
       : termoNormalizado;
-    return produtosComTeste.filter((produto) => {
-      const nome = normalizeText(produto.nome);
+    return produtos.filter((produto) => {
+      const textoProduto = getTextoProduto(produto);
       const categoriaAtual = String(produto.categoria || '').toLowerCase();
       const categoriaAtualNormalizada = normalizeText(categoriaAtual);
       const emPromocao =
@@ -283,7 +317,7 @@ export default function ProdutosPage() {
         || Number(produto.preco_promocional || 0) > 0
         || produto.promocao === true
         || Number(produto.promocao || 0) === 1;
-      const matchBusca = !termo || nome.includes(termo);
+      const matchBusca = !termo || textoProduto.includes(termo);
       const matchCategoria = categoria === 'todas'
         ? true
         : categoria === 'promocoes'
@@ -293,7 +327,7 @@ export default function ProdutosPage() {
             : categoriaAtual === categoria;
       return matchBusca && matchCategoria;
     });
-  }, [produtosComTeste, busca, categoria]);
+  }, [produtos, busca, categoria]);
 
   const secoesBebidas = useMemo(() => {
     if (!isBebidasCategoria(categoria)) {
@@ -429,7 +463,19 @@ export default function ProdutosPage() {
             ))}
           </select>
 
-          <button className="btn-primary" type="button" onClick={carregarProdutos} disabled={carregando}>
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={() => {
+              void carregarProdutos({
+                append: false,
+                pagina: 1,
+                categoriaAlvo: categoria,
+                buscaAlvo: busca
+              });
+            }}
+            disabled={carregando}
+          >
             {carregando ? 'Atualizando...' : 'Atualizar produtos'}
           </button>
         </div>
@@ -481,6 +527,11 @@ export default function ProdutosPage() {
       <div className="pedido-resumo" style={{ marginTop: '0.9rem' }}>
         <p><strong>Carrinho:</strong> {resumo.itens} item(ns)</p>
         <p><strong>Total parcial:</strong> R$ {resumo.total.toFixed(2)}</p>
+        {totalProdutosBackend > 0 ? (
+          <p className="muted-text" style={{ marginTop: '0.35rem' }}>
+            Mostrando {produtos.length} de {totalProdutosBackend} produto(s) carregados.
+          </p>
+        ) : null}
         {resumo.itens > 0 ? (
           <Link to="/pagamento" className="btn-primary" style={{ display: 'inline-block', marginTop: '0.6rem' }}>
             Finalizar pedido
@@ -491,6 +542,7 @@ export default function ProdutosPage() {
       </div>
 
       {erro ? <p className="error-text">{erro}</p> : null}
+      {carregando ? <p className="muted-text">Carregando produtos...</p> : null}
 
       {produtosFiltrados.length === 0 ? (
         <p className="muted-text">Nenhum produto encontrado com os filtros atuais.</p>
@@ -531,6 +583,21 @@ export default function ProdutosPage() {
           {produtosFiltrados.map((produto) => renderProdutoCard(produto))}
         </div>
       )}
+
+      {temMaisProdutos ? (
+        <div className="card-box" style={{ marginTop: '0.9rem' }}>
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={() => {
+              void handleCarregarMais();
+            }}
+            disabled={carregandoMais || carregando}
+          >
+            {carregandoMais ? 'Carregando mais produtos...' : 'Carregar mais produtos'}
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -113,6 +113,21 @@ function buildHeaders({ token, hasBody, csrfToken }) {
   return headers;
 }
 
+function buildQueryString(params = {}) {
+  const query = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([chave, valor]) => {
+    if (valor === undefined || valor === null || valor === '') {
+      return;
+    }
+
+    query.set(chave, String(valor));
+  });
+
+  const queryString = query.toString();
+  return queryString ? `?${queryString}` : '';
+}
+
 async function garantirCsrfToken(forceRefresh = false) {
   if (!forceRefresh) {
     const existente = obterCsrfToken();
@@ -212,14 +227,18 @@ export function adminGetMe() {
   return request('/api/admin/me');
 }
 
-export function login(email, senha) {
+export function login(email, senha, recaptchaToken = '') {
   return request('/api/auth/login', {
     method: 'POST',
-    body: { email, senha }
+    body: {
+      email,
+      senha,
+      recaptcha_token: String(recaptchaToken || '').trim() || undefined
+    }
   });
 }
 
-export function cadastrar({ nome, email, senha, telefone, whatsappOptIn }) {
+export function cadastrar({ nome, email, senha, telefone, whatsappOptIn, recaptchaToken }) {
   return request('/api/auth/cadastro', {
     method: 'POST',
     body: {
@@ -227,7 +246,8 @@ export function cadastrar({ nome, email, senha, telefone, whatsappOptIn }) {
       email,
       senha,
       telefone,
-      whatsapp_opt_in: whatsappOptIn
+      whatsapp_opt_in: whatsappOptIn,
+      recaptcha_token: String(recaptchaToken || '').trim() || undefined
     }
   });
 }
@@ -246,37 +266,61 @@ export function getMe() {
   return request('/api/auth/me');
 }
 
-export function getPedidos() {
-  return request('/api/pedidos');
+export function getPedidos(params = {}) {
+  return request(`/api/pedidos${buildQueryString(params)}`);
 }
 
 export function getPedidoById(pedidoId) {
   return request(`/api/pedidos/${pedidoId}`);
 }
 
-export function getProdutos() {
-  return request('/api/produtos');
+export function getProdutos(params = {}) {
+  return request(`/api/produtos${buildQueryString(params)}`);
 }
 
-export function criarPedido({ itens, formaPagamento = 'pix' }) {
+export function simularFretePorCep({ cep, veiculo = 'moto' }) {
+  const cepNormalizado = String(cep || '').replace(/\D/g, '').slice(0, 8);
+  const veiculoNormalizado = String(veiculo || 'moto').trim().toLowerCase();
+  return request(`/api/frete/simular?cep=${cepNormalizado}&veiculo=${encodeURIComponent(veiculoNormalizado)}`);
+}
+
+export function criarPedido({ itens, formaPagamento = 'pix', entrega, taxId }) {
+  const body = {
+    itens,
+    forma_pagamento: formaPagamento
+  };
+
+  if (entrega && typeof entrega === 'object') {
+    body.entrega = entrega;
+  }
+
+  const taxIdDigits = String(taxId || '').replace(/\D/g, '');
+  if (taxIdDigits) {
+    body.tax_id = taxIdDigits;
+  }
+
   return request('/api/pedidos', {
     method: 'POST',
-    body: {
-      itens,
-      forma_pagamento: formaPagamento
-    }
+    body
   });
 }
 
-export function gerarPix(pedidoId) {
+export function gerarPix(pedidoId, taxId) {
+  const taxIdDigits = String(taxId || '').replace(/\D/g, '');
+  const body = { pedido_id: pedidoId };
+
+  if (taxIdDigits) {
+    body.tax_id = taxIdDigits;
+  }
+
   return request('/api/pagamentos/pix', {
     method: 'POST',
-    body: { pedido_id: pedidoId }
+    body
   });
 }
 
-export function adminGetPedidos() {
-  return request('/api/admin/pedidos');
+export function adminGetPedidos(params = {}) {
+  return request(`/api/admin/pedidos${buildQueryString(params)}`);
 }
 
 export function adminAtualizarStatusPedido(pedidoId, status) {

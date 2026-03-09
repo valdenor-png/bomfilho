@@ -66,7 +66,10 @@ export default function HomePage() {
     setCarregando(true);
     setErro('');
     try {
-      const data = await getProdutos();
+      const data = await getProdutos({
+        page: 1,
+        limit: 120
+      });
       setProdutos(data.produtos || []);
     } catch (error) {
       setErro(error.message);

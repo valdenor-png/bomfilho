@@ -36,6 +36,8 @@ SOURCE backend/migrate_remover_favoritos_fidelidade.sql;
 - `COOKIE_SECURE=true`
 - `COOKIE_SAME_SITE=none`
 - `JWT_SECRET=<chave forte com 32+ caracteres>`
+- `RECAPTCHA_SECRET_KEY=<secret key do Google reCAPTCHA>`
+- `RECAPTCHA_MIN_SCORE=0.5` (opcional, usado em respostas com score)
 - `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT`
 - `ADMIN_USER`, `ADMIN_PASSWORD`
 - `ADMIN_LOCAL_ONLY=true` (seguro) ou `false` (admin remoto)
@@ -67,6 +69,7 @@ curl https://SEU_BACKEND.onrender.com/api
 4. Env var na Vercel:
 
 - `VITE_API_URL=https://SEU_BACKEND.onrender.com`
+- `VITE_RECAPTCHA_SITE_KEY=<site key do Google reCAPTCHA>`
 
 5. Deploy.
 

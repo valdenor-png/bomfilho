@@ -62,6 +62,11 @@ COOKIE_DOMAIN=
 
 JWT_SECRET=sua_chave_secreta_muito_segura
 
+# Google reCAPTCHA (opcional, recomendado para login/cadastro)
+RECAPTCHA_SECRET_KEY=
+# Usado apenas com reCAPTCHA v3 (0 a 1)
+RECAPTCHA_MIN_SCORE=0.5
+
 # Proteção opcional para rotas de diagnóstico
 DIAGNOSTIC_TOKEN=
 
@@ -173,7 +178,8 @@ Content-Type: application/json
   "nome": "João Silva",
   "email": "joao@email.com",
   "senha": "senha123",
-  "telefone": "(11) 99999-9999"
+  "telefone": "(11) 99999-9999",
+  "recaptcha_token": "TOKEN_GERADO_NO_FRONT"
 }
 ```
 
@@ -184,9 +190,12 @@ Content-Type: application/json
 
 {
   "email": "joao@email.com",
-  "senha": "senha123"
+  "senha": "senha123",
+  "recaptcha_token": "TOKEN_GERADO_NO_FRONT"
 }
 ```
+
+Se `RECAPTCHA_SECRET_KEY` estiver preenchido no backend, `recaptcha_token` passa a ser obrigatório em login e cadastro.
 
 Retorna: `{ usuario: {...}, csrfToken: "..." }` e define cookie HttpOnly de sessão.
 

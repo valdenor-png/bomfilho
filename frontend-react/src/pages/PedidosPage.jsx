@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getPedidoById, getPedidos, isAuthErrorMessage } from '../lib/api';
 
+const PEDIDOS_POR_PAGINA = 20;
+
 function formatarDataPedido(dataRaw) {
   if (!dataRaw) {
     return '-';
@@ -22,23 +24,31 @@ export default function PedidosPage() {
   const [detalhesPorPedido, setDetalhesPorPedido] = useState({});
   const [carregandoDetalhesId, setCarregandoDetalhesId] = useState(null);
   const [carregando, setCarregando] = useState(false);
+  const [carregandoMais, setCarregandoMais] = useState(false);
   const [autenticado, setAutenticado] = useState(null);
   const [erro, setErro] = useState('');
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [temMaisPedidos, setTemMaisPedidos] = useState(false);
 
   useEffect(() => {
     let ativo = true;
 
-    async function carregarPedidos() {
+    async function carregarPedidosIniciais() {
       setCarregando(true);
       setErro('');
 
       try {
-        const data = await getPedidos();
+        const data = await getPedidos({
+          page: 1,
+          limit: PEDIDOS_POR_PAGINA
+        });
         if (!ativo) {
           return;
         }
 
         setPedidos(Array.isArray(data.pedidos) ? data.pedidos : []);
+        setPaginaAtual(Number(data?.paginacao?.pagina || 1));
+        setTemMaisPedidos(Boolean(data?.paginacao?.tem_mais));
         setAutenticado(true);
       } catch (error) {
         if (!ativo) {
@@ -58,12 +68,49 @@ export default function PedidosPage() {
       }
     }
 
-    carregarPedidos();
+    carregarPedidosIniciais();
 
     return () => {
       ativo = false;
     };
   }, []);
+
+  async function carregarMaisPedidos() {
+    if (carregando || carregandoMais || !temMaisPedidos) {
+      return;
+    }
+
+    setCarregandoMais(true);
+    setErro('');
+    try {
+      const proximaPagina = paginaAtual + 1;
+      const data = await getPedidos({
+        page: proximaPagina,
+        limit: PEDIDOS_POR_PAGINA
+      });
+
+      const novosPedidos = Array.isArray(data.pedidos) ? data.pedidos : [];
+      setPedidos((atuais) => {
+        const mapa = new Map(atuais.map((pedido) => [Number(pedido.id), pedido]));
+        novosPedidos.forEach((pedido) => {
+          mapa.set(Number(pedido.id), pedido);
+        });
+        return Array.from(mapa.values());
+      });
+
+      setPaginaAtual(Number(data?.paginacao?.pagina || proximaPagina));
+      setTemMaisPedidos(Boolean(data?.paginacao?.tem_mais));
+    } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAutenticado(false);
+        return;
+      }
+
+      setErro(error.message || 'Não foi possível carregar mais pedidos.');
+    } finally {
+      setCarregandoMais(false);
+    }
+  }
 
   async function toggleDetalhesPedido(pedidoId) {
     if (pedidoAbertoId === pedidoId) {
@@ -204,6 +251,21 @@ export default function PedidosPage() {
               </div>
             );
           })}
+        </div>
+      ) : null}
+
+      {temMaisPedidos ? (
+        <div className="card-box" style={{ marginTop: '0.8rem' }}>
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={() => {
+              void carregarMaisPedidos();
+            }}
+            disabled={carregandoMais || carregando}
+          >
+            {carregandoMais ? 'Carregando mais pedidos...' : 'Carregar mais pedidos'}
+          </button>
         </div>
       ) : null}
     </section>

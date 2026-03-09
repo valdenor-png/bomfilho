@@ -56,6 +56,12 @@ body {
   border-color: #111111;
 }
 
+:root[data-high-contrast='true'] .btn-secondary {
+  background: #ffffff;
+  color: #111111;
+  border-color: #111111;
+}
+
 :root[data-high-contrast='true'] .btn-secondary,
 :root[data-high-contrast='true'] .bottom-nav-link,
 :root[data-high-contrast='true'] .muted-text,
@@ -644,7 +650,7 @@ body {
 }
 
 .btn-primary {
-  border: 0;
+  border: 1px solid #2f855a;
   border-radius: 8px;
   background: #2f855a;
   color: #fff;
@@ -654,19 +660,34 @@ body {
   width: fit-content;
 }
 
+.btn-primary:hover:not(:disabled) {
+  background: #276749;
+  border-color: #276749;
+}
+
 .btn-primary:disabled {
   opacity: 0.7;
   cursor: not-allowed;
 }
 
 .btn-secondary {
-  border: 1px solid #d1d5db;
+  border: 1px solid #2f855a;
   border-radius: 8px;
-  background: #fff;
-  color: #2d3748;
+  background: #38a169;
+  color: #fff;
   padding: 0.45rem 0.75rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #2f855a;
+  border-color: #276749;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 .error-text {
@@ -855,7 +876,7 @@ body {
 .checkout-steps {
   margin-top: 0.8rem;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.45rem;
 }
 
@@ -890,6 +911,162 @@ body {
 .checkout-step-label {
   font-size: 0.85rem;
   font-weight: 600;
+}
+
+.entrega-cep-input {
+  width: 100%;
+  max-width: 180px;
+}
+
+.entrega-cep-row {
+  display: inline-grid;
+  grid-template-columns: minmax(130px, 180px) auto;
+  gap: 0.5rem;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.entrega-calcular-btn {
+  width: auto;
+  white-space: nowrap;
+  min-height: 42px;
+}
+
+.entrega-acoes-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: stretch;
+}
+
+.entrega-ir-pagamento-btn {
+  width: 100%;
+  min-height: 52px;
+  padding: 0.72rem 1.05rem;
+  font-size: 1.02rem;
+  letter-spacing: 0.01em;
+}
+
+.entrega-voltar-carrinho-btn {
+  width: 52px;
+  min-width: 52px;
+  min-height: 52px;
+  padding: 0;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: #22c55e;
+  background: #ecfdf5;
+  color: #166534;
+  box-shadow: 0 4px 10px rgba(21, 128, 61, 0.16);
+  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.entrega-voltar-carrinho-btn:hover:not(:disabled) {
+  background: #dcfce7;
+  border-color: #15803d;
+  box-shadow: 0 8px 16px rgba(21, 128, 61, 0.24);
+  transform: translateX(-1px);
+}
+
+.entrega-voltar-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+}
+
+.entrega-voltar-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.entrega-voltar-icon path {
+  stroke-width: 2.8;
+}
+
+.entrega-veiculos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.55rem;
+}
+
+.entrega-veiculo-btn {
+  border: 1px solid #d9e2ec;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0.6rem;
+  text-align: left;
+  display: grid;
+  gap: 0.22rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.entrega-veiculo-btn:hover {
+  border-color: #94a3b8;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+}
+
+.entrega-veiculo-btn.active {
+  border-color: #15803d;
+  background: linear-gradient(135deg, #ecfdf5 0%, #f8fffb 100%);
+  box-shadow: 0 10px 24px rgba(21, 128, 61, 0.24);
+  transform: translateY(-2px);
+}
+
+.entrega-veiculo-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-weight: 700;
+}
+
+.entrega-veiculo-head {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.entrega-veiculo-img {
+  width: 88px;
+  height: 58px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #dbe4ee;
+  background: #f8fafc;
+}
+
+.entrega-veiculo-btn.active .entrega-veiculo-img {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+.entrega-veiculo-info {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.entrega-veiculo-nome {
+  font-weight: 700;
+}
+
+.entrega-veiculo-btn.active .entrega-veiculo-nome {
+  color: #166534;
+}
+
+.entrega-veiculo-consumo {
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.entrega-veiculo-meta {
+  color: #4a5568;
+  font-size: 0.84rem;
 }
 
 .pedido-status-badge {
@@ -1145,6 +1322,20 @@ body {
     width: 100%;
     justify-content: center;
     text-align: center;
+  }
+
+  .entrega-cep-row .btn-primary,
+  .entrega-cep-row .btn-secondary {
+    width: auto;
+  }
+
+  .entrega-acoes-row .btn-primary,
+  .entrega-acoes-row .btn-secondary {
+    width: auto;
+  }
+
+  .entrega-acoes-row .entrega-ir-pagamento-btn {
+    width: 100%;
   }
 
   .legacy-categories {
