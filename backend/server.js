@@ -163,23 +163,22 @@ async function buscarCoordenadasPorCep(cep) {
     return cache.data;
   }
 
-  let response;
-  try {
-    response = await fetch(`https://brasilapi.com.br/api/cep/v2/${cepNormalizado}`);
-  } catch {
-    throw criarErroHttp(503, 'Serviço de CEP indisponível no momento.');
-  }
+  const dados = await buscarDadosCepComFallback(cepNormalizado);
 
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw criarErroHttp(400, 'CEP não encontrado.');
+  let latitude = Number(dados?.location?.coordinates?.latitude);
+  let longitude = Number(dados?.location?.coordinates?.longitude);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    const coordenadasFallback = await buscarCoordenadasNominatim({
+      cepNormalizado,
+      dadosCep: dados
+    });
+
+    if (coordenadasFallback) {
+      latitude = coordenadasFallback.latitude;
+      longitude = coordenadasFallback.longitude;
     }
-    throw criarErroHttp(503, 'Falha ao consultar CEP.');
   }
-
-  const dados = await response.json().catch(() => ({}));
-  const latitude = Number(dados?.location?.coordinates?.latitude);
-  const longitude = Number(dados?.location?.coordinates?.longitude);
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     throw criarErroHttp(400, 'CEP sem coordenadas para cálculo de entrega.');
@@ -201,6 +200,104 @@ async function buscarCoordenadasPorCep(cep) {
   });
 
   return resultado;
+}
+
+async function buscarDadosCepComFallback(cepNormalizado) {
+  let dadosV2 = null;
+
+  try {
+    const responseV2 = await fetch(`https://brasilapi.com.br/api/cep/v2/${cepNormalizado}`);
+    if (responseV2.ok) {
+      dadosV2 = await responseV2.json().catch(() => ({}));
+    } else if (responseV2.status === 404) {
+      throw criarErroHttp(400, 'CEP não encontrado.');
+    }
+  } catch (erro) {
+    if (erro?.status === 400) {
+      throw erro;
+    }
+  }
+
+  let dadosV1 = null;
+  if (!dadosV2 || !String(dadosV2?.city || '').trim()) {
+    try {
+      const responseV1 = await fetch(`https://brasilapi.com.br/api/cep/v1/${cepNormalizado}`);
+      if (responseV1.ok) {
+        dadosV1 = await responseV1.json().catch(() => ({}));
+      } else if (responseV1.status === 404) {
+        throw criarErroHttp(400, 'CEP não encontrado.');
+      }
+    } catch (erro) {
+      if (erro?.status === 400) {
+        throw erro;
+      }
+    }
+  }
+
+  const dadosMesclados = {
+    ...(dadosV1 || {}),
+    ...(dadosV2 || {}),
+    location: dadosV2?.location || dadosV1?.location || null
+  };
+
+  if (!Object.keys(dadosMesclados).length) {
+    throw criarErroHttp(503, 'Falha ao consultar CEP.');
+  }
+
+  return dadosMesclados;
+}
+
+function montarConsultasNominatim({ cepNormalizado, dadosCep }) {
+  const cepFormatado = formatarCep(cepNormalizado);
+  const rua = String(dadosCep?.street || '').trim();
+  const bairro = String(dadosCep?.neighborhood || '').trim();
+  const cidade = String(dadosCep?.city || '').trim();
+  const estado = String(dadosCep?.state || '').trim();
+
+  const consultas = [
+    [rua, bairro, cidade, estado, 'Brasil'].filter(Boolean).join(', '),
+    [cepFormatado, cidade, estado, 'Brasil'].filter(Boolean).join(', '),
+    [cepFormatado, 'Brasil'].filter(Boolean).join(', ')
+  ]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(consultas));
+}
+
+async function buscarCoordenadasNominatim({ cepNormalizado, dadosCep }) {
+  const consultas = montarConsultasNominatim({ cepNormalizado, dadosCep });
+  if (!consultas.length) {
+    return null;
+  }
+
+  const headers = {
+    'User-Agent': 'BomFilhoFrete/1.0 (fallback-cep)',
+    'Accept-Language': 'pt-BR,pt;q=0.9'
+  };
+
+  for (const consulta of consultas) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(consulta)}&format=jsonv2&limit=1`;
+      const response = await fetch(url, { headers });
+      if (!response.ok) {
+        continue;
+      }
+
+      const resultados = await response.json().catch(() => []);
+      const primeiro = Array.isArray(resultados) ? resultados[0] : null;
+      const latitude = Number(primeiro?.lat);
+      const longitude = Number(primeiro?.lon);
+
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        return { latitude, longitude };
+      }
+    } catch {
+      // Ignora falha de fallback para tentar a proxima consulta.
+    }
+  }
+
+  return null;
 }
 
 async function calcularEntregaPorCep({ cepDestino, veiculo }) {
@@ -614,7 +711,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-diagnostic-token', 'x-webhook-token', 'x-csrf-token'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-diagnostic-token', 'x-webhook-token', 'x-csrf-token', 'ngrok-skip-browser-warning'],
   maxAge: 600
 }));
 

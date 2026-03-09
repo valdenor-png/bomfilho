@@ -3,6 +3,7 @@ const CSRF_COOKIE_KEY = 'bf_csrf_token';
 const USER_ACCESS_TOKEN_KEY = 'bf_user_access_token';
 const ADMIN_ACCESS_TOKEN_KEY = 'bf_admin_access_token';
 let csrfTokenCache = '';
+const IS_NGROK_API = /ngrok(-free)?\.dev|ngrok\.io/i.test(String(API_BASE_URL || ''));
 
 function readStorage(key) {
   if (typeof window === 'undefined') {
@@ -96,7 +97,7 @@ function obterCsrfToken() {
   return csrfTokenCache || readCookie(CSRF_COOKIE_KEY);
 }
 
-function buildHeaders({ token, hasBody, csrfToken }) {
+function buildHeaders({ token, hasBody, csrfToken } = {}) {
   const headers = {};
   if (hasBody) {
     headers['Content-Type'] = 'application/json';
@@ -108,6 +109,11 @@ function buildHeaders({ token, hasBody, csrfToken }) {
 
   if (csrfToken) {
     headers['x-csrf-token'] = csrfToken;
+  }
+
+  // Evita a pagina de alerta do ngrok em requisicoes XHR/fetch no browser.
+  if (IS_NGROK_API) {
+    headers['ngrok-skip-browser-warning'] = 'true';
   }
 
   return headers;
@@ -142,7 +148,8 @@ async function garantirCsrfToken(forceRefresh = false) {
 
   const response = await fetch(`${API_BASE_URL}/api/auth/csrf`, {
     method: 'GET',
-    credentials: 'include'
+    credentials: 'include',
+    headers: buildHeaders()
   });
 
   const data = await response.json().catch(() => ({}));

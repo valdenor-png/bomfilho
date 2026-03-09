@@ -29,6 +29,7 @@ export default function ContaPage() {
   const [telefone, setTelefone] = useState('');
   const [whatsappOptIn, setWhatsappOptIn] = useState(true);
   const [recaptchaToken, setRecaptchaToken] = useState('');
+  const [recaptchaErroCarregamento, setRecaptchaErroCarregamento] = useState('');
   const [usuario, setUsuario] = useState(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -70,6 +71,7 @@ export default function ContaPage() {
 
   function resetRecaptcha() {
     setRecaptchaToken('');
+    setRecaptchaErroCarregamento('');
     if (recaptchaRef.current && typeof recaptchaRef.current.reset === 'function') {
       recaptchaRef.current.reset();
     }
@@ -80,7 +82,7 @@ export default function ContaPage() {
     setErro('');
 
     if (recaptchaEnabled && !recaptchaToken) {
-      setErro('Confirme o reCAPTCHA para continuar.');
+      setErro(recaptchaErroCarregamento || 'Confirme o reCAPTCHA para continuar.');
       return;
     }
 
@@ -103,7 +105,7 @@ export default function ContaPage() {
     setErro('');
 
     if (recaptchaEnabled && !recaptchaToken) {
-      setErro('Confirme o reCAPTCHA para continuar.');
+      setErro(recaptchaErroCarregamento || 'Confirme o reCAPTCHA para continuar.');
       return;
     }
 
@@ -314,10 +316,24 @@ export default function ContaPage() {
                 ref={recaptchaRef}
                 sitekey={recaptchaSiteKey}
                 hl="pt-BR"
-                onChange={(token) => setRecaptchaToken(String(token || '').trim())}
+                onChange={(token) => {
+                  setRecaptchaToken(String(token || '').trim());
+                  if (token) {
+                    setRecaptchaErroCarregamento('');
+                  }
+                }}
                 onExpired={() => setRecaptchaToken('')}
-                onErrored={() => setRecaptchaToken('')}
+                onErrored={() => {
+                  setRecaptchaToken('');
+                  setRecaptchaErroCarregamento('Falha ao carregar o reCAPTCHA neste dominio. Use o endereco oficial do site ou atualize os dominios permitidos da chave no Google reCAPTCHA.');
+                }}
               />
+
+              {recaptchaErroCarregamento ? (
+                <p className="error-text" style={{ marginTop: '0.5rem' }}>
+                  {recaptchaErroCarregamento}
+                </p>
+              ) : null}
             </div>
           ) : null}
 
