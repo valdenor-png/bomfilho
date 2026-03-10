@@ -18,6 +18,7 @@ const PORT = process.env.PORT || 3000;
 const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
 const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
 const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
+const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
 
 // Configuração Evolution API (WhatsApp)
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
@@ -3221,6 +3222,16 @@ app.post('/api/avaliacoes', autenticarToken, async (req, res) => {
 if (SHOULD_SERVE_REACT && fs.existsSync(REACT_DIST_INDEX)) {
   app.get(/^\/(?!api).*/, (req, res) => {
     res.sendFile(REACT_DIST_INDEX);
+  });
+} else {
+  app.get('/', (req, res) => {
+    if (FRONTEND_APP_URL) {
+      return res.redirect(FRONTEND_APP_URL);
+    }
+
+    return res.status(200).send(
+      '<h1>Bom Filho API online</h1><p>Frontend nao esta hospedado neste servico.</p><p>Use <a href="/api">/api</a> para status da API.</p>'
+    );
   });
 }
 
