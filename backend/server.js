@@ -891,65 +891,42 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
 // ============================================
 // CONEXÃO COM O BANCO DE DADOS
 // ============================================
-function decodificarUrl(valor) {
-  try {
-    return decodeURIComponent(String(valor || ''));
-  } catch {
-    return String(valor || '');
-  }
+const databaseUrlRaw = String(process.env.DATABASE_URL || '').trim();
+if (!databaseUrlRaw) {
+  throw new Error('DATABASE_URL não configurada no ambiente.');
 }
 
-function montarConfigMySql() {
-  const databaseUrlRaw = String(process.env.DATABASE_URL || '').trim();
+const dbUrl = new URL(databaseUrlRaw);
 
-  if (databaseUrlRaw) {
-    const dbUrl = new URL(databaseUrlRaw);
-    const databaseFromPath = String(dbUrl.pathname || '').replace(/^\/+/, '');
-
-    return {
-      host: dbUrl.hostname,
-      port: Number.parseInt(dbUrl.port || '3306', 10),
-      user: decodificarUrl(dbUrl.username),
-      password: decodificarUrl(dbUrl.password),
-      database: decodificarUrl(databaseFromPath),
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    };
-  }
-
-  return {
-    host: String(process.env.DB_HOST || '').trim(),
-    port: Number.parseInt(String(process.env.DB_PORT || '3306'), 10),
-    user: String(process.env.DB_USER || '').trim(),
-    password: String(process.env.DB_PASSWORD || ''),
-    database: String(process.env.DB_NAME || '').trim(),
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-  };
-}
-
-const mysqlConfig = montarConfigMySql();
-const pool = mysql.createPool(mysqlConfig);
-
-console.log('🧭 MySQL config:', {
-  host: mysqlConfig.host,
-  port: mysqlConfig.port,
-  database: mysqlConfig.database,
-  user: mysqlConfig.user,
-  source: process.env.DATABASE_URL ? 'DATABASE_URL' : 'DB_*'
+const pool = mysql.createPool({
+  host: dbUrl.hostname,
+  port: dbUrl.port,
+  user: dbUrl.username,
+  password: dbUrl.password,
+  database: dbUrl.pathname.replace("/", ""),
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
-// Testar conexão
-pool.getConnection()
-  .then(connection => {
-    console.log('✅ Conectado ao MySQL com sucesso!');
-    connection.release();
-  })
-  .catch(err => {
-    console.error('❌ Erro ao conectar ao MySQL:', err.code || err.message);
-  });
+console.log('🧭 MySQL config:', {
+  host: dbUrl.hostname,
+  port: dbUrl.port,
+  user: dbUrl.username,
+  database: dbUrl.pathname.replace("/", ""),
+  source: 'DATABASE_URL'
+});
+
+// Testar conexão ao iniciar
+(async () => {
+  try {
+    const conn = await pool.getConnection();
+    console.log('✅ MySQL conectado');
+    conn.release();
+  } catch (err) {
+    console.error('❌ Erro ao conectar ao MySQL:', err);
+  }
+})();
 
 // ============================================
 // FUNÇÕES DE APOIO - WHATSAPP
