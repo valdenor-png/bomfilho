@@ -17,7 +17,7 @@ SET @query = (
     'SELECT "Campos de desconto já existem" AS aviso'
   )
   FROM INFORMATION_SCHEMA.COLUMNS 
-  WHERE TABLE_SCHEMA = 'bom_filho_db' 
+  WHERE TABLE_SCHEMA = 'railway' 
     AND TABLE_NAME = 'produtos' 
     AND COLUMN_NAME = 'desconto_percentual'
 );
@@ -62,3 +62,4 @@ SELECT
   em_oferta
 FROM produtos 
 WHERE em_oferta = TRUE;
+

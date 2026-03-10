@@ -7,7 +7,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const mysql = require('mysql2/promise');
+const mysql = require("mysql2/promise");
 const fetch = global.fetch || require('node-fetch');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -36,6 +36,7 @@ const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
 
 // Configuração PagBank
 const PAGBANK_TOKEN = process.env.PAGBANK_TOKEN;
+const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
 const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
 const PAGBANK_API_URL = process.env.PAGBANK_ENV === 'production' 
   ? 'https://api.pagseguro.com' 
@@ -791,6 +792,21 @@ if (SHOULD_SERVE_REACT && fs.existsSync(FRONTEND_DIST_PATH)) {
   app.use(express.static(FRONTEND_DIST_PATH));
 }
 
+// Chave publica do PagBank para criptografia de cartao no frontend
+app.get('/api/pagbank/public-key', (req, res) => {
+  if (!PAGBANK_PUBLIC_KEY) {
+    return res.status(503).json({
+      erro: 'PAGBANK_PUBLIC_KEY não configurada no backend'
+    });
+  }
+
+  return res.json({
+    pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
+    public_key: PAGBANK_PUBLIC_KEY,
+    sdk_url: 'https://assets.pagseguro.com.br/checkout-sdk-js/rc/dist/browser/pagseguro.min.js'
+  });
+});
+
 // Diagnóstico PagBank: valida token e mostra URLs configuradas
 app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
   try {
@@ -812,6 +828,7 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
       base_url: baseUrl,
       webhook_url: webhookUrl,
       token_present: !!token,
+      public_key_present: !!PAGBANK_PUBLIC_KEY,
       webhook_protected: !!PAGBANK_WEBHOOK_TOKEN,
       auth_check: pagbankLastAuthCheck
     });
@@ -873,18 +890,17 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
 // ============================================
 // CONEXÃO COM O BANCO DE DADOS
 // ============================================
+const dbUrl = new URL(process.env.DATABASE_URL);
+
 const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: process.env.DB_PORT || 3306,
-  charset: 'utf8mb4',
+  host: dbUrl.hostname,
+  port: dbUrl.port,
+  user: dbUrl.username,
+  password: dbUrl.password,
+  database: dbUrl.pathname.replace("/", ""),
   waitForConnections: true,
-  connectionLimit: 50, // Aumentado de 10 para 50
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0
+  connectionLimit: 10,
+  queueLimit: 0
 });
 
 // Testar conexão
@@ -913,6 +929,23 @@ function mapearStatusPedido(statusPagBank) {
   if (statusPagBank === 'WAITING' || statusPagBank === 'IN_ANALYSIS') return 'pendente';
   if (statusPagBank === 'DECLINED' || statusPagBank === 'CANCELED') return 'cancelado';
   return 'pendente';
+}
+
+function normalizarParcelasCartao(valor) {
+  const parcelas = Number.parseInt(valor, 10);
+  if (!Number.isFinite(parcelas) || parcelas < 1) {
+    return 1;
+  }
+
+  return Math.min(12, parcelas);
+}
+
+function normalizarTipoCartao(valor) {
+  const tipo = String(valor || '').trim().toLowerCase();
+  if (['debito', 'debit', 'debit_card'].includes(tipo)) {
+    return 'debito';
+  }
+  return 'credito';
 }
 
 async function verificarCredencialPagBank() {
@@ -964,10 +997,21 @@ async function verificarCredencialPagBank() {
 
   // 2) Fallback: POST inválido, esperando 400 (token ok) ou 401 (token inválido)
   try {
+    const payloadDiagnostico = {
+      reference_id: `diag_auth_${Date.now()}`,
+      customer: {
+        name: 'Diagnostico Auth',
+        email: 'diagnostico@example.com',
+        tax_id: '12345678909'
+      },
+      // Mantem payload propositalmente invalido para nao criar pedido real.
+      items: []
+    };
+
     const respPost = await fetch(`${PAGBANK_API_URL}/orders`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({})
+      body: JSON.stringify(payloadDiagnostico)
     });
 
     const text = await respPost.text();
@@ -1119,6 +1163,104 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
   return resultado;
 }
 
+async function criarPagamentoCartao({
+  pedidoId,
+  total,
+  descricao,
+  email,
+  nome,
+  taxId,
+  tokenCartao,
+  parcelas,
+  tipoCartao
+}) {
+  if (!PAGBANK_TOKEN) {
+    throw new Error('PAGBANK_TOKEN ausente');
+  }
+
+  const taxIdDigits = (taxId || '').toString().replace(/\D/g, '');
+  if (![11, 14].includes(taxIdDigits.length)) {
+    throw new Error('CPF/CNPJ inválido para pagamento com cartão. Informe 11 ou 14 dígitos.');
+  }
+
+  const tokenNormalizado = String(tokenCartao || '').trim();
+  if (!tokenNormalizado) {
+    throw new Error('token_cartao é obrigatório para pagamento com cartão via API Order.');
+  }
+
+  const tipoCartaoNormalizado = normalizarTipoCartao(tipoCartao);
+  const paymentMethodType = tipoCartaoNormalizado === 'debito' ? 'DEBIT_CARD' : 'CREDIT_CARD';
+  const parcelasNormalizadas = normalizarParcelasCartao(parcelas);
+  const valorCentavos = Math.max(1, Math.round(Number(total || 0) * 100));
+
+  const paymentMethod = {
+    type: paymentMethodType,
+    capture: true,
+    card: {
+      encrypted: tokenNormalizado
+    },
+    holder: {
+      name: nome || 'Cliente',
+      tax_id: taxIdDigits,
+      email: email || 'cliente@example.com'
+    }
+  };
+
+  if (tipoCartaoNormalizado !== 'debito') {
+    paymentMethod.installments = parcelasNormalizadas;
+  }
+
+  const payload = {
+    reference_id: `pedido_${pedidoId}`,
+    customer: {
+      name: nome || 'Cliente',
+      email: email || 'cliente@example.com',
+      tax_id: taxIdDigits
+    },
+    items: [
+      {
+        name: descricao || `Pedido #${pedidoId}`,
+        quantity: 1,
+        unit_amount: valorCentavos
+      }
+    ],
+    charges: [
+      {
+        reference_id: `cobranca_${pedidoId}`,
+        description: descricao || `Pagamento pedido #${pedidoId}`,
+        amount: {
+          value: valorCentavos,
+          currency: 'BRL'
+        },
+        payment_method: paymentMethod
+      }
+    ],
+    notification_urls: [
+      montarWebhookPagBankUrl()
+    ]
+  };
+
+  const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+
+  const response = await fetch(`${PAGBANK_API_URL}/orders`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${PAGBANK_TOKEN}`,
+      'x-idempotency-key': idempotencyKey,
+      'accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Erro PagBank cartão: ${response.status} - ${errorText}`);
+  }
+
+  return await response.json();
+}
+
 async function enviarWhatsappTexto({ telefone, mensagem }) {
   if (!EVOLUTION_API_KEY) {
     console.warn('⚠️ Evolution API não configurada. WhatsApp desabilitado.');
@@ -1190,6 +1332,7 @@ const autenticarToken = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, (err, usuario) => {
     if (err) {
+      limparCookie(res, USER_AUTH_COOKIE_NAME, { httpOnly: true });
       return res.status(403).json({ erro: 'Token inválido' });
     }
     req.usuario = usuario;
@@ -1232,6 +1375,7 @@ const autenticarAdminToken = (req, res, next) => {
 
   jwt.verify(token, JWT_SECRET, (err, payload) => {
     if (err || !payload || payload.role !== 'admin') {
+      limparCookie(res, ADMIN_AUTH_COOKIE_NAME, { httpOnly: true });
       return res.status(403).json({ erro: 'Token admin inválido' });
     }
 
@@ -1650,14 +1794,14 @@ app.get('/api/produtos', async (req, res) => {
     const campos = [
       'id',
       'nome',
-      'descricao',
-      'marca',
+      colunas.has('descricao') ? 'descricao' : 'NULL AS descricao',
+      colunas.has('marca') ? 'marca' : 'NULL AS marca',
       'preco',
-      'unidade',
-      'categoria',
-      'emoji',
-      'estoque',
-      'validade'
+      colunas.has('unidade') ? 'unidade' : "'un' AS unidade",
+      colunas.has('categoria') ? 'categoria' : "'geral' AS categoria",
+      colunas.has('emoji') ? 'emoji' : "'📦' AS emoji",
+      colunas.has('estoque') ? 'estoque' : '0 AS estoque',
+      colunas.has('validade') ? 'validade' : 'NULL AS validade'
     ];
 
     if (colunas.has('codigo_barras')) {
@@ -1697,12 +1841,22 @@ app.get('/api/produtos', async (req, res) => {
 
     if (busca) {
       const termo = `%${escapeLike(busca)}%`;
-      filtros.push(`(
-        LOWER(nome) LIKE ? ESCAPE '\\\\'
-        OR LOWER(COALESCE(descricao, '')) LIKE ? ESCAPE '\\\\'
-        OR LOWER(COALESCE(marca, '')) LIKE ? ESCAPE '\\\\'
-      )`);
-      params.push(termo, termo, termo);
+      const filtrosBusca = [
+        `LOWER(nome) LIKE ? ESCAPE '\\\\'`
+      ];
+      params.push(termo);
+
+      if (colunas.has('descricao')) {
+        filtrosBusca.push(`LOWER(COALESCE(descricao, '')) LIKE ? ESCAPE '\\\\'`);
+        params.push(termo);
+      }
+
+      if (colunas.has('marca')) {
+        filtrosBusca.push(`LOWER(COALESCE(marca, '')) LIKE ? ESCAPE '\\\\'`);
+        params.push(termo);
+      }
+
+      filtros.push(`(${filtrosBusca.join(' OR ')})`);
     }
 
     const whereSql = filtros.length ? `WHERE ${filtros.join(' AND ')}` : '';
@@ -2041,6 +2195,112 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
   }
 });
 
+// Processar pagamento com cartão (PagBank API Orders) para um pedido existente
+app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
+  try {
+    const { pedido_id } = req.body || {};
+    const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
+    const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
+    const tokenCartao = String(req.body?.token_cartao || req.body?.cartao_encriptado || '').trim();
+    const tipoCartaoSolicitado = String(req.body?.tipo_cartao || req.body?.forma_pagamento || '').trim();
+    const parcelas = normalizarParcelasCartao(req.body?.parcelas);
+
+    if (!PAGBANK_TOKEN) {
+      return res.status(503).json({ erro: 'PagBank não configurado' });
+    }
+
+    if (!pedido_id) {
+      return res.status(400).json({ erro: 'pedido_id é obrigatório' });
+    }
+
+    if (![11, 14].includes(taxIdDigits.length)) {
+      return res.status(400).json({ erro: 'tax_id inválido. Informe CPF (11 dígitos) ou CNPJ (14 dígitos).' });
+    }
+
+    if (!tokenCartao) {
+      return res.status(400).json({ erro: 'token_cartao é obrigatório para pagamento com cartão.' });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT p.id, p.total, p.status, p.forma_pagamento, u.email, u.nome
+       FROM pedidos p
+       JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.id = ? AND p.usuario_id = ?
+       LIMIT 1`,
+      [pedido_id, req.usuario.id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ erro: 'Pedido não encontrado para este usuário' });
+    }
+
+    const pedido = rows[0];
+    const formaPagamentoPedido = String(pedido.forma_pagamento || '').toLowerCase();
+    const tipoEsperadoPedido = normalizarTipoCartao(formaPagamentoPedido);
+    const tipoCartao = tipoCartaoSolicitado
+      ? normalizarTipoCartao(tipoCartaoSolicitado)
+      : tipoEsperadoPedido;
+    if (!['cartao', 'credito', 'debito'].includes(formaPagamentoPedido)) {
+      return res.status(400).json({ erro: 'Este pedido não está configurado para pagamento com cartão (crédito/débito).' });
+    }
+
+    if (formaPagamentoPedido === 'debito' && tipoCartao !== 'debito') {
+      return res.status(400).json({ erro: 'Este pedido foi criado para débito. Use tipo_cartao=debito.' });
+    }
+
+    if (['cartao', 'credito'].includes(formaPagamentoPedido) && tipoCartao === 'debito') {
+      return res.status(400).json({ erro: 'Este pedido foi criado para crédito. Use tipo_cartao=credito.' });
+    }
+
+    const pagamento = await criarPagamentoCartao({
+      pedidoId: pedido.id,
+      total: pedido.total,
+      descricao: `Pedido #${pedido.id}`,
+      email: pedido.email,
+      nome: pedido.nome,
+      taxId: taxIdDigits,
+      tokenCartao,
+      parcelas,
+      tipoCartao
+    });
+
+    const chargePrincipal = pagamento?.charges?.[0] || {};
+    const paymentResponse = chargePrincipal?.payment_response || {};
+    const statusPagBank = String(
+      chargePrincipal?.status || pagamento?.status || 'WAITING'
+    ).toUpperCase();
+    const statusInterno = mapearStatusPedido(statusPagBank);
+    const pagbankOrderId = pagamento?.id || null;
+    const pagbankChargeId = chargePrincipal?.id || null;
+
+    try {
+      await pool.query(
+        `UPDATE pedidos
+         SET status = ?, pix_status = ?, pix_id = ?
+         WHERE id = ?`,
+        [statusInterno, statusPagBank, pagbankOrderId, pedido.id]
+      );
+    } catch (err) {
+      console.warn('Não foi possível salvar dados do pagamento cartão (faltam colunas?):', err.message);
+    }
+
+    return res.json({
+      payment_id: pagbankChargeId,
+      pagbank_order_id: pagbankOrderId,
+      status: statusPagBank,
+      status_interno: statusInterno,
+      tipo_cartao: tipoEsperadoPedido,
+      parcelas: tipoEsperadoPedido === 'debito' ? 1 : parcelas,
+      authorization_code: paymentResponse?.code || null,
+      message: paymentResponse?.message || null,
+      raw: pagamento
+    });
+  } catch (erro) {
+    console.error('Erro ao processar pagamento com cartão:', erro);
+    return res.status(500).json({ erro: erro?.message || 'Erro ao processar pagamento com cartão' });
+  }
+});
+
 // Simular frete por CEP
 app.get('/api/frete/simular', async (req, res) => {
   try {
@@ -2093,13 +2353,14 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
     const pagbankProducao = process.env.PAGBANK_ENV === 'production';
+    const usaPagbank = ['pix', 'cartao', 'credito', 'debito'].includes(formaPagamento);
 
-    if (formaPagamento === 'pix' && pagbankProducao && !PAGBANK_TOKEN) {
-      throw criarErroHttp(503, 'PagBank não configurado para PIX em produção.');
+    if (usaPagbank && pagbankProducao && !PAGBANK_TOKEN) {
+      throw criarErroHttp(503, 'PagBank não configurado para pagamentos em produção.');
     }
 
-    if (formaPagamento === 'pix' && pagbankProducao && ![11, 14].includes(taxIdDigits.length)) {
-      throw criarErroHttp(400, 'Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para gerar PIX.');
+    if (usaPagbank && pagbankProducao && ![11, 14].includes(taxIdDigits.length)) {
+      throw criarErroHttp(400, 'Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamentos via PagBank.');
     }
 
     const itensNormalizados = itens.map((item) => ({

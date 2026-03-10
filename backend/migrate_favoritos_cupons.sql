@@ -3,7 +3,7 @@
 -- Execute este script no HeidiSQL ou MySQL para atualizar o banco
 -- ============================================
 
-USE bom_filho_db;
+USE railway;
 
 -- TABELA DE CUPONS
 -- ============================================
@@ -53,3 +53,4 @@ INSERT INTO cupons (codigo, descricao, tipo, valor, valor_minimo, validade, ativ
 -- ============================================
 SELECT 'Tabelas criadas com sucesso!' as Mensagem;
 SELECT COUNT(*) as Total_Cupons FROM cupons;
+

@@ -25,7 +25,7 @@
     "express-rate-limit": "^8.3.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.6.5",
+    "mysql2": "^3.19.1",
     "node-fetch": "^2.7.0"
   },
   "devDependencies": {

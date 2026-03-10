@@ -152,7 +152,7 @@ Crie/configure um arquivo `.env` no backend com:
 DB_HOST=localhost
 DB_USER=root
 DB_PASSWORD=sua_senha
-DB_NAME=bom_filho_db
+DB_NAME=railway
 DB_PORT=3306
 PORT=3000
 JWT_SECRET=sua_chave_secreta
@@ -224,9 +224,11 @@ Com a build gerada, o backend serve o frontend React no mesmo host/porta da API.
 
 ### Pagamentos e webhooks
 
+- `GET /api/pagbank/public-key`
 - `GET /api/pagbank/status`
 - `POST /api/pagbank/test-pix`
 - `POST /api/pagamentos/pix`
+- `POST /api/pagamentos/cartao`
 - `POST /api/webhooks/pagbank`
 
 ## 🔒 Segurança

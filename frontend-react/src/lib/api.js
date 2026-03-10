@@ -202,7 +202,7 @@ async function request(path, options = {}, tentativa = 0) {
     if (response.status === 401 || response.status === 403) {
       if (isAdminPath) {
         clearAdminAccessToken();
-      } else if (String(path || '').startsWith('/api/auth/')) {
+      } else {
         clearUserAccessToken();
       }
     }
@@ -321,6 +321,35 @@ export function gerarPix(pedidoId, taxId) {
   }
 
   return request('/api/pagamentos/pix', {
+    method: 'POST',
+    body
+  });
+}
+
+export function getPagBankPublicKey() {
+  return request('/api/pagbank/public-key');
+}
+
+export function pagarCartao(pedidoId, { taxId, tokenCartao, parcelas = 1, tipoCartao = 'credito' } = {}) {
+  const taxIdDigits = String(taxId || '').replace(/\D/g, '');
+  const tokenNormalizado = String(tokenCartao || '').trim();
+  const parcelasNormalizadas = Number.parseInt(parcelas, 10);
+  const tipoCartaoNormalizado = String(tipoCartao || '').trim().toLowerCase();
+  const body = {
+    pedido_id: pedidoId,
+    parcelas: Number.isFinite(parcelasNormalizadas) ? parcelasNormalizadas : 1,
+    tipo_cartao: ['debito', 'debit', 'debit_card'].includes(tipoCartaoNormalizado) ? 'debito' : 'credito'
+  };
+
+  if (taxIdDigits) {
+    body.tax_id = taxIdDigits;
+  }
+
+  if (tokenNormalizado) {
+    body.token_cartao = tokenNormalizado;
+  }
+
+  return request('/api/pagamentos/cartao', {
     method: 'POST',
     body
   });

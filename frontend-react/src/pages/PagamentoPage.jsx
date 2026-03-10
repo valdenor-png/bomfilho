@@ -1,7 +1,8 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { criarPedido, gerarPix, getMe, getPedidos, isAuthErrorMessage, simularFretePorCep } from '../lib/api';
+import { criarPedido, gerarPix, getMe, getPagBankPublicKey, getPedidos, isAuthErrorMessage, pagarCartao, simularFretePorCep } from '../lib/api';
+import { criptografarCartaoPagBank } from '../lib/pagbank';
 import { useCart } from '../context/CartContext';
 
 const ETAPAS = {
@@ -74,6 +75,27 @@ function formatarDocumentoFiscal(valor) {
     .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
 }
 
+function normalizarNumeroCartao(valor) {
+  return String(valor || '').replace(/\D/g, '').slice(0, 19);
+}
+
+function formatarNumeroCartao(valor) {
+  const digits = normalizarNumeroCartao(valor);
+  return digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
+}
+
+function formatarMesCartao(valor) {
+  return String(valor || '').replace(/\D/g, '').slice(0, 2);
+}
+
+function formatarAnoCartao(valor) {
+  return String(valor || '').replace(/\D/g, '').slice(0, 4);
+}
+
+function formatarCvvCartao(valor) {
+  return String(valor || '').replace(/\D/g, '').slice(0, 4);
+}
+
 export default function PagamentoPage() {
   const { itens, resumo, updateItemQuantity, removeItem, clearCart } = useCart();
   const [resultadoPedido, setResultadoPedido] = useState(null);
@@ -91,6 +113,18 @@ export default function PagamentoPage() {
   const [simulandoFrete, setSimulandoFrete] = useState(false);
   const [erroEntrega, setErroEntrega] = useState('');
   const [documentoPagador, setDocumentoPagador] = useState('');
+  const [formaPagamento, setFormaPagamento] = useState('pix');
+  const [pagBankPublicKey, setPagBankPublicKey] = useState('');
+  const [buscandoChavePublica, setBuscandoChavePublica] = useState(false);
+  const [tokenCartao, setTokenCartao] = useState('');
+  const [criptografandoCartao, setCriptografandoCartao] = useState(false);
+  const [nomeTitularCartao, setNomeTitularCartao] = useState('');
+  const [numeroCartao, setNumeroCartao] = useState('');
+  const [mesExpiracaoCartao, setMesExpiracaoCartao] = useState('');
+  const [anoExpiracaoCartao, setAnoExpiracaoCartao] = useState('');
+  const [cvvCartao, setCvvCartao] = useState('');
+  const [parcelasCartao, setParcelasCartao] = useState('1');
+  const [resultadoCartao, setResultadoCartao] = useState(null);
 
   const itensPedido = useMemo(
     () =>
@@ -119,6 +153,12 @@ export default function PagamentoPage() {
   const numeroOrigemSelecionado = String(resultadoPedido?.numero_origem_entrega || simulacaoFrete?.numero_origem || NUMERO_MERCADO);
   const totalProdutosPedido = Number(resultadoPedido?.total_produtos ?? resumo.total ?? 0);
   const totalComEntregaPedido = Number(resultadoPedido?.total ?? Number((totalProdutosPedido + freteSelecionado).toFixed(2)));
+  const pagamentoCartaoSelecionado = formaPagamento === 'credito' || formaPagamento === 'debito';
+  const tituloFormaPagamento = formaPagamento === 'pix'
+    ? 'PIX'
+    : formaPagamento === 'debito'
+      ? 'Cartão de Débito'
+      : 'Cartão de Crédito';
 
   useEffect(() => {
     let ativo = true;
@@ -219,14 +259,93 @@ export default function PagamentoPage() {
     }
   }
 
+  function limparTokenCartaoGerado() {
+    setTokenCartao('');
+    setResultadoCartao(null);
+  }
+
+  async function carregarChavePublicaPagBank() {
+    if (pagBankPublicKey) {
+      return pagBankPublicKey;
+    }
+
+    setBuscandoChavePublica(true);
+    try {
+      const data = await getPagBankPublicKey();
+      const chave = String(data?.public_key || '').trim();
+      if (!chave) {
+        throw new Error('A API não retornou a chave pública do PagBank.');
+      }
+
+      setPagBankPublicKey(chave);
+      return chave;
+    } finally {
+      setBuscandoChavePublica(false);
+    }
+  }
+
+  async function handleCriptografarCartao() {
+    setErro('');
+
+    if (!pagamentoCartaoSelecionado) {
+      return '';
+    }
+
+    const holder = String(nomeTitularCartao || '').trim();
+    const number = normalizarNumeroCartao(numeroCartao);
+    const expMonth = formatarMesCartao(mesExpiracaoCartao);
+    const expYear = formatarAnoCartao(anoExpiracaoCartao);
+    const securityCode = formatarCvvCartao(cvvCartao);
+
+    if (holder.length < 3) {
+      throw new Error('Informe o nome completo do titular do cartão.');
+    }
+
+    if (number.length < 13) {
+      throw new Error('Número do cartão inválido.');
+    }
+
+    const mes = Number.parseInt(expMonth, 10);
+    if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
+      throw new Error('Mês de expiração inválido.');
+    }
+
+    if (expYear.length !== 4) {
+      throw new Error('Ano de expiração inválido.');
+    }
+
+    if (![3, 4].includes(securityCode.length)) {
+      throw new Error('CVV inválido.');
+    }
+
+    setCriptografandoCartao(true);
+    try {
+      const publicKey = await carregarChavePublicaPagBank();
+      const encryptedCard = await criptografarCartaoPagBank({
+        publicKey,
+        holder,
+        number,
+        expMonth,
+        expYear,
+        securityCode
+      });
+
+      setTokenCartao(encryptedCard);
+      return encryptedCard;
+    } finally {
+      setCriptografandoCartao(false);
+    }
+  }
+
   async function handleCriarPedido() {
     setResultadoPix(null);
+    setResultadoCartao(null);
     setResultadoPedido(null);
     setErro('');
 
     if (autenticado !== true) {
       setAutenticado(false);
-      setErro('Faça login na conta para concluir pedido e gerar PIX.');
+      setErro('Faça login na conta para concluir o pedido.');
       return;
     }
 
@@ -258,16 +377,26 @@ export default function PagamentoPage() {
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
-      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para gerar PIX.');
+      setErro(`Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartão'}.`);
       setEtapaAtual(ETAPAS.PAGAMENTO);
       return;
+    }
+
+    if (pagamentoCartaoSelecionado) {
+      try {
+        await carregarChavePublicaPagBank();
+      } catch (error) {
+        setErro(error.message || 'Não foi possível obter a chave pública do PagBank para cartão.');
+        setEtapaAtual(ETAPAS.PAGAMENTO);
+        return;
+      }
     }
 
     setCarregando(true);
     try {
       const data = await criarPedido({
         itens: itensPedido,
-        formaPagamento: 'pix',
+        formaPagamento,
         taxId: documentoDigits,
         entrega: {
           veiculo: veiculoEntrega,
@@ -279,11 +408,19 @@ export default function PagamentoPage() {
       });
 
       setResultadoPedido(data);
+      const formaRetornada = String(data?.forma_pagamento || formaPagamento || '').toLowerCase();
+      if (formaRetornada === 'debito') {
+        setFormaPagamento('debito');
+      } else if (['cartao', 'credito'].includes(formaRetornada)) {
+        setFormaPagamento('credito');
+      } else {
+        setFormaPagamento('pix');
+      }
       setStatusPedidoAtual('pendente');
       clearCart();
       setEtapaAtual(ETAPAS.PIX);
 
-      if (data?.pix_codigo) {
+      if (formaPagamento === 'pix' && data?.pix_codigo) {
         setResultadoPix({
           status: data.pix_erro ? 'fallback' : 'waiting',
           qr_data: data.pix_codigo,
@@ -300,7 +437,7 @@ export default function PagamentoPage() {
     }
   }
 
-  async function handleIrParaPix() {
+  async function handleIrParaPagamento() {
     if (resultadoPedido?.pedido_id) {
       setEtapaAtual(ETAPAS.PIX);
       return;
@@ -333,6 +470,54 @@ export default function PagamentoPage() {
     }
   }
 
+  async function handlePagarCartao(pedidoId) {
+    setResultadoCartao(null);
+    setErro('');
+
+    const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
+    const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
+    if (!documentoValido) {
+      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento com cartão.');
+      return;
+    }
+
+    let tokenNormalizado = String(tokenCartao || '').trim();
+    if (!tokenNormalizado) {
+      try {
+        tokenNormalizado = await handleCriptografarCartao();
+      } catch (error) {
+        setErro(error.message || 'Falha ao criptografar cartão no PagBank.');
+        return;
+      }
+    }
+
+    setCarregando(true);
+    try {
+      const data = await pagarCartao(pedidoId, {
+        taxId: documentoDigits,
+        tokenCartao: tokenNormalizado,
+        parcelas: formaPagamento === 'debito' ? 1 : parcelasCartao,
+        tipoCartao: formaPagamento
+      });
+
+      setResultadoCartao(data);
+
+      const statusPagBank = String(data?.status || '').toUpperCase();
+      const statusInterno = String(data?.status_interno || '').toLowerCase();
+      if (statusPagBank === 'PAID' || statusInterno === 'pago' || statusInterno === 'entregue') {
+        setStatusPedidoAtual(statusInterno || 'pago');
+        setPagamentoConfirmado(true);
+      }
+    } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAutenticado(false);
+      }
+      setErro(error.message);
+    } finally {
+      setCarregando(false);
+    }
+  }
+
   function getIndiceEtapa(etapa) {
     if (etapa === ETAPAS.CARRINHO) return 0;
     if (etapa === ETAPAS.ENTREGA) return 1;
@@ -343,6 +528,12 @@ export default function PagamentoPage() {
 
   const etapaIndex = getIndiceEtapa(etapaAtual);
   const labelStatus = statusPedidoAtual || resultadoPedido?.status || 'pendente';
+  const tituloEtapa4 = formaPagamento === 'pix' ? 'PIX' : tituloFormaPagamento;
+  const statusCartaoAtual = String(resultadoCartao?.status || '').toUpperCase();
+  const statusInternoCartaoAtual = String(resultadoCartao?.status_interno || '').toLowerCase();
+  const cartaoRecusado = statusCartaoAtual === 'DECLINED' || statusCartaoAtual === 'CANCELED';
+  const cartaoProcessado = Boolean(resultadoCartao) && !cartaoRecusado;
+  const cartaoAprovado = statusCartaoAtual === 'PAID' || statusInternoCartaoAtual === 'pago' || statusInternoCartaoAtual === 'entregue';
 
   if (verificandoSessao) {
     return (
@@ -356,11 +547,11 @@ export default function PagamentoPage() {
   return (
     <section className="page">
       <h1>Finalizar pedido</h1>
-      <p>Fluxo em etapas: carrinho, entrega por CEP, forma de pagamento, PIX e confirmação.</p>
+      <p>Fluxo em etapas: carrinho, entrega por CEP, forma de pagamento, processamento e confirmação.</p>
 
       {autenticado === false ? (
         <div className="card-box">
-          <p><strong>Faça login para concluir o pedido e gerar PIX.</strong></p>
+          <p><strong>Faça login para concluir o pedido e processar o pagamento.</strong></p>
           <p>Você pode revisar e editar o carrinho normalmente antes do login.</p>
           <Link to="/conta" className="btn-primary" style={{ display: 'inline-block', marginTop: '0.4rem' }}>
             Ir para Conta
@@ -369,7 +560,7 @@ export default function PagamentoPage() {
       ) : null}
 
       <div className="checkout-steps" aria-label="Etapas do checkout">
-        {['Carrinho', 'Entrega', 'Pagamento', 'PIX', 'Confirmação'].map((titulo, index) => (
+        {['Carrinho', 'Entrega', 'Pagamento', tituloEtapa4, 'Confirmação'].map((titulo, index) => (
           <div key={titulo} className={`checkout-step ${etapaIndex >= index ? 'active' : ''}`}>
             <span className="checkout-step-index">{index + 1}</span>
             <span className="checkout-step-label">{titulo}</span>
@@ -544,8 +735,73 @@ export default function PagamentoPage() {
           {autenticado === true ? (
             <>
               <div className="card-box" style={{ marginTop: '0.3rem' }}>
-                <p><strong>✅ PIX</strong> (única opção disponível)</p>
-                <p className="muted-text" style={{ marginTop: '0.2rem' }}>Pagamento instantâneo via QR Code ou copia e cola.</p>
+                <p><strong>Forma selecionada:</strong> {tituloFormaPagamento}</p>
+                <p className="muted-text" style={{ marginTop: '0.2rem' }}>
+                  PIX gera QR Code automaticamente. Cartões são criptografados no navegador via SDK PagBank e pagos pela API Orders.
+                </p>
+              </div>
+
+              <div className="entrega-veiculos-grid" role="radiogroup" aria-label="Seleção da forma de pagamento">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={formaPagamento === 'pix'}
+                  className={`entrega-veiculo-btn ${formaPagamento === 'pix' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFormaPagamento('pix');
+                    setErro('');
+                    limparTokenCartaoGerado();
+                  }}
+                >
+                  <span className="entrega-veiculo-head">
+                    <span className="entrega-veiculo-info">
+                      <span className="entrega-veiculo-nome">PIX</span>
+                      <span className="entrega-veiculo-consumo">QR Code e copia e cola</span>
+                    </span>
+                  </span>
+                  <span className="entrega-veiculo-meta">Aprovação rápida com webhook no PagBank</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={formaPagamento === 'credito'}
+                  className={`entrega-veiculo-btn ${formaPagamento === 'credito' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFormaPagamento('credito');
+                    setErro('');
+                    limparTokenCartaoGerado();
+                  }}
+                >
+                  <span className="entrega-veiculo-head">
+                    <span className="entrega-veiculo-info">
+                      <span className="entrega-veiculo-nome">Cartão de Crédito</span>
+                      <span className="entrega-veiculo-consumo">Cobrança via API Orders</span>
+                    </span>
+                  </span>
+                  <span className="entrega-veiculo-meta">Permite parcelamento (1x a 12x)</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={formaPagamento === 'debito'}
+                  className={`entrega-veiculo-btn ${formaPagamento === 'debito' ? 'active' : ''}`}
+                  onClick={() => {
+                    setFormaPagamento('debito');
+                    setParcelasCartao('1');
+                    setErro('');
+                    limparTokenCartaoGerado();
+                  }}
+                >
+                  <span className="entrega-veiculo-head">
+                    <span className="entrega-veiculo-info">
+                      <span className="entrega-veiculo-nome">Cartão de Débito</span>
+                      <span className="entrega-veiculo-consumo">Cobrança via API Orders</span>
+                    </span>
+                  </span>
+                  <span className="entrega-veiculo-meta">Pagamento à vista (1x)</span>
+                </button>
               </div>
 
               <label htmlFor="documento-pagador"><strong>CPF/CNPJ do pagador</strong></label>
@@ -563,21 +819,137 @@ export default function PagamentoPage() {
                 }}
               />
               <p className="muted-text" style={{ marginTop: '0.2rem' }}>
-                Obrigatório para emissão do PIX no PagBank em produção.
+                Obrigatório para pagamentos via PIX e cartão no PagBank.
               </p>
+
+              {pagamentoCartaoSelecionado ? (
+                <>
+                  <label htmlFor="nome-titular-cartao" style={{ marginTop: '0.6rem' }}><strong>Nome do titular</strong></label>
+                  <input
+                    id="nome-titular-cartao"
+                    className="field-input"
+                    type="text"
+                    autoComplete="off"
+                    placeholder="Nome igual ao cartão"
+                    value={nomeTitularCartao}
+                    onChange={(event) => {
+                      setNomeTitularCartao(event.target.value);
+                      limparTokenCartaoGerado();
+                    }}
+                  />
+
+                  <label htmlFor="numero-cartao" style={{ marginTop: '0.4rem' }}><strong>Número do cartão</strong></label>
+                  <input
+                    id="numero-cartao"
+                    className="field-input"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="cc-number"
+                    placeholder="0000 0000 0000 0000"
+                    value={numeroCartao}
+                    onChange={(event) => {
+                      setNumeroCartao(formatarNumeroCartao(event.target.value));
+                      limparTokenCartaoGerado();
+                    }}
+                  />
+
+                  <div className="entrega-cep-row" style={{ marginTop: '0.4rem' }}>
+                    <input
+                      className="field-input"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="cc-exp-month"
+                      placeholder="MM"
+                      maxLength={2}
+                      value={mesExpiracaoCartao}
+                      onChange={(event) => {
+                        setMesExpiracaoCartao(formatarMesCartao(event.target.value));
+                        limparTokenCartaoGerado();
+                      }}
+                    />
+                    <input
+                      className="field-input"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="cc-exp-year"
+                      placeholder="AAAA"
+                      maxLength={4}
+                      value={anoExpiracaoCartao}
+                      onChange={(event) => {
+                        setAnoExpiracaoCartao(formatarAnoCartao(event.target.value));
+                        limparTokenCartaoGerado();
+                      }}
+                    />
+                    <input
+                      className="field-input"
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="cc-csc"
+                      placeholder="CVV"
+                      maxLength={4}
+                      value={cvvCartao}
+                      onChange={(event) => {
+                        setCvvCartao(formatarCvvCartao(event.target.value));
+                        limparTokenCartaoGerado();
+                      }}
+                    />
+                  </div>
+
+                  {formaPagamento === 'credito' ? (
+                    <>
+                      <label htmlFor="parcelas-cartao" style={{ marginTop: '0.4rem' }}><strong>Parcelas</strong></label>
+                      <select
+                        id="parcelas-cartao"
+                        className="field-input"
+                        value={parcelasCartao}
+                        onChange={(event) => setParcelasCartao(event.target.value)}
+                      >
+                        {Array.from({ length: 12 }, (_, idx) => idx + 1).map((parcela) => (
+                          <option key={parcela} value={String(parcela)}>
+                            {parcela}x
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  ) : (
+                    <p className="muted-text" style={{ marginTop: '0.3rem' }}>
+                      Débito processa somente em 1x.
+                    </p>
+                  )}
+
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    disabled={criptografandoCartao || buscandoChavePublica}
+                    onClick={() => {
+                      void handleCriptografarCartao().catch((error) => {
+                        setErro(error.message || 'Falha ao criptografar cartão com PagBank.');
+                      });
+                    }}
+                  >
+                    {criptografandoCartao ? 'Criptografando cartão...' : 'Criptografar cartão (PagBank SDK)'}
+                  </button>
+
+                  <p className="muted-text" style={{ marginTop: '0.2rem' }}>
+                    {tokenCartao
+                      ? 'Cartão criptografado com sucesso.'
+                      : 'Os dados são criptografados no navegador antes do envio ao backend.'}
+                  </p>
+                </>
+              ) : null}
 
               <button
                 className="btn-primary"
                 type="button"
-                onClick={handleIrParaPix}
-                disabled={carregando || simulandoFrete || (itens.length === 0 && !resultadoPedido?.pedido_id) || (!resultadoPedido?.pedido_id && !simulacaoFrete)}
+                onClick={handleIrParaPagamento}
+                disabled={carregando || simulandoFrete || buscandoChavePublica || (itens.length === 0 && !resultadoPedido?.pedido_id) || (!resultadoPedido?.pedido_id && !simulacaoFrete)}
               >
-                {carregando ? 'Preparando pagamento...' : 'Continuar com PIX'}
+                {carregando ? 'Preparando pagamento...' : formaPagamento === 'pix' ? 'Continuar com PIX' : `Continuar com ${tituloFormaPagamento}`}
               </button>
             </>
           ) : (
             <>
-              <p className="muted-text">Entre na sua conta para continuar para o PIX.</p>
+              <p className="muted-text">Entre na sua conta para continuar para o pagamento.</p>
               <Link to="/conta" className="btn-primary" style={{ display: 'inline-block' }}>
                 Ir para Conta
               </Link>
@@ -591,7 +963,7 @@ export default function PagamentoPage() {
 
       {etapaAtual === ETAPAS.PIX ? (
         <div className="card-box">
-          <p><strong>Etapa 4: Fazer pagamento PIX</strong></p>
+          <p><strong>Etapa 4: {formaPagamento === 'pix' ? 'Fazer pagamento PIX' : `Processar pagamento com ${tituloFormaPagamento.toLowerCase()}`}</strong></p>
           {resultadoPedido ? (
             <>
               <p>Pedido #{resultadoPedido.pedido_id} criado.</p>
@@ -605,43 +977,79 @@ export default function PagamentoPage() {
             </>
           ) : null}
 
-          <button
-            className="btn-secondary"
-            type="button"
-            disabled={carregando || !resultadoPedido?.pedido_id}
-            onClick={() => handleGerarPix(resultadoPedido.pedido_id)}
-          >
-            {carregando ? 'Gerando PIX...' : 'Gerar/Atualizar QR Code PIX'}
-          </button>
-
-          {resultadoPix ? (
+          {formaPagamento === 'pix' ? (
             <>
-              <p>Status do PIX: {resultadoPix.status || '-'}</p>
-              {resultadoPix.qr_data ? (
-                <textarea
-                  className="field-input"
-                  rows={4}
-                  readOnly
-                  value={resultadoPix.qr_data}
-                />
-              ) : null}
-              {resultadoPix.qr_code_base64 ? (
-                <img
-                  className="pix-image"
-                  src={`data:image/png;base64,${resultadoPix.qr_code_base64}`}
-                  alt="QR Code PIX"
-                />
-              ) : null}
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={carregando || !resultadoPedido?.pedido_id}
+                onClick={() => handleGerarPix(resultadoPedido.pedido_id)}
+              >
+                {carregando ? 'Gerando PIX...' : 'Gerar/Atualizar QR Code PIX'}
+              </button>
+
+              {resultadoPix ? (
+                <>
+                  <p>Status do PIX: {resultadoPix.status || '-'}</p>
+                  {resultadoPix.qr_data ? (
+                    <textarea
+                      className="field-input"
+                      rows={4}
+                      readOnly
+                      value={resultadoPix.qr_data}
+                    />
+                  ) : null}
+                  {resultadoPix.qr_code_base64 ? (
+                    <img
+                      className="pix-image"
+                      src={`data:image/png;base64,${resultadoPix.qr_code_base64}`}
+                      alt="QR Code PIX"
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <p className="muted-text">Clique em gerar PIX para exibir QR Code e código copia e cola.</p>
+              )}
             </>
           ) : (
-            <p className="muted-text">Clique em gerar PIX para exibir QR Code e código copia e cola.</p>
+            <>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id}
+                onClick={() => handlePagarCartao(resultadoPedido.pedido_id)}
+              >
+                {carregando ? `Processando ${tituloFormaPagamento.toLowerCase()}...` : `Pagar com ${tituloFormaPagamento} (API Order)`}
+              </button>
+
+              {resultadoCartao ? (
+                <>
+                  <p>Status do pagamento: {resultadoCartao.status || '-'}</p>
+                  <p>Status interno: {resultadoCartao.status_interno || '-'}</p>
+                  <p>Order PagBank: {resultadoCartao.pagbank_order_id || '-'}</p>
+                  <p>Charge/Pagamento: {resultadoCartao.payment_id || '-'}</p>
+                  <p>Método: {resultadoCartao.tipo_cartao === 'debito' ? 'Cartão de Débito' : 'Cartão de Crédito'}</p>
+                  <p>Parcelas: {resultadoCartao.tipo_cartao === 'debito' ? '1x' : `${resultadoCartao.parcelas || parcelasCartao}x`}</p>
+                  {cartaoRecusado ? (
+                    <p className="error-text">Pagamento recusado. Revise token/cartão e tente novamente.</p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="muted-text">Clique no botão para processar o cartão pela API Orders do PagBank.</p>
+              )}
+            </>
           )}
 
-          <button className="btn-primary" type="button" onClick={() => {
-            setPagamentoConfirmado(true);
-            setEtapaAtual(ETAPAS.STATUS);
-          }}>
-            Confirmar pagamento
+          <button
+            className="btn-primary"
+            type="button"
+            disabled={pagamentoCartaoSelecionado && !cartaoProcessado}
+            onClick={() => {
+              setPagamentoConfirmado(formaPagamento === 'pix' ? true : cartaoAprovado);
+              setEtapaAtual(ETAPAS.STATUS);
+            }}
+          >
+            {formaPagamento === 'pix' ? 'Confirmar pagamento' : 'Ir para confirmação'}
           </button>
           <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}>
             Voltar
@@ -673,12 +1081,16 @@ export default function PagamentoPage() {
 
           <div className="card-box" style={{ marginTop: '0.4rem' }}>
             <p><strong>Ajuda rápida</strong></p>
-            <p>Se o QR não abrir no banco, copie o código PIX e cole no app manualmente.</p>
+            <p>
+              {formaPagamento === 'pix'
+                ? 'Se o QR não abrir no banco, copie o código PIX e cole no app manualmente.'
+                : 'Se o pagamento com cartão falhar, gere um novo token/cartão criptografado e tente novamente.'}
+            </p>
             <p>Após o pagamento, a loja confirma e inicia a preparação/envio do pedido.</p>
           </div>
 
           <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.PIX)}>
-            Voltar para PIX
+            Voltar para {tituloEtapa4}
           </button>
         </div>
       ) : null}

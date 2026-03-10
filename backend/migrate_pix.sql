@@ -2,7 +2,7 @@
 -- Observação: MySQL NÃO suporta `ADD COLUMN IF NOT EXISTS`.
 -- Este script é idempotente: roda mais de uma vez sem quebrar.
 
-USE bom_filho_db;
+USE railway;
 
 SET @db := DATABASE();
 
@@ -89,3 +89,4 @@ SET @sql := (
   WHERE TABLE_SCHEMA = @db AND TABLE_NAME = 'pedidos' AND COLUMN_NAME = 'pix_qrcode'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+

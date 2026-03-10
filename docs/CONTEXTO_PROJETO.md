@@ -100,7 +100,7 @@ async function nomeDaFuncao() {
 DB_HOST=localhost
 DB_USER=root
 DB_PASSWORD=sua_senha
-DB_NAME=bom_filho_db
+DB_NAME=railway
 
 # Autenticação
 JWT_SECRET=chave_super_secreta
@@ -284,7 +284,7 @@ git pull               # Baixar do GitHub
 mysql -u root -p       # Entrar no MySQL
 source database.sql    # Executar script SQL
 SHOW DATABASES;        # Listar bancos
-USE bom_filho_db;      # Selecionar banco
+USE railway;           # Selecionar banco
 SHOW TABLES;           # Listar tabelas
 ```
 

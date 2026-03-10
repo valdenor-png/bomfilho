@@ -3,9 +3,9 @@
 -- ============================================
 
 -- Remover banco existente e criar novo
-DROP DATABASE IF EXISTS bom_filho_db;
-CREATE DATABASE bom_filho_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE bom_filho_db;
+DROP DATABASE IF EXISTS railway;
+CREATE DATABASE railway CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE railway;
 
 -- ============================================
 -- TABELA DE USUÁRIOS
@@ -212,3 +212,4 @@ INSERT INTO cupons (codigo, descricao, tipo, valor, valor_minimo, validade, ativ
 SELECT 'Banco de dados criado com sucesso!' as Mensagem;
 SELECT COUNT(*) as Total_Produtos FROM produtos;
 SELECT COUNT(*) as Total_Cupons FROM cupons;
+

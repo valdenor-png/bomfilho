@@ -8,7 +8,7 @@
 -- 1. Adicionar novas colunas à tabela produtos (verifica se já existem)
 -- Ignorar erros se as colunas já existirem
 SET @exist := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
-               WHERE TABLE_SCHEMA = 'bom_filho_db' 
+               WHERE TABLE_SCHEMA = 'railway' 
                AND TABLE_NAME = 'produtos' 
                AND COLUMN_NAME = 'descricao');
 SET @sql := IF(@exist = 0, 'ALTER TABLE produtos ADD COLUMN descricao TEXT AFTER nome', 'SELECT "Coluna descricao já existe"');
@@ -16,7 +16,7 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 
 SET @exist := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
-               WHERE TABLE_SCHEMA = 'bom_filho_db' 
+               WHERE TABLE_SCHEMA = 'railway' 
                AND TABLE_NAME = 'produtos' 
                AND COLUMN_NAME = 'marca');
 SET @sql := IF(@exist = 0, 'ALTER TABLE produtos ADD COLUMN marca VARCHAR(100) AFTER descricao', 'SELECT "Coluna marca já existe"');
@@ -24,7 +24,7 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 
 SET @exist := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
-               WHERE TABLE_SCHEMA = 'bom_filho_db' 
+               WHERE TABLE_SCHEMA = 'railway' 
                AND TABLE_NAME = 'produtos' 
                AND COLUMN_NAME = 'estoque');
 SET @sql := IF(@exist = 0, 'ALTER TABLE produtos ADD COLUMN estoque INT DEFAULT 100 AFTER categoria', 'SELECT "Coluna estoque já existe"');
@@ -32,7 +32,7 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 
 SET @exist := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
-               WHERE TABLE_SCHEMA = 'bom_filho_db' 
+               WHERE TABLE_SCHEMA = 'railway' 
                AND TABLE_NAME = 'produtos' 
                AND COLUMN_NAME = 'validade');
 SET @sql := IF(@exist = 0, 'ALTER TABLE produtos ADD COLUMN validade DATE AFTER estoque', 'SELECT "Coluna validade já existe"');
@@ -170,8 +170,9 @@ WHERE nome = 'Sabão em Pó';
 -- ===================================================================
 -- Executar este script no HeidiSQL:
 -- 1. Abra o HeidiSQL
--- 2. Conecte ao banco bom_filho_db
+-- 2. Conecte ao banco railway
 -- 3. Vá em Arquivo > Executar arquivo SQL
 -- 4. Selecione este arquivo (migrate_produtos_detalhes.sql)
 -- 5. Clique em Executar
 -- ===================================================================
+

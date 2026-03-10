@@ -40,7 +40,7 @@ copy .env.example .env
 DB_HOST=localhost
 DB_USER=root
 DB_PASSWORD=sua_senha_mysql
-DB_NAME=bom_filho_db
+DB_NAME=railway
 DB_PORT=3306
 
 PORT=3000
@@ -70,9 +70,10 @@ RECAPTCHA_MIN_SCORE=0.5
 # Proteção opcional para rotas de diagnóstico
 DIAGNOSTIC_TOKEN=
 
-# PagBank (PIX)
+# PagBank (PIX + Cartao)
 PAGBANK_ENV=sandbox
 PAGBANK_TOKEN=SEU_TOKEN_PAGBANK
+PAGBANK_PUBLIC_KEY=SUA_CHAVE_PUBLICA_PAGBANK
 
 # Proteção do webhook PagBank
 PAGBANK_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
@@ -103,6 +104,7 @@ Para isso funcionar em ambiente local, o webhook precisa ser acessível publicam
 
 - `PAGBANK_TOKEN`: token do Portal PagBank
 - `PAGBANK_ENV`: `sandbox` (teste) ou `production`
+- `PAGBANK_PUBLIC_KEY`: chave pública usada para criptografar cartão no frontend
 - `BASE_URL`: URL pública do seu backend (ex.: ngrok/Cloudflare Tunnel)
 
 ### 2) Rodar migração do PIX no MySQL
@@ -128,6 +130,14 @@ GET /api/pagbank/status
 ```
 
 Ele retorna `auth_check` com `ok=true/false` e também mostra qual `webhook_url` está sendo usado.
+
+### 3.2) (Opcional) Expor chave publica para checkout com cartao
+
+```http
+GET /api/pagbank/public-key
+```
+
+Retorna a chave pública (`public_key`) e URL do SDK para criptografia do cartão via `PagSeguro.encryptCard`.
 
 ## 💬 Auto-resposta no WhatsApp (Evolution)
 
@@ -288,6 +298,44 @@ GET /api/pedidos
 GET /api/pedidos/1
 ```
 
+### Pagamentos
+
+#### Gerar/atualizar PIX
+```http
+POST /api/pagamentos/pix
+x-csrf-token: TOKEN_CSRF
+Content-Type: application/json
+
+{
+  "pedido_id": 123,
+  "tax_id": "12345678909"
+}
+```
+
+#### Pagar com cartão (API Orders)
+```http
+POST /api/pagamentos/cartao
+x-csrf-token: TOKEN_CSRF
+Content-Type: application/json
+
+{
+  "pedido_id": 123,
+  "tax_id": "12345678909",
+  "token_cartao": "TOKEN_OU_CARTAO_CRIPTOGRAFADO_PAGBANK",
+  "tipo_cartao": "credito",
+  "parcelas": 1
+}
+```
+
+`tipo_cartao` aceito: `credito` ou `debito`.
+
+Para `debito`, envie `parcelas=1`.
+
+#### Webhook PagBank
+```http
+POST /api/webhooks/pagbank
+```
+
 ## 🔒 Segurança
 
 - Senhas criptografadas com bcryptjs
@@ -339,3 +387,4 @@ GET /api/pedidos/1
 ## 📧 Suporte
 
 Para dúvidas ou problemas, consulte a documentação ou entre em contato.
+
