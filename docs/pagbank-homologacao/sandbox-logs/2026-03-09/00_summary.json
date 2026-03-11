@@ -1,0 +1,11 @@
+﻿{
+    "generated_at": "2026-03-09T19:30:04",
+    "environment": "sandbox",
+    "pagbank_api": "https://sandbox.api.pagseguro.com",
+    "proof_request_file": "05_pagbank_sandbox_post_orders_modelo.request.json",
+    "proof_response_file": "05_pagbank_sandbox_post_orders_modelo.response.json",
+    "post_orders_status": 201,
+    "post_orders_ok": true,
+    "order_id": "ORDE_FF00D645-98F9-4227-8A2F-7D742F15A214",
+    "reference_id": "pedido-modelo-1773095403"
+}

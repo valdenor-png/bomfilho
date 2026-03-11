@@ -1,0 +1,755 @@
+2026-03-11T12:58:07.995Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773233887994",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T12:58:18.637Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T12:58:29.608Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "pedido-homologacao-1773233909607",
+  "customer": {
+    "name": "Cliente Teste",
+    "email": "teste@teste.com",
+    "tax_id": "12345678909"
+  },
+  "items": [
+    {
+      "reference_id": "produto-1",
+      "name": "Produto Teste",
+      "quantity": 1,
+      "unit_amount": 500
+    }
+  ]
+}
+
+2026-03-11T12:58:53.559Z
+PAGBANK RESPONSE
+STATUS: 201
+BODY:
+{
+  "id": "ORDE_3CF1AE83-1673-45EF-A390-453D7919CE79",
+  "reference_id": "pedido-homologacao-1773233909607",
+  "created_at": "2026-03-11T09:58:47.625-03:00",
+  "customer": {
+    "name": "Cliente Teste",
+    "email": "teste@teste.com",
+    "tax_id": "12345678909"
+  },
+  "items": [
+    {
+      "reference_id": "produto-1",
+      "name": "Produto Teste",
+      "quantity": 1,
+      "unit_amount": 500
+    }
+  ],
+  "notification_urls": [],
+  "links": [
+    {
+      "rel": "SELF",
+      "href": "https://sandbox.api.pagseguro.com/orders/ORDE_3CF1AE83-1673-45EF-A390-453D7919CE79",
+      "media": "application/json",
+      "type": "GET"
+    },
+    {
+      "rel": "PAY",
+      "href": "https://sandbox.api.pagseguro.com/orders/ORDE_3CF1AE83-1673-45EF-A390-453D7919CE79/pay",
+      "media": "application/json",
+      "type": "POST"
+    }
+  ]
+}
+
+2026-03-11T13:02:41.166Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "pedido-homologacao-1773234161164",
+  "customer": {
+    "name": "Cliente Teste",
+    "email": "teste@teste.com",
+    "tax_id": "12345678909"
+  },
+  "items": [
+    {
+      "reference_id": "produto-1",
+      "name": "Produto Teste",
+      "quantity": 1,
+      "unit_amount": 500
+    }
+  ]
+}
+
+2026-03-11T13:02:44.645Z
+PAGBANK RESPONSE
+STATUS: 201
+BODY:
+{
+  "id": "ORDE_E69369AE-0FA6-4A24-AE9D-1C55625EFA84",
+  "reference_id": "pedido-homologacao-1773234161164",
+  "created_at": "2026-03-11T10:02:42.662-03:00",
+  "customer": {
+    "name": "Cliente Teste",
+    "email": "teste@teste.com",
+    "tax_id": "12345678909"
+  },
+  "items": [
+    {
+      "reference_id": "produto-1",
+      "name": "Produto Teste",
+      "quantity": 1,
+      "unit_amount": 500
+    }
+  ],
+  "notification_urls": [],
+  "links": [
+    {
+      "rel": "SELF",
+      "href": "https://sandbox.api.pagseguro.com/orders/ORDE_E69369AE-0FA6-4A24-AE9D-1C55625EFA84",
+      "media": "application/json",
+      "type": "GET"
+    },
+    {
+      "rel": "PAY",
+      "href": "https://sandbox.api.pagseguro.com/orders/ORDE_E69369AE-0FA6-4A24-AE9D-1C55625EFA84/pay",
+      "media": "application/json",
+      "type": "POST"
+    }
+  ]
+}
+
+2026-03-11T13:14:33.011Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773234873010",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:14:33.617Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:15:31.614Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773234931613",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:15:32.066Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:20:27.199Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235227197",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:20:27.801Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:20:32.733Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235232731",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:20:33.160Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:20:41.024Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235241022",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:20:41.568Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:21:27.378Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235287377",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:21:27.825Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:21:30.925Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235290924",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:21:31.478Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:26:48.545Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235608540",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:26:49.066Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:27:00.309Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235620308",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:27:00.828Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:27:10.903Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235630902",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:27:11.828Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:27:21.687Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235641686",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:27:22.208Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:27:40.254Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235660253",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:27:40.791Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:27:47.613Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235667612",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:27:48.147Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:27:56.498Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235676497",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:27:57.076Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:29:28.356Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235768355",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:29:28.909Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:31:45.142Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235905140",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:31:45.890Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:32:32.089Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773235952088",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:32:32.602Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+
+2026-03-11T13:33:46.430Z
+PAGBANK REQUEST
+URL: https://sandbox.api.pagseguro.com/orders
+METHOD: POST
+HEADERS:
+{
+  "Content-Type": "application/json"
+}
+BODY:
+{
+  "reference_id": "diag_auth_1773236026428",
+  "customer": {
+    "name": "Diagnostico Auth",
+    "email": "diagnostico@example.com",
+    "tax_id": "12345678909"
+  },
+  "items": []
+}
+
+2026-03-11T13:33:46.870Z
+PAGBANK RESPONSE
+STATUS: 400
+BODY:
+{
+  "error_messages": [
+    {
+      "code": "40002",
+      "description": "must have at least 1 element",
+      "parameter_name": "items"
+    }
+  ]
+}
+

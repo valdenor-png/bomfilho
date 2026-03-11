@@ -4,6 +4,8 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
+const compression = require('compression');
+const timeout = require('connect-timeout');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -15,6 +17,7 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.set('json spaces', 0);
 const SERVICE_NAME = String(process.env.SERVICE_NAME || 'bom-filho-backend').trim() || 'bom-filho-backend';
 const API_VERSION = String(process.env.API_VERSION || '1.0.0').trim() || '1.0.0';
 const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
@@ -54,7 +57,27 @@ const RECAPTCHA_MIN_SCORE = (() => {
 })();
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '');
-const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
+const TRUST_PROXY_RAW = String(process.env.TRUST_PROXY || '').trim().toLowerCase();
+const TRUST_PROXY = (() => {
+  if (['true', '1', 'yes'].includes(TRUST_PROXY_RAW)) {
+    return 1;
+  }
+
+  if (!TRUST_PROXY_RAW || ['false', '0', 'no'].includes(TRUST_PROXY_RAW)) {
+    return false;
+  }
+
+  const proxyHops = Number.parseInt(TRUST_PROXY_RAW, 10);
+  if (Number.isInteger(proxyHops) && proxyHops > 0) {
+    return proxyHops;
+  }
+
+  if (['loopback', 'linklocal', 'uniquelocal'].includes(TRUST_PROXY_RAW)) {
+    return TRUST_PROXY_RAW;
+  }
+
+  return false;
+})();
 const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
 const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
   .split(',')
@@ -81,8 +104,10 @@ const LIMITE_BIKE_KM = (() => {
 })();
 const CEP_GEO_TTL_MS = 24 * 60 * 60 * 1000;
 const cepGeoCache = new Map();
-const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 20000);
+const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 30000);
 const produtosQueryCache = new Map();
+const READ_QUERY_CACHE_TTL_MS = 30 * 1000;
+const readQueryCache = new Map();
 
 const VEICULOS_ENTREGA = {
   bike: {
@@ -567,8 +592,43 @@ function montarPaginacao(total, pagina, limite) {
   };
 }
 
+function montarChaveCacheLeitura(prefixo, payload = {}) {
+  return `${prefixo}:${JSON.stringify(payload)}`;
+}
+
+function obterCacheLeitura(chave) {
+  const cached = readQueryCache.get(chave);
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.cachedAt > READ_QUERY_CACHE_TTL_MS) {
+    readQueryCache.delete(chave);
+    return null;
+  }
+
+  return cached.payload;
+}
+
+function salvarCacheLeitura(chave, payload) {
+  readQueryCache.set(chave, {
+    cachedAt: Date.now(),
+    payload
+  });
+}
+
+function limparCacheLeituraPorPrefixo(prefixo) {
+  for (const chave of readQueryCache.keys()) {
+    if (chave.startsWith(prefixo)) {
+      readQueryCache.delete(chave);
+    }
+  }
+}
+
 function limparCacheProdutos() {
   produtosQueryCache.clear();
+  limparCacheLeituraPorPrefixo('produtos:');
+  limparCacheLeituraPorPrefixo('categorias:');
 }
 
 function montarChaveCacheProdutos({ pagina, limite, busca, categoria, ordenacao }) {
@@ -697,14 +757,37 @@ if (PAGBANK_TOKEN) {
 // ============================================
 app.disable('x-powered-by');
 
-if (TRUST_PROXY) {
-  app.set('trust proxy', 1);
+if (TRUST_PROXY !== false) {
+  app.set('trust proxy', TRUST_PROXY);
 }
+
+function haltOnTimedout(req, res, next) {
+  if (!req.timedout) {
+    next();
+  }
+}
+
+const rateLimitIpKeyGenerator = typeof rateLimit.ipKeyGenerator === 'function'
+  ? rateLimit.ipKeyGenerator
+  : (ip) => ip || 'unknown';
+
+function getRateLimitKey(req) {
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  return rateLimitIpKeyGenerator(ip) || 'unknown';
+}
+
+const rateLimitValidateOptions = TRUST_PROXY !== false
+  ? undefined
+  : { xForwardedForHeader: false };
+
+app.use(timeout('10s'));
+app.use(haltOnTimedout);
 
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
 }));
+app.use(haltOnTimedout);
 
 app.use(cors({
   origin(origin, callback) {
@@ -718,25 +801,67 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'x-diagnostic-token', 'x-webhook-token', 'x-csrf-token', 'ngrok-skip-browser-warning'],
   maxAge: 600
 }));
+app.use(haltOnTimedout);
+
+app.use(compression());
+app.use(haltOnTimedout);
 
 app.use(bodyParser.json({ limit: '200kb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '200kb' }));
 app.use(cookieParser());
+app.use(haltOnTimedout);
 
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 600,
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 400,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: getRateLimitKey,
+  validate: rateLimitValidateOptions,
+  // Limiter leve para API, ignorando rotas críticas/integracoes externas.
+  skip: (req) => {
+    const pathAtual = req.path || '';
+
+    if (!pathAtual.startsWith('/api/')) return true;
+    if (pathAtual.startsWith('/api/pagbank/')) return true;
+    if (pathAtual.startsWith('/api/webhook/')) return true;
+    if (pathAtual.startsWith('/api/webhooks/')) return true;
+    if (pathAtual.startsWith('/api/admin/')) return true;
+
+    return false;
+  },
+  message: { erro: 'Muitas requisições em sequência. Tente novamente em instantes.' }
+});
+
+const publicLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: getRateLimitKey,
+  validate: rateLimitValidateOptions,
   message: { erro: 'Muitas requisições. Tente novamente em alguns minutos.' }
 });
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { erro: 'Muitas tentativas de autenticação. Aguarde 15 minutos.' }
+  keyGenerator: getRateLimitKey,
+  validate: rateLimitValidateOptions,
+  message: { erro: 'Muitas tentativas de cadastro/autenticação. Aguarde 15 minutos.' }
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: getRateLimitKey,
+  validate: rateLimitValidateOptions,
+  skipSuccessfulRequests: true,
+  message: { erro: 'Muitas tentativas de login. Aguarde 15 minutos.' }
 });
 
 const adminAuthLimiter = rateLimit({
@@ -744,10 +869,17 @@ const adminAuthLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: getRateLimitKey,
+  validate: rateLimitValidateOptions,
+  skipSuccessfulRequests: true,
   message: { erro: 'Muitas tentativas de login admin. Aguarde 15 minutos.' }
 });
 
-app.use('/api', apiLimiter);
+app.use(globalLimiter);
+
+// Limiter para rotas públicas de maior tráfego.
+app.use('/api/produtos', publicLimiter);
+app.use('/api/pedidos', publicLimiter);
 
 const csrfIgnoredPaths = new Set([
   '/api/auth/login',
@@ -981,12 +1113,133 @@ console.log('🧭 MySQL config:', {
   source: 'DATABASE_URL'
 });
 
+const QUERY_RETRY_ATTEMPTS = 3;
+const QUERY_RETRY_DELAY_MS = 1000;
+const MYSQL_RETRYABLE_CODES = new Set([
+  'PROTOCOL_CONNECTION_LOST',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'ER_CON_COUNT_ERROR',
+  'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
+  'PROTOCOL_ENQUEUE_AFTER_QUIT'
+]);
+
+const aguardar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isErroConexaoMySql(error) {
+  if (!error) return false;
+
+  if (MYSQL_RETRYABLE_CODES.has(error.code)) {
+    return true;
+  }
+
+  const mensagem = String(error.message || '').toLowerCase();
+  return mensagem.includes('connection') || mensagem.includes('socket') || mensagem.includes('timeout');
+}
+
+async function queryWithRetry(sql, params = []) {
+  let lastError = null;
+
+  for (let tentativa = 1; tentativa <= QUERY_RETRY_ATTEMPTS; tentativa++) {
+    try {
+      return await pool.query(sql, params);
+    } catch (error) {
+      lastError = error;
+      const podeTentarNovamente = tentativa < QUERY_RETRY_ATTEMPTS && isErroConexaoMySql(error);
+
+      if (!podeTentarNovamente) {
+        throw error;
+      }
+
+      console.warn(`⚠️ Falha de conexão MySQL (tentativa ${tentativa}/${QUERY_RETRY_ATTEMPTS}). Repetindo em ${QUERY_RETRY_DELAY_MS}ms...`);
+      await aguardar(QUERY_RETRY_DELAY_MS);
+    }
+  }
+
+  throw lastError || new Error('Falha ao executar consulta MySQL com retry.');
+}
+
+async function preloadData() {
+  try {
+    const colunas = await obterColunasProdutos();
+    const campos = [
+      'id',
+      'nome',
+      colunas.has('descricao') ? 'descricao' : 'NULL AS descricao',
+      colunas.has('marca') ? 'marca' : 'NULL AS marca',
+      'preco',
+      colunas.has('unidade') ? 'unidade' : "'un' AS unidade",
+      colunas.has('categoria') ? 'categoria' : "'geral' AS categoria",
+      colunas.has('emoji') ? 'emoji' : "'📦' AS emoji",
+      colunas.has('estoque') ? 'estoque' : '0 AS estoque',
+      colunas.has('validade') ? 'validade' : 'NULL AS validade'
+    ];
+
+    if (colunas.has('codigo_barras')) {
+      campos.push('codigo_barras');
+    }
+
+    if (colunas.has('imagem_url')) {
+      campos.push('imagem_url AS imagem');
+    }
+
+    const [produtos] = await queryWithRetry(
+      `SELECT ${campos.join(', ')} FROM produtos WHERE ativo = TRUE ORDER BY categoria ASC, nome ASC`
+    );
+    const chaveProdutos = montarChaveCacheLeitura('produtos:lista', {
+      busca: '',
+      categoria: '',
+      ordenacao: 'categoria ASC, nome ASC',
+      where: 'WHERE ativo = TRUE',
+      params: []
+    });
+    salvarCacheLeitura(chaveProdutos, {
+      produtos,
+      total: produtos.length
+    });
+
+    const [rowsCategorias] = await queryWithRetry(
+      `SELECT DISTINCT categoria
+       FROM produtos
+       WHERE ativo = TRUE
+         AND categoria IS NOT NULL
+         AND categoria <> ''
+       ORDER BY categoria ASC`
+    );
+    const categorias = rowsCategorias
+      .map((item) => String(item?.categoria || '').trim())
+      .filter(Boolean);
+    salvarCacheLeitura('categorias:ativas', categorias);
+
+    try {
+      const [rowsBanners] = await queryWithRetry(
+        `SELECT id, titulo, imagem_url, link_url, ordem
+         FROM banners
+         WHERE ativo = TRUE
+         ORDER BY ordem ASC, id DESC`
+      );
+      salvarCacheLeitura('banners:ativos', rowsBanners);
+    } catch (erroTabela) {
+      if (erroTabela?.code !== 'ER_NO_SUCH_TABLE') {
+        throw erroTabela;
+      }
+    }
+
+    console.log(`✅ Preload concluído: ${produtos.length} produtos e ${categorias.length} categorias em cache.`);
+  } catch (err) {
+    console.warn('⚠️ Falha no preload inicial de dados:', err?.message || err);
+  }
+}
+
 // Testar conexão ao iniciar
 (async () => {
   try {
     const conn = await pool.getConnection();
     console.log('✅ MySQL conectado');
     conn.release();
+    await preloadData();
   } catch (err) {
     console.error('❌ Erro ao conectar ao MySQL:', err);
   }
@@ -1538,7 +1791,7 @@ async function obterColunasProdutos() {
     return produtosColumnsCache;
   }
 
-  const [colunas] = await pool.query('SHOW COLUMNS FROM produtos');
+  const [colunas] = await queryWithRetry('SHOW COLUMNS FROM produtos');
   produtosColumnsCache = new Set(colunas.map((coluna) => String(coluna.Field || '').toLowerCase()));
   return produtosColumnsCache;
 }
@@ -1709,7 +1962,7 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
 });
 
 // Login
-app.post('/api/auth/login', authLimiter, async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   try {
     const { email, senha, recaptcha_token } = req.body || {};
 
@@ -1937,6 +2190,7 @@ app.post('/api/endereco', autenticarToken, async (req, res) => {
 // Listar todos os produtos ativos
 app.get('/api/produtos', async (req, res) => {
   try {
+    res.set('Cache-Control', 'public, max-age=30');
     const colunas = await obterColunasProdutos();
     const campos = [
       'id',
@@ -2009,15 +2263,33 @@ app.get('/api/produtos', async (req, res) => {
     const whereSql = filtros.length ? `WHERE ${filtros.join(' AND ')}` : '';
 
     if (!usarPaginacao) {
-      const [produtos] = await pool.query(
+      const chaveCacheLeitura = montarChaveCacheLeitura('produtos:lista', {
+        busca,
+        categoria,
+        ordenacao: ordenacaoSql,
+        where: whereSql,
+        params
+      });
+      const cacheLeitura = obterCacheLeitura(chaveCacheLeitura);
+      if (cacheLeitura) {
+        return res.json({
+          ...cacheLeitura,
+          cache: true
+        });
+      }
+
+      const [produtos] = await queryWithRetry(
         `SELECT ${campos.join(', ')} FROM produtos ${whereSql} ORDER BY ${ordenacaoSql}`,
         params
       );
 
-      return res.json({
+      const payloadSemPaginacao = {
         produtos,
         total: produtos.length
-      });
+      };
+      salvarCacheLeitura(chaveCacheLeitura, payloadSemPaginacao);
+
+      return res.json(payloadSemPaginacao);
     }
 
     const chaveCache = montarChaveCacheProdutos({
@@ -2035,7 +2307,7 @@ app.get('/api/produtos', async (req, res) => {
       });
     }
 
-    const [[countRow]] = await pool.query(
+    const [[countRow]] = await queryWithRetry(
       `SELECT COUNT(*) AS total FROM produtos ${whereSql}`,
       params
     );
@@ -2043,7 +2315,7 @@ app.get('/api/produtos', async (req, res) => {
     const paginacao = montarPaginacao(total, paginaSolicitada, limite);
     const offset = (paginacao.pagina - 1) * paginacao.limite;
 
-    const [produtos] = await pool.query(
+    const [produtos] = await queryWithRetry(
       `SELECT ${campos.join(', ')}
        FROM produtos
        ${whereSql}
@@ -2062,6 +2334,78 @@ app.get('/api/produtos', async (req, res) => {
   } catch (erro) {
     console.error('Erro ao buscar produtos:', erro);
     res.status(500).json({ erro: 'Erro ao buscar produtos' });
+  }
+});
+
+// Listar categorias ativas (cache em memória por 30s)
+app.get('/api/categorias', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'public, max-age=30');
+    const chaveCacheLeitura = 'categorias:ativas';
+    const cacheLeitura = obterCacheLeitura(chaveCacheLeitura);
+    if (cacheLeitura) {
+      return res.json({
+        categorias: cacheLeitura,
+        cache: true
+      });
+    }
+
+    const [rows] = await queryWithRetry(
+      `SELECT DISTINCT categoria
+       FROM produtos
+       WHERE ativo = TRUE
+         AND categoria IS NOT NULL
+         AND categoria <> ''
+       ORDER BY categoria ASC`
+    );
+
+    const categorias = rows
+      .map((item) => String(item?.categoria || '').trim())
+      .filter(Boolean);
+
+    salvarCacheLeitura(chaveCacheLeitura, categorias);
+
+    return res.json({ categorias });
+  } catch (erro) {
+    console.error('Erro ao buscar categorias:', erro);
+    return res.status(500).json({ erro: 'Erro ao buscar categorias' });
+  }
+});
+
+// Listar banners ativos (cache em memória por 30s)
+app.get('/api/banners', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'public, max-age=30');
+    const chaveCacheLeitura = 'banners:ativos';
+    const cacheLeitura = obterCacheLeitura(chaveCacheLeitura);
+    if (cacheLeitura) {
+      return res.json({
+        banners: cacheLeitura,
+        cache: true
+      });
+    }
+
+    let banners = [];
+    try {
+      const [rows] = await queryWithRetry(
+        `SELECT id, titulo, imagem_url, link_url, ordem
+         FROM banners
+         WHERE ativo = TRUE
+         ORDER BY ordem ASC, id DESC`
+      );
+      banners = rows;
+    } catch (erroTabela) {
+      if (erroTabela?.code !== 'ER_NO_SUCH_TABLE') {
+        throw erroTabela;
+      }
+    }
+
+    salvarCacheLeitura(chaveCacheLeitura, banners);
+
+    return res.json({ banners });
+  } catch (erro) {
+    console.error('Erro ao buscar banners:', erro);
+    return res.status(500).json({ erro: 'Erro ao buscar banners' });
   }
 });
 
@@ -3292,7 +3636,7 @@ app.get('/health', (req, res) => {
 
 app.get('/ready', async (req, res) => {
   try {
-    await pool.query('SELECT 1 AS ok');
+    await queryWithRetry('SELECT 1 AS ok');
 
     return res.status(200).json({
       status: 'ready',
@@ -3457,12 +3801,12 @@ app.listen(PORT, () => {
 });
 
 // Tratamento de erros não capturados
-process.on('unhandledRejection', (err) => {
-  console.error('❌ Erro não tratado (Promise):', err);
-  // NÃO encerrar o servidor, apenas logar o erro
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Erro não tratado (Promise):', reason);
+  process.exit(1);
 });
 
 process.on('uncaughtException', (err) => {
   console.error('❌ Erro não capturado (Exception):', err);
-  // NÃO encerrar o servidor, apenas logar o erro
+  process.exit(1);
 });

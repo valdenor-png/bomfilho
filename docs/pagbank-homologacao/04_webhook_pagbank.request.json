@@ -1,0 +1,17 @@
+{
+  "target_url": "https://SEU_BACKEND/api/webhooks/pagbank?token={{PAGBANK_WEBHOOK_TOKEN}}",
+  "headers": {
+    "Content-Type": "application/json",
+    "x-webhook-token": "{{PAGBANK_WEBHOOK_TOKEN}}"
+  },
+  "body": {
+    "id": "ORDE_XXXXXXXXXXXX",
+    "reference_id": "pedido_1234",
+    "charges": [
+      {
+        "id": "CHAR_XXXXXXXXXXXX",
+        "status": "PAID"
+      }
+    ]
+  }
+}

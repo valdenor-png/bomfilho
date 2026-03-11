@@ -1,0 +1,23 @@
+✅ PagBank configurado com sucesso!
+
+🚀 Servidor rodando na porta 3000
+📍 URL: http://localhost:3000
+
+📚 Endpoints disponíveis:
+   POST   /api/auth/cadastro
+   POST   /api/auth/login
+   GET    /api/auth/me
+   GET    /api/endereco
+   POST   /api/endereco
+   GET    /api/produtos
+   GET    /api/produtos/:id
+   POST   /api/pedidos
+   GET    /api/pedidos
+   GET    /api/pedidos/:id
+   GET    /api/avaliacoes/:produto_id
+   POST   /api/avaliacoes
+
+✅ Pronto para receber requisições!
+
+✅ Conectado ao MySQL com sucesso!
+✅ PagBank token OK (Credencial parece válida (POST /orders retornou 400 por payload inválido))

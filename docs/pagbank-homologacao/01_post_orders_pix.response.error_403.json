@@ -1,0 +1,8 @@
+{
+  "error_messages": [
+    {
+      "code": "ACCESS_DENIED",
+      "description": "You dont have access to this resource. Request whitelist release for production calls."
+    }
+  ]
+}

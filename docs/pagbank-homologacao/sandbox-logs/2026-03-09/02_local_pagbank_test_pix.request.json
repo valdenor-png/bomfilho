@@ -1,0 +1,12 @@
+﻿{
+    "body":  {
+                 "tax_id":  "12345678909",
+                 "valor_reais":  1
+             },
+    "method":  "POST",
+    "url":  "http://127.0.0.1:3000/api/pagbank/test-pix",
+    "headers":  {
+                    "x-diagnostic-token":  "***REDACTED***"
+                },
+    "timestamp":  "2026-03-09T19:05:40"
+}

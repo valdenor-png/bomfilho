@@ -1,0 +1,15 @@
+﻿{
+    "error":  null,
+    "timestamp":  "2026-03-09T19:28:28",
+    "ok":  false,
+    "body":  {
+                 "error_messages":  [
+                                        {
+                                            "code":  "40002",
+                                            "description":  "Invalid search parameters. No known parameter was given: [charge_id]",
+                                            "parameter_name":  "query_string"
+                                        }
+                                    ]
+             },
+    "statusCode":  400
+}

@@ -1,0 +1,8 @@
+{
+  "error_messages": [
+    {
+      "code": "UNAUTHORIZED",
+      "description": "Invalid credential"
+    }
+  ]
+}
