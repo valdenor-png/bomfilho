@@ -15,6 +15,8 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const SERVICE_NAME = String(process.env.SERVICE_NAME || 'bom-filho-backend').trim() || 'bom-filho-backend';
+const API_VERSION = String(process.env.API_VERSION || '1.0.0').trim() || '1.0.0';
 const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
 const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
 const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
@@ -838,6 +840,68 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
   }
 });
 
+// Teste de homologação: cria pedido mínimo no sandbox para gerar logs PagBank
+app.get('/api/pagbank/test', async (req, res) => {
+  try {
+    if (!PAGBANK_TOKEN) {
+      return res.status(503).json({ erro: 'PAGBANK_TOKEN não configurado no backend' });
+    }
+
+    if (PAGBANK_API_URL !== 'https://sandbox.api.pagseguro.com') {
+      return res.status(400).json({
+        erro: 'Endpoint de teste disponível apenas no sandbox. Defina PAGBANK_ENV=sandbox.'
+      });
+    }
+
+    const payload = {
+      reference_id: `pedido-homologacao-${Date.now()}`,
+      customer: {
+        name: 'Cliente Teste',
+        email: 'teste@teste.com',
+        tax_id: '12345678909'
+      },
+      items: [
+        {
+          reference_id: 'produto-1',
+          name: 'Produto Teste',
+          quantity: 1,
+          unit_amount: 500
+        }
+      ]
+    };
+
+    const headers = {
+      'Authorization': `Bearer ${PAGBANK_TOKEN}`,
+      'Content-Type': 'application/json'
+    };
+
+    const { response, responseBodyText } = await enviarPostPagBankOrders({ headers, payload });
+
+    let pagbankResponse = {};
+    try {
+      pagbankResponse = responseBodyText ? JSON.parse(responseBodyText) : {};
+    } catch {
+      pagbankResponse = responseBodyText || '';
+    }
+
+    if (!response.ok) {
+      return res.status(response.status).json({
+        message: 'Falha ao enviar pedido de teste para PagBank',
+        pagbank_response: pagbankResponse
+      });
+    }
+
+    return res.json({
+      message: 'Pedido de teste enviado para PagBank',
+      pagbank_response: pagbankResponse
+    });
+  } catch (erro) {
+    return res.status(500).json({
+      erro: erro?.message || 'Falha ao enviar pedido de teste para o PagBank'
+    });
+  }
+});
+
 // Teste de criação de pedido PIX no PagBank (diagnóstico)
 app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
   try {
@@ -963,6 +1027,74 @@ function normalizarTipoCartao(valor) {
   return 'credito';
 }
 
+const PAGBANK_LOG_PATH = path.join(__dirname, 'logs', 'pagbank.log');
+
+function stringifyLogJson(data) {
+  return JSON.stringify(data, null, 2);
+}
+
+function sanitizarHeadersPagBank(headers = {}) {
+  const sanitized = {};
+
+  for (const [key, value] of Object.entries(headers)) {
+    if (String(key || '').toLowerCase() === 'authorization') {
+      continue;
+    }
+    sanitized[key] = value;
+  }
+
+  return sanitized;
+}
+
+function escreverLogPagBank(texto) {
+  console.log(texto);
+
+  try {
+    const logsDir = path.dirname(PAGBANK_LOG_PATH);
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+
+    fs.appendFileSync(PAGBANK_LOG_PATH, `${new Date().toISOString()}\n${texto}\n\n`, 'utf8');
+  } catch (err) {
+    console.warn('⚠️ Falha ao escrever log em logs/pagbank.log:', err?.message || err);
+  }
+}
+
+async function enviarPostPagBankOrders({ headers, payload }) {
+  const url = `${PAGBANK_API_URL}/orders`;
+  const method = 'POST';
+  const safeHeaders = sanitizarHeadersPagBank(headers);
+  const payloadBody = JSON.stringify(payload);
+
+  escreverLogPagBank(
+    `PAGBANK REQUEST\nURL: ${url}\nMETHOD: ${method}\nHEADERS:\n${stringifyLogJson(safeHeaders)}\nBODY:\n${stringifyLogJson(payload)}`
+  );
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: payloadBody
+  });
+
+  const responseBodyText = await response.clone().text().catch(() => '');
+  let responseBodyParsed = responseBodyText;
+  try {
+    responseBodyParsed = responseBodyText ? JSON.parse(responseBodyText) : {};
+  } catch {
+    // Mantém texto puro quando a API não retornar JSON válido.
+  }
+
+  escreverLogPagBank(
+    `PAGBANK RESPONSE\nSTATUS: ${response.status}\nBODY:\n${stringifyLogJson(responseBodyParsed)}`
+  );
+
+  return {
+    response,
+    responseBodyText
+  };
+}
+
 async function verificarCredencialPagBank() {
   if (!PAGBANK_TOKEN) {
     pagbankLastAuthCheck = {
@@ -1023,13 +1155,11 @@ async function verificarCredencialPagBank() {
       items: []
     };
 
-    const respPost = await fetch(`${PAGBANK_API_URL}/orders`, {
-      method: 'POST',
+    const { response: respPost, responseBodyText } = await enviarPostPagBankOrders({
       headers,
-      body: JSON.stringify(payloadDiagnostico)
+      payload: payloadDiagnostico
     });
-
-    const text = await respPost.text();
+    const text = responseBodyText;
 
     if (respPost.status === 401) {
       pagbankLastAuthCheck = {
@@ -1158,19 +1288,20 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
-  const response = await fetch(`${PAGBANK_API_URL}/orders`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${PAGBANK_TOKEN}`,
-      'x-idempotency-key': idempotencyKey,
-      'accept': 'application/json',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
+  const headers = {
+    'Authorization': `Bearer ${PAGBANK_TOKEN}`,
+    'x-idempotency-key': idempotencyKey,
+    'accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+
+  const { response, responseBodyText } = await enviarPostPagBankOrders({
+    headers,
+    payload
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
+    const errorText = responseBodyText || await response.text();
     throw new Error(`Erro PagBank: ${response.status} - ${errorText}`);
   }
 
@@ -1257,19 +1388,20 @@ async function criarPagamentoCartao({
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
-  const response = await fetch(`${PAGBANK_API_URL}/orders`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${PAGBANK_TOKEN}`,
-      'x-idempotency-key': idempotencyKey,
-      'accept': 'application/json',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
+  const headers = {
+    'Authorization': `Bearer ${PAGBANK_TOKEN}`,
+    'x-idempotency-key': idempotencyKey,
+    'accept': 'application/json',
+    'Content-Type': 'application/json'
+  };
+
+  const { response, responseBodyText } = await enviarPostPagBankOrders({
+    headers,
+    payload
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
+    const errorText = responseBodyText || await response.text();
     throw new Error(`Erro PagBank cartão: ${response.status} - ${errorText}`);
   }
 
@@ -3132,9 +3264,91 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
 app.get('/api', (req, res) => {
   res.json({
     mensagem: '🛒 API Bom Filho Supermercado',
-    versao: '1.0.0',
+    versao: API_VERSION,
     status: 'online'
   });
+});
+
+// ============================================
+// ENDPOINTS DE MONITORAMENTO
+// ============================================
+app.get('/health', (req, res) => {
+  try {
+    return res.status(200).json({
+      status: 'ok',
+      service: SERVICE_NAME,
+      environment: process.env.NODE_ENV || 'development',
+      timestamp: new Date().toISOString()
+    });
+  } catch (erro) {
+    console.error('Erro no health check:', erro);
+    return res.status(500).json({
+      status: 'error',
+      service: SERVICE_NAME,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.get('/ready', async (req, res) => {
+  try {
+    await pool.query('SELECT 1 AS ok');
+
+    return res.status(200).json({
+      status: 'ready',
+      service: SERVICE_NAME,
+      timestamp: new Date().toISOString()
+    });
+  } catch (erro) {
+    console.error('Erro no readiness check:', erro);
+    return res.status(503).json({
+      status: 'not-ready',
+      service: SERVICE_NAME,
+      timestamp: new Date().toISOString(),
+      erro: 'Falha na conexão com MySQL'
+    });
+  }
+});
+
+app.get('/metrics', (req, res) => {
+  try {
+    const memory = process.memoryUsage();
+
+    return res.status(200).json({
+      service: SERVICE_NAME,
+      uptime: Number(process.uptime().toFixed(2)),
+      memory: {
+        rss: memory.rss,
+        heapTotal: memory.heapTotal,
+        heapUsed: memory.heapUsed
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (erro) {
+    console.error('Erro ao coletar métricas:', erro);
+    return res.status(500).json({
+      status: 'error',
+      service: SERVICE_NAME,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.get('/version', (req, res) => {
+  try {
+    return res.status(200).json({
+      service: SERVICE_NAME,
+      version: API_VERSION,
+      timestamp: new Date().toISOString()
+    });
+  } catch (erro) {
+    console.error('Erro ao consultar versão:', erro);
+    return res.status(500).json({
+      status: 'error',
+      service: SERVICE_NAME,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // ============================================
