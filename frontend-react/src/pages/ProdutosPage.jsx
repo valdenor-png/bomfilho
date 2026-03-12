@@ -1,8 +1,15 @@
 import React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { Grid } from 'react-window';
 import { getProdutos } from '../lib/api';
 import { useCart } from '../context/CartContext';
+
+const CATEGORIA_TODAS = 'todas';
+const CATEGORIA_PROMOCOES = 'promocoes';
+const CATEGORIA_BEBIDAS = 'bebidas';
+const TOKEN_BEBIDA = 'bebida';
+const PRODUTOS_POR_PAGINA = 60;
 
 const DRINK_SECTIONS_BEBIDAS = [
   {
@@ -104,6 +111,14 @@ const CATEGORY_IMAGES = {
   limpeza: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?auto=format&fit=crop&w=900&q=60'
 };
 
+const CATEGORIAS_LEGADO = [
+  { id: CATEGORIA_TODAS, label: '🛒 Todas' },
+  { id: CATEGORIA_PROMOCOES, label: '🔥 Promoções', destaque: true },
+  { id: 'hortifruti', label: '🥦 Hortifruti' },
+  { id: CATEGORIA_BEBIDAS, label: '🥤 Bebidas' },
+  { id: 'limpeza', label: '🧴 Limpeza' }
+];
+
 function getProdutoImagem(produto) {
   const imagem = String(produto?.imagem || '').trim();
   if (imagem) {
@@ -123,6 +138,25 @@ function normalizeText(value) {
     .trim();
 }
 
+function normalizeMatchers(matchers = []) {
+  return matchers.map((matcher) => normalizeText(matcher)).filter(Boolean);
+}
+
+const DRINK_SECTIONS_BEBIDAS_INDEX = DRINK_SECTIONS_BEBIDAS.map((section) => ({
+  ...section,
+  matchersNormalizados: normalizeMatchers(section.matchers)
+}));
+
+const BRAND_GROUPS_BY_SUBCATEGORY_INDEX = Object.fromEntries(
+  Object.entries(BRAND_GROUPS_BY_SUBCATEGORY).map(([subcategoryId, groups]) => [
+    subcategoryId,
+    groups.map((group) => ({
+      ...group,
+      matchersNormalizados: normalizeMatchers(group.matchers)
+    }))
+  ])
+);
+
 function isBebidasCategoria(value) {
   return normalizeText(value).includes('bebida');
 }
@@ -138,64 +172,420 @@ function getTextoProduto(produto) {
     .join(' ');
 }
 
-function belongsToDrinkSection(produto, sectionConfig) {
-  const texto = getTextoProduto(produto);
-  return sectionConfig.matchers.some((matcher) => texto.includes(normalizeText(matcher)));
+function textoContemMatcher(textoProduto, matchersNormalizados) {
+  return matchersNormalizados.some((matcher) => textoProduto.includes(matcher));
 }
 
-function getBebidaSubcategoriaId(produto) {
-  const found = DRINK_SECTIONS_BEBIDAS.find((section) => belongsToDrinkSection(produto, section));
+function getBebidaSubcategoriaIdByTexto(textoProduto) {
+  const found = DRINK_SECTIONS_BEBIDAS_INDEX.find((section) =>
+    textoContemMatcher(textoProduto, section.matchersNormalizados)
+  );
   return found?.id || 'outras-bebidas';
+}
+
+function isProdutoEmPromocao(produto) {
+  return (
+    Number(produto?.desconto || 0) > 0
+    || Number(produto?.percentual_desconto || 0) > 0
+    || Number(produto?.preco_promocional || 0) > 0
+    || produto?.promocao === true
+    || Number(produto?.promocao || 0) === 1
+  );
+}
+
+function getProdutoStableKey(produto) {
+  const idRaw = produto?.id;
+  if (idRaw !== undefined && idRaw !== null && String(idRaw).trim()) {
+    return `id:${String(idRaw).trim()}`;
+  }
+
+  const codigoBarras = String(
+    produto?.codigo_barras || produto?.codigoBarras || produto?.codigo || ''
+  ).trim();
+  if (codigoBarras) {
+    return `codigo:${codigoBarras}`;
+  }
+
+  const nome = normalizeText(produto?.nome);
+  const marca = normalizeText(produto?.marca);
+  const categoria = normalizeText(produto?.categoria);
+  const descricao = normalizeText(produto?.descricao);
+  const imagem = String(produto?.imagem || '').trim();
+  const unidade = normalizeText(produto?.unidade);
+  const preco = Number(produto?.preco || 0).toFixed(2);
+  return `sem-id:${nome}|${marca}|${categoria}|${descricao}|${unidade}|${preco}|${imagem}`;
 }
 
 function getCategoriaApi(categoria) {
   const valor = String(categoria || '').toLowerCase();
-  if (!valor || valor === 'todas' || valor === 'promocoes') {
+  if (!valor || valor === CATEGORIA_TODAS || valor === CATEGORIA_PROMOCOES) {
     return '';
   }
 
-  if (valor.includes('bebida')) {
-    return 'bebidas';
+  if (valor.includes(TOKEN_BEBIDA)) {
+    return CATEGORIA_BEBIDAS;
   }
 
   return valor;
 }
 
+function buildProdutosQueryKey({ categoria, busca, page, limit }) {
+  return [
+    'produtos',
+    {
+      categoria: getCategoriaApi(categoria) || CATEGORIA_TODAS,
+      busca: normalizeText(busca),
+      page: Number(page || 1),
+      limit: Number(limit || PRODUTOS_POR_PAGINA)
+    }
+  ];
+}
+
+// Mantem a assinatura de busca isolada para facilitar migracao para React Query.
+async function fetchProdutosPage({ categoria, busca, page, limit }) {
+  const params = {
+    page: Number(page || 1),
+    limit: Number(limit || PRODUTOS_POR_PAGINA)
+  };
+
+  const categoriaApi = getCategoriaApi(categoria);
+  if (categoriaApi) {
+    params.categoria = categoriaApi;
+  }
+
+  const buscaNormalizada = String(busca || '').trim();
+  if (buscaNormalizada) {
+    params.busca = buscaNormalizada;
+  }
+
+  const data = await getProdutos(params);
+  const lista = Array.isArray(data?.produtos) ? data.produtos : [];
+  const paginacao = data?.paginacao || {};
+
+  return {
+    queryKey: buildProdutosQueryKey({
+      categoria,
+      busca,
+      page: params.page,
+      limit: params.limit
+    }),
+    lista,
+    paginacao
+  };
+}
+
+function buildProdutosPageCacheKey({ categoria, busca, page, limit }) {
+  return JSON.stringify(
+    buildProdutosQueryKey({ categoria, busca, page, limit })
+  );
+}
+
+function isUnsplashUrl(value) {
+  return String(value || '').includes('images.unsplash.com');
+}
+
+function buildUnsplashVariant(url, width) {
+  if (!isUnsplashUrl(url)) {
+    return url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('auto', 'format');
+    parsed.searchParams.set('fit', 'crop');
+    parsed.searchParams.set('q', '60');
+    parsed.searchParams.set('w', String(width));
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function getProdutoImagemResponsiva(produto) {
+  const srcBase = getProdutoImagem(produto);
+
+  if (!isUnsplashUrl(srcBase)) {
+    return {
+      src: srcBase,
+      srcSet: undefined,
+      sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 220px'
+    };
+  }
+
+  const widths = [220, 320, 420, 640, 900];
+  return {
+    src: buildUnsplashVariant(srcBase, 420),
+    srcSet: widths.map((width) => `${buildUnsplashVariant(srcBase, width)} ${width}w`).join(', '),
+    sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 220px'
+  };
+}
+
 function mergeProdutosById(listaAtual, novosProdutos) {
   const mapa = new Map();
 
-  [...listaAtual, ...novosProdutos].forEach((produto) => {
-    const chave = Number.isFinite(Number(produto?.id)) ? Number(produto.id) : String(produto?.id || Math.random());
+  listaAtual.forEach((produto) => {
+    const chave = getProdutoStableKey(produto);
+    mapa.set(chave, produto);
+  });
+
+  novosProdutos.forEach((produto) => {
+    const chave = getProdutoStableKey(produto);
     mapa.set(chave, produto);
   });
 
   return Array.from(mapa.values());
 }
 
-const PRODUTOS_POR_PAGINA = 60;
+const VIRTUALIZATION_THRESHOLD = 72;
+const VIRTUAL_GRID_GAP = 12;
+const VIRTUAL_CARD_MIN_WIDTH_DESKTOP = 220;
+const VIRTUAL_CARD_MIN_WIDTH_MOBILE = 164;
+const VIRTUAL_CARD_HEIGHT_DESKTOP = 330;
+const VIRTUAL_CARD_HEIGHT_MOBILE = 304;
+const VIRTUAL_GRID_MIN_HEIGHT = 280;
 
-function belongsToBrandGroup(produto, brandConfig) {
-  const texto = getTextoProduto(produto);
-  return brandConfig.matchers.some((matcher) => texto.includes(normalizeText(matcher)));
+function useViewportHeight() {
+  const [viewportHeight, setViewportHeight] = useState(() => {
+    if (typeof window === 'undefined') {
+      return 900;
+    }
+    return window.innerHeight;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handleResize = () => {
+      setViewportHeight(window.innerHeight);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  return viewportHeight;
 }
+
+function useElementWidth() {
+  const [element, setElement] = useState(null);
+  const [width, setWidth] = useState(0);
+
+  const ref = useCallback((node) => {
+    setElement(node);
+  }, []);
+
+  useEffect(() => {
+    if (!element) {
+      setWidth(0);
+      return undefined;
+    }
+
+    const updateWidth = () => {
+      setWidth(element.clientWidth || 0);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        updateWidth();
+      });
+      observer.observe(element);
+      return () => {
+        observer.disconnect();
+      };
+    }
+
+    window.addEventListener('resize', updateWidth);
+    return () => {
+      window.removeEventListener('resize', updateWidth);
+    };
+  }, [element]);
+
+  return [ref, width];
+}
+
+const ProdutoCard = React.memo(function ProdutoCard({ produtoIndexado, onAddItem }) {
+  const produto = produtoIndexado.produto;
+  const imagem = useMemo(() => getProdutoImagemResponsiva(produto), [produto]);
+
+  return (
+    <article className="produto-card">
+      <img
+        className="produto-image"
+        src={imagem.src}
+        srcSet={imagem.srcSet}
+        sizes={imagem.sizes}
+        alt={produto.nome}
+        loading="lazy"
+        decoding="async"
+        fetchPriority="low"
+        onError={(event) => {
+          event.currentTarget.src = '/img/logo-oficial.png';
+        }}
+      />
+      <p className="produto-title">
+        <span>{produto.emoji || '📦'}</span> {produto.nome}
+      </p>
+      <p className="muted-text">{produto.categoria || 'Sem categoria'}</p>
+      <p className="produto-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
+      <button className="btn-primary" type="button" onClick={() => onAddItem(produto)}>
+        Adicionar ao carrinho
+      </button>
+    </article>
+  );
+});
+
+ProdutoCard.displayName = 'ProdutoCard';
+
+const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
+  itensIndexados,
+  onAddItem,
+  gridClassName = 'produto-grid',
+  listId
+}) {
+  const [containerRef, containerWidth] = useElementWidth();
+  const viewportHeight = useViewportHeight();
+
+  const usarVirtualizacao = itensIndexados.length >= VIRTUALIZATION_THRESHOLD;
+
+  const isMobileViewport = containerWidth > 0 && containerWidth < 700;
+  const minCardWidth = isMobileViewport ? VIRTUAL_CARD_MIN_WIDTH_MOBILE : VIRTUAL_CARD_MIN_WIDTH_DESKTOP;
+  const cardHeight = isMobileViewport ? VIRTUAL_CARD_HEIGHT_MOBILE : VIRTUAL_CARD_HEIGHT_DESKTOP;
+
+  const columnCount = Math.max(
+    1,
+    Math.floor((containerWidth + VIRTUAL_GRID_GAP) / (minCardWidth + VIRTUAL_GRID_GAP)) || 1
+  );
+
+  const totalHorizontalGap = Math.max(0, columnCount - 1) * VIRTUAL_GRID_GAP;
+  const cardWidth = Math.max(
+    140,
+    Math.floor((Math.max(containerWidth, minCardWidth) - totalHorizontalGap) / columnCount)
+  );
+
+  const gridColumnWidth = cardWidth + VIRTUAL_GRID_GAP;
+  const gridRowHeight = cardHeight + VIRTUAL_GRID_GAP;
+  const rowCount = Math.max(1, Math.ceil(itensIndexados.length / columnCount));
+
+  const maxViewportHeight = Math.max(
+    VIRTUAL_GRID_MIN_HEIGHT,
+    Math.floor(viewportHeight * (isMobileViewport ? 0.58 : 0.68))
+  );
+  const gridHeight = Math.max(
+    VIRTUAL_GRID_MIN_HEIGHT,
+    Math.min(maxViewportHeight, rowCount * gridRowHeight)
+  );
+
+  const itemData = useMemo(() => ({
+    itensIndexados,
+    onAddItem,
+    columnCount
+  }), [columnCount, itensIndexados, onAddItem]);
+  const shellClassName = gridClassName.includes('brand-produto-grid')
+    ? 'produto-grid-virtualized-shell brand-produto-grid-virtualized'
+    : 'produto-grid-virtualized-shell';
+
+  const renderCell = useCallback(({
+    ariaAttributes,
+    columnIndex,
+    rowIndex,
+    style,
+    itensIndexados: itens,
+    onAddItem: onAdd,
+    columnCount: columns
+  }) => {
+    const index = rowIndex * columns + columnIndex;
+    const produtoIndexado = itens[index];
+
+    if (!produtoIndexado) {
+      return null;
+    }
+
+    const width = typeof style.width === 'number' ? style.width : Number.parseFloat(style.width || '0');
+    const height = typeof style.height === 'number' ? style.height : Number.parseFloat(style.height || '0');
+
+    return (
+      <div
+        className="produto-grid-virtualized-cell"
+        {...ariaAttributes}
+        style={{
+          ...style,
+          width: Math.max(0, width - VIRTUAL_GRID_GAP),
+          height: Math.max(0, height - VIRTUAL_GRID_GAP)
+        }}
+      >
+        <ProdutoCard
+          produtoIndexado={produtoIndexado}
+          onAddItem={onAdd}
+        />
+      </div>
+    );
+  }, []);
+
+  if (!usarVirtualizacao) {
+    return (
+      <div className={gridClassName} id={listId}>
+        {itensIndexados.map((produtoIndexado) => (
+          <ProdutoCard
+            key={produtoIndexado.chaveReact}
+            produtoIndexado={produtoIndexado}
+            onAddItem={onAddItem}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className={shellClassName} id={listId} ref={containerRef}>
+      {containerWidth > 0 ? (
+        <Grid
+          className="produto-grid-virtualized"
+          style={{
+            width: containerWidth,
+            height: gridHeight
+          }}
+          defaultWidth={containerWidth}
+          defaultHeight={gridHeight}
+          cellComponent={renderCell}
+          cellProps={itemData}
+          columnCount={columnCount}
+          columnWidth={gridColumnWidth}
+          rowCount={rowCount}
+          rowHeight={gridRowHeight}
+          overscanCount={isMobileViewport ? 3 : 4}
+        />
+      ) : (
+        <div className={gridClassName}>
+          {itensIndexados.slice(0, 12).map((produtoIndexado) => (
+            <ProdutoCard
+              key={produtoIndexado.chaveReact}
+              produtoIndexado={produtoIndexado}
+              onAddItem={onAddItem}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+VirtualizedProdutoGrid.displayName = 'VirtualizedProdutoGrid';
 
 export default function ProdutosPage() {
   const { addItem, resumo } = useCart();
   const [searchParams] = useSearchParams();
-  const categoriaInicial = String(searchParams.get('categoria') || 'todas').toLowerCase();
+  const categoriaInicial = String(searchParams.get('categoria') || CATEGORIA_TODAS).toLowerCase();
   const buscaInicial = String(searchParams.get('busca') || '');
-
-  const categoriasLegado = [
-    { id: 'todas', label: '🛒 Todas' },
-    { id: 'promocoes', label: '🔥 Promoções', destaque: true },
-    { id: 'hortifruti', label: '🥦 Hortifruti' },
-    { id: 'bebidas', label: '🥤 Bebidas' },
-    { id: 'limpeza', label: '🧴 Limpeza' }
-  ];
 
   const [produtos, setProdutos] = useState([]);
   const [busca, setBusca] = useState(buscaInicial);
-  const [categoria, setCategoria] = useState(categoriaInicial || 'todas');
+  const [categoria, setCategoria] = useState(categoriaInicial || CATEGORIA_TODAS);
   const [bebidaSubcategoria, setBebidaSubcategoria] = useState('todas');
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -203,17 +593,146 @@ export default function ProdutosPage() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [temMaisProdutos, setTemMaisProdutos] = useState(false);
   const [totalProdutosBackend, setTotalProdutosBackend] = useState(0);
+  const requisicaoProdutosIdRef = useRef(0);
+  const prefetchProdutosCacheRef = useRef(new Map());
+  const prefetchEmAndamentoRef = useRef(new Set());
+  const categoriaEhBebidas = useMemo(() => isBebidasCategoria(categoria), [categoria]);
+  const assinaturaConsultaAtual = useMemo(
+    () => JSON.stringify(buildProdutosQueryKey({
+      categoria,
+      busca,
+      page: 1,
+      limit: PRODUTOS_POR_PAGINA
+    })),
+    [busca, categoria]
+  );
 
   useEffect(() => {
     setBusca(String(searchParams.get('busca') || ''));
-    setCategoria(String(searchParams.get('categoria') || 'todas').toLowerCase());
+    setCategoria(String(searchParams.get('categoria') || CATEGORIA_TODAS).toLowerCase());
   }, [searchParams]);
 
   useEffect(() => {
-    if (!isBebidasCategoria(categoria)) {
+    if (!categoriaEhBebidas) {
       setBebidaSubcategoria('todas');
     }
-  }, [categoria]);
+  }, [categoriaEhBebidas]);
+
+  useEffect(() => {
+    prefetchProdutosCacheRef.current.clear();
+    prefetchEmAndamentoRef.current.clear();
+  }, [assinaturaConsultaAtual]);
+
+  const prefetchProximaPagina = useCallback(async ({
+    categoriaAlvo,
+    buscaAlvo,
+    paginaAtualAlvo,
+    paginacao
+  }) => {
+    if (!paginacao?.tem_mais) {
+      return;
+    }
+
+    const proximaPagina = Number(paginacao.pagina || paginaAtualAlvo || 1) + 1;
+    const chaveCache = buildProdutosPageCacheKey({
+      categoria: categoriaAlvo,
+      busca: buscaAlvo,
+      page: proximaPagina,
+      limit: PRODUTOS_POR_PAGINA
+    });
+
+    if (
+      prefetchProdutosCacheRef.current.has(chaveCache)
+      || prefetchEmAndamentoRef.current.has(chaveCache)
+    ) {
+      return;
+    }
+
+    prefetchEmAndamentoRef.current.add(chaveCache);
+
+    try {
+      const paginaPrefetch = await fetchProdutosPage({
+        categoria: categoriaAlvo,
+        busca: buscaAlvo,
+        page: proximaPagina,
+        limit: PRODUTOS_POR_PAGINA
+      });
+
+      prefetchProdutosCacheRef.current.set(chaveCache, paginaPrefetch);
+    } catch {
+      // Prefetch e silencioso para nao interferir na navegacao principal.
+    } finally {
+      prefetchEmAndamentoRef.current.delete(chaveCache);
+    }
+  }, []);
+
+  const carregarProdutos = useCallback(async ({
+    append = false,
+    pagina = 1,
+    categoriaAlvo,
+    buscaAlvo
+  } = {}) => {
+    // Evita sobrescrever estado com resposta antiga quando o usuário muda filtros rapidamente.
+    const requestId = ++requisicaoProdutosIdRef.current;
+
+    if (append) {
+      setCarregandoMais(true);
+    } else {
+      setCarregando(true);
+    }
+
+    setErro('');
+
+    try {
+      const categoriaEfetiva = String(categoriaAlvo ?? categoria);
+      const buscaEfetiva = String(buscaAlvo ?? busca);
+      const { lista, paginacao } = await fetchProdutosPage({
+        categoria: categoriaEfetiva,
+        busca: buscaEfetiva,
+        page: pagina,
+        limit: PRODUTOS_POR_PAGINA
+      });
+
+      if (requestId !== requisicaoProdutosIdRef.current) {
+        return;
+      }
+
+      setProdutos((atual) => (append ? mergeProdutosById(atual, lista) : lista));
+      setPaginaAtual(Number(paginacao.pagina || pagina));
+      setTemMaisProdutos(Boolean(paginacao.tem_mais));
+      setTotalProdutosBackend(Number(paginacao.total || lista.length));
+
+      void prefetchProximaPagina({
+        categoriaAlvo: categoriaEfetiva,
+        buscaAlvo: buscaEfetiva,
+        paginaAtualAlvo: pagina,
+        paginacao
+      });
+    } catch (error) {
+      if (requestId !== requisicaoProdutosIdRef.current) {
+        return;
+      }
+
+      setErro(error.message);
+
+      if (!append) {
+        setProdutos([]);
+        setPaginaAtual(1);
+        setTemMaisProdutos(false);
+        setTotalProdutosBackend(0);
+      }
+    } finally {
+      if (requestId !== requisicaoProdutosIdRef.current) {
+        return;
+      }
+
+      if (append) {
+        setCarregandoMais(false);
+      } else {
+        setCarregando(false);
+      }
+    }
+  }, [busca, categoria, prefetchProximaPagina]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -226,71 +745,111 @@ export default function ProdutosPage() {
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [categoria, busca]);
+  }, [busca, carregarProdutos, categoria]);
 
-  async function carregarProdutos({ append = false, pagina = 1, categoriaAlvo = categoria, buscaAlvo = busca } = {}) {
-    if (append) {
-      setCarregandoMais(true);
-    } else {
-      setCarregando(true);
-    }
-
-    setErro('');
-
-    try {
-      const params = {
-        page: pagina,
-        limit: PRODUTOS_POR_PAGINA
-      };
-
-      const categoriaApi = getCategoriaApi(categoriaAlvo);
-      if (categoriaApi) {
-        params.categoria = categoriaApi;
-      }
-
-      const buscaNormalizada = String(buscaAlvo || '').trim();
-      if (buscaNormalizada) {
-        params.busca = buscaNormalizada;
-      }
-
-      const data = await getProdutos(params);
-      const lista = Array.isArray(data?.produtos) ? data.produtos : [];
-      const paginacao = data?.paginacao || {};
-
-      setProdutos((atual) => (append ? mergeProdutosById(atual, lista) : lista));
-      setPaginaAtual(Number(paginacao.pagina || pagina));
-      setTemMaisProdutos(Boolean(paginacao.tem_mais));
-      setTotalProdutosBackend(Number(paginacao.total || lista.length));
-    } catch (error) {
-      setErro(error.message);
-
-      if (!append) {
-        setProdutos([]);
-        setPaginaAtual(1);
-        setTemMaisProdutos(false);
-        setTotalProdutosBackend(0);
-      }
-    } finally {
-      if (append) {
-        setCarregandoMais(false);
-      } else {
-        setCarregando(false);
-      }
-    }
-  }
-
-  async function handleCarregarMais() {
+  const handleCarregarMais = useCallback(async () => {
     if (carregando || carregandoMais || !temMaisProdutos) {
+      return;
+    }
+
+    const proximaPagina = paginaAtual + 1;
+    const chaveCache = buildProdutosPageCacheKey({
+      categoria,
+      busca,
+      page: proximaPagina,
+      limit: PRODUTOS_POR_PAGINA
+    });
+
+    const paginaPrefetch = prefetchProdutosCacheRef.current.get(chaveCache);
+
+    if (paginaPrefetch) {
+      setCarregandoMais(true);
+      setErro('');
+
+      try {
+        prefetchProdutosCacheRef.current.delete(chaveCache);
+
+        const lista = Array.isArray(paginaPrefetch.lista) ? paginaPrefetch.lista : [];
+        const paginacao = paginaPrefetch.paginacao || {};
+
+        setProdutos((atual) => mergeProdutosById(atual, lista));
+        setPaginaAtual(Number(paginacao.pagina || proximaPagina));
+        setTemMaisProdutos(Boolean(paginacao.tem_mais));
+        setTotalProdutosBackend((totalAtual) => Number(paginacao.total || totalAtual || lista.length));
+
+        void prefetchProximaPagina({
+          categoriaAlvo: categoria,
+          buscaAlvo: busca,
+          paginaAtualAlvo: proximaPagina,
+          paginacao
+        });
+      } finally {
+        setCarregandoMais(false);
+      }
+
       return;
     }
 
     await carregarProdutos({
       append: true,
-      pagina: paginaAtual + 1,
+      pagina: proximaPagina,
       categoriaAlvo: categoria,
       buscaAlvo: busca
     });
-  }
+  }, [
+    busca,
+    carregarProdutos,
+    carregando,
+    carregandoMais,
+    categoria,
+    paginaAtual,
+    prefetchProximaPagina,
+    temMaisProdutos
+  ]);
+
+  const handleAtualizarProdutos = useCallback(() => {
+    void carregarProdutos({
+      append: false,
+      pagina: 1,
+      categoriaAlvo: categoria,
+      buscaAlvo: busca
+    });
+  }, [busca, carregarProdutos, categoria]);
+
+  const handleBuscaChange = useCallback((event) => {
+    setBusca(event.target.value);
+  }, []);
+
+  const handleCategoriaSelectChange = useCallback((event) => {
+    setCategoria(String(event.target.value).toLowerCase());
+  }, []);
+
+  const handleCategoriaLegadoClick = useCallback((categoriaId) => {
+    setCategoria(categoriaId);
+    if (categoriaId !== CATEGORIA_BEBIDAS) {
+      setBebidaSubcategoria('todas');
+    }
+  }, []);
+
+  // Índice local com campos normalizados para evitar recomputações em cada filtro/render.
+  const produtosIndexados = useMemo(() => {
+    return produtos.map((produto) => {
+      const textoBusca = getTextoProduto(produto);
+      const categoriaOriginal = String(produto?.categoria || '').toLowerCase();
+      const categoriaNormalizada = normalizeText(categoriaOriginal);
+
+      return {
+        chaveReact: getProdutoStableKey(produto),
+        produto,
+        textoBusca,
+        categoriaOriginal,
+        categoriaNormalizada,
+        categoriaEhBebida: categoriaNormalizada.includes(TOKEN_BEBIDA),
+        emPromocao: isProdutoEmPromocao(produto),
+        bebidaSubcategoriaId: getBebidaSubcategoriaIdByTexto(textoBusca)
+      };
+    });
+  }, [produtos]);
 
   const categorias = useMemo(() => {
     const values = new Set();
@@ -299,136 +858,160 @@ export default function ProdutosPage() {
         values.add(String(produto.categoria));
       }
     });
-    return ['todas', ...Array.from(values).sort((a, b) => a.localeCompare(b))];
+    return [CATEGORIA_TODAS, ...Array.from(values).sort((a, b) => a.localeCompare(b))];
   }, [produtos]);
 
-  const produtosFiltrados = useMemo(() => {
+  const termoBusca = useMemo(() => {
     const termoNormalizado = normalizeText(busca);
-    const termo = isBebidasCategoria(categoria) && (termoNormalizado === 'bebida' || termoNormalizado === 'bebidas')
-      ? ''
-      : termoNormalizado;
-    return produtos.filter((produto) => {
-      const textoProduto = getTextoProduto(produto);
-      const categoriaAtual = String(produto.categoria || '').toLowerCase();
-      const categoriaAtualNormalizada = normalizeText(categoriaAtual);
-      const emPromocao =
-        Number(produto.desconto || 0) > 0
-        || Number(produto.percentual_desconto || 0) > 0
-        || Number(produto.preco_promocional || 0) > 0
-        || produto.promocao === true
-        || Number(produto.promocao || 0) === 1;
-      const matchBusca = !termo || textoProduto.includes(termo);
-      const matchCategoria = categoria === 'todas'
-        ? true
-        : categoria === 'promocoes'
-          ? emPromocao
-          : categoria === 'bebidas'
-            ? categoriaAtualNormalizada.includes('bebida')
-            : categoriaAtual === categoria;
-      return matchBusca && matchCategoria;
-    });
-  }, [produtos, busca, categoria]);
+    if (categoriaEhBebidas && (termoNormalizado === TOKEN_BEBIDA || termoNormalizado === `${TOKEN_BEBIDA}s`)) {
+      return '';
+    }
+    return termoNormalizado;
+  }, [busca, categoriaEhBebidas]);
+
+  // Etapa 1 do pipeline: busca textual.
+  const produtosFiltradosPorBusca = useMemo(() => {
+    if (!termoBusca) {
+      return produtosIndexados;
+    }
+    return produtosIndexados.filter((item) => item.textoBusca.includes(termoBusca));
+  }, [produtosIndexados, termoBusca]);
+
+  const filtroPromocaoAtivo = categoria === CATEGORIA_PROMOCOES;
+  const filtroCategoriaAtivo = categoria !== CATEGORIA_TODAS && !filtroPromocaoAtivo;
+
+  // Etapa 2 do pipeline: categoria.
+  const produtosFiltradosPorCategoria = useMemo(() => {
+    if (!filtroCategoriaAtivo) {
+      return produtosFiltradosPorBusca;
+    }
+
+    if (categoria === CATEGORIA_BEBIDAS) {
+      return produtosFiltradosPorBusca.filter((item) => item.categoriaEhBebida);
+    }
+
+    return produtosFiltradosPorBusca.filter((item) => item.categoriaOriginal === categoria);
+  }, [categoria, filtroCategoriaAtivo, produtosFiltradosPorBusca]);
+
+  // Etapa 3 do pipeline: promoção.
+  const produtosFiltradosPorPromocao = useMemo(() => {
+    if (!filtroPromocaoAtivo) {
+      return produtosFiltradosPorCategoria;
+    }
+    return produtosFiltradosPorBusca.filter((item) => item.emPromocao);
+  }, [filtroPromocaoAtivo, produtosFiltradosPorBusca, produtosFiltradosPorCategoria]);
+
+  // Lista linear consumida tanto pelo grid tradicional quanto pelo virtualizado.
+  const produtosFiltradosIndexados = useMemo(() => {
+    return produtosFiltradosPorPromocao;
+  }, [produtosFiltradosPorPromocao]);
 
   const secoesBebidas = useMemo(() => {
-    if (!isBebidasCategoria(categoria)) {
+    if (!categoriaEhBebidas) {
       return [];
     }
 
-    const usados = new Set();
-    const secoes = DRINK_SECTIONS_BEBIDAS.map((section) => {
-      const itens = produtosFiltrados.filter((produto) => {
-        const match = belongsToDrinkSection(produto, section);
-        if (match) {
-          usados.add(produto.id);
-        }
-        return match;
-      });
+    const secoesMap = new Map(
+      DRINK_SECTIONS_BEBIDAS_INDEX.map((section) => [section.id, []])
+    );
+    const outrasBebidas = [];
 
-      return {
-        ...section,
-        itens
-      };
+    produtosFiltradosIndexados.forEach((produtoIndexado) => {
+      const bucket = secoesMap.get(produtoIndexado.bebidaSubcategoriaId);
+      if (bucket) {
+        bucket.push(produtoIndexado);
+      } else {
+        outrasBebidas.push(produtoIndexado);
+      }
     });
 
-    const outrasBebidas = produtosFiltrados.filter((produto) => !usados.has(produto.id));
+    const secoes = DRINK_SECTIONS_BEBIDAS_INDEX.map((section) => ({
+      id: section.id,
+      label: section.label,
+      image: section.image,
+      itensIndexados: secoesMap.get(section.id) || []
+    })).filter((secao) => secao.itensIndexados.length > 0);
 
-    if (outrasBebidas.length > 0) {
+    if (outrasBebidas.length) {
       secoes.push({
         id: 'outras-bebidas',
         label: 'Outras bebidas',
         image: CATEGORY_IMAGES.bebidas,
-        itens: outrasBebidas
+        itensIndexados: outrasBebidas
       });
     }
 
-    return secoes.filter((secao) => secao.itens.length > 0);
-  }, [produtosFiltrados, categoria]);
+    return secoes;
+  }, [categoriaEhBebidas, produtosFiltradosIndexados]);
 
-  const produtosBebidasSubcategoria = useMemo(() => {
-    if (!isBebidasCategoria(categoria) || bebidaSubcategoria === 'todas') {
+  const produtosBebidasSubcategoriaIndexados = useMemo(() => {
+    if (!categoriaEhBebidas || bebidaSubcategoria === 'todas') {
       return [];
     }
-    return produtosFiltrados.filter((produto) => getBebidaSubcategoriaId(produto) === bebidaSubcategoria);
-  }, [categoria, bebidaSubcategoria, produtosFiltrados]);
+    return produtosFiltradosIndexados.filter(
+      (produtoIndexado) => produtoIndexado.bebidaSubcategoriaId === bebidaSubcategoria
+    );
+  }, [bebidaSubcategoria, categoriaEhBebidas, produtosFiltradosIndexados]);
 
   const gruposMarcaBebidas = useMemo(() => {
-    if (!isBebidasCategoria(categoria) || bebidaSubcategoria === 'todas') {
+    if (!categoriaEhBebidas || bebidaSubcategoria === 'todas') {
       return [];
     }
 
-    const defs = BRAND_GROUPS_BY_SUBCATEGORY[bebidaSubcategoria] || [];
-    const usados = new Set();
-    const grupos = defs.map((def) => {
-      const itens = produtosBebidasSubcategoria.filter((produto) => {
-        const match = belongsToBrandGroup(produto, def);
-        if (match) {
-          usados.add(produto.id);
+    const defs = BRAND_GROUPS_BY_SUBCATEGORY_INDEX[bebidaSubcategoria] || [];
+    const gruposComItens = defs.map((def) => ({
+      id: def.id,
+      label: def.label,
+      image: def.image,
+      matchersNormalizados: def.matchersNormalizados,
+      itensIndexados: []
+    }));
+
+    const outros = [];
+
+    produtosBebidasSubcategoriaIndexados.forEach((produtoIndexado) => {
+      let pertenceAAlgumGrupo = false;
+
+      gruposComItens.forEach((grupo) => {
+        if (textoContemMatcher(produtoIndexado.textoBusca, grupo.matchersNormalizados)) {
+          grupo.itensIndexados.push(produtoIndexado);
+          pertenceAAlgumGrupo = true;
         }
-        return match;
       });
 
-      return {
-        ...def,
-        itens
-      };
-    }).filter((grupo) => grupo.itens.length > 0);
+      if (!pertenceAAlgumGrupo) {
+        outros.push(produtoIndexado);
+      }
+    });
 
-    const outros = produtosBebidasSubcategoria.filter((produto) => !usados.has(produto.id));
+    const grupos = gruposComItens.filter((grupo) => grupo.itensIndexados.length > 0);
+
     if (outros.length > 0) {
       grupos.push({
         id: 'outras-marcas',
         label: 'Outras marcas',
         image: CATEGORY_IMAGES.bebidas,
-        itens: outros
+        itensIndexados: outros
       });
     }
 
     return grupos;
-  }, [categoria, bebidaSubcategoria, produtosBebidasSubcategoria]);
+  }, [bebidaSubcategoria, categoriaEhBebidas, produtosBebidasSubcategoriaIndexados]);
 
-  function renderProdutoCard(produto) {
+  const handleAddItem = useCallback((produto) => {
+    addItem(produto, 1);
+  }, [addItem]);
+
+  const renderProdutosGrid = useCallback((itensIndexados, { listId, gridClassName = 'produto-grid' } = {}) => {
     return (
-      <article className="produto-card" key={produto.id}>
-        <img
-          className="produto-image"
-          src={getProdutoImagem(produto)}
-          alt={produto.nome}
-          loading="lazy"
-          onError={(event) => {
-            event.currentTarget.src = '/img/logo-oficial.png';
-          }}
-        />
-        <p className="produto-title">
-          <span>{produto.emoji || '📦'}</span> {produto.nome}
-        </p>
-        <p className="muted-text">{produto.categoria || 'Sem categoria'}</p>
-        <p className="produto-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
-        <button className="btn-primary" type="button" onClick={() => addItem(produto, 1)}>
-          Adicionar ao carrinho
-        </button>
-      </article>
+      <VirtualizedProdutoGrid
+        itensIndexados={itensIndexados}
+        onAddItem={handleAddItem}
+        listId={listId}
+        gridClassName={gridClassName}
+      />
     );
-  }
+  }, [handleAddItem]);
 
   return (
     <section className="page">
@@ -444,7 +1027,7 @@ export default function ProdutosPage() {
               className="field-input"
               type="search"
               value={busca}
-              onChange={(event) => setBusca(event.target.value)}
+              onChange={handleBuscaChange}
               placeholder="🔍 Ex: arroz, café, detergente..."
             />
           </div>
@@ -454,11 +1037,11 @@ export default function ProdutosPage() {
           <select
             className="field-input"
             value={categoria}
-            onChange={(event) => setCategoria(String(event.target.value).toLowerCase())}
+            onChange={handleCategoriaSelectChange}
           >
             {categorias.map((item) => (
               <option key={item} value={item}>
-                {item === 'todas' ? 'Todas as categorias' : item}
+                {item === CATEGORIA_TODAS ? 'Todas as categorias' : item}
               </option>
             ))}
           </select>
@@ -466,14 +1049,7 @@ export default function ProdutosPage() {
           <button
             className="btn-primary"
             type="button"
-            onClick={() => {
-              void carregarProdutos({
-                append: false,
-                pagina: 1,
-                categoriaAlvo: categoria,
-                buscaAlvo: busca
-              });
-            }}
+            onClick={handleAtualizarProdutos}
             disabled={carregando}
           >
             {carregando ? 'Atualizando...' : 'Atualizar produtos'}
@@ -481,24 +1057,19 @@ export default function ProdutosPage() {
         </div>
 
         <div className="legacy-categories" aria-label="Filtros de categoria">
-          {categoriasLegado.map((item) => (
+          {CATEGORIAS_LEGADO.map((item) => (
             <button
               key={item.id}
               type="button"
               className={`category-btn-react ${item.destaque ? 'category-promocoes-react' : ''} ${categoria === item.id ? 'active' : ''}`}
-              onClick={() => {
-                setCategoria(item.id);
-                if (item.id !== 'bebidas') {
-                  setBebidaSubcategoria('todas');
-                }
-              }}
+              onClick={() => handleCategoriaLegadoClick(item.id)}
             >
               {item.label}
             </button>
           ))}
         </div>
 
-        {isBebidasCategoria(categoria) ? (
+        {categoriaEhBebidas ? (
           <div className="bebidas-subcats" aria-label="Subcategorias de bebidas">
             <p className="bebidas-subcats-title">Subcategorias de bebidas</p>
             <div className="bebidas-subcats-actions">
@@ -516,7 +1087,7 @@ export default function ProdutosPage() {
                   className={`category-btn-react ${bebidaSubcategoria === secao.id ? 'active' : ''}`}
                   onClick={() => setBebidaSubcategoria(secao.id)}
                 >
-                  {secao.label} ({secao.itens.length})
+                  {secao.label} ({secao.itensIndexados.length})
                 </button>
               ))}
             </div>
@@ -544,20 +1115,20 @@ export default function ProdutosPage() {
       {erro ? <p className="error-text">{erro}</p> : null}
       {carregando ? <p className="muted-text">Carregando produtos...</p> : null}
 
-      {produtosFiltrados.length === 0 ? (
+      {produtosFiltradosIndexados.length === 0 ? (
         <p className="muted-text">Nenhum produto encontrado com os filtros atuais.</p>
-      ) : isBebidasCategoria(categoria) ? (
+      ) : categoriaEhBebidas ? (
         bebidaSubcategoria === 'todas' ? (
           <div className="brand-sections-list" id="produtos-lista">
             {secoesBebidas.map((secao) => (
               <section className="brand-section" key={secao.id} aria-label={`Produtos da categoria ${secao.label}`}>
                 <div className="brand-section-banner" style={{ '--brand-bg': `url('${secao.image}')` }}>
                   <h2>{secao.label}</h2>
-                  <p>{secao.itens.length} item(ns) nesta categoria</p>
+                  <p>{secao.itensIndexados.length} item(ns) nesta categoria</p>
                 </div>
-                <div className="produto-grid brand-produto-grid">
-                  {secao.itens.map((produto) => renderProdutoCard(produto))}
-                </div>
+                {renderProdutosGrid(secao.itensIndexados, {
+                  gridClassName: 'produto-grid brand-produto-grid'
+                })}
               </section>
             ))}
           </div>
@@ -569,19 +1140,17 @@ export default function ProdutosPage() {
               <section className="brand-section" key={grupo.id} aria-label={`Produtos da marca ${grupo.label}`}>
                 <div className="brand-section-banner" style={{ '--brand-bg': `url('${grupo.image}')` }}>
                   <h2>{grupo.label}</h2>
-                  <p>{grupo.itens.length} item(ns) nesta marca</p>
+                  <p>{grupo.itensIndexados.length} item(ns) nesta marca</p>
                 </div>
-                <div className="produto-grid brand-produto-grid">
-                  {grupo.itens.map((produto) => renderProdutoCard(produto))}
-                </div>
+                {renderProdutosGrid(grupo.itensIndexados, {
+                  gridClassName: 'produto-grid brand-produto-grid'
+                })}
               </section>
             ))}
           </div>
         )
       ) : (
-        <div className="produto-grid" id="produtos-lista">
-          {produtosFiltrados.map((produto) => renderProdutoCard(produto))}
-        </div>
+        <>{renderProdutosGrid(produtosFiltradosIndexados, { listId: 'produtos-lista' })}</>
       )}
 
       {temMaisProdutos ? (

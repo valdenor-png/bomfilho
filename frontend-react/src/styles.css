@@ -764,6 +764,28 @@ body {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 }
 
+.produto-grid-virtualized-shell {
+  margin-top: 1rem;
+  width: 100%;
+}
+
+.brand-produto-grid-virtualized {
+  margin-top: 0.75rem;
+}
+
+.produto-grid-virtualized {
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+}
+
+.produto-grid-virtualized-cell {
+  box-sizing: border-box;
+}
+
+.produto-grid-virtualized-cell .produto-card {
+  height: 100%;
+}
+
 .brand-sections-list {
   margin-top: 1rem;
   display: grid;
@@ -1437,6 +1459,10 @@ body {
 
   .produto-grid {
     grid-template-columns: 1fr;
+  }
+
+  .produto-grid-virtualized-shell {
+    margin-top: 0.85rem;
   }
 
   .produto-card {
