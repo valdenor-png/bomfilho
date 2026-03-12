@@ -96,6 +96,42 @@ function formatarCvvCartao(valor) {
   return String(valor || '').replace(/\D/g, '').slice(0, 4);
 }
 
+function BotaoVoltarSeta({ onClick, label, disabled = false }) {
+  return (
+    <button
+      className="btn-secondary entrega-voltar-carrinho-btn"
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+    >
+      <span className="entrega-voltar-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14.5 5.5L8 12L14.5 18.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </button>
+  );
+}
+
+function LinkVoltarSeta({ to, label }) {
+  return (
+    <Link
+      to={to}
+      className="btn-secondary entrega-voltar-carrinho-btn"
+      aria-label={label}
+      title={label}
+    >
+      <span className="entrega-voltar-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14.5 5.5L8 12L14.5 18.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </Link>
+  );
+}
+
 export default function PagamentoPage() {
   const { itens, resumo, updateItemQuantity, removeItem, clearCart } = useCart();
   const [resultadoPedido, setResultadoPedido] = useState(null);
@@ -576,9 +612,7 @@ export default function PagamentoPage() {
           {itens.length === 0 ? (
             <>
               <p className="muted-text">Carrinho vazio. Adicione produtos na página de produtos.</p>
-              <Link to="/produtos" className="btn-secondary" style={{ display: 'inline-block' }}>
-                Voltar para produtos
-              </Link>
+              <LinkVoltarSeta to="/produtos" label="Voltar para produtos" />
             </>
           ) : (
             <div className="produto-lista">
@@ -698,19 +732,10 @@ export default function PagamentoPage() {
           </div>
 
           <div className="entrega-acoes-row">
-            <button
-              className="btn-secondary entrega-voltar-carrinho-btn"
-              type="button"
+            <BotaoVoltarSeta
               onClick={() => setEtapaAtual(ETAPAS.CARRINHO)}
-              aria-label="Voltar para carrinho"
-              title="Voltar para carrinho"
-            >
-              <span className="entrega-voltar-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M14.5 5.5L8 12L14.5 18.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
-            </button>
+              label="Voltar para carrinho"
+            />
 
             <button
               className="btn-primary entrega-ir-pagamento-btn"
@@ -955,9 +980,10 @@ export default function PagamentoPage() {
               </Link>
             </>
           )}
-          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}>
-            Voltar para entrega
-          </button>
+          <BotaoVoltarSeta
+            onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
+            label="Voltar para entrega"
+          />
         </div>
       ) : null}
 
@@ -1051,9 +1077,10 @@ export default function PagamentoPage() {
           >
             {formaPagamento === 'pix' ? 'Confirmar pagamento' : 'Ir para confirmação'}
           </button>
-          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}>
-            Voltar
-          </button>
+          <BotaoVoltarSeta
+            onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}
+            label="Voltar para pagamento"
+          />
         </div>
       ) : null}
 
@@ -1089,9 +1116,10 @@ export default function PagamentoPage() {
             <p>Após o pagamento, a loja confirma e inicia a preparação/envio do pedido.</p>
           </div>
 
-          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.PIX)}>
-            Voltar para {tituloEtapa4}
-          </button>
+          <BotaoVoltarSeta
+            onClick={() => setEtapaAtual(ETAPAS.PIX)}
+            label={`Voltar para ${tituloEtapa4}`}
+          />
         </div>
       ) : null}
     </section>

@@ -1,86 +1,86 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const cookieParser = require('cookie-parser');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const mysql = require("mysql2/promise");
-const fetch = global.fetch || require('node-fetch');
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+  require('dotenv').config();
+  const express = require('express');
+  const cors = require('cors');
+  const bodyParser = require('body-parser');
+  const cookieParser = require('cookie-parser');
+  const helmet = require('helmet');
+  const rateLimit = require('express-rate-limit');
+  const bcrypt = require('bcryptjs');
+  const jwt = require('jsonwebtoken');
+  const mysql = require("mysql2/promise");
+  const fetch = global.fetch || require('node-fetch');
+  const crypto = require('crypto');
+  const fs = require('fs');
+  const path = require('path');
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
-const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
-const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
-const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
+  const app = express();
+  const PORT = process.env.PORT || 3000;
+  const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
+  const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
+  const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
+  const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
 
-// Configuração Evolution API (WhatsApp)
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
-const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'loja';
-const EVOLUTION_WEBHOOK_TOKEN = String(process.env.EVOLUTION_WEBHOOK_TOKEN || '').trim();
-const WHATSAPP_AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY_ENABLED === 'true';
-const WHATSAPP_AUTO_REPLY_TEXT = String(
-  process.env.WHATSAPP_AUTO_REPLY_TEXT ||
-  'Estamos com o site do Bom Filho no ar. Faca seu pedido por la.'
-).trim();
-const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
-  process.env.WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS || '0',
-  10
-);
+  // Configuração Evolution API (WhatsApp)
+  const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+  const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
+  const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'loja';
+  const EVOLUTION_WEBHOOK_TOKEN = String(process.env.EVOLUTION_WEBHOOK_TOKEN || '').trim();
+  const WHATSAPP_AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY_ENABLED === 'true';
+  const WHATSAPP_AUTO_REPLY_TEXT = String(
+    process.env.WHATSAPP_AUTO_REPLY_TEXT ||
+    'Estamos com o site do Bom Filho no ar. Faca seu pedido por la.'
+  ).trim();
+  const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
+    process.env.WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS || '0',
+    10
+  );
 
-// Configuração PagBank
-const PAGBANK_TOKEN = process.env.PAGBANK_TOKEN;
-const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
-const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
-const PAGBANK_API_URL = process.env.PAGBANK_ENV === 'production' 
-  ? 'https://api.pagseguro.com' 
-  : 'https://sandbox.api.pagseguro.com';
-const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
-const RECAPTCHA_MIN_SCORE = (() => {
-  const valor = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
-  if (!Number.isFinite(valor)) {
-    return 0.5;
-  }
-  return Math.min(1, Math.max(0, valor));
-})();
+  // Configuração PagBank
+  const PAGBANK_TOKEN = process.env.PAGBANK_TOKEN;
+  const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
+  const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
+  const PAGBANK_API_URL = process.env.PAGBANK_ENV === 'production' 
+    ? 'https://api.pagseguro.com' 
+    : 'https://sandbox.api.pagseguro.com';
+  const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
+  const RECAPTCHA_MIN_SCORE = (() => {
+    const valor = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
+    if (!Number.isFinite(valor)) {
+      return 0.5;
+    }
+    return Math.min(1, Math.max(0, valor));
+  })();
 
-const JWT_SECRET = String(process.env.JWT_SECRET || '');
-const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
-const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
-const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-const USER_AUTH_COOKIE_NAME = 'bf_access_token';
-const ADMIN_AUTH_COOKIE_NAME = 'bf_admin_token';
-const CSRF_COOKIE_NAME = 'bf_csrf_token';
-const USER_AUTH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
-const ADMIN_AUTH_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
-const CSRF_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
-const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
-const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
-const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').trim().toLowerCase();
-const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW)
-  ? COOKIE_SAME_SITE_RAW
-  : 'strict';
-const PRECO_COMBUSTIVEL_LITRO = Number(process.env.PRECO_COMBUSTIVEL_LITRO || 6.2);
-const CEP_MERCADO = String(process.env.CEP_MERCADO || '68740-180').replace(/\D/g, '');
-const NUMERO_MERCADO = String(process.env.NUMERO_MERCADO || '70').trim() || '70';
-const LIMITE_BIKE_KM = (() => {
-  const valor = Number(process.env.LIMITE_BIKE_KM || 1);
-  return Number.isFinite(valor) && valor > 0 ? valor : 1;
-})();
-const CEP_GEO_TTL_MS = 24 * 60 * 60 * 1000;
-const cepGeoCache = new Map();
-const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 20000);
-const produtosQueryCache = new Map();
+  const JWT_SECRET = String(process.env.JWT_SECRET || '');
+  app.set ('trust proxy', 1);
+  const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
+  const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const USER_AUTH_COOKIE_NAME = 'bf_access_token';
+  const ADMIN_AUTH_COOKIE_NAME = 'bf_admin_token';
+  const CSRF_COOKIE_NAME = 'bf_csrf_token';
+  const USER_AUTH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+  const ADMIN_AUTH_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
+  const CSRF_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
+  const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+  const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
+  const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').trim().toLowerCase();
+  const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW)
+    ? COOKIE_SAME_SITE_RAW
+    : 'strict';
+  const PRECO_COMBUSTIVEL_LITRO = Number(process.env.PRECO_COMBUSTIVEL_LITRO || 6.2);
+  const CEP_MERCADO = String(process.env.CEP_MERCADO || '68740-180').replace(/\D/g, '');
+  const NUMERO_MERCADO = String(process.env.NUMERO_MERCADO || '70').trim() || '70';
+  const LIMITE_BIKE_KM = (() => {
+    const valor = Number(process.env.LIMITE_BIKE_KM || 1);
+    return Number.isFinite(valor) && valor > 0 ? valor : 1;
+  })();
+  const CEP_GEO_TTL_MS = 24 * 60 * 60 * 1000;
+  const cepGeoCache = new Map();
+  const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 20000);
+  const produtosQueryCache = new Map();
 
 const VEICULOS_ENTREGA = {
   bike: {
