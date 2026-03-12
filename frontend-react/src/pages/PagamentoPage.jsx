@@ -103,7 +103,6 @@ function BotaoVoltarSeta({ onClick, label, disabled = false }) {
       type="button"
       onClick={onClick}
       aria-label={label}
-      title={label}
       disabled={disabled}
     >
       <span className="entrega-voltar-icon" aria-hidden="true">
@@ -121,7 +120,6 @@ function LinkVoltarSeta({ to, label }) {
       to={to}
       className="btn-secondary entrega-voltar-carrinho-btn"
       aria-label={label}
-      title={label}
     >
       <span className="entrega-voltar-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
