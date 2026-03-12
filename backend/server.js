@@ -26,6 +26,56 @@
     );
   }
 
+  function parseBooleanEnv(name, fallback = false) {
+    const rawValue = String(process.env[name] || '').trim().toLowerCase();
+
+    if (!rawValue) {
+      return fallback;
+    }
+
+    if (['true', '1', 'yes', 'on'].includes(rawValue)) {
+      return true;
+    }
+
+    if (['false', '0', 'no', 'off'].includes(rawValue)) {
+      return false;
+    }
+
+    return fallback;
+  }
+
+  function requireEnv(name) {
+    const value = String(process.env[name] || '').trim();
+    if (!value) {
+      console.error(`❌ Variável obrigatória não definida: ${name}`);
+      process.exit(1);
+    }
+
+    return value;
+  }
+
+  // ============================================
+  // CONFIGURACAO DE AMBIENTE (BOOT)
+  // ============================================
+  const NODE_ENV = String(process.env.NODE_ENV || 'development').trim().toLowerCase() || 'development';
+  const IS_PRODUCTION = NODE_ENV === 'production';
+  const TRUST_PROXY = parseBooleanEnv('TRUST_PROXY', IS_PRODUCTION);
+
+  const DATABASE_URL = requireEnv('DATABASE_URL');
+  const JWT_SECRET = requireEnv('JWT_SECRET');
+
+  const PAGBANK_ENV = String(process.env.PAGBANK_ENV || 'sandbox').trim().toLowerCase() === 'production'
+    ? 'production'
+    : 'sandbox';
+  const PAGBANK_TOKEN = String(process.env.PAGBANK_TOKEN || '').trim();
+  const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
+  const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
+  const PAGBANK_DEBUG_LOGS = parseBooleanEnv('PAGBANK_DEBUG_LOGS', true);
+
+  console.log(`🚀 Ambiente: ${NODE_ENV}`);
+  console.log(`🔐 PagBank configurado: ${Boolean(PAGBANK_TOKEN)}`);
+  console.log(`🌐 Trust proxy ativo: ${TRUST_PROXY}`);
+
   // Configuração Evolution API (WhatsApp)
   const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
   const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
@@ -42,11 +92,7 @@
   );
 
   // Configuração PagBank
-  const PAGBANK_TOKEN = process.env.PAGBANK_TOKEN;
-  const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
-  const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
-  const PAGBANK_DEBUG_LOGS = process.env.PAGBANK_DEBUG_LOGS !== 'false';
-  const PAGBANK_API_URL = process.env.PAGBANK_ENV === 'production' 
+  const PAGBANK_API_URL = PAGBANK_ENV === 'production' 
     ? 'https://api.pagseguro.com' 
     : 'https://sandbox.api.pagseguro.com';
   const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
@@ -58,8 +104,6 @@
     return Math.min(1, Math.max(0, valor));
   })();
 
-  const JWT_SECRET = String(process.env.JWT_SECRET || '');
-  app.set ('trust proxy', 1);
   const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
   const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
     .split(',')
@@ -71,7 +115,7 @@
   const USER_AUTH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
   const ADMIN_AUTH_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
   const CSRF_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
-  const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+  const COOKIE_SECURE = parseBooleanEnv('COOKIE_SECURE', IS_PRODUCTION);
   const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
   const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').trim().toLowerCase();
   const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW)
@@ -348,7 +392,7 @@ async function calcularEntregaPorCep({ cepDestino, veiculo }) {
 
 if (JWT_SECRET.length < 32) {
   const aviso = 'JWT_SECRET deve ter no mínimo 32 caracteres para segurança adequada.';
-  if (process.env.NODE_ENV === 'production') {
+  if (IS_PRODUCTION) {
     throw new Error(aviso);
   }
   console.warn(`⚠️ ${aviso}`);
@@ -844,7 +888,7 @@ app.get('/api/pagbank/public-key', (req, res) => {
         statusHttp: 500,
         detalhe: 'PAGBANK_PUBLIC_KEY ausente, vazia ou inválida',
         extra: {
-          pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
+          pagbank_env: PAGBANK_ENV,
           public_key_present: false
         }
       });
@@ -860,7 +904,7 @@ app.get('/api/pagbank/public-key', (req, res) => {
       statusHttp: 200,
       detalhe: 'Chave pública PagBank retornada com sucesso',
       extra: {
-        pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
+        pagbank_env: PAGBANK_ENV,
         public_key_present: true
       }
     });
@@ -874,7 +918,7 @@ app.get('/api/pagbank/public-key', (req, res) => {
       statusHttp: 500,
       detalhe: erro?.message || 'Erro inesperado ao obter chave pública PagBank',
       extra: {
-        pagbank_env: process.env.PAGBANK_ENV || 'sandbox'
+        pagbank_env: PAGBANK_ENV
       }
     });
 
@@ -901,7 +945,7 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
     }
 
     res.json({
-      pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
+      pagbank_env: PAGBANK_ENV,
       pagbank_api_url: PAGBANK_API_URL,
       base_url: baseUrl,
       webhook_url: webhookUrl,
@@ -925,7 +969,7 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
     // Para diagnóstico no sandbox, aceitamos enviar um CPF de teste se não for informado.
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
-    const taxId = taxIdDigits || (process.env.PAGBANK_ENV === 'production' ? null : '12345678909');
+    const taxId = taxIdDigits || (PAGBANK_ENV === 'production' ? null : '12345678909');
 
     if (!taxId) {
       return res.status(400).json({
@@ -949,7 +993,7 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
 
     return res.json({
       ok: true,
-      pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
+      pagbank_env: PAGBANK_ENV,
       notification_url: montarWebhookPagBankUrl({ incluirToken: false }),
       webhook_protected: !!PAGBANK_WEBHOOK_TOKEN,
       pagbank_order_id: resultadoPix?.id || null,
@@ -968,12 +1012,7 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
 // ============================================
 // CONEXÃO COM O BANCO DE DADOS
 // ============================================
-const databaseUrlRaw = String(process.env.DATABASE_URL || '').trim();
-if (!databaseUrlRaw) {
-  throw new Error('DATABASE_URL não configurada no ambiente.');
-}
-
-const dbUrl = new URL(databaseUrlRaw);
+const dbUrl = new URL(DATABASE_URL);
 
 const pool = mysql.createPool({
   host: dbUrl.hostname,
@@ -2458,7 +2497,7 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
     const { pedido_id } = req.body;
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
-    const taxId = taxIdDigits || (process.env.PAGBANK_ENV === 'production' ? null : '12345678909');
+    const taxId = taxIdDigits || (PAGBANK_ENV === 'production' ? null : '12345678909');
 
     if (!PAGBANK_TOKEN) {
       return res.status(503).json({ erro: 'PagBank não configurado' });
@@ -2762,7 +2801,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
 
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
-    const pagbankProducao = process.env.PAGBANK_ENV === 'production';
+    const pagbankProducao = PAGBANK_ENV === 'production';
     const usaPagbank = ['pix', 'cartao', 'credito', 'debito'].includes(formaPagamento);
 
     if (usaPagbank && pagbankProducao && !PAGBANK_TOKEN) {
