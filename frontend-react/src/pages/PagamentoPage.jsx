@@ -583,16 +583,6 @@ export default function PagamentoPage() {
       <h1>Finalizar pedido</h1>
       <p>Fluxo em etapas: carrinho, entrega por CEP, forma de pagamento, processamento e confirmação.</p>
 
-      {autenticado === false ? (
-        <div className="card-box">
-          <p><strong>Faça login para concluir o pedido e processar o pagamento.</strong></p>
-          <p>Você pode revisar e editar o carrinho normalmente antes do login.</p>
-          <Link to="/conta" className="btn-primary" style={{ display: 'inline-block', marginTop: '0.4rem' }}>
-            Ir para Conta
-          </Link>
-        </div>
-      ) : null}
-
       <div className="checkout-steps" aria-label="Etapas do checkout">
         {['Carrinho', 'Entrega', 'Pagamento', tituloEtapa4, 'Confirmação'].map((titulo, index) => (
           <div key={titulo} className={`checkout-step ${etapaIndex >= index ? 'active' : ''}`}>
@@ -973,15 +963,23 @@ export default function PagamentoPage() {
           ) : (
             <>
               <p className="muted-text">Entre na sua conta para continuar para o pagamento.</p>
-              <Link to="/conta" className="btn-primary" style={{ display: 'inline-block' }}>
-                Ir para Conta
-              </Link>
+              <div className="entrega-acoes-row">
+                <BotaoVoltarSeta
+                  onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
+                  label="Voltar para entrega"
+                />
+                <Link to="/conta" className="btn-primary entrega-ir-pagamento-btn">
+                  Ir para Conta
+                </Link>
+              </div>
             </>
           )}
-          <BotaoVoltarSeta
-            onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
-            label="Voltar para entrega"
-          />
+          {autenticado === true ? (
+            <BotaoVoltarSeta
+              onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
+              label="Voltar para entrega"
+            />
+          ) : null}
         </div>
       ) : null}
 

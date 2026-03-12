@@ -1,4 +1,4 @@
-  require('dotenv').config();
+  const dotenvLoadResult = require('dotenv').config();
   const express = require('express');
   const cors = require('cors');
   const bodyParser = require('body-parser');
@@ -20,6 +20,12 @@
   const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
   const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
 
+  if (dotenvLoadResult?.error) {
+    console.warn(
+      `[${new Date().toISOString()}] dotenv: arquivo .env não carregado (${dotenvLoadResult.error.message}). Usando variáveis de ambiente do sistema.`
+    );
+  }
+
   // Configuração Evolution API (WhatsApp)
   const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
   const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
@@ -39,6 +45,7 @@
   const PAGBANK_TOKEN = process.env.PAGBANK_TOKEN;
   const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
   const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
+  const PAGBANK_DEBUG_LOGS = process.env.PAGBANK_DEBUG_LOGS !== 'false';
   const PAGBANK_API_URL = process.env.PAGBANK_ENV === 'production' 
     ? 'https://api.pagseguro.com' 
     : 'https://sandbox.api.pagseguro.com';
@@ -405,6 +412,37 @@ function montarWebhookPagBankUrl({ incluirToken = true } = {}) {
   }
 
   return webhookBase;
+}
+
+function obterPagBankPublicKeyAtual() {
+  const chaveBruta = String(process.env.PAGBANK_PUBLIC_KEY || PAGBANK_PUBLIC_KEY || '').trim();
+  if (!chaveBruta) {
+    return '';
+  }
+
+  // Remove aspas acidentais na configuração e normaliza quebras de linha escapadas.
+  return chaveBruta
+    .replace(/^['"]|['"]$/g, '')
+    .replace(/\\n/g, '\n')
+    .trim();
+}
+
+function registrarLogEndpointDiagnostico({ endpoint, statusHttp, detalhe, extra } = {}) {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    endpoint: String(endpoint || ''),
+    status_http: Number.isFinite(Number(statusHttp)) ? Number(statusHttp) : null,
+    detalhe: detalhe ? String(detalhe) : undefined,
+    extra
+  };
+
+  const status = Number(payload.status_http || 0);
+  if (status >= 500) {
+    console.error('📍 API diagnóstico:', JSON.stringify(payload));
+    return;
+  }
+
+  console.log('📍 API diagnóstico:', JSON.stringify(payload));
 }
 
 function extrairBearerToken(req) {
@@ -795,17 +833,56 @@ if (SHOULD_SERVE_REACT && fs.existsSync(FRONTEND_DIST_PATH)) {
 
 // Chave publica do PagBank para criptografia de cartao no frontend
 app.get('/api/pagbank/public-key', (req, res) => {
-  if (!PAGBANK_PUBLIC_KEY) {
-    return res.status(503).json({
-      erro: 'PAGBANK_PUBLIC_KEY não configurada no backend'
+  const endpoint = '/api/pagbank/public-key';
+
+  try {
+    const publicKey = obterPagBankPublicKeyAtual();
+
+    if (!publicKey) {
+      registrarLogEndpointDiagnostico({
+        endpoint,
+        statusHttp: 500,
+        detalhe: 'PAGBANK_PUBLIC_KEY ausente, vazia ou inválida',
+        extra: {
+          pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
+          public_key_present: false
+        }
+      });
+
+      return res.status(500).json({
+        erro: 'PAGBANK_PUBLIC_KEY não configurada no backend',
+        public_key: ''
+      });
+    }
+
+    registrarLogEndpointDiagnostico({
+      endpoint,
+      statusHttp: 200,
+      detalhe: 'Chave pública PagBank retornada com sucesso',
+      extra: {
+        pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
+        public_key_present: true
+      }
+    });
+
+    return res.status(200).json({
+      public_key: publicKey
+    });
+  } catch (erro) {
+    registrarLogEndpointDiagnostico({
+      endpoint,
+      statusHttp: 500,
+      detalhe: erro?.message || 'Erro inesperado ao obter chave pública PagBank',
+      extra: {
+        pagbank_env: process.env.PAGBANK_ENV || 'sandbox'
+      }
+    });
+
+    return res.status(500).json({
+      erro: 'Erro ao obter a chave pública do PagBank',
+      public_key: ''
     });
   }
-
-  return res.json({
-    pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
-    public_key: PAGBANK_PUBLIC_KEY,
-    sdk_url: 'https://assets.pagseguro.com.br/checkout-sdk-js/rc/dist/browser/pagseguro.min.js'
-  });
 });
 
 // Diagnóstico PagBank: valida token e mostra URLs configuradas
@@ -829,7 +906,7 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
       base_url: baseUrl,
       webhook_url: webhookUrl,
       token_present: !!token,
-      public_key_present: !!PAGBANK_PUBLIC_KEY,
+      public_key_present: !!obterPagBankPublicKeyAtual(),
       webhook_protected: !!PAGBANK_WEBHOOK_TOKEN,
       auth_check: pagbankLastAuthCheck
     });
@@ -944,6 +1021,161 @@ function mapearStatusPedido(statusPagBank) {
   if (statusPagBank === 'WAITING' || statusPagBank === 'IN_ANALYSIS') return 'pendente';
   if (statusPagBank === 'DECLINED' || statusPagBank === 'CANCELED') return 'cancelado';
   return 'pendente';
+}
+
+function mascararTextoSensivel(valor, { prefixo = 6, sufixo = 4 } = {}) {
+  const texto = String(valor || '').trim();
+  if (!texto) {
+    return '';
+  }
+
+  if (texto.length <= prefixo + sufixo) {
+    return `${texto.slice(0, 2)}***`;
+  }
+
+  return `${texto.slice(0, prefixo)}***${texto.slice(-sufixo)}`;
+}
+
+function deveMascararCampoLog({ chave, caminho }) {
+  const key = String(chave || '').toLowerCase();
+  const pathKey = `${String(caminho || '').toLowerCase()}.${key}`;
+
+  if (['token_cartao', 'cartao_encriptado', 'encrypted', 'encryptedcard'].includes(key)) {
+    return true;
+  }
+
+  if (['tax_id', 'cpf', 'cnpj', 'x-webhook-token', 'webhook_token'].includes(key)) {
+    return true;
+  }
+
+  if (key === 'token' || key.endsWith('_token')) {
+    return true;
+  }
+
+  if (['cvv', 'securitycode', 'security_code'].includes(key)) {
+    return true;
+  }
+
+  if (key === 'number' && pathKey.includes('.card')) {
+    return true;
+  }
+
+  return false;
+}
+
+function mascararTokensEmTexto(texto) {
+  return String(texto || '').replace(
+    /([?&](?:token|access_token|signature|webhook_token)=)([^&]+)/gi,
+    '$1***'
+  );
+}
+
+function sanitizarPayloadPagBankParaLog(valor, caminho = 'root') {
+  if (Array.isArray(valor)) {
+    return valor.map((item, index) => sanitizarPayloadPagBankParaLog(item, `${caminho}[${index}]`));
+  }
+
+  if (typeof valor === 'string') {
+    return mascararTokensEmTexto(valor);
+  }
+
+  if (!valor || typeof valor !== 'object') {
+    return valor;
+  }
+
+  const saida = {};
+
+  for (const [chave, conteudo] of Object.entries(valor)) {
+    if (deveMascararCampoLog({ chave, caminho })) {
+      saida[chave] = mascararTextoSensivel(conteudo);
+      continue;
+    }
+
+    saida[chave] = sanitizarPayloadPagBankParaLog(conteudo, `${caminho}.${chave}`);
+  }
+
+  return saida;
+}
+
+function registrarLogPagBank({
+  operacao,
+  endpoint,
+  method,
+  httpStatus,
+  requestPayload,
+  responsePayload,
+  extra
+} = {}) {
+  if (!PAGBANK_DEBUG_LOGS) {
+    return;
+  }
+
+  const logSeguro = {
+    operacao: String(operacao || 'pagbank'),
+    method: String(method || 'POST').toUpperCase(),
+    endpoint: String(endpoint || ''),
+    http_status: Number.isFinite(Number(httpStatus)) ? Number(httpStatus) : null,
+    request: requestPayload !== undefined ? sanitizarPayloadPagBankParaLog(requestPayload) : undefined,
+    response: responsePayload !== undefined ? sanitizarPayloadPagBankParaLog(responsePayload) : undefined,
+    extra: extra !== undefined ? sanitizarPayloadPagBankParaLog(extra) : undefined,
+    timestamp: new Date().toISOString()
+  };
+
+  console.log('📦 PagBank debug:', JSON.stringify(logSeguro));
+}
+
+function mapearStatusPorEventoPagBank(evento) {
+  const eventoUpper = String(evento || '').trim().toUpperCase();
+
+  if (!eventoUpper) {
+    return '';
+  }
+
+  if (['CHARGE.PAID', 'ORDER.PAID', 'CHARGE.CAPTURED'].includes(eventoUpper)) {
+    return 'PAID';
+  }
+
+  if (['CHARGE.DECLINED', 'ORDER.CANCELED', 'CHARGE.CANCELED', 'ORDER.DECLINED'].includes(eventoUpper)) {
+    return 'DECLINED';
+  }
+
+  if (['CHARGE.IN_ANALYSIS', 'ORDER.IN_ANALYSIS'].includes(eventoUpper)) {
+    return 'IN_ANALYSIS';
+  }
+
+  if (['ORDER.CREATED', 'CHARGE.CREATED', 'ORDER.WAITING', 'CHARGE.WAITING'].includes(eventoUpper)) {
+    return 'WAITING';
+  }
+
+  return '';
+}
+
+function extrairStatusPagamentoPagBank(payload = {}, evento) {
+  const charges = Array.isArray(payload?.charges) ? payload.charges : [];
+  const chargePrincipal = charges[0] || null;
+  const chargeStatus = String(chargePrincipal?.status || '').trim().toUpperCase();
+  const orderStatus = String(payload?.status || '').trim().toUpperCase();
+  const eventStatus = mapearStatusPorEventoPagBank(evento);
+  const statusResolvido = chargeStatus || eventStatus || orderStatus || 'WAITING';
+
+  let fonteStatus = 'fallback';
+  if (chargeStatus) {
+    fonteStatus = 'charge';
+  } else if (eventStatus) {
+    fonteStatus = 'event';
+  } else if (orderStatus) {
+    fonteStatus = 'order';
+  }
+
+  return {
+    statusResolvido,
+    fonteStatus,
+    orderStatus,
+    chargeStatus,
+    eventStatus,
+    chargePrincipal,
+    charges
+  };
 }
 
 function normalizarParcelasCartao(valor) {
@@ -1076,18 +1308,38 @@ async function verificarCredencialPagBank() {
 async function obterPedidoPagBank(orderId) {
   if (!PAGBANK_TOKEN) return null;
   if (!orderId) return null;
-  const response = await fetch(`${PAGBANK_API_URL}/orders/${orderId}`, {
+  const endpoint = `${PAGBANK_API_URL}/orders/${orderId}`;
+  const response = await fetch(endpoint, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${PAGBANK_TOKEN}`,
       'Content-Type': 'application/json'
     }
   });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Erro ao consultar PagBank order ${orderId}: ${response.status} - ${errorText}`);
+  const responseText = await response.text();
+  let responsePayload = {};
+  try {
+    responsePayload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responsePayload = { raw_text: responseText };
   }
-  return await response.json();
+
+  registrarLogPagBank({
+    operacao: 'orders.get',
+    endpoint,
+    method: 'GET',
+    httpStatus: response.status,
+    responsePayload,
+    extra: { order_id: orderId }
+  });
+
+  if (!response.ok) {
+    const detalheErro = typeof responsePayload?.raw_text === 'string'
+      ? responsePayload.raw_text
+      : JSON.stringify(responsePayload);
+    throw new Error(`Erro ao consultar PagBank order ${orderId}: ${response.status} - ${detalheErro}`);
+  }
+  return responsePayload;
 }
 
 async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxId }) {
@@ -1157,8 +1409,21 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
   console.log('🔔 PagBank notification URL:', payload.notification_urls?.[0]);
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const endpoint = `${PAGBANK_API_URL}/orders`;
 
-  const response = await fetch(`${PAGBANK_API_URL}/orders`, {
+  registrarLogPagBank({
+    operacao: 'orders.pix.request',
+    endpoint,
+    method: 'POST',
+    requestPayload: payload,
+    extra: {
+      idempotency_key: idempotencyKey,
+      pedido_id: pedidoId,
+      notification_url: payload.notification_urls?.[0]
+    }
+  });
+
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${PAGBANK_TOKEN}`,
@@ -1169,13 +1434,35 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
     body: JSON.stringify(payload)
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Erro PagBank: ${response.status} - ${errorText}`);
+  const responseText = await response.text();
+  let responsePayload = {};
+  try {
+    responsePayload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responsePayload = { raw_text: responseText };
   }
 
-  const resultado = await response.json();
-  return resultado;
+  registrarLogPagBank({
+    operacao: 'orders.pix.response',
+    endpoint,
+    method: 'POST',
+    httpStatus: response.status,
+    requestPayload: payload,
+    responsePayload,
+    extra: {
+      idempotency_key: idempotencyKey,
+      pedido_id: pedidoId
+    }
+  });
+
+  if (!response.ok) {
+    const detalheErro = typeof responsePayload?.raw_text === 'string'
+      ? responsePayload.raw_text
+      : JSON.stringify(responsePayload);
+    throw new Error(`Erro PagBank: ${response.status} - ${detalheErro}`);
+  }
+
+  return responsePayload;
 }
 
 async function criarPagamentoCartao({
@@ -1255,9 +1542,31 @@ async function criarPagamentoCartao({
     ]
   };
 
-  const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const hasEncryptedCard = Boolean(payload?.charges?.[0]?.payment_method?.card?.encrypted);
+  if (!hasEncryptedCard) {
+    throw new Error('payment_method.card.encrypted não foi preenchido para o PagBank.');
+  }
 
-  const response = await fetch(`${PAGBANK_API_URL}/orders`, {
+  const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const endpoint = `${PAGBANK_API_URL}/orders`;
+
+  registrarLogPagBank({
+    operacao: 'orders.cartao.request',
+    endpoint,
+    method: 'POST',
+    requestPayload: payload,
+    extra: {
+      idempotency_key: idempotencyKey,
+      pedido_id: pedidoId,
+      tipo_cartao: tipoCartaoNormalizado,
+      installments: tipoCartaoNormalizado === 'debito' ? 1 : parcelasNormalizadas,
+      capture: payload?.charges?.[0]?.payment_method?.capture,
+      has_encrypted_card: hasEncryptedCard,
+      notification_url: payload.notification_urls?.[0]
+    }
+  });
+
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${PAGBANK_TOKEN}`,
@@ -1268,12 +1577,37 @@ async function criarPagamentoCartao({
     body: JSON.stringify(payload)
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Erro PagBank cartão: ${response.status} - ${errorText}`);
+  const responseText = await response.text();
+  let responsePayload = {};
+  try {
+    responsePayload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responsePayload = { raw_text: responseText };
   }
 
-  return await response.json();
+  registrarLogPagBank({
+    operacao: 'orders.cartao.response',
+    endpoint,
+    method: 'POST',
+    httpStatus: response.status,
+    requestPayload: payload,
+    responsePayload,
+    extra: {
+      idempotency_key: idempotencyKey,
+      pedido_id: pedidoId,
+      tipo_cartao: tipoCartaoNormalizado,
+      has_charges_in_response: Array.isArray(responsePayload?.charges) && responsePayload.charges.length > 0
+    }
+  });
+
+  if (!response.ok) {
+    const detalheErro = typeof responsePayload?.raw_text === 'string'
+      ? responsePayload.raw_text
+      : JSON.stringify(responsePayload);
+    throw new Error(`Erro PagBank cartão: ${response.status} - ${detalheErro}`);
+  }
+
+  return responsePayload;
 }
 
 async function enviarWhatsappTexto({ telefone, mensagem }) {
@@ -2220,6 +2554,17 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     const tipoCartaoSolicitado = String(req.body?.tipo_cartao || req.body?.forma_pagamento || '').trim();
     const parcelas = normalizarParcelasCartao(req.body?.parcelas);
 
+    registrarLogPagBank({
+      operacao: 'api.pagamentos.cartao.request',
+      endpoint: '/api/pagamentos/cartao',
+      method: 'POST',
+      requestPayload: req.body,
+      extra: {
+        usuario_id: req.usuario?.id || null,
+        pedido_id
+      }
+    });
+
     if (!PAGBANK_TOKEN) {
       return res.status(503).json({ erro: 'PagBank não configurado' });
     }
@@ -2267,7 +2612,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       return res.status(400).json({ erro: 'Este pedido foi criado para crédito. Use tipo_cartao=credito.' });
     }
 
-    const pagamento = await criarPagamentoCartao({
+    let pagamento = await criarPagamentoCartao({
       pedidoId: pedido.id,
       total: pedido.total,
       descricao: `Pedido #${pedido.id}`,
@@ -2279,13 +2624,30 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       tipoCartao
     });
 
-    const chargePrincipal = pagamento?.charges?.[0] || {};
-    const paymentResponse = chargePrincipal?.payment_response || {};
-    const statusPagBank = String(
-      chargePrincipal?.status || pagamento?.status || 'WAITING'
-    ).toUpperCase();
-    const statusInterno = mapearStatusPedido(statusPagBank);
     const pagbankOrderId = pagamento?.id || null;
+    let statusInfo = extrairStatusPagamentoPagBank(pagamento);
+
+    const precisaReconsultaOrder = Boolean(
+      pagbankOrderId
+      && (!statusInfo.chargeStatus || statusInfo.orderStatus === 'CREATED')
+    );
+
+    if (precisaReconsultaOrder) {
+      try {
+        const detalhesOrder = await obterPedidoPagBank(pagbankOrderId);
+        if (detalhesOrder) {
+          pagamento = detalhesOrder;
+          statusInfo = extrairStatusPagamentoPagBank(detalhesOrder);
+        }
+      } catch (erroConsultaOrder) {
+        console.warn('⚠️ Não foi possível reconsultar order no PagBank após criação:', erroConsultaOrder?.message || erroConsultaOrder);
+      }
+    }
+
+    const chargePrincipal = statusInfo.chargePrincipal || {};
+    const paymentResponse = chargePrincipal?.payment_response || {};
+    const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
+    const statusInterno = mapearStatusPedido(statusPagBank);
     const pagbankChargeId = chargePrincipal?.id || null;
 
     try {
@@ -2299,18 +2661,51 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       console.warn('Não foi possível salvar dados do pagamento cartão (faltam colunas?):', err.message);
     }
 
-    return res.json({
+    const payloadResposta = {
       payment_id: pagbankChargeId,
       pagbank_order_id: pagbankOrderId,
       status: statusPagBank,
       status_interno: statusInterno,
-      tipo_cartao: tipoEsperadoPedido,
-      parcelas: tipoEsperadoPedido === 'debito' ? 1 : parcelas,
+      status_order: statusInfo.orderStatus || null,
+      status_charge: statusInfo.chargeStatus || null,
+      status_fonte: statusInfo.fonteStatus,
+      tipo_cartao: tipoCartao,
+      parcelas: tipoCartao === 'debito' ? 1 : parcelas,
       authorization_code: paymentResponse?.code || null,
       message: paymentResponse?.message || null,
       raw: pagamento
+    };
+
+    registrarLogPagBank({
+      operacao: 'api.pagamentos.cartao.response',
+      endpoint: '/api/pagamentos/cartao',
+      method: 'POST',
+      httpStatus: 200,
+      responsePayload: payloadResposta,
+      extra: {
+        usuario_id: req.usuario?.id || null,
+        pedido_id: pedido.id,
+        pagbank_order_id: pagbankOrderId,
+        pagbank_charge_id: pagbankChargeId
+      }
     });
+
+    return res.json(payloadResposta);
   } catch (erro) {
+    registrarLogPagBank({
+      operacao: 'api.pagamentos.cartao.error',
+      endpoint: '/api/pagamentos/cartao',
+      method: 'POST',
+      httpStatus: 500,
+      requestPayload: req.body,
+      responsePayload: {
+        erro: erro?.message || 'Erro ao processar pagamento com cartão'
+      },
+      extra: {
+        usuario_id: req.usuario?.id || null
+      }
+    });
+
     console.error('Erro ao processar pagamento com cartão:', erro);
     return res.status(500).json({ erro: erro?.message || 'Erro ao processar pagamento com cartão' });
   }
@@ -3043,7 +3438,7 @@ app.post('/api/webhooks/evolution', async (req, res) => {
 });
 
 // ============================================
-// WEBHOOK PAGBANK (PIX)
+// WEBHOOK PAGBANK (PIX + CARTAO)
 // ============================================
 app.post('/api/webhooks/pagbank', async (req, res) => {
   try {
@@ -3051,12 +3446,8 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
       return res.status(401).json({ erro: 'Webhook não autorizado' });
     }
 
-    const notificacao = req.body;
-
-    console.log('📩 Webhook PagBank recebido:', {
-      id: notificacao?.id || null,
-      reference_id: notificacao?.reference_id || null
-    });
+    const notificacao = req.body || {};
+    const eventType = String(notificacao?.event || notificacao?.type || '').trim().toUpperCase();
 
     // PagBank envia notificações com estrutura:
     // { id, reference_id, charges: [{ id, status, ... }] }
@@ -3065,29 +3456,50 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
       return res.status(400).json({ erro: 'Notificação inválida' });
     }
 
-    const orderId = notificacao.id;
+    const orderId = String(notificacao.id).trim();
 
     // Alguns eventos podem vir sem reference_id/charges.
     // Se faltar, consulta o pedido no PagBank para obter os dados completos.
     let referenceId = notificacao.reference_id; // Ex: "pedido_123"
-    let charges = notificacao.charges || [];
-    if ((!referenceId || charges.length === 0) && PAGBANK_TOKEN) {
+    let charges = Array.isArray(notificacao.charges) ? notificacao.charges : [];
+    let orderStatus = String(notificacao?.status || '').trim().toUpperCase();
+    if ((!referenceId || charges.length === 0 || !orderStatus) && PAGBANK_TOKEN) {
       try {
         const detalhes = await obterPedidoPagBank(orderId);
         referenceId = referenceId || detalhes?.reference_id;
         charges = charges.length ? charges : (detalhes?.charges || []);
+        orderStatus = orderStatus || String(detalhes?.status || '').trim().toUpperCase();
       } catch (errConsulta) {
         console.error('Erro ao consultar pedido no PagBank:', errConsulta.message);
       }
     }
-    
-    // Pegar o status da primeira cobrança
-    let statusPagBank = 'WAITING';
-    if (charges.length > 0) {
-      statusPagBank = charges[0].status || 'WAITING';
-    }
+
+    const statusInfo = extrairStatusPagamentoPagBank(
+      {
+        status: orderStatus,
+        charges
+      },
+      eventType
+    );
+    const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
 
     const statusInterno = mapearStatusPedido(statusPagBank);
+
+    registrarLogPagBank({
+      operacao: 'webhook.pagbank.recebido',
+      endpoint: '/api/webhooks/pagbank',
+      method: 'POST',
+      requestPayload: notificacao,
+      extra: {
+        event_type: eventType || null,
+        order_id: orderId,
+        reference_id: referenceId || null,
+        status_pagbank: statusPagBank,
+        status_fonte: statusInfo.fonteStatus,
+        status_order: statusInfo.orderStatus || null,
+        status_charge: statusInfo.chargeStatus || null
+      }
+    });
     
     // Extrair pedidoId do reference_id (formato: "pedido_123")
     let pedidoId = null;
@@ -3098,22 +3510,44 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
 
     if (pedidoId) {
       try {
-        await pool.query(
+        const [resultadoUpdate] = await pool.query(
           'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ? WHERE id = ?',
           [statusInterno, statusPagBank, orderId, pedidoId]
         );
         console.log(`✅ Pedido #${pedidoId} atualizado para status: ${statusInterno}`);
+        registrarLogPagBank({
+          operacao: 'webhook.pagbank.persistencia',
+          endpoint: '/api/webhooks/pagbank',
+          method: 'POST',
+          responsePayload: {
+            pedido_id: pedidoId,
+            status_interno: statusInterno,
+            status_pagbank: statusPagBank,
+            linhas_afetadas: Number(resultadoUpdate?.affectedRows || 0)
+          }
+        });
       } catch (err) {
         console.error('Erro ao atualizar pedido:', err.message);
       }
     } else {
       // Tentar encontrar pelo pix_id
       try {
-        await pool.query(
+        const [resultadoUpdate] = await pool.query(
           'UPDATE pedidos SET status = ?, pix_status = ? WHERE pix_id = ?',
           [statusInterno, statusPagBank, orderId]
         );
         console.log(`✅ Pedido com pix_id ${orderId} atualizado para status: ${statusInterno}`);
+        registrarLogPagBank({
+          operacao: 'webhook.pagbank.persistencia',
+          endpoint: '/api/webhooks/pagbank',
+          method: 'POST',
+          responsePayload: {
+            pix_id: orderId,
+            status_interno: statusInterno,
+            status_pagbank: statusPagBank,
+            linhas_afetadas: Number(resultadoUpdate?.affectedRows || 0)
+          }
+        });
       } catch (err) {
         console.error('Erro ao atualizar pedido por pix_id:', err.message);
       }
