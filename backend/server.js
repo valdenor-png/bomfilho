@@ -110,6 +110,13 @@
 
   const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
   const CORS_ORIGINS = (() => {
+    const fallbackOrigins = [
+      'https://bomfilho-delivery.vercel.app',
+      'https://bomfilho-web.vercel.app',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173'
+    ];
+
     const configuredOrigins = String(process.env.CORS_ORIGINS || '')
       .split(',')
       .map((origin) => String(origin).trim())
@@ -119,17 +126,17 @@
       configuredOrigins.push(FRONTEND_APP_URL);
     }
 
-    const fallbackOrigins = [
-      'https://bomfilho-delivery.vercel.app',
-      'http://localhost:5173'
-    ];
-
-    const origins = configuredOrigins.length > 0 ? configuredOrigins : fallbackOrigins;
+    const origins = [...fallbackOrigins, ...configuredOrigins];
 
     return Array.from(
       new Set(origins.map((origin) => String(origin).trim().replace(/\/+$/, '').toLowerCase()).filter(Boolean))
     );
   })();
+  const CORS_ORIGIN_PATTERNS = [
+    /^https:\/\/bomfilho-delivery(?:-[a-z0-9-]+)?\.vercel\.app$/i,
+    /^https:\/\/bomfilho-web(?:-[a-z0-9-]+)?\.vercel\.app$/i,
+    /^https:\/\/bomfilho(?:-[a-z0-9-]+)?\.vercel\.app$/i
+  ];
   const USER_AUTH_COOKIE_NAME = 'bf_access_token';
   const ADMIN_AUTH_COOKIE_NAME = 'bf_admin_token';
   const CSRF_COOKIE_NAME = 'bf_csrf_token';
@@ -463,7 +470,11 @@ function isOriginPermitida(origin) {
   }
 
   const originNormalizada = String(origin).trim().replace(/\/+$/, '').toLowerCase();
-  return CORS_ORIGINS.includes(originNormalizada);
+  if (CORS_ORIGINS.includes(originNormalizada)) {
+    return true;
+  }
+
+  return CORS_ORIGIN_PATTERNS.some((pattern) => pattern.test(originNormalizada));
 }
 
 function montarWebhookPagBankUrl({ incluirToken = true } = {}) {
