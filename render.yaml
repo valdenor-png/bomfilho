@@ -27,15 +27,7 @@ services:
         sync: false
       - key: RECAPTCHA_MIN_SCORE
         sync: false
-      - key: DB_HOST
-        sync: false
-      - key: DB_USER
-        sync: false
-      - key: DB_PASSWORD
-        sync: false
-      - key: DB_NAME
-        sync: false
-      - key: DB_PORT
+      - key: DATABASE_URL
         sync: false
       - key: ADMIN_USER
         sync: false
@@ -49,8 +41,14 @@ services:
         sync: false
       - key: PAGBANK_TOKEN
         sync: false
+      - key: PAGBANK_PUBLIC_KEY
+        sync: false
       - key: PAGBANK_WEBHOOK_TOKEN
         sync: false
+      - key: PAGBANK_DEBUG_LOGS
+        sync: false
+      - key: ALLOW_PIX_MOCK
+        value: "false"
       - key: DIAGNOSTIC_TOKEN
         sync: false
       - key: CEP_MERCADO

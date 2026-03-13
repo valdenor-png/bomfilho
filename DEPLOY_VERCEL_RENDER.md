@@ -38,7 +38,7 @@ SOURCE backend/migrate_remover_favoritos_fidelidade.sql;
 - `JWT_SECRET=<chave forte com 32+ caracteres>`
 - `RECAPTCHA_SECRET_KEY=<secret key do Google reCAPTCHA>`
 - `RECAPTCHA_MIN_SCORE=0.5` (opcional, usado em respostas com score)
-- `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT`
+- `DATABASE_URL=mysql://USUARIO:SENHA@HOST:PORT/BANCO`
 - `ADMIN_USER`, `ADMIN_PASSWORD`
 - `ADMIN_LOCAL_ONLY=true` (seguro) ou `false` (admin remoto)
 - `BASE_URL=https://SEU_BACKEND.onrender.com`
@@ -46,7 +46,9 @@ SOURCE backend/migrate_remover_favoritos_fidelidade.sql;
 
 Se usar PIX/WhatsApp:
 
-- `PAGBANK_ENV`, `PAGBANK_TOKEN`, `PAGBANK_WEBHOOK_TOKEN`
+- `PAGBANK_ENV`, `PAGBANK_TOKEN`, `PAGBANK_PUBLIC_KEY`, `PAGBANK_WEBHOOK_TOKEN`
+- `PAGBANK_DEBUG_LOGS=true` (recomendado para homologacao)
+- `ALLOW_PIX_MOCK=false` (recomendado para homologacao real)
 - `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`
 
 Teste rapido:

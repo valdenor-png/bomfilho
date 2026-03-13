@@ -563,6 +563,7 @@ export default function PagamentoPage() {
   const etapaIndex = getIndiceEtapa(etapaAtual);
   const labelStatus = statusPedidoAtual || resultadoPedido?.status || 'pendente';
   const tituloEtapa4 = formaPagamento === 'pix' ? 'PIX' : tituloFormaPagamento;
+  const carrinhoVazio = itens.length === 0;
   const statusCartaoAtual = String(resultadoCartao?.status || '').toUpperCase();
   const statusInternoCartaoAtual = String(resultadoCartao?.status_interno || '').toLowerCase();
   const cartaoRecusado = statusCartaoAtual === 'DECLINED' || statusCartaoAtual === 'CANCELED';
@@ -579,7 +580,7 @@ export default function PagamentoPage() {
   }
 
   return (
-    <section className="page">
+    <section className={`page ${etapaAtual === ETAPAS.CARRINHO ? 'page-checkout-carrinho' : ''}`}>
       <h1>Finalizar pedido</h1>
       <p>Fluxo em etapas: carrinho, entrega por CEP, forma de pagamento, processamento e confirmação.</p>
 
@@ -595,47 +596,67 @@ export default function PagamentoPage() {
       {erro ? <p className="error-text">{erro}</p> : null}
 
       {etapaAtual === ETAPAS.CARRINHO ? (
-        <div className="card-box">
-          <p><strong>Etapa 1: Carrinho</strong></p>
-          {itens.length === 0 ? (
-            <>
+        <>
+          <div className="card-box">
+            <p><strong>Etapa 1: Carrinho</strong></p>
+            {carrinhoVazio ? (
               <p className="muted-text">Carrinho vazio. Adicione produtos na página de produtos.</p>
-              <LinkVoltarSeta to="/produtos" label="Voltar para produtos" />
-            </>
-          ) : (
-            <div className="produto-lista">
-              {itens.map((item) => (
-                <div className="produto-item" key={item.id}>
-                  <div>
-                    <p><strong>{item.emoji || '📦'} {item.nome}</strong></p>
-                    <p>R$ {Number(item.preco || 0).toFixed(2)}</p>
+            ) : (
+              <div className="produto-lista">
+                {itens.map((item) => (
+                  <div className="produto-item" key={item.id}>
+                    <div>
+                      <p><strong>{item.emoji || '📦'} {item.nome}</strong></p>
+                      <p>R$ {Number(item.preco || 0).toFixed(2)}</p>
+                    </div>
+                    <div className="cart-item-actions">
+                      <input
+                        className="qtd-input"
+                        type="number"
+                        min="1"
+                        value={item.quantidade}
+                        onChange={(event) => updateItemQuantity(item.id, event.target.value)}
+                      />
+                      <button className="btn-secondary" type="button" onClick={() => removeItem(item.id)}>
+                        Remover
+                      </button>
+                    </div>
                   </div>
-                  <div className="cart-item-actions">
-                    <input
-                      className="qtd-input"
-                      type="number"
-                      min="1"
-                      value={item.quantidade}
-                      onChange={(event) => updateItemQuantity(item.id, event.target.value)}
-                    />
-                    <button className="btn-secondary" type="button" onClick={() => removeItem(item.id)}>
-                      Remover
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="pedido-resumo">
-            <p><strong>Resumo:</strong> {resumo.itens} item(ns)</p>
-            <p><strong>Total previsto:</strong> R$ {resumo.total.toFixed(2)}</p>
+                ))}
+              </div>
+            )}
           </div>
 
-          <button className="btn-primary" type="button" onClick={() => setEtapaAtual(ETAPAS.ENTREGA)} disabled={itens.length === 0}>
-            Ir para entrega
-          </button>
-        </div>
+          <div className="checkout-carrinho-bar" role="region" aria-label="Resumo do carrinho, retorno para produtos e avanço para entrega">
+            <div className="checkout-carrinho-bar-voltar-slot">
+              <LinkVoltarSeta to="/produtos" label="Voltar para buscar produtos" />
+            </div>
+
+            <div className="checkout-carrinho-bar-info">
+              <span><strong>Resumo:</strong> {resumo.itens} item(ns)</span>
+              <span className="checkout-carrinho-bar-separador" aria-hidden="true">|</span>
+              <span><strong>Total previsto:</strong> R$ {resumo.total.toFixed(2)}</span>
+              {carrinhoVazio ? (
+                <>
+                  <span className="checkout-carrinho-bar-separador" aria-hidden="true">|</span>
+                  <span className="checkout-carrinho-bar-aviso">Adicione itens para continuar</span>
+                </>
+              ) : null}
+            </div>
+
+            <div className="checkout-carrinho-bar-acoes">
+              <button
+                className="btn-primary checkout-carrinho-bar-botao"
+                type="button"
+                onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
+                disabled={carrinhoVazio}
+              >
+                Ir para entrega
+              </button>
+            </div>
+          </div>
+
+        </>
       ) : null}
 
       {etapaAtual === ETAPAS.ENTREGA ? (

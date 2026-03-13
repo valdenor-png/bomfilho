@@ -74,6 +74,8 @@ DIAGNOSTIC_TOKEN=
 PAGBANK_ENV=sandbox
 PAGBANK_TOKEN=SEU_TOKEN_PAGBANK
 PAGBANK_PUBLIC_KEY=SUA_CHAVE_PUBLICA_PAGBANK
+PAGBANK_DEBUG_LOGS=true
+ALLOW_PIX_MOCK=false
 
 # Proteção do webhook PagBank
 PAGBANK_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
@@ -105,6 +107,7 @@ Para isso funcionar em ambiente local, o webhook precisa ser acessível publicam
 - `PAGBANK_TOKEN`: token do Portal PagBank
 - `PAGBANK_ENV`: `sandbox` (teste) ou `production`
 - `PAGBANK_PUBLIC_KEY`: chave pública usada para criptografar cartão no frontend
+- `ALLOW_PIX_MOCK`: `true` apenas para desenvolvimento local com PIX simulado
 - `BASE_URL`: URL pública do seu backend (ex.: ngrok/Cloudflare Tunnel)
 
 ### 2) Rodar migração do PIX no MySQL
@@ -137,7 +140,15 @@ Ele retorna `auth_check` com `ok=true/false` e também mostra qual `webhook_url`
 GET /api/pagbank/public-key
 ```
 
-Retorna a chave pública (`public_key`) e URL do SDK para criptografia do cartão via `PagSeguro.encryptCard`.
+Retorna a chave pública (`public_key`) usada no frontend para criptografia do cartão via `PagSeguro.encryptCard`.
+
+Resposta esperada:
+
+```json
+{
+  "public_key": "SUA_PUBLIC_KEY_PAGBANK"
+}
+```
 
 ## 💬 Auto-resposta no WhatsApp (Evolution)
 

@@ -71,9 +71,11 @@
   const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
   const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
   const PAGBANK_DEBUG_LOGS = parseBooleanEnv('PAGBANK_DEBUG_LOGS', true);
+  const ALLOW_PIX_MOCK = parseBooleanEnv('ALLOW_PIX_MOCK', false);
 
   console.log(`🚀 Ambiente: ${NODE_ENV}`);
   console.log(`🔐 PagBank configurado: ${Boolean(PAGBANK_TOKEN)}`);
+  console.log(`🧪 Fallback PIX mock ativo: ${ALLOW_PIX_MOCK}`);
   console.log(`🌐 Trust proxy ativo: ${TRUST_PROXY}`);
 
   // Configuração Evolution API (WhatsApp)
@@ -458,17 +460,106 @@ function montarWebhookPagBankUrl({ incluirToken = true } = {}) {
   return webhookBase;
 }
 
-function obterPagBankPublicKeyAtual() {
+function analisarChavePublicaPagBank() {
   const chaveBruta = String(process.env.PAGBANK_PUBLIC_KEY || PAGBANK_PUBLIC_KEY || '').trim();
   if (!chaveBruta) {
-    return '';
+    return {
+      valid: false,
+      reason: 'missing',
+      publicKey: ''
+    };
   }
 
   // Remove aspas acidentais na configuração e normaliza quebras de linha escapadas.
-  return chaveBruta
+  const chaveNormalizada = chaveBruta
     .replace(/^['"]|['"]$/g, '')
     .replace(/\\n/g, '\n')
     .trim();
+
+  if (!chaveNormalizada) {
+    return {
+      valid: false,
+      reason: 'empty_after_normalize',
+      publicKey: ''
+    };
+  }
+
+  // "..." costuma indicar valor truncado/placeholder copiado parcialmente.
+  if (chaveNormalizada.includes('...')) {
+    return {
+      valid: false,
+      reason: 'placeholder_or_truncated',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  const hasPemHeader = /-----BEGIN PUBLIC KEY-----/.test(chaveNormalizada);
+  const hasPemFooter = /-----END PUBLIC KEY-----/.test(chaveNormalizada);
+
+  if (hasPemHeader !== hasPemFooter) {
+    return {
+      valid: false,
+      reason: 'malformed_pem_header_footer',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  const base64Body = (hasPemHeader || hasPemFooter)
+    ? chaveNormalizada
+      .replace(/-----BEGIN PUBLIC KEY-----/g, '')
+      .replace(/-----END PUBLIC KEY-----/g, '')
+      .replace(/\s+/g, '')
+    : chaveNormalizada.replace(/\s+/g, '');
+
+  if (!base64Body) {
+    return {
+      valid: false,
+      reason: 'empty_base64_body',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  if (!/^[A-Za-z0-9+/=]+$/.test(base64Body)) {
+    return {
+      valid: false,
+      reason: 'invalid_base64_characters',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  // Chaves RSA públicas reais (2048+) normalmente passam com folga desse tamanho.
+  if (base64Body.length < 300) {
+    return {
+      valid: false,
+      reason: 'base64_too_short',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  return {
+    valid: true,
+    reason: 'ok',
+    publicKey: chaveNormalizada
+  };
+}
+
+function traduzirMotivoChavePublicaPagBank(reason) {
+  const motivo = String(reason || '').trim().toLowerCase();
+
+  if (motivo === 'missing') return 'PAGBANK_PUBLIC_KEY ausente';
+  if (motivo === 'empty_after_normalize') return 'PAGBANK_PUBLIC_KEY vazia após normalização';
+  if (motivo === 'placeholder_or_truncated') return 'PAGBANK_PUBLIC_KEY truncada/placeholder (contém "...")';
+  if (motivo === 'malformed_pem_header_footer') return 'PAGBANK_PUBLIC_KEY com PEM malformado (BEGIN/END inconsistentes)';
+  if (motivo === 'empty_base64_body') return 'PAGBANK_PUBLIC_KEY sem conteúdo base64';
+  if (motivo === 'invalid_base64_characters') return 'PAGBANK_PUBLIC_KEY com caracteres inválidos';
+  if (motivo === 'base64_too_short') return 'PAGBANK_PUBLIC_KEY curta demais (possível valor incompleto)';
+
+  return 'PAGBANK_PUBLIC_KEY inválida';
+}
+
+function obterPagBankPublicKeyAtual() {
+  const info = analisarChavePublicaPagBank();
+  return info.valid ? info.publicKey : '';
 }
 
 function registrarLogEndpointDiagnostico({ endpoint, statusHttp, detalhe, extra } = {}) {
@@ -849,7 +940,7 @@ app.use((req, res, next) => {
     return next();
   }
 
-  if (pathAtual.startsWith('/api/webhooks/')) {
+  if (pathAtual.startsWith('/api/webhooks/') || pathAtual === '/api/pagbank/webhook') {
     return next();
   }
 
@@ -880,21 +971,25 @@ app.get('/api/pagbank/public-key', (req, res) => {
   const endpoint = '/api/pagbank/public-key';
 
   try {
-    const publicKey = obterPagBankPublicKeyAtual();
+    const chaveInfo = analisarChavePublicaPagBank();
+    const publicKey = chaveInfo.valid ? chaveInfo.publicKey : '';
 
     if (!publicKey) {
       registrarLogEndpointDiagnostico({
         endpoint,
         statusHttp: 500,
-        detalhe: 'PAGBANK_PUBLIC_KEY ausente, vazia ou inválida',
+        detalhe: traduzirMotivoChavePublicaPagBank(chaveInfo.reason),
         extra: {
           pagbank_env: PAGBANK_ENV,
-          public_key_present: false
+          public_key_present: Boolean(chaveInfo.publicKey),
+          public_key_valid: false,
+          validation_reason: chaveInfo.reason
         }
       });
 
       return res.status(500).json({
         erro: 'PAGBANK_PUBLIC_KEY não configurada no backend',
+        detalhe: traduzirMotivoChavePublicaPagBank(chaveInfo.reason),
         public_key: ''
       });
     }
@@ -935,6 +1030,7 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
     const baseUrl = String(process.env.BASE_URL || 'http://localhost:3000');
     const webhookUrl = montarWebhookPagBankUrl({ incluirToken: false });
     const token = process.env.PAGBANK_TOKEN || '';
+    const chaveInfo = analisarChavePublicaPagBank();
 
     // Atualiza o cache se nunca foi checado ou se está velho
     const shouldRefresh = !pagbankLastAuthCheck.checkedAt ||
@@ -950,7 +1046,9 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
       base_url: baseUrl,
       webhook_url: webhookUrl,
       token_present: !!token,
-      public_key_present: !!obterPagBankPublicKeyAtual(),
+      public_key_present: Boolean(chaveInfo.publicKey),
+      public_key_valid: chaveInfo.valid,
+      public_key_validation_reason: chaveInfo.reason,
       webhook_protected: !!PAGBANK_WEBHOOK_TOKEN,
       auth_check: pagbankLastAuthCheck
     });
@@ -990,6 +1088,10 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
     const qr0 = resultadoPix?.qr_codes?.[0] || null;
     const pixCodigo = qr0?.text || null;
     const pixQrCode = qr0?.links?.[0]?.href || null;
+    const statusInfo = extrairStatusPagamentoPagBank(resultadoPix);
+    const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
+    const chargePrincipal = statusInfo.chargePrincipal || {};
+    const chargeId = chargePrincipal?.id || null;
 
     return res.json({
       ok: true,
@@ -997,6 +1099,12 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
       notification_url: montarWebhookPagBankUrl({ incluirToken: false }),
       webhook_protected: !!PAGBANK_WEBHOOK_TOKEN,
       pagbank_order_id: resultadoPix?.id || null,
+      charge_id: chargeId,
+      status: statusPagBank,
+      status_interno: mapearStatusPedido(statusPagBank),
+      status_order: statusInfo.orderStatus || null,
+      status_charge: statusInfo.chargeStatus || null,
+      status_fonte: statusInfo.fonteStatus,
       pix_codigo: pixCodigo,
       pix_qrcode: pixQrCode,
       raw: resultadoPix
@@ -1458,6 +1566,8 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
     extra: {
       idempotency_key: idempotencyKey,
       pedido_id: pedidoId,
+      reference_id: payload.reference_id,
+      amount_value: payload?.qr_codes?.[0]?.amount?.value ?? null,
       notification_url: payload.notification_urls?.[0]
     }
   });
@@ -1481,6 +1591,10 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
     responsePayload = { raw_text: responseText };
   }
 
+  const statusInfoPix = extrairStatusPagamentoPagBank(responsePayload);
+  const chargePrincipalPix = statusInfoPix.chargePrincipal || {};
+  const statusPagBankPix = String(statusInfoPix.statusResolvido || responsePayload?.status || '').toUpperCase() || null;
+
   registrarLogPagBank({
     operacao: 'orders.pix.response',
     endpoint,
@@ -1490,7 +1604,13 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
     responsePayload,
     extra: {
       idempotency_key: idempotencyKey,
-      pedido_id: pedidoId
+      pedido_id: pedidoId,
+      order_id: responsePayload?.id || null,
+      charge_id: chargePrincipalPix?.id || null,
+      status_pagbank: statusPagBankPix,
+      status_order: statusInfoPix.orderStatus || null,
+      status_charge: statusInfoPix.chargeStatus || null,
+      status_fonte: statusInfoPix.fonteStatus
     }
   });
 
@@ -1597,6 +1717,8 @@ async function criarPagamentoCartao({
     extra: {
       idempotency_key: idempotencyKey,
       pedido_id: pedidoId,
+      reference_id: payload.reference_id,
+      charge_reference_id: payload?.charges?.[0]?.reference_id || null,
       tipo_cartao: tipoCartaoNormalizado,
       installments: tipoCartaoNormalizado === 'debito' ? 1 : parcelasNormalizadas,
       capture: payload?.charges?.[0]?.payment_method?.capture,
@@ -1624,6 +1746,10 @@ async function criarPagamentoCartao({
     responsePayload = { raw_text: responseText };
   }
 
+  const statusInfoCartao = extrairStatusPagamentoPagBank(responsePayload);
+  const chargePrincipalCartao = statusInfoCartao.chargePrincipal || {};
+  const statusPagBankCartao = String(statusInfoCartao.statusResolvido || responsePayload?.status || '').toUpperCase() || null;
+
   registrarLogPagBank({
     operacao: 'orders.cartao.response',
     endpoint,
@@ -1635,7 +1761,13 @@ async function criarPagamentoCartao({
       idempotency_key: idempotencyKey,
       pedido_id: pedidoId,
       tipo_cartao: tipoCartaoNormalizado,
-      has_charges_in_response: Array.isArray(responsePayload?.charges) && responsePayload.charges.length > 0
+      has_charges_in_response: Array.isArray(responsePayload?.charges) && responsePayload.charges.length > 0,
+      order_id: responsePayload?.id || null,
+      charge_id: chargePrincipalCartao?.id || null,
+      status_pagbank: statusPagBankCartao,
+      status_order: statusInfoCartao.orderStatus || null,
+      status_charge: statusInfoCartao.chargeStatus || null,
+      status_fonte: statusInfoCartao.fonteStatus
     }
   });
 
@@ -2803,9 +2935,14 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
     const pagbankProducao = PAGBANK_ENV === 'production';
     const usaPagbank = ['pix', 'cartao', 'credito', 'debito'].includes(formaPagamento);
+    const pixMockPermitido = !pagbankProducao && ALLOW_PIX_MOCK;
 
     if (usaPagbank && pagbankProducao && !PAGBANK_TOKEN) {
       throw criarErroHttp(503, 'PagBank não configurado para pagamentos em produção.');
+    }
+
+    if (formaPagamento === 'pix' && !PAGBANK_TOKEN && !pixMockPermitido) {
+      throw criarErroHttp(503, 'PagBank não configurado para PIX e fallback mock desativado (ALLOW_PIX_MOCK=false).');
     }
 
     if (usaPagbank && pagbankProducao && ![11, 14].includes(taxIdDigits.length)) {
@@ -2983,6 +3120,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     let pixQrCode = null;
     let pixId = null;
     let pixErro = null;
+    const podeUsarPixMock = !pagbankProducao && ALLOW_PIX_MOCK;
 
     if (formaPagamento === 'pix' && PAGBANK_TOKEN) {
       try {
@@ -3014,13 +3152,13 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
         console.error('Erro ao gerar PIX PagBank:', erro.message);
         pixErro = erro.message;
 
-        if (!pagbankProducao) {
-          // Em sandbox/dev, mantém fallback para facilitar testes locais.
+        if (podeUsarPixMock) {
+          // Fallback local controlado por flag explícita.
           pixCodigo = '00020126580014BR.GOV.BCB.PIX' + pedidoId.toString().padStart(10, '0');
         }
       }
-    } else if (formaPagamento === 'pix' && !pagbankProducao) {
-      // Gerar código PIX simulado se PagBank não estiver configurado
+    } else if (formaPagamento === 'pix' && podeUsarPixMock) {
+      // Gerar código PIX simulado somente quando ALLOW_PIX_MOCK=true.
       pixCodigo = '00020126580014BR.GOV.BCB.PIX' + pedidoId.toString().padStart(10, '0');
     }
 
@@ -3479,7 +3617,7 @@ app.post('/api/webhooks/evolution', async (req, res) => {
 // ============================================
 // WEBHOOK PAGBANK (PIX + CARTAO)
 // ============================================
-app.post('/api/webhooks/pagbank', async (req, res) => {
+async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pagbank') {
   try {
     if (!validarWebhookPagBank(req)) {
       return res.status(401).json({ erro: 'Webhook não autorizado' });
@@ -3521,17 +3659,20 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
       eventType
     );
     const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
+    const chargePrincipal = statusInfo.chargePrincipal || {};
+    const chargeId = chargePrincipal?.id || null;
 
     const statusInterno = mapearStatusPedido(statusPagBank);
 
     registrarLogPagBank({
       operacao: 'webhook.pagbank.recebido',
-      endpoint: '/api/webhooks/pagbank',
+      endpoint: endpointLog,
       method: 'POST',
       requestPayload: notificacao,
       extra: {
         event_type: eventType || null,
         order_id: orderId,
+        charge_id: chargeId,
         reference_id: referenceId || null,
         status_pagbank: statusPagBank,
         status_fonte: statusInfo.fonteStatus,
@@ -3549,17 +3690,40 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
 
     if (pedidoId) {
       try {
-        const [resultadoUpdate] = await pool.query(
-          'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ? WHERE id = ?',
-          [statusInterno, statusPagBank, orderId, pedidoId]
-        );
+        let resultadoUpdate = null;
+        let modoPersistencia = 'completo';
+
+        try {
+          const [resultadoCompleto] = await pool.query(
+            'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ? WHERE id = ?',
+            [statusInterno, statusPagBank, orderId, pedidoId]
+          );
+          resultadoUpdate = resultadoCompleto;
+        } catch (erroUpdateCompleto) {
+          const colunaPixAusente = /unknown column\s+'(?:pix_status|pix_id)'/i.test(String(erroUpdateCompleto?.message || ''));
+          if (!colunaPixAusente) {
+            throw erroUpdateCompleto;
+          }
+
+          const [resultadoFallback] = await pool.query(
+            'UPDATE pedidos SET status = ? WHERE id = ?',
+            [statusInterno, pedidoId]
+          );
+          resultadoUpdate = resultadoFallback;
+          modoPersistencia = 'fallback_sem_colunas_pix';
+          console.warn('⚠️ Coluna pix_status/pix_id ausente. Persistindo webhook PagBank em modo fallback por status.');
+        }
+
         console.log(`✅ Pedido #${pedidoId} atualizado para status: ${statusInterno}`);
         registrarLogPagBank({
           operacao: 'webhook.pagbank.persistencia',
-          endpoint: '/api/webhooks/pagbank',
+          endpoint: endpointLog,
           method: 'POST',
           responsePayload: {
             pedido_id: pedidoId,
+            order_id: orderId,
+            charge_id: chargeId,
+            persist_mode: modoPersistencia,
             status_interno: statusInterno,
             status_pagbank: statusPagBank,
             linhas_afetadas: Number(resultadoUpdate?.affectedRows || 0)
@@ -3571,17 +3735,37 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
     } else {
       // Tentar encontrar pelo pix_id
       try {
-        const [resultadoUpdate] = await pool.query(
-          'UPDATE pedidos SET status = ?, pix_status = ? WHERE pix_id = ?',
-          [statusInterno, statusPagBank, orderId]
-        );
+        let resultadoUpdate = null;
+        let modoPersistencia = 'completo';
+
+        try {
+          const [resultadoCompleto] = await pool.query(
+            'UPDATE pedidos SET status = ?, pix_status = ? WHERE pix_id = ?',
+            [statusInterno, statusPagBank, orderId]
+          );
+          resultadoUpdate = resultadoCompleto;
+        } catch (erroUpdateCompleto) {
+          const colunaPixAusente = /unknown column\s+'(?:pix_status|pix_id)'/i.test(String(erroUpdateCompleto?.message || ''));
+          if (!colunaPixAusente) {
+            throw erroUpdateCompleto;
+          }
+
+          // Sem pix_id no schema, não é possível localizar pedido por orderId quando reference_id não mapeia para pedido_id.
+          resultadoUpdate = { affectedRows: 0 };
+          modoPersistencia = 'fallback_sem_colunas_pix_sem_lookup';
+          console.warn('⚠️ Coluna pix_status/pix_id ausente e sem pedido_id no reference_id. Persistência do webhook não aplicada.');
+        }
+
         console.log(`✅ Pedido com pix_id ${orderId} atualizado para status: ${statusInterno}`);
         registrarLogPagBank({
           operacao: 'webhook.pagbank.persistencia',
-          endpoint: '/api/webhooks/pagbank',
+          endpoint: endpointLog,
           method: 'POST',
           responsePayload: {
             pix_id: orderId,
+            order_id: orderId,
+            charge_id: chargeId,
+            persist_mode: modoPersistencia,
             status_interno: statusInterno,
             status_pagbank: statusPagBank,
             linhas_afetadas: Number(resultadoUpdate?.affectedRows || 0)
@@ -3597,6 +3781,14 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
     console.error('Erro no webhook do PagBank:', erro);
     return res.sendStatus(500);
   }
+}
+
+app.post('/api/webhooks/pagbank', (req, res) => {
+  return processarWebhookPagBank(req, res, '/api/webhooks/pagbank');
+});
+
+app.post('/api/pagbank/webhook', (req, res) => {
+  return processarWebhookPagBank(req, res, '/api/pagbank/webhook');
 });
 
 // ============================================

@@ -1013,8 +1013,10 @@ export default function ProdutosPage() {
     );
   }, [handleAddItem]);
 
+  const podeFinalizarPedido = resumo.itens > 0;
+
   return (
-    <section className="page">
+    <section className="page page-produtos">
       <section className="product-highlight-section" id="produtos" aria-label="Página de produtos">
         <h1>Produtos</h1>
         <p className="product-highlight-subtitle">Use a busca para encontrar rápido e filtre por categoria.</p>
@@ -1095,21 +1097,30 @@ export default function ProdutosPage() {
         ) : null}
       </section>
 
-      <div className="pedido-resumo" style={{ marginTop: '0.9rem' }}>
-        <p><strong>Carrinho:</strong> {resumo.itens} item(ns)</p>
-        <p><strong>Total parcial:</strong> R$ {resumo.total.toFixed(2)}</p>
-        {totalProdutosBackend > 0 ? (
-          <p className="muted-text" style={{ marginTop: '0.35rem' }}>
-            Mostrando {produtos.length} de {totalProdutosBackend} produto(s) carregados.
-          </p>
-        ) : null}
-        {resumo.itens > 0 ? (
-          <Link to="/pagamento" className="btn-primary" style={{ display: 'inline-block', marginTop: '0.6rem' }}>
-            Finalizar pedido
-          </Link>
-        ) : (
-          <p className="muted-text" style={{ marginTop: '0.4rem' }}>Adicione itens para liberar o pagamento.</p>
-        )}
+      <div className="pedido-resumo pedido-resumo-fixo" role="region" aria-label="Resumo do pedido e avanço para pagamento">
+        <div className="pedido-resumo-fixo-conteudo">
+          <div className="pedido-resumo-fixo-info" title={`Itens: ${resumo.itens} | Total: R$ ${resumo.total.toFixed(2)}`}>
+            <span><strong>Itens:</strong> {resumo.itens}</span>
+            <span className="pedido-resumo-fixo-separador" aria-hidden="true">|</span>
+            <span><strong>Total:</strong> R$ {resumo.total.toFixed(2)}</span>
+            {!podeFinalizarPedido ? (
+              <>
+                <span className="pedido-resumo-fixo-separador" aria-hidden="true">|</span>
+                <span className="pedido-resumo-fixo-aviso">Adicione itens para continuar</span>
+              </>
+            ) : null}
+          </div>
+
+          {podeFinalizarPedido ? (
+            <Link to="/pagamento" className="btn-primary pedido-resumo-fixo-botao">
+              Ir para pagamento
+            </Link>
+          ) : (
+            <button type="button" className="btn-primary pedido-resumo-fixo-botao" disabled>
+              Ir para pagamento
+            </button>
+          )}
+        </div>
       </div>
 
       {erro ? <p className="error-text">{erro}</p> : null}
