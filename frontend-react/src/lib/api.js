@@ -504,6 +504,7 @@ export function adminImportarProdutosPlanilha({ arquivo, criarNovos = false, sim
   const formData = new FormData();
   formData.append('arquivo', arquivo);
   formData.append('criar_novos', criarNovos ? 'true' : 'false');
+  formData.append('atualizar_estoque', 'false');
   formData.append('simular', simular ? 'true' : 'false');
 
   return request('/api/admin/produtos/importar', {

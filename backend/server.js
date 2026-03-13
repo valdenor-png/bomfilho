@@ -249,6 +249,111 @@ function calcularDistanciaHaversineKm(latA, lonA, latB, lonB) {
   return terraKm * c;
 }
 
+function criarCoordenadaFonteValida(latitude, longitude, fonte) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  return {
+    latitude: lat,
+    longitude: lon,
+    fonte: String(fonte || 'desconhecida')
+  };
+}
+
+function listarCoordenadasPossiveis(localidade) {
+  const coordenadas = [];
+  const visitados = new Set();
+
+  function adicionar(coord) {
+    if (!coord || !Number.isFinite(coord.latitude) || !Number.isFinite(coord.longitude)) {
+      return;
+    }
+
+    const chave = `${coord.latitude.toFixed(6)}:${coord.longitude.toFixed(6)}`;
+    if (visitados.has(chave)) {
+      return;
+    }
+
+    visitados.add(chave);
+    coordenadas.push(coord);
+  }
+
+  adicionar(criarCoordenadaFonteValida(localidade?.latitude, localidade?.longitude, localidade?.fonte_coordenadas || 'principal'));
+  adicionar(criarCoordenadaFonteValida(localidade?.coordenadas_alternativas?.nominatim?.latitude, localidade?.coordenadas_alternativas?.nominatim?.longitude, 'nominatim'));
+  adicionar(criarCoordenadaFonteValida(localidade?.coordenadas_alternativas?.brasilapi?.latitude, localidade?.coordenadas_alternativas?.brasilapi?.longitude, 'brasilapi'));
+
+  return coordenadas;
+}
+
+function calcularDistanciaEntregaAjustada(origem, destino) {
+  const distanciaBase = Number(
+    calcularDistanciaHaversineKm(origem.latitude, origem.longitude, destino.latitude, destino.longitude).toFixed(2)
+  );
+
+  const coordsOrigem = listarCoordenadasPossiveis(origem);
+  const coordsDestino = listarCoordenadasPossiveis(destino);
+
+  let menorDistancia = Number.POSITIVE_INFINITY;
+  let melhorPar = null;
+
+  for (const coordOrigem of coordsOrigem) {
+    for (const coordDestino of coordsDestino) {
+      const distancia = Number(
+        calcularDistanciaHaversineKm(
+          coordOrigem.latitude,
+          coordOrigem.longitude,
+          coordDestino.latitude,
+          coordDestino.longitude
+        ).toFixed(2)
+      );
+
+      if (!Number.isFinite(distancia) || distancia <= 0) {
+        continue;
+      }
+
+      if (distancia < menorDistancia) {
+        menorDistancia = distancia;
+        melhorPar = {
+          origem: coordOrigem,
+          destino: coordDestino
+        };
+      }
+    }
+  }
+
+  const cidadeOrigem = String(origem?.cidade || '').trim().toLowerCase();
+  const cidadeDestino = String(destino?.cidade || '').trim().toLowerCase();
+  const estadoOrigem = String(origem?.estado || '').trim().toLowerCase();
+  const estadoDestino = String(destino?.estado || '').trim().toLowerCase();
+  const mesmaCidadeEstado = Boolean(cidadeOrigem && cidadeDestino && cidadeOrigem === cidadeDestino && estadoOrigem && estadoDestino && estadoOrigem === estadoDestino);
+
+  let distanciaFinal = distanciaBase;
+  let fonteOrigem = String(origem?.fonte_coordenadas || 'principal');
+  let fonteDestino = String(destino?.fonte_coordenadas || 'principal');
+
+  if (Number.isFinite(menorDistancia) && Number.isFinite(distanciaBase) && menorDistancia < distanciaBase) {
+    const variacao = distanciaBase > 0 ? (distanciaBase - menorDistancia) / distanciaBase : 0;
+    const podeAjustar = mesmaCidadeEstado || variacao >= 0.2;
+
+    if (podeAjustar && melhorPar) {
+      distanciaFinal = menorDistancia;
+      fonteOrigem = melhorPar.origem.fonte;
+      fonteDestino = melhorPar.destino.fonte;
+    }
+  }
+
+  return {
+    distancia_base_km: distanciaBase,
+    distancia_km: Number(distanciaFinal.toFixed(2)),
+    fonte_origem: fonteOrigem,
+    fonte_destino: fonteDestino
+  };
+}
+
 async function buscarCoordenadasPorCep(cep) {
   const cepNormalizado = normalizarCep(cep);
   if (cepNormalizado.length !== 8) {
@@ -262,20 +367,25 @@ async function buscarCoordenadasPorCep(cep) {
 
   const dados = await buscarDadosCepComFallback(cepNormalizado);
 
-  let latitude = Number(dados?.location?.coordinates?.latitude);
-  let longitude = Number(dados?.location?.coordinates?.longitude);
+  const coordenadasBrasilApi = criarCoordenadaFonteValida(
+    dados?.location?.coordinates?.latitude,
+    dados?.location?.coordinates?.longitude,
+    'brasilapi'
+  );
 
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    const coordenadasFallback = await buscarCoordenadasNominatim({
-      cepNormalizado,
-      dadosCep: dados
-    });
+  const coordenadasNominatimRaw = await buscarCoordenadasNominatim({
+    cepNormalizado,
+    dadosCep: dados
+  });
+  const coordenadasNominatim = criarCoordenadaFonteValida(
+    coordenadasNominatimRaw?.latitude,
+    coordenadasNominatimRaw?.longitude,
+    'nominatim'
+  );
 
-    if (coordenadasFallback) {
-      latitude = coordenadasFallback.latitude;
-      longitude = coordenadasFallback.longitude;
-    }
-  }
+  const coordenadaEscolhida = coordenadasNominatim || coordenadasBrasilApi;
+  const latitude = Number(coordenadaEscolhida?.latitude);
+  const longitude = Number(coordenadaEscolhida?.longitude);
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     throw criarErroHttp(400, 'CEP sem coordenadas para cálculo de entrega.');
@@ -288,7 +398,22 @@ async function buscarCoordenadasPorCep(cep) {
     cidade: String(dados?.city || '').trim(),
     estado: String(dados?.state || '').trim(),
     bairro: String(dados?.neighborhood || '').trim(),
-    rua: String(dados?.street || '').trim()
+    rua: String(dados?.street || '').trim(),
+    fonte_coordenadas: String(coordenadaEscolhida?.fonte || 'desconhecida'),
+    coordenadas_alternativas: {
+      brasilapi: coordenadasBrasilApi
+        ? {
+          latitude: coordenadasBrasilApi.latitude,
+          longitude: coordenadasBrasilApi.longitude
+        }
+        : null,
+      nominatim: coordenadasNominatim
+        ? {
+          latitude: coordenadasNominatim.latitude,
+          longitude: coordenadasNominatim.longitude
+        }
+        : null
+    }
   };
 
   cepGeoCache.set(cepNormalizado, {
@@ -405,9 +530,8 @@ async function calcularEntregaPorCep({ cepDestino, veiculo }) {
 
   const origem = await buscarCoordenadasPorCep(CEP_MERCADO);
   const destino = await buscarCoordenadasPorCep(cepDestino);
-  const distanciaKm = Number(
-    calcularDistanciaHaversineKm(origem.latitude, origem.longitude, destino.latitude, destino.longitude).toFixed(2)
-  );
+  const distanciaInfo = calcularDistanciaEntregaAjustada(origem, destino);
+  const distanciaKm = Number(distanciaInfo.distancia_km);
 
   if (!Number.isFinite(distanciaKm)) {
     throw criarErroHttp(500, 'Não foi possível calcular a distância da entrega.');
@@ -426,9 +550,12 @@ async function calcularEntregaPorCep({ cepDestino, veiculo }) {
     veiculo: veiculoKey,
     frete,
     distancia_km: distanciaKm,
+    distancia_base_km: Number(distanciaInfo.distancia_base_km),
     cep_origem: origem.cep,
     numero_origem: NUMERO_MERCADO,
+    fonte_coordenadas_origem: distanciaInfo.fonte_origem,
     cep_destino: destino.cep,
+    fonte_coordenadas_destino: distanciaInfo.fonte_destino,
     cidade_destino: destino.cidade,
     bairro_destino: destino.bairro
   };
@@ -2876,6 +3003,7 @@ app.post(
       }
 
       const criarNovos = parseBooleanInput(req.body?.criar_novos, false);
+      const atualizarEstoque = parseBooleanInput(req.body?.atualizar_estoque, false);
       const simular = parseBooleanInput(req.body?.simular, false);
 
       const resultado = await importarProdutosPlanilha({
@@ -2883,6 +3011,7 @@ app.post(
         fileBuffer: req.file.buffer,
         originalName: req.file.originalname,
         createMissing: criarNovos,
+        updateStock: atualizarEstoque,
         simulate: simular,
         adminUser: req.admin?.usuario || ADMIN_USER,
         adminUserId: req.admin?.id || null

@@ -10,6 +10,38 @@ SET @exist := (
   FROM INFORMATION_SCHEMA.COLUMNS
   WHERE TABLE_SCHEMA = DATABASE()
     AND TABLE_NAME = 'produtos'
+    AND COLUMN_NAME = 'descricao'
+);
+SET @sql := IF(
+  @exist = 0,
+  'ALTER TABLE produtos ADD COLUMN descricao TEXT NULL',
+  'SELECT "Coluna descricao ja existe"'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @exist := (
+  SELECT COUNT(*)
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'produtos'
+    AND COLUMN_NAME = 'imagem_url'
+);
+SET @sql := IF(
+  @exist = 0,
+  'ALTER TABLE produtos ADD COLUMN imagem_url TEXT NULL',
+  'SELECT "Coluna imagem_url ja existe"'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @exist := (
+  SELECT COUNT(*)
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'produtos'
     AND COLUMN_NAME = 'codigo_interno'
 );
 SET @sql := IF(

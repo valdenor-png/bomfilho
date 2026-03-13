@@ -1245,7 +1245,7 @@ export default function AdminPage() {
           <form className="form-box" style={{ marginTop: '1rem' }} onSubmit={handleImportarPlanilha}>
             <p><strong>Importação de produtos por planilha</strong></p>
             <p className="muted-text">
-              Importe arquivos do ERP em .xlsx ou .csv para atualizar preços, promoção, estoque e status.
+              Importe arquivos do ERP em .xlsx ou .csv para atualizar preço, nome, descrição e foto.
             </p>
 
             <div

@@ -2,6 +2,7 @@
 
 const path = require('path');
 const XLSX = require('xlsx');
+const fetch = global.fetch || require('node-fetch');
 
 const EXTENSOES_IMPORTACAO_ACEITAS = Object.freeze(['.csv', '.xlsx']);
 const LIMITE_PREVIEW_LOGS = 120;
@@ -31,12 +32,30 @@ const COLUNAS_ALIAS = {
     'upc'
   ],
   nome: [
-    'descricao',
-    'descricaoproduto',
     'nome',
     'nomeproduto',
     'produto',
-    'item'
+    'item',
+    'titulo'
+  ],
+  descricao: [
+    'descricao',
+    'descricaoproduto',
+    'detalhes',
+    'descricaoitem',
+    'descricaoerp',
+    'informacoes'
+  ],
+  imagem: [
+    'imagem',
+    'foto',
+    'imagemurl',
+    'imagem_url',
+    'urlimagem',
+    'urlfoto',
+    'image',
+    'imageurl',
+    'picture'
   ],
   preco: [
     'venda',
@@ -120,10 +139,10 @@ function serializarCsvCampo(valor, delimitador = ';') {
 
 function construirModeloImportacaoProdutosCsv() {
   const linhas = [
-    ['codigo', 'codigo de barras', 'descricao', 'venda', 'promocao', 'estoque', 'unidade', 'ativo', 'categoria'],
-    ['10001', '7894900011517', 'Arroz tipo 1 5kg', '34,90', '29,90', '120', 'un', 'ativo', 'mercearia'],
-    ['10002', '7891910000197', 'Leite integral 1L', '6,95', '', '85', 'un', 'ativo', 'bebidas'],
-    ['10003', '7891025301514', 'Feijao carioca 1kg', '9,90', '0', '-3', 'un', 'inativo', 'mercearia']
+    ['codigo', 'codigo de barras', 'nome', 'descricao', 'imagem', 'venda', 'promocao'],
+    ['10001', '7894900011517', 'Arroz tipo 1 5kg', 'Pacote 5kg', '', '34,90', '29,90'],
+    ['10002', '7891910000197', 'Leite integral 1L', '', '', '6,95', ''],
+    ['10003', '7891025301514', 'Feijao carioca 1kg', '', '', '9,90', '0']
   ];
 
   return linhas
@@ -385,6 +404,8 @@ function mapearColunas(cabecalhos) {
     codigo_interno: localizarIndice(COLUNAS_ALIAS.codigo_interno),
     codigo_barras: localizarIndice(COLUNAS_ALIAS.codigo_barras),
     nome: localizarIndice(COLUNAS_ALIAS.nome),
+    descricao: localizarIndice(COLUNAS_ALIAS.descricao),
+    imagem: localizarIndice(COLUNAS_ALIAS.imagem),
     preco: localizarIndice(COLUNAS_ALIAS.preco),
     preco_promocional: localizarIndice(COLUNAS_ALIAS.preco_promocional),
     estoque: localizarIndice(COLUNAS_ALIAS.estoque),
@@ -397,7 +418,7 @@ function mapearColunas(cabecalhos) {
   if (indices.codigo_interno < 0 && indices.codigo_barras < 0) {
     faltantes.push('identificador (codigo ou codigo de barras)');
   }
-  if (indices.nome < 0) {
+  if (indices.nome < 0 && indices.descricao < 0) {
     faltantes.push('descricao/nome');
   }
   if (indices.preco < 0) {
@@ -507,6 +528,137 @@ function normalizarCodigoBarras(valor) {
   return digits.slice(0, 32);
 }
 
+function isHttpUrlValida(url) {
+  const valor = normalizarTexto(url);
+  if (!valor) {
+    return false;
+  }
+
+  return /^https?:\/\//i.test(valor);
+}
+
+function truncarTexto(valor, max = 1200) {
+  const texto = normalizarTexto(valor);
+  if (!texto) {
+    return '';
+  }
+
+  if (texto.length <= max) {
+    return texto;
+  }
+
+  return `${texto.slice(0, Math.max(0, max - 1)).trim()}…`;
+}
+
+async function fetchComTimeout(url, { timeoutMs = 4500, ...options } = {}) {
+  if (typeof AbortController === 'undefined') {
+    return fetch(url, options);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function normalizarPayloadBarcode(dados) {
+  const nome = truncarTexto(dados?.nome || '', 255);
+  const descricao = truncarTexto(dados?.descricao || '', 1200);
+  const imagem = isHttpUrlValida(dados?.imagem) ? normalizarTexto(dados.imagem) : '';
+
+  return {
+    nome,
+    descricao,
+    imagem
+  };
+}
+
+async function buscarDadosOpenFoodFacts(codigoBarras) {
+  try {
+    const response = await fetchComTimeout(
+      `https://world.openfoodfacts.org/api/v2/product/${codigoBarras}.json`,
+      {
+        headers: {
+          'User-Agent': 'BomFilhoImportador/1.0'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const dados = await response.json().catch(() => null);
+    const produto = dados?.product;
+
+    if (!produto || dados?.status !== 1) {
+      return null;
+    }
+
+    return normalizarPayloadBarcode({
+      nome: produto.product_name_pt || produto.product_name || produto.generic_name,
+      descricao: produto.ingredients_text_pt || produto.ingredients_text || produto.quantity,
+      imagem: produto.image_front_url || produto.image_url
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function buscarDadosUpcItemDb(codigoBarras) {
+  try {
+    const response = await fetchComTimeout(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigoBarras}`);
+    if (!response.ok) {
+      return null;
+    }
+
+    const dados = await response.json().catch(() => null);
+    const item = Array.isArray(dados?.items) ? dados.items[0] : null;
+    if (!item) {
+      return null;
+    }
+
+    return normalizarPayloadBarcode({
+      nome: item.title || item.description,
+      descricao: item.description,
+      imagem: Array.isArray(item.images) ? item.images[0] : ''
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function buscarDadosProdutoPorCodigoBarras(codigoBarras, cacheBarcode = new Map()) {
+  const codigo = normalizarCodigoBarras(codigoBarras);
+  if (!codigo) {
+    return null;
+  }
+
+  if (cacheBarcode.has(codigo)) {
+    return cacheBarcode.get(codigo);
+  }
+
+  const dadosOpenFoodFacts = await buscarDadosOpenFoodFacts(codigo);
+  if (dadosOpenFoodFacts && (dadosOpenFoodFacts.nome || dadosOpenFoodFacts.descricao || dadosOpenFoodFacts.imagem)) {
+    cacheBarcode.set(codigo, dadosOpenFoodFacts);
+    return dadosOpenFoodFacts;
+  }
+
+  const dadosUpcItemDb = await buscarDadosUpcItemDb(codigo);
+  const resultado = dadosUpcItemDb && (dadosUpcItemDb.nome || dadosUpcItemDb.descricao || dadosUpcItemDb.imagem)
+    ? dadosUpcItemDb
+    : null;
+  cacheBarcode.set(codigo, resultado);
+  return resultado;
+}
+
 function inferirCategoria(nomeProduto) {
   const valor = normalizarCabecalho(nomeProduto);
 
@@ -558,6 +710,14 @@ async function garantirEstruturaImportacaoProdutos(pool, { force = false } = {})
   }
 
   const alteracoes = [
+    {
+      coluna: 'descricao',
+      sql: 'ALTER TABLE produtos ADD COLUMN descricao TEXT NULL'
+    },
+    {
+      coluna: 'imagem_url',
+      sql: 'ALTER TABLE produtos ADD COLUMN imagem_url TEXT NULL'
+    },
     {
       coluna: 'codigo_interno',
       sql: 'ALTER TABLE produtos ADD COLUMN codigo_interno VARCHAR(64) NULL'
@@ -772,6 +932,7 @@ async function importarProdutosPlanilha({
   fileBuffer,
   originalName,
   createMissing = false,
+  updateStock = false,
   simulate = false,
   adminUser = 'admin',
   adminUserId = null
@@ -817,6 +978,7 @@ async function importarProdutosPlanilha({
     colunas_mapeadas: colunasMapeadas,
     configuracao: {
       criar_novos: Boolean(createMissing),
+      atualizar_estoque: Boolean(updateStock),
       simulacao: Boolean(simulate)
     },
     total_linhas: 0,
@@ -845,6 +1007,7 @@ async function importarProdutosPlanilha({
     const cacheCodigoInterno = new Map();
     const cacheCodigoBarras = new Map();
     const cacheNome = new Map();
+    const cacheDadosBarcode = new Map();
 
     for (let idx = 0; idx < linhasDados.length; idx += 1) {
       const linha = linhasDados[idx];
@@ -858,10 +1021,34 @@ async function importarProdutosPlanilha({
 
       const codigoInterno = normalizarCodigoInterno(obterValorLinha(linha, indices.codigo_interno));
       let codigoBarras = normalizarCodigoBarras(obterValorLinha(linha, indices.codigo_barras));
-      const nomeProduto = normalizarTexto(obterValorLinha(linha, indices.nome));
+      const nomePlanilha = truncarTexto(obterValorLinha(linha, indices.nome), 255);
+      let descricaoProduto = truncarTexto(obterValorLinha(linha, indices.descricao), 1200);
+      let nomeProduto = nomePlanilha || descricaoProduto;
+      let imagemProduto = normalizarTexto(obterValorLinha(linha, indices.imagem));
+
+      if (imagemProduto && !isHttpUrlValida(imagemProduto)) {
+        imagemProduto = '';
+      }
 
       if (!codigoBarras && /^\d{8,}$/.test(codigoInterno)) {
         codigoBarras = normalizarCodigoBarras(codigoInterno);
+      }
+
+      if ((!nomeProduto || !descricaoProduto || !imagemProduto) && codigoBarras) {
+        const dadosBarcode = await buscarDadosProdutoPorCodigoBarras(codigoBarras, cacheDadosBarcode);
+        if (dadosBarcode) {
+          if (!nomeProduto && dadosBarcode.nome) {
+            nomeProduto = truncarTexto(dadosBarcode.nome, 255);
+          }
+
+          if (!descricaoProduto && dadosBarcode.descricao) {
+            descricaoProduto = truncarTexto(dadosBarcode.descricao, 1200);
+          }
+
+          if (!imagemProduto && dadosBarcode.imagem && isHttpUrlValida(dadosBarcode.imagem)) {
+            imagemProduto = normalizarTexto(dadosBarcode.imagem);
+          }
+        }
       }
 
       if (!codigoInterno && !codigoBarras) {
@@ -880,6 +1067,10 @@ async function importarProdutosPlanilha({
           motivo: 'Linha sem descricao/nome do produto.'
         });
         continue;
+      }
+
+      if (!descricaoProduto && nomeProduto) {
+        descricaoProduto = nomeProduto;
       }
 
       const precoVenda = parseDecimalBrasileiro(obterValorLinha(linha, indices.preco));
@@ -911,7 +1102,7 @@ async function importarProdutosPlanilha({
       }
 
       let estoqueConvertido = null;
-      if (indices.estoque >= 0) {
+      if (updateStock && indices.estoque >= 0) {
         const estoqueRaw = obterValorLinha(linha, indices.estoque);
         if (temValorPreenchido(estoqueRaw)) {
           const estoqueNumero = parseDecimalBrasileiro(estoqueRaw);
@@ -978,29 +1169,24 @@ async function importarProdutosPlanilha({
           params.push(nomeProduto);
         }
 
+        if (colunasProdutos.has('descricao') && descricaoProduto) {
+          updates.push('descricao = ?');
+          params.push(descricaoProduto);
+        }
+
+        if (colunasProdutos.has('imagem_url') && imagemProduto) {
+          updates.push('imagem_url = ?');
+          params.push(imagemProduto);
+        }
+
         if (possuiColunaPromocao && colunasProdutos.has('preco_promocional')) {
           updates.push('preco_promocional = ?');
           params.push(precoPromocional);
         }
 
-        if (indices.estoque >= 0 && colunasProdutos.has('estoque') && Number.isInteger(estoqueConvertido)) {
+        if (updateStock && indices.estoque >= 0 && colunasProdutos.has('estoque') && Number.isInteger(estoqueConvertido)) {
           updates.push('estoque = ?');
           params.push(estoqueConvertido);
-        }
-
-        if (colunasProdutos.has('unidade') && unidade) {
-          updates.push('unidade = ?');
-          params.push(unidade);
-        }
-
-        if (colunasProdutos.has('ativo') && ativo !== null) {
-          updates.push('ativo = ?');
-          params.push(ativo ? 1 : 0);
-        }
-
-        if (colunasProdutos.has('categoria') && categoria) {
-          updates.push('categoria = ?');
-          params.push(categoria);
         }
 
         if (colunasProdutos.has('codigo_interno') && codigoInterno) {
@@ -1082,7 +1268,12 @@ async function importarProdutosPlanilha({
 
       if (colunasProdutos.has('descricao')) {
         campos.push('descricao');
-        valores.push(nomeProduto);
+        valores.push(descricaoProduto || nomeProduto);
+      }
+
+      if (colunasProdutos.has('imagem_url')) {
+        campos.push('imagem_url');
+        valores.push(imagemProduto || null);
       }
 
       if (colunasProdutos.has('unidade')) {
@@ -1097,7 +1288,7 @@ async function importarProdutosPlanilha({
 
       if (colunasProdutos.has('estoque')) {
         campos.push('estoque');
-        valores.push(Number.isInteger(estoqueConvertido) ? estoqueConvertido : 0);
+        valores.push(updateStock && Number.isInteger(estoqueConvertido) ? estoqueConvertido : 0);
       }
 
       if (colunasProdutos.has('ativo')) {
