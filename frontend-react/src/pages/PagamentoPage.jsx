@@ -221,6 +221,10 @@ export default function PagamentoPage() {
   const totalComEntregaPedido = Number(resultadoPedido?.total ?? Number((totalProdutosPedido + freteSelecionado).toFixed(2)));
   const totalReferenciaParcelamento = Number(resultadoPedido?.total ?? totalComFreteAtual ?? 0);
   const parcelamentoCreditoDisponivel = totalReferenciaParcelamento >= PARCELAMENTO_MINIMO_CREDITO;
+  const valorMinimoParcelamentoTexto = PARCELAMENTO_MINIMO_CREDITO.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
   const parcelasCartaoEfetivas = (() => {
     if (formaPagamento === 'debito') {
       return 1;
@@ -1023,7 +1027,7 @@ export default function PagamentoPage() {
                       <p className="muted-text" style={{ marginTop: '0.3rem' }}>
                         {parcelamentoCreditoDisponivel
                           ? `Parcelamento liberado para este pedido (até ${PARCELAMENTO_MAXIMO_CREDITO}x).`
-                          : `Parcelamento disponível apenas para pedidos a partir de R$ ${PARCELAMENTO_MINIMO_CREDITO.toFixed(2)}.`}
+                          : `Parcelamento disponível apenas para pedidos a partir de R$ ${valorMinimoParcelamentoTexto}.`}
                       </p>
                     </>
                   ) : (
