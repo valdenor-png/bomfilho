@@ -8,7 +8,10 @@ import {
   adminBuscarProdutoPorCodigoBarras,
   adminCadastrarProduto,
   adminExcluirProduto,
+  adminGetImportacoesProdutos,
+  adminImportarProdutosPlanilha,
   adminGetPedidos,
+  getAdminModeloImportacaoUrl,
   getProdutos,
   isAuthErrorMessage
 } from '../lib/api';
@@ -24,6 +27,50 @@ const STATUS_LABELS = {
 };
 const ADMIN_PEDIDOS_POR_PAGINA = 30;
 const ADMIN_PRODUTOS_POR_PAGINA = 60;
+const EXTENSOES_IMPORTACAO_ACEITAS = ['.csv', '.xlsx'];
+const STATUS_IMPORTACAO_LABELS = {
+  concluido: 'Concluída',
+  concluido_com_erros: 'Concluída com alertas',
+  erro: 'Falha'
+};
+
+function formatarStatusImportacao(statusRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+  return STATUS_IMPORTACAO_LABELS[status] || 'Em processamento';
+}
+
+function formatarTamanhoArquivo(bytesRaw) {
+  const bytes = Number(bytesRaw || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 KB';
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function validarArquivoImportacao(arquivo) {
+  if (!arquivo) {
+    return 'Selecione um arquivo para continuar.';
+  }
+
+  const nomeArquivo = String(arquivo.name || '').trim();
+  const nomeLower = nomeArquivo.toLowerCase();
+  const extensaoValida = EXTENSOES_IMPORTACAO_ACEITAS.some((extensao) => nomeLower.endsWith(extensao));
+
+  if (!extensaoValida) {
+    return 'Formato inválido. Envie um arquivo .xlsx ou .csv.';
+  }
+
+  return '';
+}
 
 function formatarStatusPedido(statusRaw) {
   const status = String(statusRaw || '').trim().toLowerCase();
@@ -91,6 +138,14 @@ export default function AdminPage() {
   const [filtroFinanceiroOrdem, setFiltroFinanceiroOrdem] = useState('data_desc');
   const [filtroFinanceiroInicio, setFiltroFinanceiroInicio] = useState('');
   const [filtroFinanceiroFim, setFiltroFinanceiroFim] = useState('');
+  const [arquivoImportacao, setArquivoImportacao] = useState(null);
+  const [arrastandoImportacao, setArrastandoImportacao] = useState(false);
+  const [importarCriarNovos, setImportarCriarNovos] = useState(false);
+  const [importandoPlanilha, setImportandoPlanilha] = useState(false);
+  const [resultadoImportacao, setResultadoImportacao] = useState(null);
+  const [historicoImportacoes, setHistoricoImportacoes] = useState([]);
+  const [carregandoImportacoes, setCarregandoImportacoes] = useState(false);
+  const modeloImportacaoUrl = useMemo(() => getAdminModeloImportacaoUrl(), []);
 
   const hostname = window.location.hostname;
   const isLocalHost = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
@@ -144,6 +199,12 @@ export default function AdminPage() {
       void carregarTudo({ resetPagina: true });
     }
   }, [adminAutenticado, isLocalHost]);
+
+  useEffect(() => {
+    if (adminAutenticado === true && isLocalHost && tab === 'importacao') {
+      void carregarHistoricoImportacoes();
+    }
+  }, [adminAutenticado, isLocalHost, tab]);
 
   function aplicarDadosPedidos(pedidosData, paginaSolicitada) {
     const pedidosList = Array.isArray(pedidosData?.pedidos) ? pedidosData.pedidos : [];
@@ -217,6 +278,116 @@ export default function AdminPage() {
       setErro(error.message);
     } finally {
       setCarregandoProdutos(false);
+    }
+  }
+
+  async function carregarHistoricoImportacoes() {
+    if (adminAutenticado !== true) {
+      return;
+    }
+
+    setCarregandoImportacoes(true);
+
+    try {
+      const data = await adminGetImportacoesProdutos({
+        page: 1,
+        limit: 20
+      });
+
+      const lista = Array.isArray(data?.importacoes) ? data.importacoes : [];
+      setHistoricoImportacoes(lista);
+    } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAdminAutenticado(false);
+        setHistoricoImportacoes([]);
+      }
+      setErro(error.message);
+    } finally {
+      setCarregandoImportacoes(false);
+    }
+  }
+
+  function selecionarArquivoImportacao(arquivo) {
+    const mensagemValidacao = validarArquivoImportacao(arquivo);
+    if (mensagemValidacao) {
+      setErro(mensagemValidacao);
+      return;
+    }
+
+    setErro('');
+    setResultadoImportacao(null);
+    setArquivoImportacao(arquivo);
+  }
+
+  function handleArquivoImportacaoChange(event) {
+    const arquivo = event.target.files?.[0] || null;
+    if (!arquivo) {
+      return;
+    }
+
+    selecionarArquivoImportacao(arquivo);
+  }
+
+  function handleDragOverImportacao(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!arrastandoImportacao) {
+      setArrastandoImportacao(true);
+    }
+  }
+
+  function handleDragLeaveImportacao(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setArrastandoImportacao(false);
+  }
+
+  function handleDropImportacao(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    setArrastandoImportacao(false);
+
+    const arquivo = event.dataTransfer?.files?.[0] || null;
+    if (!arquivo) {
+      return;
+    }
+
+    selecionarArquivoImportacao(arquivo);
+  }
+
+  async function handleImportarPlanilha(event) {
+    event.preventDefault();
+    setErro('');
+
+    const mensagemValidacao = validarArquivoImportacao(arquivoImportacao);
+    if (mensagemValidacao) {
+      setErro(mensagemValidacao);
+      return;
+    }
+
+    setImportandoPlanilha(true);
+
+    try {
+      const resultado = await adminImportarProdutosPlanilha({
+        arquivo: arquivoImportacao,
+        criarNovos: importarCriarNovos
+      });
+
+      setResultadoImportacao(resultado);
+
+      if (Number(resultado?.total_atualizados || 0) > 0 || Number(resultado?.total_criados || 0) > 0) {
+        await carregarProdutosPagina(1);
+      }
+
+      await carregarHistoricoImportacoes();
+      setArquivoImportacao(null);
+    } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAdminAutenticado(false);
+      }
+      setErro(error.message);
+    } finally {
+      setImportandoPlanilha(false);
     }
   }
 
@@ -303,6 +474,11 @@ export default function AdminPage() {
     setStatusDraft({});
     setPaginacaoPedidos(criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
     setPaginacaoProdutos(criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
+    setArquivoImportacao(null);
+    setArrastandoImportacao(false);
+    setImportandoPlanilha(false);
+    setResultadoImportacao(null);
+    setHistoricoImportacoes([]);
   }
 
   const kpis = useMemo(() => {
@@ -640,6 +816,13 @@ export default function AdminPage() {
         >
           Financeiro
         </button>
+        <button
+          type="button"
+          className={`auth-switch-btn ${tab === 'importacao' ? 'active' : ''}`}
+          onClick={() => setTab('importacao')}
+        >
+          Importação
+        </button>
       </div>
 
       <button
@@ -904,7 +1087,7 @@ export default function AdminPage() {
 
           {carregandoProdutos ? <p className="muted-text" style={{ marginTop: '0.5rem' }}>Carregando produtos...</p> : null}
         </>
-      ) : (
+      ) : tab === 'financeiro' ? (
         <>
           <p className="muted-text" style={{ marginTop: '1rem' }}>
             Financeiro calculado com base nos pedidos da página atual ({paginacaoPedidos.pagina}/{paginacaoPedidos.total_paginas}).
@@ -1043,6 +1226,175 @@ export default function AdminPage() {
                 )}
               </tbody>
             </table>
+          </div>
+        </>
+      ) : (
+        <>
+          <form className="form-box" style={{ marginTop: '1rem' }} onSubmit={handleImportarPlanilha}>
+            <p><strong>Importação de produtos por planilha</strong></p>
+            <p className="muted-text">
+              Importe arquivos do ERP em .xlsx ou .csv para atualizar preços, promoção, estoque e status.
+            </p>
+
+            <div
+              className={`importacao-dropzone ${arrastandoImportacao ? 'dragover' : ''}`}
+              onDragEnter={handleDragOverImportacao}
+              onDragOver={handleDragOverImportacao}
+              onDragLeave={handleDragLeaveImportacao}
+              onDrop={handleDropImportacao}
+            >
+              <input
+                id="admin-importacao-arquivo"
+                className="importacao-file-input"
+                type="file"
+                accept=".xlsx,.csv"
+                onChange={handleArquivoImportacaoChange}
+              />
+
+              <p><strong>Arraste e solte sua planilha aqui</strong></p>
+              <p className="muted-text">ou clique no botão para selecionar um arquivo local.</p>
+
+              <label htmlFor="admin-importacao-arquivo" className="btn-secondary importacao-select-btn">
+                Selecionar arquivo
+              </label>
+
+              {arquivoImportacao ? (
+                <p className="importacao-file-meta">
+                  Arquivo selecionado: <strong>{arquivoImportacao.name}</strong> ({formatarTamanhoArquivo(arquivoImportacao.size)})
+                </p>
+              ) : (
+                <p className="muted-text">Formatos aceitos: .xlsx e .csv</p>
+              )}
+            </div>
+
+            <div className="toolbar-box importacao-toolbar">
+              <label className="importacao-checkbox">
+                <input
+                  type="checkbox"
+                  checked={importarCriarNovos}
+                  onChange={(event) => setImportarCriarNovos(event.target.checked)}
+                />
+                Criar produtos novos automaticamente quando não existir correspondência por código.
+              </label>
+
+              <a
+                className="btn-secondary importacao-modelo-btn"
+                href={modeloImportacaoUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Baixar modelo CSV
+              </a>
+            </div>
+
+            <button className="btn-primary" type="submit" disabled={importandoPlanilha}>
+              {importandoPlanilha ? 'Importando planilha...' : 'Importar planilha'}
+            </button>
+          </form>
+
+          {resultadoImportacao ? (
+            <div className="card-box importacao-resumo-box" style={{ marginTop: '1rem' }}>
+              <p><strong>Resumo da última importação</strong></p>
+
+              <div className="admin-kpis" style={{ marginTop: '0.5rem' }}>
+                <div className="kpi-card"><strong>Total linhas:</strong> {Number(resultadoImportacao.total_linhas || 0)}</div>
+                <div className="kpi-card"><strong>Atualizados:</strong> {Number(resultadoImportacao.total_atualizados || 0)}</div>
+                <div className="kpi-card"><strong>Criados:</strong> {Number(resultadoImportacao.total_criados || 0)}</div>
+                <div className="kpi-card"><strong>Ignorados:</strong> {Number(resultadoImportacao.total_ignorados || 0)}</div>
+                <div className="kpi-card"><strong>Erros:</strong> {Number(resultadoImportacao.total_erros || 0)}</div>
+              </div>
+
+              <p className="muted-text">Arquivo: {resultadoImportacao.arquivo || '-'}</p>
+
+              <p className="muted-text">
+                Colunas mapeadas: {
+                  Object.entries(resultadoImportacao.colunas_mapeadas || {})
+                    .map(([chave, valor]) => `${chave}: ${valor}`)
+                    .join(' | ') || 'Não informado'
+                }
+              </p>
+
+              {Array.isArray(resultadoImportacao?.logs?.erros) && resultadoImportacao.logs.erros.length > 0 ? (
+                <div className="importacao-log-box">
+                  <p><strong>Erros identificados</strong></p>
+                  <ul className="importacao-log-list">
+                    {resultadoImportacao.logs.erros.slice(0, 8).map((item, index) => (
+                      <li key={`erro-importacao-${index}`}>
+                        Linha {item?.linha || '-'}: {item?.motivo || 'Erro sem detalhe.'}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {Array.isArray(resultadoImportacao?.logs?.ignorados) && resultadoImportacao.logs.ignorados.length > 0 ? (
+                <div className="importacao-log-box">
+                  <p><strong>Itens ignorados</strong></p>
+                  <ul className="importacao-log-list">
+                    {resultadoImportacao.logs.ignorados.slice(0, 8).map((item, index) => (
+                      <li key={`ignorado-importacao-${index}`}>
+                        Linha {item?.linha || '-'}: {item?.motivo || 'Item ignorado sem detalhe.'}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="card-box" style={{ marginTop: '1rem' }}>
+            <div className="toolbar-box" style={{ alignItems: 'center' }}>
+              <p style={{ margin: 0 }}><strong>Histórico de importações</strong></p>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={carregandoImportacoes}
+                onClick={() => {
+                  void carregarHistoricoImportacoes();
+                }}
+              >
+                {carregandoImportacoes ? 'Atualizando histórico...' : 'Atualizar histórico'}
+              </button>
+            </div>
+
+            <div className="table-wrap" style={{ marginTop: '0.7rem' }}>
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Arquivo</th>
+                    <th>Status</th>
+                    <th>Atualizados</th>
+                    <th>Criados</th>
+                    <th>Ignorados</th>
+                    <th>Erros</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historicoImportacoes.length === 0 ? (
+                    <tr>
+                      <td colSpan={7}>Nenhuma importação registrada até o momento.</td>
+                    </tr>
+                  ) : (
+                    historicoImportacoes.map((importacao) => (
+                      <tr key={importacao.id}>
+                        <td>{importacao.criado_em ? new Date(importacao.criado_em).toLocaleString('pt-BR') : '-'}</td>
+                        <td>{importacao.nome_arquivo || '-'}</td>
+                        <td>
+                          <span className={`importacao-status-badge status-${String(importacao.status || '').toLowerCase()}`}>
+                            {formatarStatusImportacao(importacao.status)}
+                          </span>
+                        </td>
+                        <td>{Number(importacao.total_atualizados || 0)}</td>
+                        <td>{Number(importacao.total_criados || 0)}</td>
+                        <td>{Number(importacao.total_ignorados || 0)}</td>
+                        <td>{Number(importacao.total_erros || 0)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

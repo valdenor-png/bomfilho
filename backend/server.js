@@ -5,6 +5,7 @@
   const cookieParser = require('cookie-parser');
   const helmet = require('helmet');
   const rateLimit = require('express-rate-limit');
+  const multer = require('multer');
   const bcrypt = require('bcryptjs');
   const jwt = require('jsonwebtoken');
   const mysql = require("mysql2/promise");
@@ -12,6 +13,12 @@
   const crypto = require('crypto');
   const fs = require('fs');
   const path = require('path');
+  const {
+    EXTENSOES_IMPORTACAO_ACEITAS,
+    construirModeloImportacaoProdutosCsv,
+    importarProdutosPlanilha,
+    listarImportacoesProdutos
+  } = require('./services/produtosImportacao');
 
   const app = express();
   const PORT = process.env.PORT || 3000;
@@ -161,6 +168,14 @@
   const cepGeoCache = new Map();
   const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 20000);
   const produtosQueryCache = new Map();
+  const TAMANHO_MAXIMO_IMPORTACAO_BYTES = 10 * 1024 * 1024;
+  const MIME_IMPORTACAO_PLANILHA_ACEITOS = new Set([
+    'text/csv',
+    'application/csv',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/octet-stream'
+  ]);
 
 const VEICULOS_ENTREGA = {
   bike: {
@@ -745,6 +760,67 @@ function parsePositiveInt(value, fallback, { min = 1, max = 1000 } = {}) {
   }
 
   return Math.max(min, Math.min(max, parsed));
+}
+
+function parseBooleanInput(value, fallback = false) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (['1', 'true', 'sim', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'nao', 'não', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+const uploadImportacaoProdutos = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: TAMANHO_MAXIMO_IMPORTACAO_BYTES
+  },
+  fileFilter(req, file, callback) {
+    const nomeArquivo = String(file?.originalname || '').trim();
+    const extensao = path.extname(nomeArquivo).toLowerCase();
+    const mimeType = String(file?.mimetype || '').trim().toLowerCase();
+
+    if (!EXTENSOES_IMPORTACAO_ACEITAS.includes(extensao)) {
+      return callback(new Error('Formato de arquivo não suportado. Envie .xlsx ou .csv.'));
+    }
+
+    if (mimeType && !MIME_IMPORTACAO_PLANILHA_ACEITOS.has(mimeType)) {
+      return callback(new Error('Tipo de arquivo inválido para importação de produtos.'));
+    }
+
+    return callback(null, true);
+  }
+});
+
+function middlewareUploadImportacaoProdutos(req, res, next) {
+  uploadImportacaoProdutos.single('arquivo')(req, res, (erroUpload) => {
+    if (!erroUpload) {
+      return next();
+    }
+
+    if (erroUpload instanceof multer.MulterError) {
+      if (erroUpload.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({
+          erro: `Arquivo acima de ${Math.round(TAMANHO_MAXIMO_IMPORTACAO_BYTES / (1024 * 1024))}MB. Reduza o tamanho da planilha e tente novamente.`
+        });
+      }
+
+      return res.status(400).json({ erro: 'Não foi possível processar o upload da planilha.' });
+    }
+
+    return res.status(400).json({
+      erro: erroUpload?.message || 'Arquivo inválido para importação.'
+    });
+  });
 }
 
 function escapeLike(value) {
@@ -2757,6 +2833,87 @@ app.post('/api/admin/produtos/bulk', exigirAcessoLocalAdmin, autenticarAdminToke
     connection.release();
   }
 });
+
+app.get('/api/admin/produtos/importacao/modelo', exigirAcessoLocalAdmin, autenticarAdminToken, (req, res) => {
+  const csvModelo = construirModeloImportacaoProdutosCsv();
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="modelo-importacao-produtos.csv"');
+  res.setHeader('Cache-Control', 'no-store');
+
+  return res.status(200).send(`\uFEFF${csvModelo}`);
+});
+
+app.get('/api/admin/produtos/importacoes', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const page = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
+    const limit = parsePositiveInt(req.query?.limit || req.query?.limite, 20, { min: 1, max: 100 });
+
+    const resultado = await listarImportacoesProdutos({
+      pool,
+      page,
+      limit
+    });
+
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao listar histórico de importações de produtos:', erro);
+    return res.status(500).json({
+      erro: 'Não foi possível carregar o histórico de importações agora.'
+    });
+  }
+});
+
+app.post(
+  '/api/admin/produtos/importar',
+  exigirAcessoLocalAdmin,
+  autenticarAdminToken,
+  middlewareUploadImportacaoProdutos,
+  async (req, res) => {
+    try {
+      if (!req.file || !Buffer.isBuffer(req.file.buffer)) {
+        return res.status(400).json({ erro: 'Selecione um arquivo .xlsx ou .csv para importar.' });
+      }
+
+      const criarNovos = parseBooleanInput(req.body?.criar_novos, false);
+
+      const resultado = await importarProdutosPlanilha({
+        pool,
+        fileBuffer: req.file.buffer,
+        originalName: req.file.originalname,
+        createMissing: criarNovos,
+        adminUser: req.admin?.usuario || ADMIN_USER,
+        adminUserId: req.admin?.id || null
+      });
+
+      produtosColumnsCache = null;
+
+      if (Number(resultado?.total_atualizados || 0) > 0 || Number(resultado?.total_criados || 0) > 0) {
+        limparCacheProdutos();
+      }
+
+      return res.status(200).json(resultado);
+    } catch (erro) {
+      const status = Number.isFinite(Number(erro?.httpStatus))
+        ? Number(erro.httpStatus)
+        : 500;
+
+      if (status >= 500) {
+        console.error('Erro ao importar planilha de produtos:', erro);
+      }
+
+      const payloadErro = {
+        erro: erro?.message || 'Não foi possível processar a importação da planilha.'
+      };
+
+      if (erro?.extra && typeof erro.extra === 'object') {
+        payloadErro.detalhes = erro.extra;
+      }
+
+      return res.status(status).json(payloadErro);
+    }
+  }
+);
 
 // Excluir produto (admin) - soft delete
 app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {

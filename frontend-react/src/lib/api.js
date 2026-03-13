@@ -174,9 +174,9 @@ function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
   return rawMessage;
 }
 
-function buildHeaders({ token, hasBody, csrfToken } = {}) {
+function buildHeaders({ token, hasJsonBody, csrfToken } = {}) {
   const headers = {};
-  if (hasBody) {
+  if (hasJsonBody) {
     headers['Content-Type'] = 'application/json';
   }
 
@@ -258,6 +258,8 @@ async function request(path, options = {}, tentativa = 0) {
   const persistedToken = isAdminPath ? getAdminAccessToken() : getUserAccessToken();
   const tokenToUse = String(token || persistedToken || '').trim();
   const hasBody = body !== undefined;
+  const isFormDataBody = hasBody && typeof FormData !== 'undefined' && body instanceof FormData;
+  const hasJsonBody = hasBody && !isFormDataBody;
   const precisaCsrf = isMutatingMethod(methodUpper) && !tokenToUse;
 
   let csrfToken = '';
@@ -268,8 +270,8 @@ async function request(path, options = {}, tentativa = 0) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: methodUpper,
     credentials: 'include',
-    headers: buildHeaders({ token: tokenToUse, hasBody, csrfToken }),
-    body: hasBody ? JSON.stringify(body) : undefined
+    headers: buildHeaders({ token: tokenToUse, hasJsonBody, csrfToken }),
+    body: hasBody ? (isFormDataBody ? body : JSON.stringify(body)) : undefined
   });
 
   const data = await response.json().catch(() => ({}));
@@ -490,4 +492,29 @@ export function adminExcluirProduto(produtoId) {
   return request(`/api/admin/produtos/${produtoId}`, {
     method: 'DELETE'
   });
+}
+
+export function adminImportarProdutosPlanilha({ arquivo, criarNovos = false } = {}) {
+  const isFile = typeof File !== 'undefined' && arquivo instanceof File;
+  const isBlob = typeof Blob !== 'undefined' && arquivo instanceof Blob;
+  if (!isFile && !isBlob) {
+    throw new Error('Selecione um arquivo .xlsx ou .csv para importar.');
+  }
+
+  const formData = new FormData();
+  formData.append('arquivo', arquivo);
+  formData.append('criar_novos', criarNovos ? 'true' : 'false');
+
+  return request('/api/admin/produtos/importar', {
+    method: 'POST',
+    body: formData
+  });
+}
+
+export function adminGetImportacoesProdutos(params = {}) {
+  return request(`/api/admin/produtos/importacoes${buildQueryString(params)}`);
+}
+
+export function getAdminModeloImportacaoUrl() {
+  return `${API_BASE_URL}/api/admin/produtos/importacao/modelo`;
 }

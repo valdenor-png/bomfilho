@@ -1363,6 +1363,99 @@ body {
   background: #fff;
 }
 
+.importacao-dropzone {
+  border: 2px dashed #9ae6b4;
+  border-radius: 12px;
+  background: #f0fff4;
+  padding: 1rem;
+  display: grid;
+  gap: 0.45rem;
+  justify-items: start;
+}
+
+.importacao-dropzone.dragover {
+  border-color: #2f855a;
+  background: #dcfce7;
+}
+
+.importacao-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.importacao-select-btn {
+  display: inline-flex;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.importacao-file-meta {
+  margin-top: 0.25rem;
+  color: #1f2937;
+}
+
+.importacao-toolbar {
+  align-items: center;
+}
+
+.importacao-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #1f2937;
+}
+
+.importacao-modelo-btn {
+  text-decoration: none;
+}
+
+.importacao-log-box {
+  margin-top: 0.55rem;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.55rem;
+}
+
+.importacao-log-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  color: #2d3748;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.importacao-status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.importacao-status-badge.status-concluido {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.importacao-status-badge.status-concluido_com_erros {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.importacao-status-badge.status-erro {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
 .pix-image {
   max-width: 220px;
   border: 1px solid #e2e8f0;
@@ -1553,6 +1646,16 @@ body {
 
   .toolbar-box {
     grid-template-columns: 1fr;
+  }
+
+  .importacao-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .importacao-select-btn,
+  .importacao-modelo-btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .checkout-steps {
