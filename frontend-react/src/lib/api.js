@@ -330,7 +330,16 @@ export function getPagBankPublicKey() {
   return request('/api/pagbank/public-key');
 }
 
-export function pagarCartao(pedidoId, { taxId, tokenCartao, parcelas = 1, tipoCartao = 'credito' } = {}) {
+export function pagarCartao(
+  pedidoId,
+  {
+    taxId,
+    tokenCartao,
+    parcelas = 1,
+    tipoCartao = 'credito',
+    authenticationMethod
+  } = {}
+) {
   const taxIdDigits = String(taxId || '').replace(/\D/g, '');
   const tokenNormalizado = String(tokenCartao || '').trim();
   const parcelasNormalizadas = Number.parseInt(parcelas, 10);
@@ -347,6 +356,10 @@ export function pagarCartao(pedidoId, { taxId, tokenCartao, parcelas = 1, tipoCa
 
   if (tokenNormalizado) {
     body.token_cartao = tokenNormalizado;
+  }
+
+  if (authenticationMethod && typeof authenticationMethod === 'object') {
+    body.authentication_method = authenticationMethod;
   }
 
   return request('/api/pagamentos/cartao', {

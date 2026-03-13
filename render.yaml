@@ -49,6 +49,8 @@ services:
         sync: false
       - key: ALLOW_PIX_MOCK
         value: "false"
+      - key: ALLOW_DEBIT_3DS_MOCK
+        value: "false"
       - key: DIAGNOSTIC_TOKEN
         sync: false
       - key: CEP_MERCADO

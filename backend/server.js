@@ -72,10 +72,12 @@
   const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
   const PAGBANK_DEBUG_LOGS = parseBooleanEnv('PAGBANK_DEBUG_LOGS', true);
   const ALLOW_PIX_MOCK = parseBooleanEnv('ALLOW_PIX_MOCK', false);
+  const ALLOW_DEBIT_3DS_MOCK = parseBooleanEnv('ALLOW_DEBIT_3DS_MOCK', PAGBANK_ENV !== 'production');
 
   console.log(`🚀 Ambiente: ${NODE_ENV}`);
   console.log(`🔐 PagBank configurado: ${Boolean(PAGBANK_TOKEN)}`);
   console.log(`🧪 Fallback PIX mock ativo: ${ALLOW_PIX_MOCK}`);
+  console.log(`🧪 Fallback 3DS débito mock ativo: ${ALLOW_DEBIT_3DS_MOCK}`);
   console.log(`🌐 Trust proxy ativo: ${TRUST_PROXY}`);
 
   // Configuração Evolution API (WhatsApp)
@@ -1342,6 +1344,101 @@ function normalizarTipoCartao(valor) {
   return 'credito';
 }
 
+function normalizarAuthenticationMethodPagBank(valor) {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) {
+    return null;
+  }
+
+  const type = String(valor.type || 'THREEDS').trim().toUpperCase();
+  if (type !== 'THREEDS') {
+    return null;
+  }
+
+  const id = String(valor.id || '').trim();
+  if (id) {
+    return {
+      type: 'THREEDS',
+      id
+    };
+  }
+
+  const cavv = String(valor.cavv || '').trim();
+  const xid = String(valor.xid || '').trim();
+  const eci = String(valor.eci || '').trim();
+  const version = String(valor.version || '').trim();
+  const dstransId = String(valor.dstrans_id || valor.dsTransId || '').trim();
+
+  const auth = { type: 'THREEDS' };
+  if (cavv) {
+    auth.cavv = cavv;
+  }
+  if (xid) {
+    auth.xid = xid;
+  }
+  if (eci) {
+    auth.eci = eci;
+  }
+  if (version) {
+    auth.version = version;
+  }
+  if (dstransId) {
+    auth.dstrans_id = dstransId;
+  }
+
+  const hasExternalData = Object.keys(auth).length > 1;
+  return hasExternalData ? auth : null;
+}
+
+function montarAuthenticationMethodMock3DS() {
+  return {
+    type: 'THREEDS',
+    cavv: 'BwABBylVaQAAAAFwllVpAAAAAAA=',
+    xid: 'BwABBylVaQAAAAFwllVpAAAAAAA=',
+    eci: '05',
+    version: '2.1.0',
+    dstrans_id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+  };
+}
+
+function validarAuthenticationMethodPagBank(authenticationMethod) {
+  const auth = normalizarAuthenticationMethodPagBank(authenticationMethod);
+
+  if (!auth) {
+    return {
+      ok: false,
+      auth: null,
+      modo: 'none',
+      motivo: 'missing'
+    };
+  }
+
+  if (auth.id) {
+    return {
+      ok: true,
+      auth,
+      modo: 'id',
+      motivo: null
+    };
+  }
+
+  const validoExterno = Boolean(auth.cavv && auth.eci && auth.version && (auth.xid || auth.dstrans_id));
+  if (!validoExterno) {
+    return {
+      ok: false,
+      auth,
+      modo: 'external',
+      motivo: 'incomplete_external'
+    };
+  }
+
+  return {
+    ok: true,
+    auth,
+    modo: 'external',
+    motivo: null
+  };
+}
+
 async function verificarCredencialPagBank() {
   if (!PAGBANK_TOKEN) {
     pagbankLastAuthCheck = {
@@ -1633,7 +1730,8 @@ async function criarPagamentoCartao({
   taxId,
   tokenCartao,
   parcelas,
-  tipoCartao
+  tipoCartao,
+  authenticationMethod
 }) {
   if (!PAGBANK_TOKEN) {
     throw new Error('PAGBANK_TOKEN ausente');
@@ -1651,8 +1749,10 @@ async function criarPagamentoCartao({
 
   const tipoCartaoNormalizado = normalizarTipoCartao(tipoCartao);
   const paymentMethodType = tipoCartaoNormalizado === 'debito' ? 'DEBIT_CARD' : 'CREDIT_CARD';
+  const authenticationMethodNormalizado = normalizarAuthenticationMethodPagBank(authenticationMethod);
   const parcelasNormalizadas = normalizarParcelasCartao(parcelas);
   const valorCentavos = Math.max(1, Math.round(Number(total || 0) * 100));
+  let authenticationMethodMode = 'none';
 
   const paymentMethod = {
     type: paymentMethodType,
@@ -1669,6 +1769,33 @@ async function criarPagamentoCartao({
 
   if (tipoCartaoNormalizado !== 'debito') {
     paymentMethod.installments = parcelasNormalizadas;
+  } else {
+    let authParaUso = authenticationMethodNormalizado;
+    let origemAuth = 'request';
+
+    if (!authParaUso && PAGBANK_ENV !== 'production' && ALLOW_DEBIT_3DS_MOCK) {
+      authParaUso = montarAuthenticationMethodMock3DS();
+      origemAuth = 'mock';
+    }
+
+    const validacaoAuth = validarAuthenticationMethodPagBank(authParaUso);
+    if (!validacaoAuth.ok) {
+      throw new Error(
+        'authentication_method 3DS é obrigatório para pagamento com débito. '
+        + 'Envie payment_method.authentication_method com type=THREEDS e dados válidos.'
+      );
+    }
+
+    paymentMethod.authentication_method = validacaoAuth.auth;
+    authenticationMethodMode = origemAuth === 'mock' ? 'mock_external' : validacaoAuth.modo;
+  }
+
+  if (tipoCartaoNormalizado !== 'debito' && authenticationMethodNormalizado) {
+    const validacaoAuth = validarAuthenticationMethodPagBank(authenticationMethodNormalizado);
+    if (validacaoAuth.ok) {
+      paymentMethod.authentication_method = validacaoAuth.auth;
+      authenticationMethodMode = validacaoAuth.modo;
+    }
   }
 
   const payload = {
@@ -1723,6 +1850,8 @@ async function criarPagamentoCartao({
       installments: tipoCartaoNormalizado === 'debito' ? 1 : parcelasNormalizadas,
       capture: payload?.charges?.[0]?.payment_method?.capture,
       has_encrypted_card: hasEncryptedCard,
+      has_authentication_method: Boolean(payload?.charges?.[0]?.payment_method?.authentication_method),
+      authentication_method_mode: authenticationMethodMode,
       notification_url: payload.notification_urls?.[0]
     }
   });
@@ -1761,6 +1890,7 @@ async function criarPagamentoCartao({
       idempotency_key: idempotencyKey,
       pedido_id: pedidoId,
       tipo_cartao: tipoCartaoNormalizado,
+      authentication_method_mode: authenticationMethodMode,
       has_charges_in_response: Array.isArray(responsePayload?.charges) && responsePayload.charges.length > 0,
       order_id: responsePayload?.id || null,
       charge_id: chargePrincipalCartao?.id || null,
@@ -2722,6 +2852,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
     const tokenCartao = String(req.body?.token_cartao || req.body?.cartao_encriptado || '').trim();
+    const authenticationMethod = req.body?.authentication_method;
     const tipoCartaoSolicitado = String(req.body?.tipo_cartao || req.body?.forma_pagamento || '').trim();
     const parcelas = normalizarParcelasCartao(req.body?.parcelas);
 
@@ -2783,6 +2914,15 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       return res.status(400).json({ erro: 'Este pedido foi criado para crédito. Use tipo_cartao=credito.' });
     }
 
+    if (tipoCartao === 'debito' && PAGBANK_ENV === 'production') {
+      const validacaoAuthDebito = validarAuthenticationMethodPagBank(authenticationMethod);
+      if (!validacaoAuthDebito.ok) {
+        return res.status(400).json({
+          erro: 'authentication_method 3DS é obrigatório para débito em produção.'
+        });
+      }
+    }
+
     let pagamento = await criarPagamentoCartao({
       pedidoId: pedido.id,
       total: pedido.total,
@@ -2792,7 +2932,8 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       taxId: taxIdDigits,
       tokenCartao,
       parcelas,
-      tipoCartao
+      tipoCartao,
+      authenticationMethod
     });
 
     const pagbankOrderId = pagamento?.id || null;

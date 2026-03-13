@@ -76,6 +76,7 @@ PAGBANK_TOKEN=SEU_TOKEN_PAGBANK
 PAGBANK_PUBLIC_KEY=SUA_CHAVE_PUBLICA_PAGBANK
 PAGBANK_DEBUG_LOGS=true
 ALLOW_PIX_MOCK=false
+ALLOW_DEBIT_3DS_MOCK=true
 
 # Proteção do webhook PagBank
 PAGBANK_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
@@ -108,7 +109,14 @@ Para isso funcionar em ambiente local, o webhook precisa ser acessível publicam
 - `PAGBANK_ENV`: `sandbox` (teste) ou `production`
 - `PAGBANK_PUBLIC_KEY`: chave pública usada para criptografar cartão no frontend
 - `ALLOW_PIX_MOCK`: `true` apenas para desenvolvimento local com PIX simulado
+- `ALLOW_DEBIT_3DS_MOCK`: `true` apenas em sandbox para fallback 3DS mock no débito
 - `BASE_URL`: URL pública do seu backend (ex.: ngrok/Cloudflare Tunnel)
+
+### Pagamento com cartão de débito (3DS)
+
+- Em débito, o PagBank exige `authentication_method` com `type=THREEDS`.
+- Em produção, envie `authentication_method` real no `POST /api/pagamentos/cartao`.
+- Em sandbox, se `ALLOW_DEBIT_3DS_MOCK=true`, o backend injeta dados 3DS mock quando o campo não for enviado.
 
 ### 2) Rodar migração do PIX no MySQL
 

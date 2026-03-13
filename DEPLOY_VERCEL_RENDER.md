@@ -49,6 +49,7 @@ Se usar PIX/WhatsApp:
 - `PAGBANK_ENV`, `PAGBANK_TOKEN`, `PAGBANK_PUBLIC_KEY`, `PAGBANK_WEBHOOK_TOKEN`
 - `PAGBANK_DEBUG_LOGS=true` (recomendado para homologacao)
 - `ALLOW_PIX_MOCK=false` (recomendado para homologacao real)
+- `ALLOW_DEBIT_3DS_MOCK=false` (producao/homologacao real deve usar 3DS real)
 - `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`
 
 Teste rapido:
