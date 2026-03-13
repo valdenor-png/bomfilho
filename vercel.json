@@ -1,6 +1,0 @@
-{
-  "framework": "vite",
-  "installCommand": "npm ci --prefix frontend-react",
-  "buildCommand": "npm --prefix frontend-react run build",
-  "outputDirectory": "frontend-react/dist"
-}
