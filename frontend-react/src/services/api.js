@@ -47,6 +47,12 @@ function mapMensagemHttp(status) {
   return 'Nao foi possivel concluir sua solicitacao.';
 }
 
+function aguardar(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, Math.max(0, Number(ms) || 0));
+  });
+}
+
 async function parseResponse(response) {
   const contentType = String(response?.headers?.get('content-type') || '').toLowerCase();
 
@@ -80,7 +86,9 @@ export async function apiRequest(path, options = {}) {
     body,
     credentials = 'include',
     timeoutMs = API_TIMEOUT_MS,
-    signal
+    signal,
+    retryCount,
+    retryDelayMs = 1200
   } = options;
 
   const methodUpper = String(method || 'GET').toUpperCase();
@@ -102,95 +110,142 @@ export async function apiRequest(path, options = {}) {
     ? (isFormData || typeof body === 'string' ? body : JSON.stringify(body))
     : undefined;
 
-  let controller = null;
-  let timeoutId = null;
-  let timeoutHit = false;
+  const maxRetries = Number.isFinite(Number(retryCount))
+    ? Math.max(0, Number(retryCount))
+    : (methodUpper === 'GET' ? 1 : 0);
+  const retryDelay = Math.max(0, Number(retryDelayMs) || 0);
 
-  if (typeof AbortController !== 'undefined') {
-    controller = new AbortController();
-    if (Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0) {
-      timeoutId = setTimeout(() => {
-        timeoutHit = true;
-        controller.abort();
-      }, Number(timeoutMs));
+  for (let tentativa = 0; tentativa <= maxRetries; tentativa += 1) {
+    let controller = null;
+    let timeoutId = null;
+    let timeoutHit = false;
+
+    if (typeof AbortController !== 'undefined') {
+      controller = new AbortController();
+      if (Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0) {
+        timeoutId = setTimeout(() => {
+          timeoutHit = true;
+          controller.abort();
+        }, Number(timeoutMs));
+      }
     }
-  }
 
-  const signalToUse = signal || controller?.signal;
+    const signalToUse = signal || controller?.signal;
 
-  logApi('API REQUEST', {
-    method: methodUpper,
-    path,
-    url,
-    hasBody,
-    timeoutMs: Number(timeoutMs)
-  });
-
-  try {
-    const response = await fetch(url, {
+    logApi('API REQUEST', {
       method: methodUpper,
-      headers: preparedHeaders,
-      body: requestBody,
-      credentials,
-      signal: signalToUse
+      path,
+      url,
+      hasBody,
+      timeoutMs: Number(timeoutMs),
+      tentativa: tentativa + 1,
+      totalTentativas: maxRetries + 1
     });
 
-    const data = await parseResponse(response);
+    try {
+      const response = await fetch(url, {
+        method: methodUpper,
+        headers: preparedHeaders,
+        body: requestBody,
+        credentials,
+        signal: signalToUse
+      });
 
-    if (!response.ok) {
-      const serverMessage = data?.erro || data?.mensagem || data?.message || mapMensagemHttp(response.status);
-      const erroHttp = new Error(String(serverMessage || mapMensagemHttp(response.status)));
-      erroHttp.status = response.status;
-      erroHttp.serverMessage = String(serverMessage || '');
-      erroHttp.payload = data;
+      const data = await parseResponse(response);
+
+      if (!response.ok) {
+        const statusCode = Number(response.status || 0);
+        const podeRetentar = tentativa < maxRetries && [502, 503, 504].includes(statusCode) && methodUpper === 'GET';
+
+        if (podeRetentar) {
+          logApi('API RETRY', {
+            method: methodUpper,
+            path,
+            url,
+            status: statusCode,
+            tentativaAtual: tentativa + 1,
+            proximaTentativa: tentativa + 2
+          });
+          await aguardar(retryDelay);
+          continue;
+        }
+
+        const serverMessage = data?.erro || data?.mensagem || data?.message || mapMensagemHttp(response.status);
+        const erroHttp = new Error(String(serverMessage || mapMensagemHttp(response.status)));
+        erroHttp.status = response.status;
+        erroHttp.serverMessage = String(serverMessage || '');
+        erroHttp.payload = data;
+
+        logApi('API ERROR', {
+          method: methodUpper,
+          path,
+          url,
+          status: response.status,
+          message: erroHttp.message,
+          tentativa: tentativa + 1
+        });
+
+        throw erroHttp;
+      }
+
+      logApi('API RESPONSE', {
+        method: methodUpper,
+        path,
+        url,
+        status: response.status,
+        tentativa: tentativa + 1
+      });
+
+      return data;
+    } catch (erro) {
+      const isAbortError = erro?.name === 'AbortError';
+      const timeoutError = isAbortError && timeoutHit;
+      const erroComStatus = Boolean(erro?.status);
+      const podeRetentar = tentativa < maxRetries && methodUpper === 'GET' && (timeoutError || !erroComStatus);
+
+      if (podeRetentar) {
+        logApi('API RETRY', {
+          method: methodUpper,
+          path,
+          url,
+          reason: timeoutError ? 'timeout' : 'network',
+          tentativaAtual: tentativa + 1,
+          proximaTentativa: tentativa + 2
+        });
+        await aguardar(retryDelay);
+        continue;
+      }
+
+      if (timeoutError) {
+        throw criarErroTimeout(timeoutMs);
+      }
+
+      if (erroComStatus) {
+        throw erro;
+      }
+
+      const erroRede = new Error('Nao foi possivel conectar ao servidor. Verifique sua internet e tente novamente.');
+      erroRede.status = 0;
+      erroRede.serverMessage = erro?.message || '';
 
       logApi('API ERROR', {
         method: methodUpper,
         path,
         url,
-        status: response.status,
-        message: erroHttp.message
+        status: 0,
+        message: erroRede.message,
+        tentativa: tentativa + 1
       });
 
-      throw erroHttp;
-    }
-
-    logApi('API RESPONSE', {
-      method: methodUpper,
-      path,
-      url,
-      status: response.status
-    });
-
-    return data;
-  } catch (erro) {
-    const isAbortError = erro?.name === 'AbortError';
-    if (isAbortError && timeoutHit) {
-      throw criarErroTimeout(timeoutMs);
-    }
-
-    if (erro?.status) {
-      throw erro;
-    }
-
-    const erroRede = new Error('Nao foi possivel conectar ao servidor. Verifique sua internet e tente novamente.');
-    erroRede.status = 0;
-    erroRede.serverMessage = erro?.message || '';
-
-    logApi('API ERROR', {
-      method: methodUpper,
-      path,
-      url,
-      status: 0,
-      message: erroRede.message
-    });
-
-    throw erroRede;
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
+      throw erroRede;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
     }
   }
+
+  throw new Error('Falha ao concluir a requisicao da API.');
 }
 
 export function apiGet(path, options = {}) {
