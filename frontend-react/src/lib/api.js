@@ -2,6 +2,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const CSRF_COOKIE_KEY = 'bf_csrf_token';
 const USER_ACCESS_TOKEN_KEY = 'bf_user_access_token';
 const ADMIN_ACCESS_TOKEN_KEY = 'bf_admin_access_token';
+const GENERIC_USER_ERROR_MESSAGE = 'Não foi possível concluir sua solicitação agora. Tente novamente em instantes.';
 let csrfTokenCache = '';
 const IS_NGROK_API = /ngrok(-free)?\.dev|ngrok\.io/i.test(String(API_BASE_URL || ''));
 
@@ -97,6 +98,82 @@ function obterCsrfToken() {
   return csrfTokenCache || readCookie(CSRF_COOKIE_KEY);
 }
 
+function mapHttpStatusMessage(status) {
+  const statusCode = Number(status || 0);
+
+  if (statusCode === 400) {
+    return 'Não foi possível concluir a solicitação. Revise os dados e tente novamente.';
+  }
+
+  if (statusCode === 401) {
+    return 'Sua sessão expirou. Faça login novamente.';
+  }
+
+  if (statusCode === 403) {
+    return 'Você não tem permissão para realizar esta ação.';
+  }
+
+  if (statusCode === 404) {
+    return 'Não encontramos as informações solicitadas.';
+  }
+
+  if (statusCode >= 500) {
+    return GENERIC_USER_ERROR_MESSAGE;
+  }
+
+  return GENERIC_USER_ERROR_MESSAGE;
+}
+
+function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
+  const rawMessage = String(message || '').trim();
+  const normalizedMessage = rawMessage.toLowerCase();
+  const normalizedPath = String(path || '').trim().toLowerCase();
+
+  if (!rawMessage) {
+    return mapHttpStatusMessage(status);
+  }
+
+  if (normalizedMessage.includes('csrf')) {
+    return 'Sua sessão expirou por segurança. Atualize a página e tente novamente.';
+  }
+
+  if (/token não fornecido|token inválido|não autenticado|credenciais|acesso negado/.test(normalizedMessage)) {
+    if (isAdminPath) {
+      return 'Sua sessão administrativa expirou. Faça login novamente.';
+    }
+    return 'Sua sessão expirou. Faça login novamente.';
+  }
+
+  const isPagamentoPath = normalizedPath.startsWith('/api/pagamentos/') || normalizedPath.startsWith('/api/pagbank/');
+  if (isPagamentoPath) {
+    if (normalizedMessage.includes('pagbank não configurado')) {
+      return 'Esta forma de pagamento está temporariamente indisponível. Tente novamente em instantes.';
+    }
+
+    if (normalizedMessage.includes('pedido_id')) {
+      return 'Não foi possível identificar o pedido para pagamento. Atualize a página e tente novamente.';
+    }
+
+    if (normalizedMessage.includes('tax_id') || normalizedMessage.includes('cpf') || normalizedMessage.includes('cnpj')) {
+      return 'Informe um CPF ou CNPJ válido para continuar o pagamento.';
+    }
+
+    if (normalizedMessage.includes('token_cartao')) {
+      return 'Não foi possível validar os dados do cartão. Revise as informações e tente novamente.';
+    }
+  }
+
+  if (/^erro http\s+\d+$/i.test(rawMessage)) {
+    return mapHttpStatusMessage(status);
+  }
+
+  if (Number(status || 0) >= 500) {
+    return GENERIC_USER_ERROR_MESSAGE;
+  }
+
+  return rawMessage;
+}
+
 function buildHeaders({ token, hasBody, csrfToken } = {}) {
   const headers = {};
   if (hasBody) {
@@ -154,8 +231,16 @@ async function garantirCsrfToken(forceRefresh = false) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = data?.erro || data?.mensagem || `Erro HTTP ${response.status}`;
-    throw new Error(message);
+    const serverMessage = data?.erro || data?.mensagem || `Erro HTTP ${response.status}`;
+    const userMessage = mapUserMessage({
+      message: serverMessage,
+      status: response.status,
+      path: '/api/auth/csrf'
+    });
+    const mappedError = new Error(userMessage);
+    mappedError.status = response.status;
+    mappedError.serverMessage = serverMessage;
+    throw mappedError;
   }
 
   atualizarCsrfToken(data?.csrfToken);
@@ -192,9 +277,9 @@ async function request(path, options = {}, tentativa = 0) {
   salvarTokenPorRota(path, data?.accessToken);
 
   if (!response.ok) {
-    const message = data?.erro || data?.mensagem || `Erro HTTP ${response.status}`;
+    const serverMessage = data?.erro || data?.mensagem || `Erro HTTP ${response.status}`;
 
-    if (response.status === 403 && /csrf/i.test(message) && precisaCsrf && tentativa === 0) {
+    if (response.status === 403 && /csrf/i.test(serverMessage) && precisaCsrf && tentativa === 0) {
       await garantirCsrfToken(true);
       return request(path, options, 1);
     }
@@ -207,7 +292,17 @@ async function request(path, options = {}, tentativa = 0) {
       }
     }
 
-    throw new Error(message);
+    const userMessage = mapUserMessage({
+      message: serverMessage,
+      status: response.status,
+      path,
+      isAdminPath
+    });
+
+    const mappedError = new Error(userMessage);
+    mappedError.status = response.status;
+    mappedError.serverMessage = serverMessage;
+    throw mappedError;
   }
 
   return data;

@@ -112,11 +112,11 @@ const CATEGORY_IMAGES = {
 };
 
 const CATEGORIAS_LEGADO = [
-  { id: CATEGORIA_TODAS, label: '🛒 Todas' },
-  { id: CATEGORIA_PROMOCOES, label: '🔥 Promoções', destaque: true },
-  { id: 'hortifruti', label: '🥦 Hortifruti' },
-  { id: CATEGORIA_BEBIDAS, label: '🥤 Bebidas' },
-  { id: 'limpeza', label: '🧴 Limpeza' }
+  { id: CATEGORIA_TODAS, label: 'Todas' },
+  { id: CATEGORIA_PROMOCOES, label: 'Promoções', destaque: true },
+  { id: 'hortifruti', label: 'Hortifruti' },
+  { id: CATEGORIA_BEBIDAS, label: 'Bebidas' },
+  { id: 'limpeza', label: 'Limpeza' }
 ];
 
 function getProdutoImagem(produto) {
@@ -431,7 +431,7 @@ const ProdutoCard = React.memo(function ProdutoCard({ produtoIndexado, onAddItem
       <p className="produto-title">
         <span>{produto.emoji || '📦'}</span> {produto.nome}
       </p>
-      <p className="muted-text">{produto.categoria || 'Sem categoria'}</p>
+      <p className="muted-text">{produto.categoria || 'Categoria não informada'}</p>
       <p className="produto-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
       <button className="btn-primary" type="button" onClick={() => onAddItem(produto)}>
         Adicionar ao carrinho
@@ -1019,7 +1019,7 @@ export default function ProdutosPage() {
     <section className="page page-produtos">
       <section className="product-highlight-section" id="produtos" aria-label="Página de produtos">
         <h1>Produtos</h1>
-        <p className="product-highlight-subtitle">Use a busca para encontrar rápido e filtre por categoria.</p>
+        <p className="product-highlight-subtitle">Encontre produtos, compare opções e adicione ao carrinho com facilidade.</p>
 
         <div className="search-bar-highlight">
           <label className="field-label" htmlFor="busca-produtos">Buscar produtos</label>
@@ -1030,7 +1030,7 @@ export default function ProdutosPage() {
               type="search"
               value={busca}
               onChange={handleBuscaChange}
-              placeholder="🔍 Ex: arroz, café, detergente..."
+              placeholder="Ex.: arroz, café, detergente"
             />
           </div>
         </div>
@@ -1054,7 +1054,7 @@ export default function ProdutosPage() {
             onClick={handleAtualizarProdutos}
             disabled={carregando}
           >
-            {carregando ? 'Atualizando...' : 'Atualizar produtos'}
+            {carregando ? 'Atualizando...' : 'Atualizar lista'}
           </button>
         </div>
 
@@ -1113,11 +1113,11 @@ export default function ProdutosPage() {
 
           {podeFinalizarPedido ? (
             <Link to="/pagamento" className="btn-primary pedido-resumo-fixo-botao">
-              Ir para pagamento
+              Ir para checkout
             </Link>
           ) : (
             <button type="button" className="btn-primary pedido-resumo-fixo-botao" disabled>
-              Ir para pagamento
+              Ir para checkout
             </button>
           )}
         </div>
@@ -1127,7 +1127,7 @@ export default function ProdutosPage() {
       {carregando ? <p className="muted-text">Carregando produtos...</p> : null}
 
       {produtosFiltradosIndexados.length === 0 ? (
-        <p className="muted-text">Nenhum produto encontrado com os filtros atuais.</p>
+        <p className="muted-text">Nenhum produto encontrado. Ajuste a busca ou os filtros.</p>
       ) : categoriaEhBebidas ? (
         bebidaSubcategoria === 'todas' ? (
           <div className="brand-sections-list" id="produtos-lista">
@@ -1135,7 +1135,7 @@ export default function ProdutosPage() {
               <section className="brand-section" key={secao.id} aria-label={`Produtos da categoria ${secao.label}`}>
                 <div className="brand-section-banner" style={{ '--brand-bg': `url('${secao.image}')` }}>
                   <h2>{secao.label}</h2>
-                  <p>{secao.itensIndexados.length} item(ns) nesta categoria</p>
+                  <p>{secao.itensIndexados.length} itens nesta categoria</p>
                 </div>
                 {renderProdutosGrid(secao.itensIndexados, {
                   gridClassName: 'produto-grid brand-produto-grid'
@@ -1144,14 +1144,14 @@ export default function ProdutosPage() {
             ))}
           </div>
         ) : gruposMarcaBebidas.length === 0 ? (
-          <p className="muted-text">Nenhum item encontrado para essa subcategoria.</p>
+          <p className="muted-text">Nenhum produto encontrado nesta subcategoria.</p>
         ) : (
           <div className="brand-sections-list" id="produtos-lista">
             {gruposMarcaBebidas.map((grupo) => (
               <section className="brand-section" key={grupo.id} aria-label={`Produtos da marca ${grupo.label}`}>
                 <div className="brand-section-banner" style={{ '--brand-bg': `url('${grupo.image}')` }}>
                   <h2>{grupo.label}</h2>
-                  <p>{grupo.itensIndexados.length} item(ns) nesta marca</p>
+                  <p>{grupo.itensIndexados.length} itens nesta marca</p>
                 </div>
                 {renderProdutosGrid(grupo.itensIndexados, {
                   gridClassName: 'produto-grid brand-produto-grid'
@@ -1174,7 +1174,7 @@ export default function ProdutosPage() {
             }}
             disabled={carregandoMais || carregando}
           >
-            {carregandoMais ? 'Carregando mais produtos...' : 'Carregar mais produtos'}
+            {carregandoMais ? 'Carregando mais produtos...' : 'Ver mais produtos'}
           </button>
         </div>
       ) : null}

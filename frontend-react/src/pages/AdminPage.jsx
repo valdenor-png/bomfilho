@@ -14,8 +14,21 @@ import {
 } from '../lib/api';
 
 const STATUS_OPTIONS = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado'];
+const STATUS_LABELS = {
+  pendente: 'Aguardando confirmação',
+  preparando: 'Em preparação',
+  enviado: 'Saiu para entrega',
+  entregue: 'Entregue',
+  cancelado: 'Cancelado',
+  pago: 'Pago'
+};
 const ADMIN_PEDIDOS_POR_PAGINA = 30;
 const ADMIN_PRODUTOS_POR_PAGINA = 60;
+
+function formatarStatusPedido(statusRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+  return STATUS_LABELS[status] || 'Em análise';
+}
 
 function criarPaginacaoInicial(limite) {
   return {
@@ -443,7 +456,7 @@ export default function AdminPage() {
     setErro('');
 
     if (!produtoForm.nome || !produtoForm.preco || !produtoForm.categoria) {
-      setErro('Preencha nome, preço e categoria do produto.');
+      setErro('Preencha nome, preço e categoria para cadastrar o produto.');
       return;
     }
 
@@ -472,7 +485,7 @@ export default function AdminPage() {
   }
 
   async function handleExcluirProduto(produtoId) {
-    const ok = window.confirm('Deseja realmente excluir este produto?');
+    const ok = window.confirm('Confirma a remoção deste produto do catálogo?');
     if (!ok) {
       return;
     }
@@ -546,7 +559,7 @@ export default function AdminPage() {
     return (
       <section className="page">
         <h1>Admin</h1>
-        <p>Acesso administrativo disponível apenas no computador da loja.</p>
+        <p>O acesso administrativo está disponível apenas no computador da loja.</p>
       </section>
     );
   }
@@ -554,8 +567,8 @@ export default function AdminPage() {
   if (adminAutenticado !== true) {
     return (
       <section className="page">
-        <h1>Login Admin</h1>
-        <p>Este painel funciona somente localmente e exige credenciais administrativas.</p>
+        <h1>Acesso administrativo</h1>
+        <p>Informe suas credenciais para acessar o painel de gestão da loja.</p>
 
         <form className="form-box" onSubmit={handleAdminLogin}>
           <label className="field-label" htmlFor="admin-usuario">Usuário</label>
@@ -580,7 +593,7 @@ export default function AdminPage() {
           {erro ? <p className="error-text">{erro}</p> : null}
 
           <button className="btn-primary" type="submit" disabled={carregando}>
-            {carregando ? 'Processando...' : 'Entrar no Admin'}
+            {carregando ? 'Validando acesso...' : 'Entrar no painel'}
           </button>
         </form>
       </section>
@@ -589,8 +602,8 @@ export default function AdminPage() {
 
   return (
     <section className="page">
-      <h1>Painel Admin (React)</h1>
-      <p>Gestão de pedidos e produtos usando API Node/Express.</p>
+      <h1>Painel administrativo</h1>
+      <p>Gerencie pedidos, catálogo e indicadores operacionais da loja.</p>
 
       <div className="admin-kpis">
         <div className="kpi-card"><strong>Pedidos:</strong> {kpis.total}</div>
@@ -638,10 +651,10 @@ export default function AdminPage() {
         }}
         disabled={carregando}
       >
-        {carregando ? 'Atualizando...' : 'Atualizar painel'}
+        {carregando ? 'Atualizando dados...' : 'Atualizar dados'}
       </button>
       <button className="btn-secondary" type="button" style={{ marginTop: '0.8rem', marginLeft: '0.5rem' }} onClick={handleAdminLogout}>
-        Sair do Admin
+        Encerrar sessão
       </button>
 
       {erro ? <p className="error-text">{erro}</p> : null}
@@ -657,13 +670,13 @@ export default function AdminPage() {
                   <th>Total</th>
                   <th>Status</th>
                   <th>Data</th>
-                  <th>Ação</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {pedidos.length === 0 ? (
                   <tr>
-                    <td colSpan={6}>Nenhum pedido encontrado.</td>
+                    <td colSpan={6}>Nenhum pedido encontrado nesta página.</td>
                   </tr>
                 ) : (
                   pedidos.map((pedido) => (
@@ -683,14 +696,14 @@ export default function AdminPage() {
                           }
                         >
                           {STATUS_OPTIONS.map((status) => (
-                            <option key={status} value={status}>{status}</option>
+                            <option key={status} value={status}>{formatarStatusPedido(status)}</option>
                           ))}
                         </select>
                       </td>
                       <td>{new Date(pedido.criado_em || pedido.data_pedido).toLocaleString('pt-BR')}</td>
                       <td>
                         <button className="btn-secondary" type="button" onClick={() => salvarStatusPedido(pedido.id)}>
-                          Salvar
+                          Salvar status
                         </button>
                       </td>
                     </tr>
@@ -712,7 +725,7 @@ export default function AdminPage() {
                 void carregarPedidosPagina(paginacaoPedidos.pagina - 1);
               }}
             >
-              Anterior
+              Página anterior
             </button>
             <button
               className="btn-secondary"
@@ -722,7 +735,7 @@ export default function AdminPage() {
                 void carregarPedidosPagina(paginacaoPedidos.pagina + 1);
               }}
             >
-              Próxima
+              Próxima página
             </button>
           </div>
 
@@ -731,7 +744,7 @@ export default function AdminPage() {
       ) : tab === 'produtos' ? (
         <>
           <form className="form-box" style={{ marginTop: '1rem' }} onSubmit={handleCadastrarProduto}>
-            <p><strong>Novo produto</strong></p>
+            <p><strong>Cadastro de produto</strong></p>
             <div className="barcode-row">
               <input
                 className="field-input"
@@ -745,7 +758,7 @@ export default function AdminPage() {
                 disabled={buscandoCodigo}
                 onClick={handleBuscarProdutoPorCodigoBarras}
               >
-                {buscandoCodigo ? 'Buscando...' : 'Buscar por código'}
+                {buscandoCodigo ? 'Buscando...' : 'Buscar produto'}
               </button>
             </div>
             <input
@@ -822,7 +835,7 @@ export default function AdminPage() {
             </div>
 
             <button className="btn-primary" type="submit" disabled={salvandoProduto}>
-              {salvandoProduto ? 'Salvando...' : 'Cadastrar produto'}
+              {salvandoProduto ? 'Salvando...' : 'Salvar produto'}
             </button>
           </form>
 
@@ -841,7 +854,7 @@ export default function AdminPage() {
               <tbody>
                 {produtos.length === 0 ? (
                   <tr>
-                    <td colSpan={6}>Nenhum produto cadastrado.</td>
+                    <td colSpan={6}>Nenhum produto cadastrado nesta página.</td>
                   </tr>
                 ) : (
                   produtos.map((produto) => (
@@ -853,7 +866,7 @@ export default function AdminPage() {
                       <td>{produto.estoque ?? 0}</td>
                       <td>
                         <button className="btn-secondary" type="button" onClick={() => handleExcluirProduto(produto.id)}>
-                          Excluir
+                          Remover
                         </button>
                       </td>
                     </tr>
@@ -875,7 +888,7 @@ export default function AdminPage() {
                 void carregarProdutosPagina(paginacaoProdutos.pagina - 1);
               }}
             >
-              Anterior
+              Página anterior
             </button>
             <button
               className="btn-secondary"
@@ -885,7 +898,7 @@ export default function AdminPage() {
                 void carregarProdutosPagina(paginacaoProdutos.pagina + 1);
               }}
             >
-              Próxima
+              Próxima página
             </button>
           </div>
 
@@ -955,7 +968,7 @@ export default function AdminPage() {
             >
               <option value="todos">Todos os status</option>
               {STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>{status}</option>
+                <option key={status} value={status}>{formatarStatusPedido(status)}</option>
               ))}
             </select>
 
@@ -978,7 +991,7 @@ export default function AdminPage() {
             />
 
             <button className="btn-secondary" type="button" onClick={exportarFinanceiroCsv}>
-              Exportar CSV
+              Exportar relatório (CSV)
             </button>
           </div>
 
@@ -1014,7 +1027,7 @@ export default function AdminPage() {
               <tbody>
                 {linhasFinanceiro.length === 0 ? (
                   <tr>
-                    <td colSpan={6}>Nenhum registro financeiro encontrado.</td>
+                    <td colSpan={6}>Nenhum registro financeiro encontrado para os filtros aplicados.</td>
                   </tr>
                 ) : (
                   linhasFinanceiro.map((pedido) => (
@@ -1022,7 +1035,7 @@ export default function AdminPage() {
                       <td>#{pedido.id}</td>
                       <td>{pedido._data ? pedido._data.toLocaleString('pt-BR') : '-'}</td>
                       <td>{pedido.cliente_nome || '-'}</td>
-                      <td>{pedido.status || '-'}</td>
+                      <td>{formatarStatusPedido(pedido.status)}</td>
                       <td>{pedido.forma_pagamento || 'pix'}</td>
                       <td>R$ {Number(pedido._total || 0).toFixed(2)}</td>
                     </tr>

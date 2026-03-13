@@ -697,7 +697,7 @@ async function validarRecaptcha({ token, req, action = '' } = {}) {
       body: formData.toString()
     });
   } catch {
-    throw criarErroHttp(503, 'Nao foi possivel validar o reCAPTCHA no momento.');
+    throw criarErroHttp(503, 'Não foi possível validar o reCAPTCHA no momento.');
   }
 
   const payload = await response.json().catch(() => ({}));
@@ -711,15 +711,15 @@ async function validarRecaptcha({ token, req, action = '' } = {}) {
       throw criarErroHttp(400, 'reCAPTCHA expirado. Confirme novamente.');
     }
 
-    throw criarErroHttp(400, 'Falha na validacao do reCAPTCHA. Tente novamente.');
+    throw criarErroHttp(400, 'Falha na validação do reCAPTCHA. Tente novamente.');
   }
 
   if (typeof payload?.score === 'number' && payload.score < RECAPTCHA_MIN_SCORE) {
-    throw criarErroHttp(403, 'Verificacao de seguranca reprovada. Tente novamente.');
+    throw criarErroHttp(403, 'A validação de segurança não foi aprovada. Tente novamente.');
   }
 
   if (action && payload?.action && String(payload.action).trim() !== String(action).trim()) {
-    throw criarErroHttp(400, 'Falha na validacao do reCAPTCHA. Tente novamente.');
+    throw criarErroHttp(400, 'Falha na validação do reCAPTCHA. Tente novamente.');
   }
 }
 
@@ -916,7 +916,7 @@ const apiLimiter = rateLimit({
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { erro: 'Muitas requisições. Tente novamente em alguns minutos.' }
+  message: { erro: 'Recebemos muitas solicitações em sequência. Tente novamente em alguns minutos.' }
 });
 
 const authLimiter = rateLimit({
@@ -924,7 +924,7 @@ const authLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { erro: 'Muitas tentativas de autenticação. Aguarde 15 minutos.' }
+  message: { erro: 'Muitas tentativas de login. Aguarde 15 minutos e tente novamente.' }
 });
 
 const adminAuthLimiter = rateLimit({
@@ -932,7 +932,7 @@ const adminAuthLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { erro: 'Muitas tentativas de login admin. Aguarde 15 minutos.' }
+  message: { erro: 'Muitas tentativas de acesso administrativo. Aguarde 15 minutos.' }
 });
 
 app.use('/api', apiLimiter);
@@ -973,7 +973,7 @@ app.use((req, res, next) => {
   const csrfHeader = String(req.headers['x-csrf-token'] || '').trim();
 
   if (!csrfCookie || !csrfHeader || !compararTextoSegura(csrfCookie, csrfHeader)) {
-    return res.status(403).json({ erro: 'Falha de validação CSRF' });
+    return res.status(403).json({ erro: 'Sua sessão expirou por segurança. Atualize a página e tente novamente.' });
   }
 
   return next();
@@ -1992,13 +1992,13 @@ const autenticarToken = (req, res, next) => {
   const token = extrairTokenUsuarioRequest(req);
 
   if (!token) {
-    return res.status(401).json({ erro: 'Token não fornecido' });
+    return res.status(401).json({ erro: 'Sessão não encontrada. Faça login para continuar.' });
   }
 
   jwt.verify(token, JWT_SECRET, (err, usuario) => {
     if (err) {
       limparCookie(res, USER_AUTH_COOKIE_NAME, { httpOnly: true });
-      return res.status(403).json({ erro: 'Token inválido' });
+      return res.status(403).json({ erro: 'Sua sessão expirou. Faça login novamente.' });
     }
     req.usuario = usuario;
     next();
@@ -2025,7 +2025,7 @@ const exigirAcessoLocalAdmin = (req, res, next) => {
 
   const ip = extrairIpRequisicao(req);
   if (!isIpLocal(ip)) {
-    return res.status(403).json({ erro: 'Acesso administrativo permitido apenas no computador da loja' });
+    return res.status(403).json({ erro: 'O acesso administrativo é permitido apenas no computador da loja.' });
   }
 
   next();
@@ -2035,13 +2035,13 @@ const autenticarAdminToken = (req, res, next) => {
   const token = extrairTokenAdminRequest(req);
 
   if (!token) {
-    return res.status(401).json({ erro: 'Token admin não fornecido' });
+    return res.status(401).json({ erro: 'Sessão administrativa não encontrada. Faça login para continuar.' });
   }
 
   jwt.verify(token, JWT_SECRET, (err, payload) => {
     if (err || !payload || payload.role !== 'admin') {
       limparCookie(res, ADMIN_AUTH_COOKIE_NAME, { httpOnly: true });
-      return res.status(403).json({ erro: 'Token admin inválido' });
+      return res.status(403).json({ erro: 'Sua sessão administrativa expirou. Faça login novamente.' });
     }
 
     req.admin = payload;
@@ -2168,21 +2168,21 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     });
 
     if (!nome || !email || !senha || !telefone) {
-      return res.status(400).json({ erro: 'Todos os campos são obrigatórios' });
+      return res.status(400).json({ erro: 'Preencha todos os campos obrigatórios.' });
     }
 
     if (!/^\S+@\S+\.\S+$/.test(String(email))) {
-      return res.status(400).json({ erro: 'E-mail inválido' });
+      return res.status(400).json({ erro: 'Informe um e-mail válido.' });
     }
 
     if (String(senha).length < 8) {
-      return res.status(400).json({ erro: 'A senha deve ter ao menos 8 caracteres' });
+      return res.status(400).json({ erro: 'A senha deve ter no mínimo 8 caracteres.' });
     }
 
     // Verificar se o email já existe
     const [usuarios] = await pool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
     if (usuarios.length > 0) {
-      return res.status(409).json({ erro: 'E-mail já cadastrado' });
+      return res.status(409).json({ erro: 'Já existe uma conta com este e-mail.' });
     }
 
     // Criptografar senha
@@ -2205,7 +2205,7 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     definirCookieAuth(res, USER_AUTH_COOKIE_NAME, token, USER_AUTH_COOKIE_MAX_AGE);
 
     res.status(201).json({
-      mensagem: 'Usuário cadastrado com sucesso',
+      mensagem: 'Cadastro realizado com sucesso.',
       csrfToken,
       accessToken: token,
       usuario: {
@@ -2222,7 +2222,7 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     }
 
     console.error('Erro ao cadastrar usuário:', erro);
-    return res.status(500).json({ erro: 'Erro ao cadastrar usuário' });
+    return res.status(500).json({ erro: 'Não foi possível concluir o cadastro. Tente novamente.' });
   }
 });
 
@@ -2238,13 +2238,13 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     });
 
     if (!email || !senha) {
-      return res.status(400).json({ erro: 'E-mail e senha são obrigatórios' });
+      return res.status(400).json({ erro: 'Informe e-mail e senha.' });
     }
 
     // Buscar usuário
     const [usuarios] = await pool.query('SELECT * FROM usuarios WHERE email = ?', [email]);
     if (usuarios.length === 0) {
-      return res.status(401).json({ erro: 'E-mail ou senha inválidos' });
+      return res.status(401).json({ erro: 'E-mail ou senha não conferem.' });
     }
 
     const usuario = usuarios[0];
@@ -2252,7 +2252,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     // Verificar senha
     const senhaValida = await bcrypt.compare(senha, usuario.senha);
     if (!senhaValida) {
-      return res.status(401).json({ erro: 'E-mail ou senha inválidos' });
+      return res.status(401).json({ erro: 'E-mail ou senha não conferem.' });
     }
 
     // Gerar token
@@ -2266,7 +2266,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     definirCookieAuth(res, USER_AUTH_COOKIE_NAME, token, USER_AUTH_COOKIE_MAX_AGE);
 
     res.json({
-      mensagem: 'Login realizado com sucesso',
+      mensagem: 'Login realizado com sucesso.',
       csrfToken,
       accessToken: token,
       usuario: {
@@ -2283,7 +2283,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 
     console.error('Erro ao fazer login:', erro);
-    return res.status(500).json({ erro: 'Erro ao fazer login' });
+    return res.status(500).json({ erro: 'Não foi possível concluir o login. Tente novamente.' });
   }
 });
 
@@ -2293,15 +2293,15 @@ app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (re
     const { usuario, senha } = req.body || {};
 
     if (!ADMIN_PASSWORD) {
-      return res.status(503).json({ erro: 'ADMIN_PASSWORD não configurado no servidor' });
+      return res.status(503).json({ erro: 'A autenticação administrativa está indisponível no momento.' });
     }
 
     if (!usuario || !senha) {
-      return res.status(400).json({ erro: 'Usuário e senha admin são obrigatórios' });
+      return res.status(400).json({ erro: 'Informe usuário e senha de administrador.' });
     }
 
     if (!compararTextoSegura(String(usuario).trim(), ADMIN_USER) || !compararTextoSegura(String(senha), ADMIN_PASSWORD)) {
-      return res.status(401).json({ erro: 'Credenciais admin inválidas' });
+      return res.status(401).json({ erro: 'Usuário ou senha de administrador inválidos.' });
     }
 
     const token = jwt.sign(
@@ -2314,14 +2314,14 @@ app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (re
     definirCookieAuth(res, ADMIN_AUTH_COOKIE_NAME, token, ADMIN_AUTH_COOKIE_MAX_AGE);
 
     return res.json({
-      mensagem: 'Login admin realizado com sucesso',
+      mensagem: 'Acesso administrativo liberado com sucesso.',
       usuario: ADMIN_USER,
       csrfToken,
       accessToken: token
     });
   } catch (erro) {
     console.error('Erro no login admin:', erro);
-    return res.status(500).json({ erro: 'Erro ao fazer login admin' });
+    return res.status(500).json({ erro: 'Não foi possível concluir o login administrativo.' });
   }
 });
 
@@ -2333,7 +2333,7 @@ app.get('/api/auth/csrf', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   limparCookie(res, USER_AUTH_COOKIE_NAME, { httpOnly: true });
   limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
-  return res.json({ mensagem: 'Logout realizado com sucesso' });
+  return res.json({ mensagem: 'Sessão encerrada com sucesso.' });
 });
 
 app.get('/api/admin/me', exigirAcessoLocalAdmin, autenticarAdminToken, (req, res) => {
@@ -2343,7 +2343,7 @@ app.get('/api/admin/me', exigirAcessoLocalAdmin, autenticarAdminToken, (req, res
 app.post('/api/admin/logout', exigirAcessoLocalAdmin, (req, res) => {
   limparCookie(res, ADMIN_AUTH_COOKIE_NAME, { httpOnly: true });
   limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
-  return res.json({ mensagem: 'Logout admin realizado com sucesso' });
+  return res.json({ mensagem: 'Sessão administrativa encerrada com sucesso.' });
 });
 
 // Obter dados do usuário logado
@@ -2355,13 +2355,13 @@ app.get('/api/auth/me', autenticarToken, async (req, res) => {
     );
 
     if (usuarios.length === 0) {
-      return res.status(404).json({ erro: 'Usuário não encontrado' });
+      return res.status(404).json({ erro: 'Não encontramos sua conta.' });
     }
 
     res.json({ usuario: usuarios[0] });
   } catch (erro) {
     console.error('Erro ao buscar usuário:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar usuário' });
+    res.status(500).json({ erro: 'Não foi possível carregar os dados da sua conta.' });
   }
 });
 
@@ -2371,7 +2371,7 @@ app.post('/api/usuario/whatsapp', autenticarToken, async (req, res) => {
     const { telefone, whatsapp_opt_in } = req.body;
 
     if (!telefone) {
-      return res.status(400).json({ erro: 'Telefone é obrigatório' });
+      return res.status(400).json({ erro: 'Informe um telefone para continuar.' });
     }
 
     const numeroLimpo = telefone.trim();
@@ -2382,10 +2382,10 @@ app.post('/api/usuario/whatsapp', autenticarToken, async (req, res) => {
       [numeroLimpo, optIn, req.usuario.id]
     );
 
-    res.json({ mensagem: 'Preferências de WhatsApp atualizadas', whatsapp_opt_in: optIn, telefone: numeroLimpo });
+    res.json({ mensagem: 'Preferências de WhatsApp atualizadas com sucesso.', whatsapp_opt_in: optIn, telefone: numeroLimpo });
   } catch (erro) {
     console.error('Erro ao atualizar WhatsApp:', erro);
-    res.status(500).json({ erro: 'Erro ao atualizar preferências de WhatsApp' });
+    res.status(500).json({ erro: 'Não foi possível atualizar suas preferências de WhatsApp.' });
   }
 });
 
@@ -2408,7 +2408,7 @@ app.get('/api/endereco', autenticarToken, async (req, res) => {
     res.json({ endereco: enderecos[0] });
   } catch (erro) {
     console.error('Erro ao buscar endereço:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar endereço' });
+    res.status(500).json({ erro: 'Não foi possível carregar seu endereço.' });
   }
 });
 
@@ -2418,7 +2418,7 @@ app.post('/api/endereco', autenticarToken, async (req, res) => {
     const { rua, numero, bairro, cidade, estado, cep } = req.body;
 
     if (!rua || !numero || !bairro || !cidade || !estado || !cep) {
-      return res.status(400).json({ erro: 'Todos os campos são obrigatórios' });
+      return res.status(400).json({ erro: 'Preencha todos os campos do endereço.' });
     }
 
     // Verificar se já existe endereço
@@ -2441,10 +2441,10 @@ app.post('/api/endereco', autenticarToken, async (req, res) => {
       );
     }
 
-    res.json({ mensagem: 'Endereço salvo com sucesso' });
+    res.json({ mensagem: 'Endereço salvo com sucesso.' });
   } catch (erro) {
     console.error('Erro ao salvar endereço:', erro);
-    res.status(500).json({ erro: 'Erro ao salvar endereço' });
+    res.status(500).json({ erro: 'Não foi possível salvar seu endereço. Tente novamente.' });
   }
 });
 
@@ -2579,7 +2579,7 @@ app.get('/api/produtos', async (req, res) => {
     return res.json(payload);
   } catch (erro) {
     console.error('Erro ao buscar produtos:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar produtos' });
+    res.status(500).json({ erro: 'Não foi possível carregar os produtos no momento.' });
   }
 });
 
@@ -2587,7 +2587,7 @@ app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autentica
   try {
     const codigo = String(req.params.codigo || '').replace(/\D/g, '');
     if (codigo.length < 8) {
-      return res.status(400).json({ erro: 'Código de barras inválido' });
+      return res.status(400).json({ erro: 'Informe um código de barras válido.' });
     }
 
     const externoOpenFoodFacts = await buscarProdutoOpenFoodFacts(codigo);
@@ -2616,10 +2616,10 @@ app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autentica
       }
     }
 
-    return res.status(404).json({ erro: 'Produto não encontrado em APIs externas nem na base local' });
+    return res.status(404).json({ erro: 'Produto não encontrado no catálogo e nas bases consultadas.' });
   } catch (erro) {
     console.error('Erro ao buscar produto por código de barras:', erro);
-    return res.status(500).json({ erro: 'Erro ao buscar produto por código de barras' });
+    return res.status(500).json({ erro: 'Não foi possível consultar o código de barras.' });
   }
 });
 
@@ -2632,13 +2632,13 @@ app.get('/api/produtos/:id', async (req, res) => {
     );
 
     if (produtos.length === 0) {
-      return res.status(404).json({ erro: 'Produto não encontrado' });
+      return res.status(404).json({ erro: 'Produto não encontrado.' });
     }
 
     res.json({ produto: produtos[0] });
   } catch (erro) {
     console.error('Erro ao buscar produto:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar produto' });
+    res.status(500).json({ erro: 'Não foi possível carregar este produto.' });
   }
 });
 
@@ -2659,7 +2659,7 @@ app.post('/api/admin/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, as
     } = req.body;
 
     if (!nome || !preco || !unidade || !categoria) {
-      return res.status(400).json({ erro: 'Campos obrigatórios faltando' });
+      return res.status(400).json({ erro: 'Preencha os campos obrigatórios do produto.' });
     }
 
     const colunas = await obterColunasProdutos();
@@ -2700,7 +2700,7 @@ app.post('/api/admin/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, as
     });
   } catch (erro) {
     console.error('Erro ao cadastrar produto:', erro);
-    res.status(500).json({ erro: 'Erro ao cadastrar produto' });
+    res.status(500).json({ erro: 'Não foi possível cadastrar o produto.' });
   }
 });
 
@@ -2712,7 +2712,7 @@ app.post('/api/admin/produtos/bulk', exigirAcessoLocalAdmin, autenticarAdminToke
     const { produtos } = req.body;
 
     if (!produtos || !Array.isArray(produtos) || produtos.length === 0) {
-      return res.status(400).json({ erro: 'Lista de produtos inválida' });
+      return res.status(400).json({ erro: 'Envie uma lista válida de produtos para importação.' });
     }
 
     await connection.beginTransaction();
@@ -2741,7 +2741,7 @@ app.post('/api/admin/produtos/bulk', exigirAcessoLocalAdmin, autenticarAdminToke
   } catch (erro) {
     await connection.rollback();
     console.error('Erro ao importar produtos:', erro);
-    res.status(500).json({ erro: 'Erro ao importar produtos' });
+    res.status(500).json({ erro: 'Não foi possível importar os produtos.' });
   } finally {
     connection.release();
   }
@@ -2757,10 +2757,10 @@ app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminTok
 
     limparCacheProdutos();
 
-    res.json({ mensagem: 'Produto excluído com sucesso' });
+    res.json({ mensagem: 'Produto removido com sucesso.' });
   } catch (erro) {
     console.error('Erro ao excluir produto:', erro);
-    res.status(500).json({ erro: 'Erro ao excluir produto' });
+    res.status(500).json({ erro: 'Não foi possível remover o produto.' });
   }
 });
 
@@ -2777,19 +2777,19 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
     const taxId = taxIdDigits || (PAGBANK_ENV === 'production' ? null : '12345678909');
 
     if (!PAGBANK_TOKEN) {
-      return res.status(503).json({ erro: 'PagBank não configurado' });
+      return res.status(503).json({ erro: 'Esta forma de pagamento está temporariamente indisponível.' });
     }
 
     if (!pedido_id) {
-      return res.status(400).json({ erro: 'pedido_id é obrigatório' });
+      return res.status(400).json({ erro: 'Não foi possível identificar o pedido para pagamento.' });
     }
 
     if (!taxId) {
-      return res.status(400).json({ erro: 'tax_id (CPF/CNPJ) é obrigatório para gerar PIX no PagBank em produção' });
+      return res.status(400).json({ erro: 'Informe CPF ou CNPJ para gerar o PIX.' });
     }
 
     if (![11, 14].includes(String(taxId).length)) {
-      return res.status(400).json({ erro: 'tax_id inválido. Informe CPF (11 dígitos) ou CNPJ (14 dígitos).' });
+      return res.status(400).json({ erro: 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.' });
     }
 
     // Buscar pedido e dados do usuário
@@ -2803,7 +2803,7 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(404).json({ erro: 'Pedido não encontrado para este usuário' });
+      return res.status(404).json({ erro: 'Pedido não encontrado para esta conta.' });
     }
 
     const pedido = rows[0];
@@ -2856,7 +2856,7 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
     });
   } catch (erro) {
     console.error('Erro ao gerar PIX:', erro);
-    res.status(500).json({ erro: 'Erro ao gerar PIX' });
+    res.status(500).json({ erro: 'Não foi possível gerar o PIX. Tente novamente.' });
   }
 });
 
@@ -2883,19 +2883,19 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     });
 
     if (!PAGBANK_TOKEN) {
-      return res.status(503).json({ erro: 'PagBank não configurado' });
+      return res.status(503).json({ erro: 'Esta forma de pagamento está temporariamente indisponível.' });
     }
 
     if (!pedido_id) {
-      return res.status(400).json({ erro: 'pedido_id é obrigatório' });
+      return res.status(400).json({ erro: 'Não foi possível identificar o pedido para pagamento.' });
     }
 
     if (![11, 14].includes(taxIdDigits.length)) {
-      return res.status(400).json({ erro: 'tax_id inválido. Informe CPF (11 dígitos) ou CNPJ (14 dígitos).' });
+      return res.status(400).json({ erro: 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.' });
     }
 
     if (!tokenCartao) {
-      return res.status(400).json({ erro: 'token_cartao é obrigatório para pagamento com cartão.' });
+      return res.status(400).json({ erro: 'Não foi possível validar os dados do cartão.' });
     }
 
     const [rows] = await pool.query(
@@ -2908,7 +2908,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(404).json({ erro: 'Pedido não encontrado para este usuário' });
+      return res.status(404).json({ erro: 'Pedido não encontrado para esta conta.' });
     }
 
     const pedido = rows[0];
@@ -2918,22 +2918,22 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       ? normalizarTipoCartao(tipoCartaoSolicitado)
       : tipoEsperadoPedido;
     if (!['cartao', 'credito', 'debito'].includes(formaPagamentoPedido)) {
-      return res.status(400).json({ erro: 'Este pedido não está configurado para pagamento com cartão (crédito/débito).' });
+      return res.status(400).json({ erro: 'Este pedido não está disponível para pagamento com cartão.' });
     }
 
     if (formaPagamentoPedido === 'debito' && tipoCartao !== 'debito') {
-      return res.status(400).json({ erro: 'Este pedido foi criado para débito. Use tipo_cartao=debito.' });
+      return res.status(400).json({ erro: 'Este pedido deve ser pago no débito.' });
     }
 
     if (['cartao', 'credito'].includes(formaPagamentoPedido) && tipoCartao === 'debito') {
-      return res.status(400).json({ erro: 'Este pedido foi criado para crédito. Use tipo_cartao=credito.' });
+      return res.status(400).json({ erro: 'Este pedido deve ser pago no crédito.' });
     }
 
     if (tipoCartao === 'debito' && PAGBANK_ENV === 'production') {
       const validacaoAuthDebito = validarAuthenticationMethodPagBank(authenticationMethod);
       if (!validacaoAuthDebito.ok) {
         return res.status(400).json({
-          erro: 'authentication_method 3DS é obrigatório para débito em produção.'
+          erro: 'Não foi possível validar a autenticação de segurança do cartão.'
         });
       }
     }
@@ -3026,7 +3026,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       httpStatus: 500,
       requestPayload: req.body,
       responsePayload: {
-        erro: erro?.message || 'Erro ao processar pagamento com cartão'
+        erro: erro?.message || 'Não foi possível processar o pagamento com cartão'
       },
       extra: {
         usuario_id: req.usuario?.id || null
@@ -3034,7 +3034,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     });
 
     console.error('Erro ao processar pagamento com cartão:', erro);
-    return res.status(500).json({ erro: erro?.message || 'Erro ao processar pagamento com cartão' });
+    return res.status(500).json({ erro: erro?.message || 'Não foi possível processar o pagamento com cartão.' });
   }
 });
 
@@ -3060,7 +3060,7 @@ app.get('/api/frete/simular', async (req, res) => {
     }
 
     console.error('Erro ao simular frete por CEP:', erro);
-    return res.status(500).json({ erro: 'Erro ao simular frete' });
+    return res.status(500).json({ erro: 'Não foi possível calcular o frete no momento.' });
   }
 });
 
@@ -3074,17 +3074,17 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     let usuarioPedido = null;
 
     if (!Array.isArray(itens) || itens.length === 0) {
-      throw criarErroHttp(400, 'Carrinho vazio');
+      throw criarErroHttp(400, 'Seu carrinho está vazio.');
     }
 
     if (itens.length > 100) {
-      throw criarErroHttp(400, 'Quantidade máxima de itens por pedido excedida');
+      throw criarErroHttp(400, 'Este pedido excede a quantidade máxima de itens permitida.');
     }
 
     const formaPagamento = String(forma_pagamento || 'pix').toLowerCase();
     const formasPermitidas = new Set(['pix', 'dinheiro', 'debito', 'credito', 'cartao']);
     if (!formasPermitidas.has(formaPagamento)) {
-      throw criarErroHttp(400, 'Forma de pagamento inválida');
+      throw criarErroHttp(400, 'Forma de pagamento inválida para este pedido.');
     }
 
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
@@ -3094,11 +3094,11 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     const pixMockPermitido = !pagbankProducao && ALLOW_PIX_MOCK;
 
     if (usaPagbank && pagbankProducao && !PAGBANK_TOKEN) {
-      throw criarErroHttp(503, 'PagBank não configurado para pagamentos em produção.');
+      throw criarErroHttp(503, 'Esta forma de pagamento está temporariamente indisponível.');
     }
 
     if (formaPagamento === 'pix' && !PAGBANK_TOKEN && !pixMockPermitido) {
-      throw criarErroHttp(503, 'PagBank não configurado para PIX e fallback mock desativado (ALLOW_PIX_MOCK=false).');
+      throw criarErroHttp(503, 'O pagamento via PIX está temporariamente indisponível.');
     }
 
     if (usaPagbank && pagbankProducao && ![11, 14].includes(taxIdDigits.length)) {
@@ -3111,7 +3111,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     }));
 
     if (itensNormalizados.some((item) => !Number.isInteger(item.produto_id) || item.produto_id <= 0 || !Number.isInteger(item.quantidade) || item.quantidade <= 0 || item.quantidade > 100)) {
-      throw criarErroHttp(400, 'Itens do pedido inválidos');
+      throw criarErroHttp(400, 'Há itens inválidos no carrinho.');
     }
 
     const idsProdutos = [...new Set(itensNormalizados.map((item) => item.produto_id))];
@@ -3123,7 +3123,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     );
 
     if (produtos.length !== idsProdutos.length) {
-      throw criarErroHttp(400, 'Um ou mais produtos são inválidos ou estão inativos');
+      throw criarErroHttp(400, 'Um ou mais produtos do carrinho estão indisponíveis.');
     }
 
     const produtosPorId = new Map(produtos.map((produto) => [Number(produto.id), produto]));
@@ -3143,18 +3143,18 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
 
     const total = Number(itensCalculados.reduce((acumulado, item) => acumulado + item.subtotal, 0).toFixed(2));
     if (!Number.isFinite(total) || total <= 0) {
-      throw criarErroHttp(400, 'Total do pedido inválido');
+      throw criarErroHttp(400, 'Não foi possível calcular o total do pedido.');
     }
 
     if (!entrega || typeof entrega !== 'object') {
-      throw criarErroHttp(400, 'Informe os dados de entrega (CEP e veículo).');
+      throw criarErroHttp(400, 'Informe os dados de entrega para continuar.');
     }
 
     const veiculoEntrega = String(entrega.veiculo || 'moto').trim().toLowerCase();
     const cepDestinoEntrega = normalizarCep(entrega.cep_destino || entrega.cep);
 
     if (cepDestinoEntrega.length !== 8) {
-      throw criarErroHttp(400, 'CEP de entrega inválido.');
+      throw criarErroHttp(400, 'Informe um CEP de entrega válido.');
     }
 
     const entregaCalculada = await calcularEntregaPorCep({
@@ -3178,7 +3178,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     usuarioPedido = usuarioPedidoRows.length ? usuarioPedidoRows[0] : null;
 
     if (!usuarioPedido) {
-      throw criarErroHttp(404, 'Usuário não encontrado');
+      throw criarErroHttp(404, 'Não encontramos a conta do usuário para este pedido.');
     }
 
     await connection.beginTransaction();
@@ -3190,7 +3190,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     if (cupom_id !== undefined && cupom_id !== null && String(cupom_id).trim() !== '') {
       const cupomIdNumerico = Number(cupom_id);
       if (!Number.isInteger(cupomIdNumerico) || cupomIdNumerico <= 0) {
-        throw criarErroHttp(400, 'Cupom inválido');
+        throw criarErroHttp(400, 'Cupom inválido.');
       }
 
       const [cupons] = await connection.query(
@@ -3204,7 +3204,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       );
 
       if (cupons.length === 0) {
-        throw criarErroHttp(400, 'Cupom inválido ou expirado');
+        throw criarErroHttp(400, 'Cupom inválido ou expirado.');
       }
 
       const cupom = cupons[0];
@@ -3219,7 +3219,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       );
 
       if (usados.length > 0) {
-        throw criarErroHttp(400, 'Você já utilizou este cupom');
+        throw criarErroHttp(400, 'Este cupom já foi utilizado nesta conta.');
       }
 
       if (cupom.tipo === 'percentual') {
@@ -3333,7 +3333,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     }
 
     res.status(201).json({
-      mensagem: 'Pedido realizado com sucesso',
+      mensagem: 'Pedido confirmado com sucesso.',
       pedido_id: pedidoId,
       total: totalFinal,
       total_produtos: totalProdutos,
@@ -3360,7 +3360,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     }
 
     console.error('Erro ao criar pedido:', erro);
-    res.status(500).json({ erro: 'Erro ao criar pedido' });
+    res.status(500).json({ erro: 'Não foi possível finalizar seu pedido. Tente novamente.' });
   } finally {
     connection.release();
   }
@@ -3406,7 +3406,7 @@ app.get('/api/pedidos', autenticarToken, async (req, res) => {
     });
   } catch (erro) {
     console.error('Erro ao buscar pedidos:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar pedidos' });
+    res.status(500).json({ erro: 'Não foi possível carregar seus pedidos.' });
   }
 });
 
@@ -3419,7 +3419,7 @@ app.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     );
 
     if (pedidos.length === 0) {
-      return res.status(404).json({ erro: 'Pedido não encontrado' });
+      return res.status(404).json({ erro: 'Pedido não encontrado.' });
     }
 
     // Buscar itens com informações do produto (incluindo emoji)
@@ -3439,7 +3439,7 @@ app.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     });
   } catch (erro) {
     console.error('Erro ao buscar pedido:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar pedido' });
+    res.status(500).json({ erro: 'Não foi possível carregar os detalhes do pedido.' });
   }
 });
 
@@ -3463,7 +3463,7 @@ app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
     );
 
     if (cupons.length === 0) {
-      return res.status(404).json({ erro: 'Cupom inválido ou expirado' });
+      return res.status(404).json({ erro: 'Cupom inválido ou expirado.' });
     }
 
     const cupom = cupons[0];
@@ -3482,7 +3482,7 @@ app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
     );
 
     if (usados.length > 0) {
-      return res.status(400).json({ erro: 'Você já utilizou este cupom' });
+      return res.status(400).json({ erro: 'Este cupom já foi utilizado nesta conta.' });
     }
 
     // Calcular desconto
@@ -3510,7 +3510,7 @@ app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
     });
   } catch (erro) {
     console.error('Erro ao validar cupom:', erro);
-    res.status(500).json({ erro: 'Erro ao validar cupom' });
+    res.status(500).json({ erro: 'Não foi possível validar o cupom. Tente novamente.' });
   }
 });
 
@@ -3529,7 +3529,7 @@ app.get('/api/cupons/disponiveis', async (req, res) => {
     res.json({ cupons: cupons });
   } catch (erro) {
     console.error('Erro ao listar cupons:', erro);
-    res.status(500).json({ erro: 'Erro ao listar cupons' });
+    res.status(500).json({ erro: 'Não foi possível carregar os cupons disponíveis.' });
   }
 });
 
@@ -3644,7 +3644,7 @@ app.get('/api/admin/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, asyn
     return res.json({ pedidos });
   } catch (erro) {
     console.error('Erro ao buscar pedidos (admin):', erro);
-    res.status(500).json({ erro: 'Erro ao buscar pedidos' });
+    res.status(500).json({ erro: 'Não foi possível carregar os pedidos no painel.' });
   }
 });
 
@@ -3657,7 +3657,7 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
     const statusValidos = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado'];
     
     if (!statusValidos.includes(status)) {
-      return res.status(400).json({ erro: 'Status inválido' });
+      return res.status(400).json({ erro: 'Selecione um status de pedido válido.' });
     }
 
     await pool.query(
@@ -3698,10 +3698,10 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
       }
     }
 
-    res.json({ mensagem: 'Status atualizado com sucesso', status: status });
+    res.json({ mensagem: 'Status do pedido atualizado com sucesso.', status: status });
   } catch (erro) {
     console.error('Erro ao atualizar status:', erro);
-    res.status(500).json({ erro: 'Erro ao atualizar status' });
+    res.status(500).json({ erro: 'Não foi possível atualizar o status do pedido.' });
   }
 });
 
@@ -3977,7 +3977,7 @@ app.get('/api/avaliacoes/:produto_id', async (req, res) => {
     res.json({ avaliacoes });
   } catch (error) {
     console.error('Erro ao carregar avaliações:', error);
-    res.status(500).json({ erro: 'Erro ao carregar avaliações' });
+    res.status(500).json({ erro: 'Não foi possível carregar as avaliações.' });
   }
 });
 
@@ -3987,7 +3987,7 @@ app.post('/api/avaliacoes', autenticarToken, async (req, res) => {
     const { produto_id, nota, comentario } = req.body;
     
     if (!produto_id || !nota || nota < 1 || nota > 5) {
-      return res.status(400).json({ erro: 'Dados inválidos' });
+      return res.status(400).json({ erro: 'Informe uma nota válida entre 1 e 5.' });
     }
     
     // Verificar se já existe avaliação
@@ -4010,10 +4010,10 @@ app.post('/api/avaliacoes', autenticarToken, async (req, res) => {
       );
     }
     
-    res.json({ mensagem: 'Avaliação registrada com sucesso' });
+    res.json({ mensagem: 'Avaliação registrada com sucesso.' });
   } catch (error) {
     console.error('Erro ao salvar avaliação:', error);
-    res.status(500).json({ erro: 'Erro ao salvar avaliação' });
+    res.status(500).json({ erro: 'Não foi possível salvar sua avaliação.' });
   }
 });
 

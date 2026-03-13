@@ -5,6 +5,33 @@ import { getPedidoById, getPedidos, isAuthErrorMessage } from '../lib/api';
 
 const PEDIDOS_POR_PAGINA = 20;
 
+const STATUS_PEDIDO_LABELS = {
+  pendente: 'Aguardando confirmação',
+  preparando: 'Em preparação',
+  enviado: 'Saiu para entrega',
+  entregue: 'Entregue',
+  cancelado: 'Cancelado',
+  pago: 'Pago'
+};
+
+const FORMA_PAGAMENTO_LABELS = {
+  pix: 'PIX',
+  credito: 'Cartão de crédito',
+  debito: 'Cartão de débito',
+  cartao: 'Cartão',
+  dinheiro: 'Dinheiro'
+};
+
+function formatarStatusPedido(statusRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+  return STATUS_PEDIDO_LABELS[status] || 'Em análise';
+}
+
+function formatarFormaPagamento(formaRaw) {
+  const forma = String(formaRaw || '').trim().toLowerCase();
+  return FORMA_PAGAMENTO_LABELS[forma] || 'Não informado';
+}
+
 function formatarDataPedido(dataRaw) {
   if (!dataRaw) {
     return '-';
@@ -157,12 +184,12 @@ export default function PedidosPage() {
     return (
       <section className="page">
         <h1>Pedidos</h1>
-        <p>Faça login para ver o histórico de pedidos da sua conta.</p>
+        <p>Faça login para acessar o histórico de pedidos da sua conta.</p>
 
         <div className="card-box">
-          <p><strong>Você ainda não está conectado.</strong></p>
+          <p><strong>Sua sessão não está ativa.</strong></p>
           <Link to="/conta" className="btn-primary" style={{ display: 'inline-block' }}>
-            Ir para Conta
+            Entrar na conta
           </Link>
         </div>
       </section>
@@ -172,18 +199,18 @@ export default function PedidosPage() {
   return (
     <section className="page">
       <h1>Pedidos</h1>
-      <p>Histórico de pedidos da sua conta.</p>
+      <p>Acompanhe o andamento e os detalhes dos seus pedidos.</p>
 
       {erro ? <p className="error-text">{erro}</p> : null}
 
-      {carregando ? <p className="muted-text">Carregando pedidos...</p> : null}
+      {carregando ? <p className="muted-text">Carregando seus pedidos...</p> : null}
 
       {!carregando && pedidos.length === 0 ? (
         <div className="card-box">
-          <p><strong>Nenhum pedido encontrado.</strong></p>
-          <p>Quando você finalizar uma compra, o pedido aparecerá aqui.</p>
+          <p><strong>Você ainda não possui pedidos.</strong></p>
+          <p>Quando finalizar sua primeira compra, ela aparecerá aqui.</p>
           <Link to="/produtos" className="btn-secondary" style={{ display: 'inline-block' }}>
-            Ir para produtos
+            Ver catálogo
           </Link>
         </div>
       ) : null}
@@ -201,32 +228,32 @@ export default function PedidosPage() {
                   <div>
                     <p><strong>Pedido #{pedido.id}</strong></p>
                     <p><strong>Total:</strong> R$ {Number(pedido.total || 0).toFixed(2)}</p>
-                    <p><strong>Pagamento:</strong> {String(pedido.forma_pagamento || 'pix').toUpperCase()}</p>
-                    <p><strong>Data:</strong> {formatarDataPedido(pedido.criado_em || pedido.data_pedido)}</p>
+                    <p><strong>Pagamento:</strong> {formatarFormaPagamento(pedido.forma_pagamento)}</p>
+                    <p><strong>Data do pedido:</strong> {formatarDataPedido(pedido.criado_em || pedido.data_pedido)}</p>
                   </div>
 
                   <div className="pedido-history-actions">
-                    <span className="pedido-status-badge">{pedido.status || 'pendente'}</span>
+                    <span className="pedido-status-badge">{formatarStatusPedido(pedido.status)}</span>
                     <button
                       type="button"
                       className="btn-secondary"
                       onClick={() => toggleDetalhesPedido(pedido.id)}
                     >
-                      {estaAberto ? 'Ocultar detalhes' : 'Ver detalhes'}
+                      {estaAberto ? 'Ocultar itens' : 'Ver itens'}
                     </button>
                   </div>
                 </div>
 
                 {estaAberto ? (
                   <div className="pedido-history-details">
-                    {estaCarregando ? <p className="muted-text">Carregando detalhes...</p> : null}
+                    {estaCarregando ? <p className="muted-text">Carregando itens do pedido...</p> : null}
 
                     {!estaCarregando && detalhesPedido?.erro ? (
                       <p className="error-text">{detalhesPedido.erro}</p>
                     ) : null}
 
                     {!estaCarregando && !detalhesPedido?.erro && (detalhesPedido?.itens || []).length === 0 ? (
-                      <p className="muted-text">Nenhum item encontrado para este pedido.</p>
+                      <p className="muted-text">Não há itens registrados para este pedido.</p>
                     ) : null}
 
                     {!estaCarregando && !detalhesPedido?.erro && (detalhesPedido?.itens || []).length > 0 ? (
@@ -264,7 +291,7 @@ export default function PedidosPage() {
             }}
             disabled={carregandoMais || carregando}
           >
-            {carregandoMais ? 'Carregando mais pedidos...' : 'Carregar mais pedidos'}
+            {carregandoMais ? 'Carregando mais pedidos...' : 'Ver pedidos anteriores'}
           </button>
         </div>
       ) : null}
