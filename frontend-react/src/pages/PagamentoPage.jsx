@@ -13,6 +13,9 @@ const ETAPAS = {
   STATUS: 'status'
 };
 
+const PARCELAMENTO_MINIMO_CREDITO = 100;
+const PARCELAMENTO_MAXIMO_CREDITO = 3;
+
 const CEP_MERCADO = '68740-180';
 const NUMERO_MERCADO = '70';
 const LIMITE_BIKE_KM = 1;
@@ -216,12 +219,46 @@ export default function PagamentoPage() {
   const numeroOrigemSelecionado = String(resultadoPedido?.numero_origem_entrega || simulacaoFrete?.numero_origem || NUMERO_MERCADO);
   const totalProdutosPedido = Number(resultadoPedido?.total_produtos ?? resumo.total ?? 0);
   const totalComEntregaPedido = Number(resultadoPedido?.total ?? Number((totalProdutosPedido + freteSelecionado).toFixed(2)));
+  const totalReferenciaParcelamento = Number(resultadoPedido?.total ?? totalComFreteAtual ?? 0);
+  const parcelamentoCreditoDisponivel = totalReferenciaParcelamento >= PARCELAMENTO_MINIMO_CREDITO;
+  const parcelasCartaoEfetivas = (() => {
+    if (formaPagamento === 'debito') {
+      return 1;
+    }
+
+    if (!parcelamentoCreditoDisponivel) {
+      return 1;
+    }
+
+    const parcelasSelecionadas = Number.parseInt(parcelasCartao, 10);
+    if (!Number.isFinite(parcelasSelecionadas) || parcelasSelecionadas < 1) {
+      return 1;
+    }
+
+    return Math.min(PARCELAMENTO_MAXIMO_CREDITO, parcelasSelecionadas);
+  })();
   const pagamentoCartaoSelecionado = formaPagamento === 'credito' || formaPagamento === 'debito';
   const tituloFormaPagamento = formaPagamento === 'pix'
     ? 'PIX'
     : formaPagamento === 'debito'
       ? 'Cartão de Débito'
       : 'Cartão de Crédito';
+
+  useEffect(() => {
+    if (formaPagamento !== 'credito') {
+      return;
+    }
+
+    if (!parcelamentoCreditoDisponivel && parcelasCartao !== '1') {
+      setParcelasCartao('1');
+      return;
+    }
+
+    const parcelasSelecionadas = Number.parseInt(parcelasCartao, 10);
+    if (Number.isFinite(parcelasSelecionadas) && parcelasSelecionadas > PARCELAMENTO_MAXIMO_CREDITO) {
+      setParcelasCartao(String(PARCELAMENTO_MAXIMO_CREDITO));
+    }
+  }, [formaPagamento, parcelamentoCreditoDisponivel, parcelasCartao]);
 
   useEffect(() => {
     let ativo = true;
@@ -559,7 +596,7 @@ export default function PagamentoPage() {
       const data = await pagarCartao(pedidoId, {
         taxId: documentoDigits,
         tokenCartao: tokenNormalizado,
-        parcelas: formaPagamento === 'debito' ? 1 : parcelasCartao,
+        parcelas: parcelasCartaoEfetivas,
         tipoCartao: formaPagamento
       });
 
@@ -818,7 +855,10 @@ export default function PagamentoPage() {
                 >
                   <span className="entrega-veiculo-head">
                     <span className="entrega-veiculo-info">
-                      <span className="entrega-veiculo-nome">PIX</span>
+                      <span className="entrega-veiculo-nome">
+                        <span aria-hidden="true">💠 </span>
+                        PIX
+                      </span>
                       <span className="entrega-veiculo-consumo">QR Code e código Copia e Cola</span>
                     </span>
                   </span>
@@ -838,11 +878,14 @@ export default function PagamentoPage() {
                 >
                   <span className="entrega-veiculo-head">
                     <span className="entrega-veiculo-info">
-                      <span className="entrega-veiculo-nome">Cartão de Crédito</span>
-                      <span className="entrega-veiculo-consumo">Pagamento em até 12 parcelas</span>
+                      <span className="entrega-veiculo-nome">
+                        <span aria-hidden="true">💳 </span>
+                        Cartão de Crédito
+                      </span>
+                      <span className="entrega-veiculo-consumo">Parcelamento disponível em até 3x</span>
                     </span>
                   </span>
-                  <span className="entrega-veiculo-meta">Processamento seguro via PagBank</span>
+                  <span className="entrega-veiculo-meta">Para pedidos a partir de R$ 100,00</span>
                 </button>
 
                 <button
@@ -859,7 +902,10 @@ export default function PagamentoPage() {
                 >
                   <span className="entrega-veiculo-head">
                     <span className="entrega-veiculo-info">
-                      <span className="entrega-veiculo-nome">Cartão de Débito</span>
+                      <span className="entrega-veiculo-nome">
+                        <span aria-hidden="true">🏧 </span>
+                        Cartão de Débito
+                      </span>
                       <span className="entrega-veiculo-consumo">Pagamento à vista no cartão</span>
                     </span>
                   </span>
@@ -967,12 +1013,18 @@ export default function PagamentoPage() {
                         value={parcelasCartao}
                         onChange={(event) => setParcelasCartao(event.target.value)}
                       >
-                        {Array.from({ length: 12 }, (_, idx) => idx + 1).map((parcela) => (
+                        {Array.from({ length: parcelamentoCreditoDisponivel ? PARCELAMENTO_MAXIMO_CREDITO : 1 }, (_, idx) => idx + 1).map((parcela) => (
                           <option key={parcela} value={String(parcela)}>
                             {parcela}x
                           </option>
                         ))}
                       </select>
+
+                      <p className="muted-text" style={{ marginTop: '0.3rem' }}>
+                        {parcelamentoCreditoDisponivel
+                          ? `Parcelamento liberado para este pedido (até ${PARCELAMENTO_MAXIMO_CREDITO}x).`
+                          : `Parcelamento disponível apenas para pedidos a partir de R$ ${PARCELAMENTO_MINIMO_CREDITO.toFixed(2)}.`}
+                      </p>
                     </>
                   ) : (
                     <p className="muted-text" style={{ marginTop: '0.3rem' }}>
@@ -1101,7 +1153,7 @@ export default function PagamentoPage() {
                   <p>Referência do pedido no PagBank: {resultadoCartao.pagbank_order_id || '-'}</p>
                   <p>Referência da transação: {resultadoCartao.payment_id || '-'}</p>
                   <p>Método: {resultadoCartao.tipo_cartao === 'debito' ? 'Cartão de Débito' : 'Cartão de Crédito'}</p>
-                  <p>Parcelas: {resultadoCartao.tipo_cartao === 'debito' ? '1x' : `${resultadoCartao.parcelas || parcelasCartao}x`}</p>
+                  <p>Parcelas: {resultadoCartao.tipo_cartao === 'debito' ? '1x' : `${resultadoCartao.parcelas || parcelasCartaoEfetivas}x`}</p>
                   {cartaoRecusado ? (
                     <p className="error-text">Pagamento não aprovado. Revise os dados do cartão e tente novamente.</p>
                   ) : null}

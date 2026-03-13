@@ -1359,7 +1359,7 @@ function normalizarParcelasCartao(valor) {
     return 1;
   }
 
-  return Math.min(12, parcelas);
+  return Math.min(3, parcelas);
 }
 
 function normalizarTipoCartao(valor) {
@@ -2940,6 +2940,18 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       return res.status(400).json({ erro: 'Este pedido deve ser pago no crédito.' });
     }
 
+    const totalPedido = Number(pedido.total || 0);
+    const parcelamentoCreditoDisponivel = totalPedido >= 100;
+    if (tipoCartao === 'credito' && parcelas > 1 && !parcelamentoCreditoDisponivel) {
+      return res.status(400).json({
+        erro: 'Parcelamento no crédito disponível apenas para pedidos a partir de R$ 100,00.'
+      });
+    }
+
+    const parcelasAplicadas = tipoCartao === 'debito'
+      ? 1
+      : (parcelamentoCreditoDisponivel ? parcelas : 1);
+
     if (tipoCartao === 'debito' && PAGBANK_ENV === 'production') {
       const validacaoAuthDebito = validarAuthenticationMethodPagBank(authenticationMethod);
       if (!validacaoAuthDebito.ok) {
@@ -2957,7 +2969,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       nome: pedido.nome,
       taxId: taxIdDigits,
       tokenCartao,
-      parcelas,
+      parcelas: parcelasAplicadas,
       tipoCartao,
       authenticationMethod
     });
@@ -3008,7 +3020,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       status_charge: statusInfo.chargeStatus || null,
       status_fonte: statusInfo.fonteStatus,
       tipo_cartao: tipoCartao,
-      parcelas: tipoCartao === 'debito' ? 1 : parcelas,
+      parcelas: tipoCartao === 'debito' ? 1 : parcelasAplicadas,
       authorization_code: paymentResponse?.code || null,
       message: paymentResponse?.message || null,
       raw: pagamento
