@@ -109,10 +109,27 @@
   })();
 
   const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
-  const CORS_ORIGINS = [
-    'https://bomfilho-delivery.vercel.app',
-    'http://localhost:5173'
-  ].map((origin) => String(origin).trim().replace(/\/+$/, '').toLowerCase());
+  const CORS_ORIGINS = (() => {
+    const configuredOrigins = String(process.env.CORS_ORIGINS || '')
+      .split(',')
+      .map((origin) => String(origin).trim())
+      .filter(Boolean);
+
+    if (FRONTEND_APP_URL) {
+      configuredOrigins.push(FRONTEND_APP_URL);
+    }
+
+    const fallbackOrigins = [
+      'https://bomfilho-delivery.vercel.app',
+      'http://localhost:5173'
+    ];
+
+    const origins = configuredOrigins.length > 0 ? configuredOrigins : fallbackOrigins;
+
+    return Array.from(
+      new Set(origins.map((origin) => String(origin).trim().replace(/\/+$/, '').toLowerCase()).filter(Boolean))
+    );
+  })();
   const USER_AUTH_COOKIE_NAME = 'bf_access_token';
   const ADMIN_AUTH_COOKIE_NAME = 'bf_admin_token';
   const CSRF_COOKIE_NAME = 'bf_csrf_token';
@@ -121,10 +138,11 @@
   const CSRF_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
   const COOKIE_SECURE = parseBooleanEnv('COOKIE_SECURE', IS_PRODUCTION);
   const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
-  const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').trim().toLowerCase();
+  const COOKIE_SAME_SITE_FALLBACK = IS_PRODUCTION ? 'none' : 'strict';
+  const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || COOKIE_SAME_SITE_FALLBACK).trim().toLowerCase();
   const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW)
     ? COOKIE_SAME_SITE_RAW
-    : 'strict';
+    : COOKIE_SAME_SITE_FALLBACK;
   const PRECO_COMBUSTIVEL_LITRO = Number(process.env.PRECO_COMBUSTIVEL_LITRO || 6.2);
   const CEP_MERCADO = String(process.env.CEP_MERCADO || '68740-180').replace(/\D/g, '');
   const NUMERO_MERCADO = String(process.env.NUMERO_MERCADO || '70').trim() || '70';
@@ -4021,6 +4039,8 @@ if (SHOULD_SERVE_REACT && fs.existsSync(REACT_DIST_INDEX)) {
 app.listen(PORT, () => {
   console.log(`\n🚀 Servidor rodando na porta ${PORT}`);
   console.log(`📍 URL: http://localhost:${PORT}`);
+  console.log(`🌍 CORS_ORIGINS: ${CORS_ORIGINS.join(', ') || '(nenhuma origem explícita)'}`);
+  console.log(`🍪 Cookies: secure=${COOKIE_SECURE} sameSite=${COOKIE_SAME_SITE} domain=${COOKIE_DOMAIN || '(sem domínio)'}`);
   console.log(`\n📚 Endpoints disponíveis:`);
   console.log(`   POST   /api/auth/cadastro`);
   console.log(`   POST   /api/auth/login`);
