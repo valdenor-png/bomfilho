@@ -772,6 +772,7 @@ async function importarProdutosPlanilha({
   fileBuffer,
   originalName,
   createMissing = false,
+  simulate = false,
   adminUser = 'admin',
   adminUserId = null
 }) {
@@ -815,7 +816,8 @@ async function importarProdutosPlanilha({
     delimitador: arquivo.delimitador,
     colunas_mapeadas: colunasMapeadas,
     configuracao: {
-      criar_novos: Boolean(createMissing)
+      criar_novos: Boolean(createMissing),
+      simulacao: Boolean(simulate)
     },
     total_linhas: 0,
     total_atualizados: 0,
@@ -833,7 +835,9 @@ async function importarProdutosPlanilha({
 
   try {
     connection = await pool.getConnection();
-    await connection.beginTransaction();
+    if (!simulate) {
+      await connection.beginTransaction();
+    }
 
     const [colunasRows] = await connection.query('SHOW COLUMNS FROM produtos');
     const colunasProdutos = new Set(colunasRows.map((coluna) => String(coluna.Field || '').toLowerCase()));
@@ -1018,10 +1022,12 @@ async function importarProdutosPlanilha({
         }
 
         params.push(produtoExistente.id);
-        await connection.query(
-          `UPDATE produtos SET ${updates.join(', ')} WHERE id = ?`,
-          params
-        );
+        if (!simulate) {
+          await connection.query(
+            `UPDATE produtos SET ${updates.join(', ')} WHERE id = ?`,
+            params
+          );
+        }
 
         resumo.total_atualizados += 1;
 
@@ -1124,16 +1130,20 @@ async function importarProdutosPlanilha({
         valores.push(new Date());
       }
 
-      const placeholders = campos.map(() => '?').join(', ');
-      const [insertResult] = await connection.query(
-        `INSERT INTO produtos (${campos.join(', ')}) VALUES (${placeholders})`,
-        valores
-      );
+      let novoProdutoId = -(resumo.total_criados + 1);
+      if (!simulate) {
+        const placeholders = campos.map(() => '?').join(', ');
+        const [insertResult] = await connection.query(
+          `INSERT INTO produtos (${campos.join(', ')}) VALUES (${placeholders})`,
+          valores
+        );
+        novoProdutoId = insertResult.insertId;
+      }
 
       resumo.total_criados += 1;
 
       const novoProdutoCache = {
-        id: insertResult.insertId,
+        id: novoProdutoId,
         nome: nomeProduto,
         unidade: unidade || 'un'
       };
@@ -1160,6 +1170,15 @@ async function importarProdutosPlanilha({
       throw criarErroImportacao(400, 'A planilha nao possui linhas de dados para importacao.');
     }
 
+    if (simulate) {
+      return {
+        mensagem: 'Simulacao concluida com sucesso. Nenhuma alteracao foi gravada no banco.',
+        ...resumo,
+        status: 'simulado',
+        simulacao: true
+      };
+    }
+
     await connection.commit();
 
     const statusImportacao = resumo.total_erros > 0 ? 'concluido_com_erros' : 'concluido';
@@ -1182,7 +1201,7 @@ async function importarProdutosPlanilha({
       status: statusImportacao
     };
   } catch (erro) {
-    if (connection) {
+    if (!simulate && connection) {
       try {
         await connection.rollback();
       } catch {
@@ -1192,24 +1211,26 @@ async function importarProdutosPlanilha({
 
     const statusFalha = 'erro';
 
-    try {
-      await registrarHistoricoImportacao(pool, {
-        nomeArquivo,
-        totalLinhas: resumo.total_linhas,
-        totalAtualizados: resumo.total_atualizados,
-        totalCriados: resumo.total_criados,
-        totalIgnorados: resumo.total_ignorados,
-        totalErros: resumo.total_erros + 1,
-        status: statusFalha,
-        usuarioId: adminUserId,
-        usuarioNome: adminUser,
-        resumo: {
-          ...resumo,
-          erro_fatal: erro?.message || 'Erro inesperado na importacao.'
-        }
-      });
-    } catch {
-      // se log falhar, mantem o erro original
+    if (!simulate) {
+      try {
+        await registrarHistoricoImportacao(pool, {
+          nomeArquivo,
+          totalLinhas: resumo.total_linhas,
+          totalAtualizados: resumo.total_atualizados,
+          totalCriados: resumo.total_criados,
+          totalIgnorados: resumo.total_ignorados,
+          totalErros: resumo.total_erros + 1,
+          status: statusFalha,
+          usuarioId: adminUserId,
+          usuarioNome: adminUser,
+          resumo: {
+            ...resumo,
+            erro_fatal: erro?.message || 'Erro inesperado na importacao.'
+          }
+        });
+      } catch {
+        // se log falhar, mantem o erro original
+      }
     }
 
     if (erro?.httpStatus) {

@@ -31,6 +31,7 @@ const EXTENSOES_IMPORTACAO_ACEITAS = ['.csv', '.xlsx'];
 const STATUS_IMPORTACAO_LABELS = {
   concluido: 'Concluída',
   concluido_com_erros: 'Concluída com alertas',
+  simulado: 'Simulação',
   erro: 'Falha'
 };
 
@@ -355,8 +356,7 @@ export default function AdminPage() {
     selecionarArquivoImportacao(arquivo);
   }
 
-  async function handleImportarPlanilha(event) {
-    event.preventDefault();
+  async function executarImportacaoPlanilha({ simular = false } = {}) {
     setErro('');
 
     const mensagemValidacao = validarArquivoImportacao(arquivoImportacao);
@@ -370,17 +370,20 @@ export default function AdminPage() {
     try {
       const resultado = await adminImportarProdutosPlanilha({
         arquivo: arquivoImportacao,
-        criarNovos: importarCriarNovos
+        criarNovos: importarCriarNovos,
+        simular
       });
 
       setResultadoImportacao(resultado);
 
-      if (Number(resultado?.total_atualizados || 0) > 0 || Number(resultado?.total_criados || 0) > 0) {
+      if (!simular && (Number(resultado?.total_atualizados || 0) > 0 || Number(resultado?.total_criados || 0) > 0)) {
         await carregarProdutosPagina(1);
       }
 
-      await carregarHistoricoImportacoes();
-      setArquivoImportacao(null);
+      if (!simular) {
+        await carregarHistoricoImportacoes();
+        setArquivoImportacao(null);
+      }
     } catch (error) {
       if (isAuthErrorMessage(error.message)) {
         setAdminAutenticado(false);
@@ -389,6 +392,15 @@ export default function AdminPage() {
     } finally {
       setImportandoPlanilha(false);
     }
+  }
+
+  async function handleImportarPlanilha(event) {
+    event.preventDefault();
+    await executarImportacaoPlanilha({ simular: false });
+  }
+
+  async function handleSimularPlanilha() {
+    await executarImportacaoPlanilha({ simular: true });
   }
 
   async function carregarTudo({ resetPagina = false } = {}) {
@@ -1287,14 +1299,30 @@ export default function AdminPage() {
               </a>
             </div>
 
-            <button className="btn-primary" type="submit" disabled={importandoPlanilha}>
-              {importandoPlanilha ? 'Importando planilha...' : 'Importar planilha'}
-            </button>
+            <div className="toolbar-box importacao-acoes-row" style={{ alignItems: 'center' }}>
+              <button className="btn-secondary" type="button" disabled={importandoPlanilha} onClick={handleSimularPlanilha}>
+                {importandoPlanilha ? 'Processando...' : 'Simular planilha'}
+              </button>
+
+              <button className="btn-primary" type="submit" disabled={importandoPlanilha}>
+                {importandoPlanilha ? 'Importando planilha...' : 'Importar de verdade'}
+              </button>
+            </div>
           </form>
 
           {resultadoImportacao ? (
             <div className="card-box importacao-resumo-box" style={{ marginTop: '1rem' }}>
-              <p><strong>Resumo da última importação</strong></p>
+              <p>
+                <strong>
+                  {resultadoImportacao?.simulacao ? 'Resumo da última simulação' : 'Resumo da última importação'}
+                </strong>
+              </p>
+
+              {resultadoImportacao?.simulacao ? (
+                <p className="muted-text">
+                  Esta prévia não altera o banco de dados. Use "Importar de verdade" para aplicar as mudanças.
+                </p>
+              ) : null}
 
               <div className="admin-kpis" style={{ marginTop: '0.5rem' }}>
                 <div className="kpi-card"><strong>Total linhas:</strong> {Number(resultadoImportacao.total_linhas || 0)}</div>

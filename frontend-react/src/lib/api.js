@@ -494,7 +494,7 @@ export function adminExcluirProduto(produtoId) {
   });
 }
 
-export function adminImportarProdutosPlanilha({ arquivo, criarNovos = false } = {}) {
+export function adminImportarProdutosPlanilha({ arquivo, criarNovos = false, simular = false } = {}) {
   const isFile = typeof File !== 'undefined' && arquivo instanceof File;
   const isBlob = typeof Blob !== 'undefined' && arquivo instanceof Blob;
   if (!isFile && !isBlob) {
@@ -504,6 +504,7 @@ export function adminImportarProdutosPlanilha({ arquivo, criarNovos = false } = 
   const formData = new FormData();
   formData.append('arquivo', arquivo);
   formData.append('criar_novos', criarNovos ? 'true' : 'false');
+  formData.append('simular', simular ? 'true' : 'false');
 
   return request('/api/admin/produtos/importar', {
     method: 'POST',

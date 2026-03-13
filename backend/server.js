@@ -2876,20 +2876,24 @@ app.post(
       }
 
       const criarNovos = parseBooleanInput(req.body?.criar_novos, false);
+      const simular = parseBooleanInput(req.body?.simular, false);
 
       const resultado = await importarProdutosPlanilha({
         pool,
         fileBuffer: req.file.buffer,
         originalName: req.file.originalname,
         createMissing: criarNovos,
+        simulate: simular,
         adminUser: req.admin?.usuario || ADMIN_USER,
         adminUserId: req.admin?.id || null
       });
 
-      produtosColumnsCache = null;
+      if (!simular) {
+        produtosColumnsCache = null;
 
-      if (Number(resultado?.total_atualizados || 0) > 0 || Number(resultado?.total_criados || 0) > 0) {
-        limparCacheProdutos();
+        if (Number(resultado?.total_atualizados || 0) > 0 || Number(resultado?.total_criados || 0) > 0) {
+          limparCacheProdutos();
+        }
       }
 
       return res.status(200).json(resultado);
