@@ -1,10 +1,11 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+import API_BASE_URL from '../config/api';
+import { apiGet, apiRequest } from '../services/api';
+
 const CSRF_COOKIE_KEY = 'bf_csrf_token';
 const USER_ACCESS_TOKEN_KEY = 'bf_user_access_token';
 const ADMIN_ACCESS_TOKEN_KEY = 'bf_admin_access_token';
 const GENERIC_USER_ERROR_MESSAGE = 'Não foi possível concluir sua solicitação agora. Tente novamente em instantes.';
 let csrfTokenCache = '';
-const IS_NGROK_API = /ngrok(-free)?\.dev|ngrok\.io/i.test(String(API_BASE_URL || ''));
 
 function readStorage(key) {
   if (typeof window === 'undefined') {
@@ -188,11 +189,6 @@ function buildHeaders({ token, hasJsonBody, csrfToken } = {}) {
     headers['x-csrf-token'] = csrfToken;
   }
 
-  // Evita a pagina de alerta do ngrok em requisicoes XHR/fetch no browser.
-  if (IS_NGROK_API) {
-    headers['ngrok-skip-browser-warning'] = 'true';
-  }
-
   return headers;
 }
 
@@ -223,22 +219,21 @@ async function garantirCsrfToken(forceRefresh = false) {
     csrfTokenCache = '';
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/auth/csrf`, {
-    method: 'GET',
-    credentials: 'include',
-    headers: buildHeaders()
-  });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const serverMessage = data?.erro || data?.mensagem || `Erro HTTP ${response.status}`;
+  let data;
+  try {
+    data = await apiGet('/api/auth/csrf', {
+      headers: buildHeaders()
+    });
+  } catch (error) {
+    const responseStatus = Number(error?.status || 0);
+    const serverMessage = error?.serverMessage || error?.message || `Erro HTTP ${responseStatus || 500}`;
     const userMessage = mapUserMessage({
       message: serverMessage,
-      status: response.status,
+      status: responseStatus,
       path: '/api/auth/csrf'
     });
     const mappedError = new Error(userMessage);
-    mappedError.status = response.status;
+    mappedError.status = responseStatus;
     mappedError.serverMessage = serverMessage;
     throw mappedError;
   }
@@ -267,26 +262,23 @@ async function request(path, options = {}, tentativa = 0) {
     csrfToken = await garantirCsrfToken();
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: methodUpper,
-    credentials: 'include',
-    headers: buildHeaders({ token: tokenToUse, hasJsonBody, csrfToken }),
-    body: hasBody ? (isFormDataBody ? body : JSON.stringify(body)) : undefined
-  });
+  let data;
+  try {
+    data = await apiRequest(path, {
+      method: methodUpper,
+      headers: buildHeaders({ token: tokenToUse, hasJsonBody, csrfToken }),
+      body: hasBody ? body : undefined
+    });
+  } catch (error) {
+    const responseStatus = Number(error?.status || 0);
+    const serverMessage = error?.serverMessage || error?.message || `Erro HTTP ${responseStatus || 500}`;
 
-  const data = await response.json().catch(() => ({}));
-  atualizarCsrfToken(data?.csrfToken);
-  salvarTokenPorRota(path, data?.accessToken);
-
-  if (!response.ok) {
-    const serverMessage = data?.erro || data?.mensagem || `Erro HTTP ${response.status}`;
-
-    if (response.status === 403 && /csrf/i.test(serverMessage) && precisaCsrf && tentativa === 0) {
+    if (responseStatus === 403 && /csrf/i.test(serverMessage) && precisaCsrf && tentativa === 0) {
       await garantirCsrfToken(true);
       return request(path, options, 1);
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (responseStatus === 401 || responseStatus === 403) {
       if (isAdminPath) {
         clearAdminAccessToken();
       } else {
@@ -296,16 +288,19 @@ async function request(path, options = {}, tentativa = 0) {
 
     const userMessage = mapUserMessage({
       message: serverMessage,
-      status: response.status,
+      status: responseStatus,
       path,
       isAdminPath
     });
 
     const mappedError = new Error(userMessage);
-    mappedError.status = response.status;
+    mappedError.status = responseStatus;
     mappedError.serverMessage = serverMessage;
     throw mappedError;
   }
+
+  atualizarCsrfToken(data?.csrfToken);
+  salvarTokenPorRota(path, data?.accessToken);
 
   return data;
 }
