@@ -109,10 +109,10 @@
   })();
 
   const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
-  const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean);
+  const CORS_ORIGINS = [
+    'https://bomfilho-delivery.vercel.app',
+    'http://localhost:5173'
+  ].map((origin) => String(origin).trim().replace(/\/+$/, '').toLowerCase());
   const USER_AUTH_COOKIE_NAME = 'bf_access_token';
   const ADMIN_AUTH_COOKIE_NAME = 'bf_admin_token';
   const CSRF_COOKIE_NAME = 'bf_csrf_token';
@@ -444,11 +444,8 @@ function isOriginPermitida(origin) {
     return true;
   }
 
-  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
-    return true;
-  }
-
-  return CORS_ORIGINS.includes(origin);
+  const originNormalizada = String(origin).trim().replace(/\/+$/, '').toLowerCase();
+  return CORS_ORIGINS.includes(originNormalizada);
 }
 
 function montarWebhookPagBankUrl({ incluirToken = true } = {}) {
