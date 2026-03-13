@@ -853,8 +853,12 @@ async function importarProdutosPlanilha({
       const numeroLinha = linhaCabecalho + 2 + idx;
 
       const codigoInterno = normalizarCodigoInterno(obterValorLinha(linha, indices.codigo_interno));
-      const codigoBarras = normalizarCodigoBarras(obterValorLinha(linha, indices.codigo_barras));
+      let codigoBarras = normalizarCodigoBarras(obterValorLinha(linha, indices.codigo_barras));
       const nomeProduto = normalizarTexto(obterValorLinha(linha, indices.nome));
+
+      if (!codigoBarras && /^\d{8,}$/.test(codigoInterno)) {
+        codigoBarras = normalizarCodigoBarras(codigoInterno);
+      }
 
       if (!codigoInterno && !codigoBarras) {
         resumo.total_erros += 1;
