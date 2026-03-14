@@ -119,14 +119,49 @@ const CATEGORIAS_LEGADO = [
   { id: 'limpeza', label: 'Limpeza' }
 ];
 
-function getProdutoImagem(produto) {
-  const imagem = String(produto?.imagem || '').trim();
-  if (imagem) {
-    return imagem;
-  }
+const ORDENACOES_PRODUTOS = [
+  { id: 'mais-vendidos', label: 'Mais vendidos' },
+  { id: 'menor-preco', label: 'Menor preço' },
+  { id: 'maior-preco', label: 'Maior preço' },
+  { id: 'az', label: 'A-Z' },
+  { id: 'promocoes', label: 'Promoções' }
+];
 
-  const categoria = String(produto?.categoria || '').toLowerCase();
-  return CATEGORY_IMAGES[categoria] || 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?auto=format&fit=crop&w=900&q=60';
+const CATEGORIA_ICONE_FALLBACK = {
+  hortifruti: '🥦',
+  bebidas: '🥤',
+  limpeza: '🧽',
+  mercearia: '🛒',
+  acougue: '🥩',
+  padaria: '🥖',
+  frios: '🧀'
+};
+
+const TOKENS_MAIS_VENDIDOS = [
+  'arroz',
+  'feijao',
+  'feijão',
+  'leite',
+  'cafe',
+  'café',
+  'acucar',
+  'açúcar',
+  'oleo',
+  'óleo',
+  'detergente',
+  'cerveja',
+  'refrigerante',
+  'frango'
+];
+
+const BRL_CURRENCY = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL'
+});
+const PT_BR_COLLATOR = new Intl.Collator('pt-BR');
+
+function getProdutoImagem(produto) {
+  return String(produto?.imagem || '').trim();
 }
 
 function normalizeText(value) {
@@ -191,6 +226,253 @@ function isProdutoEmPromocao(produto) {
     || produto?.promocao === true
     || Number(produto?.promocao || 0) === 1
   );
+}
+
+function toNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  const normalizado = String(value || '')
+    .replace(',', '.')
+    .replace(/[^\d.-]/g, '');
+  const parsed = Number(normalizado);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatCurrency(value) {
+  return BRL_CURRENCY.format(Number(value || 0));
+}
+
+function getProdutoCarrinhoId(produto) {
+  const id = Number(produto?.id);
+  return Number.isFinite(id) ? id : null;
+}
+
+function getProdutoNome(produto) {
+  const nome = String(produto?.nome || '').trim();
+  return nome || 'Produto sem nome';
+}
+
+function getProdutoCategoriaLabel(produto) {
+  const categoria = String(produto?.categoria || '').trim();
+  return categoria || 'Categoria não informada';
+}
+
+function getProdutoMedida(produto) {
+  const unidade = String(produto?.unidade || '').trim();
+  const medidaExtra = [
+    produto?.peso,
+    produto?.volume,
+    produto?.conteudo,
+    produto?.tamanho
+  ]
+    .map((item) => String(item || '').trim())
+    .find(Boolean);
+
+  if (medidaExtra && unidade) {
+    return `${medidaExtra} ${unidade}`.trim();
+  }
+
+  if (medidaExtra) {
+    return medidaExtra;
+  }
+
+  if (!unidade) {
+    return '';
+  }
+
+  return unidade.toLowerCase() === 'un' ? 'Unidade' : unidade;
+}
+
+function getProdutoDetalheComercial(produto) {
+  const marca = String(produto?.marca || '').trim();
+  const medida = getProdutoMedida(produto);
+
+  if (marca && medida) {
+    return `${marca} • ${medida}`;
+  }
+  if (marca) {
+    return marca;
+  }
+  if (medida) {
+    return medida;
+  }
+  return 'Seleção especial Bomfilho';
+}
+
+function getProdutoPrecoInfo(produto) {
+  const precoBase = Math.max(0, toNumber(produto?.preco));
+  const precoPromocional = Math.max(0, toNumber(produto?.preco_promocional));
+  const descontoValor = Math.max(0, toNumber(produto?.desconto));
+  const descontoPercentual = Math.max(0, toNumber(produto?.percentual_desconto));
+  const precoPix = Math.max(0, toNumber(produto?.preco_pix));
+
+  let precoAtual = precoBase;
+  let precoAnterior = null;
+
+  if (precoPromocional > 0 && precoPromocional < precoBase) {
+    precoAtual = precoPromocional;
+    precoAnterior = precoBase;
+  } else if (descontoValor > 0 && descontoValor < precoBase) {
+    precoAtual = precoBase - descontoValor;
+    precoAnterior = precoBase;
+  } else if (descontoPercentual > 0 && descontoPercentual < 100 && precoBase > 0) {
+    precoAtual = precoBase * (1 - (descontoPercentual / 100));
+    precoAnterior = precoBase;
+  }
+
+  const precoAtualNormalizado = Number(precoAtual.toFixed(2));
+  const precoAnteriorNormalizado =
+    precoAnterior && precoAnterior > precoAtualNormalizado
+      ? Number(precoAnterior.toFixed(2))
+      : null;
+
+  const economia = precoAnteriorNormalizado
+    ? Number((precoAnteriorNormalizado - precoAtualNormalizado).toFixed(2))
+    : 0;
+  const percentualEconomia = precoAnteriorNormalizado
+    ? Math.round((economia / precoAnteriorNormalizado) * 100)
+    : 0;
+
+  return {
+    precoAtual: precoAtualNormalizado,
+    precoAnterior: precoAnteriorNormalizado,
+    economia,
+    percentualEconomia,
+    precoPix: precoPix > 0 ? Number(precoPix.toFixed(2)) : null,
+    emPromocao: Boolean(precoAnteriorNormalizado) || isProdutoEmPromocao(produto)
+  };
+}
+
+function getScoreMaisVendido(produtoIndexado) {
+  let score = 0;
+
+  if (produtoIndexado.emPromocao) {
+    score += 3;
+  }
+  if (produtoIndexado.precoInfo.percentualEconomia >= 10) {
+    score += 2;
+  }
+  if (TOKENS_MAIS_VENDIDOS.some((token) => produtoIndexado.textoBusca.includes(token))) {
+    score += 5;
+  }
+  if (produtoIndexado.categoriaNormalizada.includes('mercearia')) {
+    score += 2;
+  }
+  if (produtoIndexado.categoriaNormalizada.includes('bebida')) {
+    score += 1;
+  }
+
+  return score;
+}
+
+function compareProdutosPorNome(a, b) {
+  return PT_BR_COLLATOR.compare(a.nomeProduto, b.nomeProduto);
+}
+
+function sortProdutosIndexados(lista, ordenacao) {
+  const ordenados = [...lista];
+
+  switch (ordenacao) {
+    case 'menor-preco':
+      ordenados.sort((a, b) => {
+        const diff = a.precoInfo.precoAtual - b.precoInfo.precoAtual;
+        return diff === 0 ? compareProdutosPorNome(a, b) : diff;
+      });
+      break;
+    case 'maior-preco':
+      ordenados.sort((a, b) => {
+        const diff = b.precoInfo.precoAtual - a.precoInfo.precoAtual;
+        return diff === 0 ? compareProdutosPorNome(a, b) : diff;
+      });
+      break;
+    case 'az':
+      ordenados.sort(compareProdutosPorNome);
+      break;
+    case 'promocoes':
+      ordenados.sort((a, b) => {
+        const promoDiff = Number(b.emPromocao) - Number(a.emPromocao);
+        if (promoDiff !== 0) {
+          return promoDiff;
+        }
+
+        const descontoDiff = b.precoInfo.percentualEconomia - a.precoInfo.percentualEconomia;
+        if (descontoDiff !== 0) {
+          return descontoDiff;
+        }
+
+        return compareProdutosPorNome(a, b);
+      });
+      break;
+    case 'mais-vendidos':
+    default:
+      ordenados.sort((a, b) => {
+        const scoreDiff = b.scoreMaisVendido - a.scoreMaisVendido;
+        if (scoreDiff !== 0) {
+          return scoreDiff;
+        }
+
+        const promoDiff = Number(b.emPromocao) - Number(a.emPromocao);
+        if (promoDiff !== 0) {
+          return promoDiff;
+        }
+
+        return compareProdutosPorNome(a, b);
+      });
+      break;
+  }
+
+  return ordenados;
+}
+
+function getProdutoBadges(
+  produtoIndexado,
+  {
+    destaqueMaisVendido = false,
+    destaqueNovo = false
+  } = {}
+) {
+  const badges = [];
+  const { precoInfo } = produtoIndexado;
+
+  if (produtoIndexado.emPromocao || precoInfo.precoAnterior) {
+    badges.push({
+      tone: 'oferta',
+      label: precoInfo.percentualEconomia >= 5
+        ? `${precoInfo.percentualEconomia}% OFF`
+        : 'Oferta'
+    });
+  }
+
+  if (destaqueMaisVendido) {
+    badges.push({ tone: 'mais-vendido', label: 'Mais vendido' });
+  }
+
+  if (destaqueNovo) {
+    badges.push({ tone: 'novo', label: 'Novo' });
+  }
+
+  if (
+    (produtoIndexado.textoBusca.includes('leve 2') || produtoIndexado.textoBusca.includes('2x'))
+    && badges.length < 2
+  ) {
+    badges.push({ tone: 'combo', label: 'Leve 2' });
+  }
+
+  if (precoInfo.economia >= 2 && badges.length < 2) {
+    badges.push({ tone: 'desconto', label: 'Desconto' });
+  }
+
+  return badges.slice(0, 2);
+}
+
+function getPlaceholderIconePorCategoria(produto) {
+  const categoriaNormalizada = normalizeText(produto?.categoria);
+  const entrada = Object.entries(CATEGORIA_ICONE_FALLBACK).find(([categoria]) =>
+    categoriaNormalizada.includes(categoria)
+  );
+  return entrada?.[1] || '🛍️';
 }
 
 function getProdutoStableKey(produto) {
@@ -304,19 +586,27 @@ function buildUnsplashVariant(url, width) {
 function getProdutoImagemResponsiva(produto) {
   const srcBase = getProdutoImagem(produto);
 
+  if (!srcBase) {
+    return {
+      src: '',
+      srcSet: undefined,
+      sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 240px'
+    };
+  }
+
   if (!isUnsplashUrl(srcBase)) {
     return {
       src: srcBase,
       srcSet: undefined,
-      sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 220px'
+      sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 240px'
     };
   }
 
-  const widths = [220, 320, 420, 640, 900];
+  const widths = [240, 340, 460, 680, 920];
   return {
-    src: buildUnsplashVariant(srcBase, 420),
+    src: buildUnsplashVariant(srcBase, 460),
     srcSet: widths.map((width) => `${buildUnsplashVariant(srcBase, width)} ${width}w`).join(', '),
-    sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 220px'
+    sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 240px'
   };
 }
 
@@ -336,13 +626,13 @@ function mergeProdutosById(listaAtual, novosProdutos) {
   return Array.from(mapa.values());
 }
 
-const VIRTUALIZATION_THRESHOLD = 72;
-const VIRTUAL_GRID_GAP = 12;
-const VIRTUAL_CARD_MIN_WIDTH_DESKTOP = 220;
-const VIRTUAL_CARD_MIN_WIDTH_MOBILE = 164;
-const VIRTUAL_CARD_HEIGHT_DESKTOP = 330;
-const VIRTUAL_CARD_HEIGHT_MOBILE = 304;
-const VIRTUAL_GRID_MIN_HEIGHT = 280;
+const VIRTUALIZATION_THRESHOLD = 64;
+const VIRTUAL_GRID_GAP = 14;
+const VIRTUAL_CARD_MIN_WIDTH_DESKTOP = 236;
+const VIRTUAL_CARD_MIN_WIDTH_MOBILE = 174;
+const VIRTUAL_CARD_HEIGHT_DESKTOP = 436;
+const VIRTUAL_CARD_HEIGHT_MOBILE = 412;
+const VIRTUAL_GRID_MIN_HEIGHT = 300;
 
 function useViewportHeight() {
   const [viewportHeight, setViewportHeight] = useState(() => {
@@ -409,33 +699,150 @@ function useElementWidth() {
   return [ref, width];
 }
 
-const ProdutoCard = React.memo(function ProdutoCard({ produtoIndexado, onAddItem }) {
+const ProdutoImageFallback = React.memo(function ProdutoImageFallback({ produto }) {
+  return (
+    <div className="produto-image-fallback" role="img" aria-label="Imagem em atualização">
+      <span className="produto-image-fallback-icon" aria-hidden="true">
+        {getPlaceholderIconePorCategoria(produto)}
+      </span>
+      <span className="produto-image-fallback-text">Imagem em atualização</span>
+    </div>
+  );
+});
+
+ProdutoImageFallback.displayName = 'ProdutoImageFallback';
+
+function ProdutoBadge({ tone, label }) {
+  return <span className={`produto-badge produto-badge-${tone}`}>{label}</span>;
+}
+
+function ProdutosSkeletonGrid({ quantidade = 10 }) {
+  return (
+    <div className="produto-grid produtos-skeleton-grid" aria-hidden="true">
+      {Array.from({ length: quantidade }).map((_, index) => (
+        <article className="produto-card produto-card-skeleton" key={`produto-skeleton-${index}`}>
+          <div className="produto-skeleton-media" />
+          <div className="produto-skeleton-line produto-skeleton-line-title" />
+          <div className="produto-skeleton-line" />
+          <div className="produto-skeleton-line produto-skeleton-line-price" />
+          <div className="produto-skeleton-button" />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+const ProdutoCard = React.memo(function ProdutoCard({
+  produtoIndexado,
+  quantidadeNoCarrinho,
+  destaqueMaisVendido,
+  destaqueNovo,
+  onAddItem,
+  onIncreaseItem,
+  onDecreaseItem
+}) {
   const produto = produtoIndexado.produto;
-  const imagem = useMemo(() => getProdutoImagemResponsiva(produto), [produto]);
+  const imagem = produtoIndexado.imagemResponsiva;
+  const [imagemIndisponivel, setImagemIndisponivel] = useState(() => !imagem.src);
+
+  useEffect(() => {
+    setImagemIndisponivel(!imagem.src);
+  }, [imagem.src]);
+
+  const nomeProduto = produtoIndexado.nomeProduto;
+  const categoriaLabel = produtoIndexado.categoriaLabel;
+  const detalhesProduto = produtoIndexado.detalhesComerciais;
+  const precoInfo = produtoIndexado.precoInfo;
+  const badges = useMemo(() => getProdutoBadges(produtoIndexado, {
+    destaqueMaisVendido,
+    destaqueNovo
+  }), [destaqueMaisVendido, destaqueNovo, produtoIndexado]);
+  const podeComprar = produtoIndexado.carrinhoId !== null;
 
   return (
     <article className="produto-card">
-      <img
-        className="produto-image"
-        src={imagem.src}
-        srcSet={imagem.srcSet}
-        sizes={imagem.sizes}
-        alt={produto.nome}
-        loading="lazy"
-        decoding="async"
-        fetchPriority="low"
-        onError={(event) => {
-          event.currentTarget.src = '/img/logo-oficial.png';
-        }}
-      />
-      <p className="produto-title">
-        <span>{produto.emoji || '📦'}</span> {produto.nome}
-      </p>
-      <p className="muted-text">{produto.categoria || 'Categoria não informada'}</p>
-      <p className="produto-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
-      <button className="btn-primary" type="button" onClick={() => onAddItem(produto)}>
-        Adicionar ao carrinho
-      </button>
+      <div className="produto-card-media">
+        {badges.length > 0 ? (
+          <div className="produto-badges" aria-label="Selos do produto">
+            {badges.map((badge) => (
+              <ProdutoBadge key={`${badge.tone}:${badge.label}`} tone={badge.tone} label={badge.label} />
+            ))}
+          </div>
+        ) : null}
+
+        {imagemIndisponivel ? (
+          <ProdutoImageFallback produto={produto} />
+        ) : (
+          <img
+            className="produto-image"
+            src={imagem.src}
+            srcSet={imagem.srcSet}
+            sizes={imagem.sizes}
+            alt={nomeProduto}
+            loading="lazy"
+            decoding="async"
+            fetchPriority="low"
+            onError={() => {
+              setImagemIndisponivel(true);
+            }}
+          />
+        )}
+      </div>
+
+      <div className="produto-card-body">
+        <p className="produto-category">
+          <span aria-hidden="true">{produto.emoji || '🛒'}</span>
+          {categoriaLabel}
+        </p>
+        <h3 className="produto-title" title={nomeProduto}>{nomeProduto}</h3>
+        <p className="produto-details">{detalhesProduto}</p>
+
+        <div className="produto-price-area">
+          <p className="produto-price">{formatCurrency(precoInfo.precoAtual)}</p>
+          {precoInfo.precoAnterior ? (
+            <p className="produto-price-old">de {formatCurrency(precoInfo.precoAnterior)}</p>
+          ) : null}
+          {precoInfo.economia > 0 ? (
+            <p className="produto-price-saving">Economize {formatCurrency(precoInfo.economia)}</p>
+          ) : null}
+          {precoInfo.precoPix ? (
+            <p className="produto-price-pix">{formatCurrency(precoInfo.precoPix)} no Pix</p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="produto-card-actions">
+        {quantidadeNoCarrinho > 0 ? (
+          <div className="produto-qty-control" aria-label={`Quantidade de ${nomeProduto} no carrinho`}>
+            <button
+              type="button"
+              className="produto-qty-btn"
+              onClick={() => onDecreaseItem(produto, quantidadeNoCarrinho)}
+              aria-label={`Diminuir quantidade de ${nomeProduto}`}
+            >
+              -
+            </button>
+            <span className="produto-qty-value">{quantidadeNoCarrinho} no carrinho</span>
+            <button
+              type="button"
+              className="produto-qty-btn"
+              onClick={() => onIncreaseItem(produto)}
+              aria-label={`Aumentar quantidade de ${nomeProduto}`}
+            >
+              +
+            </button>
+          </div>
+        ) : null}
+
+        <button
+          className="btn-primary produto-add-btn"
+          type="button"
+          onClick={() => onAddItem(produto)}
+          disabled={!podeComprar}
+        >
+          {podeComprar ? (quantidadeNoCarrinho > 0 ? 'Adicionar mais' : 'Adicionar') : 'Indisponível'}
+        </button>
+      </div>
     </article>
   );
 });
@@ -445,6 +852,11 @@ ProdutoCard.displayName = 'ProdutoCard';
 const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
   itensIndexados,
   onAddItem,
+  onIncreaseItem,
+  onDecreaseItem,
+  getQuantidadeProduto,
+  chavesMaisVendidos,
+  idsNovidades,
   gridClassName = 'produto-grid',
   listId
 }) {
@@ -484,8 +896,22 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
   const itemData = useMemo(() => ({
     itensIndexados,
     onAddItem,
+    onIncreaseItem,
+    onDecreaseItem,
+    getQuantidadeProduto,
+    chavesMaisVendidos,
+    idsNovidades,
     columnCount
-  }), [columnCount, itensIndexados, onAddItem]);
+  }), [
+    chavesMaisVendidos,
+    columnCount,
+    getQuantidadeProduto,
+    idsNovidades,
+    itensIndexados,
+    onAddItem,
+    onDecreaseItem,
+    onIncreaseItem
+  ]);
   const shellClassName = gridClassName.includes('brand-produto-grid')
     ? 'produto-grid-virtualized-shell brand-produto-grid-virtualized'
     : 'produto-grid-virtualized-shell';
@@ -497,6 +923,11 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     style,
     itensIndexados: itens,
     onAddItem: onAdd,
+    onIncreaseItem: onIncrease,
+    onDecreaseItem: onDecrease,
+    getQuantidadeProduto: getQtd,
+    chavesMaisVendidos: maisVendidos,
+    idsNovidades: novidades,
     columnCount: columns
   }) => {
     const index = rowIndex * columns + columnIndex;
@@ -505,6 +936,9 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     if (!produtoIndexado) {
       return null;
     }
+
+    const destaqueMaisVendido = maisVendidos.has(produtoIndexado.chaveReact);
+    const destaqueNovo = produtoIndexado.carrinhoId !== null && novidades.has(produtoIndexado.carrinhoId);
 
     const width = typeof style.width === 'number' ? style.width : Number.parseFloat(style.width || '0');
     const height = typeof style.height === 'number' ? style.height : Number.parseFloat(style.height || '0');
@@ -521,7 +955,12 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
       >
         <ProdutoCard
           produtoIndexado={produtoIndexado}
+          quantidadeNoCarrinho={getQtd(produtoIndexado.produto)}
+          destaqueMaisVendido={destaqueMaisVendido}
+          destaqueNovo={destaqueNovo}
           onAddItem={onAdd}
+          onIncreaseItem={onIncrease}
+          onDecreaseItem={onDecrease}
         />
       </div>
     );
@@ -534,7 +973,15 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
           <ProdutoCard
             key={produtoIndexado.chaveReact}
             produtoIndexado={produtoIndexado}
+            quantidadeNoCarrinho={getQuantidadeProduto(produtoIndexado.produto)}
+            destaqueMaisVendido={chavesMaisVendidos.has(produtoIndexado.chaveReact)}
+            destaqueNovo={
+              produtoIndexado.carrinhoId !== null
+              && idsNovidades.has(produtoIndexado.carrinhoId)
+            }
             onAddItem={onAddItem}
+            onIncreaseItem={onIncreaseItem}
+            onDecreaseItem={onDecreaseItem}
           />
         ))}
       </div>
@@ -566,7 +1013,15 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
             <ProdutoCard
               key={produtoIndexado.chaveReact}
               produtoIndexado={produtoIndexado}
+              quantidadeNoCarrinho={getQuantidadeProduto(produtoIndexado.produto)}
+              destaqueMaisVendido={chavesMaisVendidos.has(produtoIndexado.chaveReact)}
+              destaqueNovo={
+                produtoIndexado.carrinhoId !== null
+                && idsNovidades.has(produtoIndexado.carrinhoId)
+              }
               onAddItem={onAddItem}
+              onIncreaseItem={onIncreaseItem}
+              onDecreaseItem={onDecreaseItem}
             />
           ))}
         </div>
@@ -578,7 +1033,7 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
 VirtualizedProdutoGrid.displayName = 'VirtualizedProdutoGrid';
 
 export default function ProdutosPage() {
-  const { addItem, resumo } = useCart();
+  const { itens, addItem, updateItemQuantity, removeItem, resumo } = useCart();
   const [searchParams] = useSearchParams();
   const categoriaInicial = String(searchParams.get('categoria') || CATEGORIA_TODAS).toLowerCase();
   const buscaInicial = String(searchParams.get('busca') || '');
@@ -586,6 +1041,7 @@ export default function ProdutosPage() {
   const [produtos, setProdutos] = useState([]);
   const [busca, setBusca] = useState(buscaInicial);
   const [categoria, setCategoria] = useState(categoriaInicial || CATEGORIA_TODAS);
+  const [ordenacao, setOrdenacao] = useState(ORDENACOES_PRODUTOS[0].id);
   const [bebidaSubcategoria, setBebidaSubcategoria] = useState('todas');
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -824,6 +1280,10 @@ export default function ProdutosPage() {
     setCategoria(String(event.target.value).toLowerCase());
   }, []);
 
+  const handleOrdenacaoChange = useCallback((event) => {
+    setOrdenacao(String(event.target.value));
+  }, []);
+
   const handleCategoriaLegadoClick = useCallback((categoriaId) => {
     setCategoria(categoriaId);
     if (categoriaId !== CATEGORIA_BEBIDAS) {
@@ -831,34 +1291,68 @@ export default function ProdutosPage() {
     }
   }, []);
 
+  const handleLimparFiltros = useCallback(() => {
+    setBusca('');
+    setCategoria(CATEGORIA_TODAS);
+    setOrdenacao(ORDENACOES_PRODUTOS[0].id);
+    setBebidaSubcategoria('todas');
+  }, []);
+
   // Índice local com campos normalizados para evitar recomputações em cada filtro/render.
   const produtosIndexados = useMemo(() => {
     return produtos.map((produto) => {
+      const nomeProduto = getProdutoNome(produto);
+      const categoriaLabel = getProdutoCategoriaLabel(produto);
+      const detalhesComerciais = getProdutoDetalheComercial(produto);
       const textoBusca = getTextoProduto(produto);
       const categoriaOriginal = String(produto?.categoria || '').toLowerCase();
       const categoriaNormalizada = normalizeText(categoriaOriginal);
+      const precoInfo = getProdutoPrecoInfo(produto);
+      const imagemResponsiva = getProdutoImagemResponsiva(produto);
 
-      return {
+      const indexadoBase = {
         chaveReact: getProdutoStableKey(produto),
         produto,
+        nomeProduto,
+        categoriaLabel,
+        detalhesComerciais,
         textoBusca,
         categoriaOriginal,
         categoriaNormalizada,
         categoriaEhBebida: categoriaNormalizada.includes(TOKEN_BEBIDA),
-        emPromocao: isProdutoEmPromocao(produto),
-        bebidaSubcategoriaId: getBebidaSubcategoriaIdByTexto(textoBusca)
+        carrinhoId: getProdutoCarrinhoId(produto),
+        precoInfo,
+        emPromocao: precoInfo.emPromocao,
+        bebidaSubcategoriaId: getBebidaSubcategoriaIdByTexto(textoBusca),
+        imagemResponsiva
+      };
+
+      return {
+        ...indexadoBase,
+        scoreMaisVendido: getScoreMaisVendido(indexadoBase)
       };
     });
   }, [produtos]);
 
   const categorias = useMemo(() => {
-    const values = new Set();
+    const values = new Map();
+
     produtos.forEach((produto) => {
-      if (produto.categoria) {
-        values.add(String(produto.categoria));
+      const label = String(produto.categoria || '').trim();
+      if (label) {
+        const id = label.toLowerCase();
+        if (!values.has(id)) {
+          values.set(id, label);
+        }
       }
     });
-    return [CATEGORIA_TODAS, ...Array.from(values).sort((a, b) => a.localeCompare(b))];
+
+    return [
+      { id: CATEGORIA_TODAS, label: 'Todas as categorias' },
+      ...Array.from(values.entries())
+        .sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'))
+        .map(([id, label]) => ({ id, label }))
+    ];
   }, [produtos]);
 
   const termoBusca = useMemo(() => {
@@ -869,42 +1363,72 @@ export default function ProdutosPage() {
     return termoNormalizado;
   }, [busca, categoriaEhBebidas]);
 
-  // Etapa 1 do pipeline: busca textual.
-  const produtosFiltradosPorBusca = useMemo(() => {
-    if (!termoBusca) {
-      return produtosIndexados;
-    }
-    return produtosIndexados.filter((item) => item.textoBusca.includes(termoBusca));
-  }, [produtosIndexados, termoBusca]);
-
   const filtroPromocaoAtivo = categoria === CATEGORIA_PROMOCOES;
   const filtroCategoriaAtivo = categoria !== CATEGORIA_TODAS && !filtroPromocaoAtivo;
 
-  // Etapa 2 do pipeline: categoria.
-  const produtosFiltradosPorCategoria = useMemo(() => {
-    if (!filtroCategoriaAtivo) {
-      return produtosFiltradosPorBusca;
+  // Executa busca + categoria + promocao em uma unica passagem para reduzir trabalho por interacao.
+  const produtosFiltradosBase = useMemo(() => {
+    const filtrados = [];
+
+    for (const item of produtosIndexados) {
+      if (termoBusca && !item.textoBusca.includes(termoBusca)) {
+        continue;
+      }
+
+      if (filtroPromocaoAtivo) {
+        if (!item.emPromocao) {
+          continue;
+        }
+      } else if (filtroCategoriaAtivo) {
+        if (categoria === CATEGORIA_BEBIDAS) {
+          if (!item.categoriaEhBebida) {
+            continue;
+          }
+        } else if (item.categoriaOriginal !== categoria) {
+          continue;
+        }
+      }
+
+      filtrados.push(item);
     }
 
-    if (categoria === CATEGORIA_BEBIDAS) {
-      return produtosFiltradosPorBusca.filter((item) => item.categoriaEhBebida);
+    return filtrados;
+  }, [categoria, filtroCategoriaAtivo, filtroPromocaoAtivo, produtosIndexados, termoBusca]);
+
+  const produtosOrdenadosIndexados = useMemo(() => {
+    return sortProdutosIndexados(produtosFiltradosBase, ordenacao);
+  }, [ordenacao, produtosFiltradosBase]);
+
+  const chavesMaisVendidos = useMemo(() => {
+    const candidatosBase = produtosOrdenadosIndexados.filter((item) => item.scoreMaisVendido > 0);
+    const candidatos = ordenacao === 'mais-vendidos'
+      ? candidatosBase
+      : [...candidatosBase].sort((a, b) => b.scoreMaisVendido - a.scoreMaisVendido);
+
+    if (candidatos.length === 0) {
+      return new Set();
     }
 
-    return produtosFiltradosPorBusca.filter((item) => item.categoriaOriginal === categoria);
-  }, [categoria, filtroCategoriaAtivo, produtosFiltradosPorBusca]);
+    const limite = Math.max(2, Math.min(12, Math.ceil(produtosOrdenadosIndexados.length * 0.18)));
+    return new Set(candidatos.slice(0, limite).map((item) => item.chaveReact));
+  }, [ordenacao, produtosOrdenadosIndexados]);
 
-  // Etapa 3 do pipeline: promoção.
-  const produtosFiltradosPorPromocao = useMemo(() => {
-    if (!filtroPromocaoAtivo) {
-      return produtosFiltradosPorCategoria;
+  const idsNovidades = useMemo(() => {
+    const ids = produtosOrdenadosIndexados
+      .map((item) => item.carrinhoId)
+      .filter((id) => id !== null)
+      .sort((a, b) => b - a);
+
+    if (ids.length === 0) {
+      return new Set();
     }
-    return produtosFiltradosPorBusca.filter((item) => item.emPromocao);
-  }, [filtroPromocaoAtivo, produtosFiltradosPorBusca, produtosFiltradosPorCategoria]);
+
+    const limite = Math.max(2, Math.min(8, Math.ceil(ids.length * 0.14)));
+    return new Set(ids.slice(0, limite));
+  }, [produtosOrdenadosIndexados]);
 
   // Lista linear consumida tanto pelo grid tradicional quanto pelo virtualizado.
-  const produtosFiltradosIndexados = useMemo(() => {
-    return produtosFiltradosPorPromocao;
-  }, [produtosFiltradosPorPromocao]);
+  const produtosFiltradosIndexados = produtosOrdenadosIndexados;
 
   const secoesBebidas = useMemo(() => {
     if (!categoriaEhBebidas) {
@@ -998,67 +1522,274 @@ export default function ProdutosPage() {
     return grupos;
   }, [bebidaSubcategoria, categoriaEhBebidas, produtosBebidasSubcategoriaIndexados]);
 
+  const quantidadesCarrinhoPorId = useMemo(() => {
+    const mapa = new Map();
+
+    itens.forEach((item) => {
+      const id = Number(item?.id);
+      if (Number.isFinite(id)) {
+        mapa.set(id, Math.max(0, Number(item?.quantidade || 0)));
+      }
+    });
+
+    return mapa;
+  }, [itens]);
+
+  const getQuantidadeProduto = useCallback((produto) => {
+    const id = getProdutoCarrinhoId(produto);
+    if (id === null) {
+      return 0;
+    }
+    return quantidadesCarrinhoPorId.get(id) || 0;
+  }, [quantidadesCarrinhoPorId]);
+
   const handleAddItem = useCallback((produto) => {
     addItem(produto, 1);
   }, [addItem]);
+
+  const handleIncreaseItem = useCallback((produto) => {
+    addItem(produto, 1);
+  }, [addItem]);
+
+  const handleDecreaseItem = useCallback((produto, quantidadeAtual) => {
+    const id = getProdutoCarrinhoId(produto);
+
+    if (id === null) {
+      return;
+    }
+
+    if (quantidadeAtual <= 1) {
+      removeItem(id);
+      return;
+    }
+
+    updateItemQuantity(id, quantidadeAtual - 1);
+  }, [removeItem, updateItemQuantity]);
 
   const renderProdutosGrid = useCallback((itensIndexados, { listId, gridClassName = 'produto-grid' } = {}) => {
     return (
       <VirtualizedProdutoGrid
         itensIndexados={itensIndexados}
         onAddItem={handleAddItem}
+        onIncreaseItem={handleIncreaseItem}
+        onDecreaseItem={handleDecreaseItem}
+        getQuantidadeProduto={getQuantidadeProduto}
+        chavesMaisVendidos={chavesMaisVendidos}
+        idsNovidades={idsNovidades}
         listId={listId}
         gridClassName={gridClassName}
       />
     );
-  }, [handleAddItem]);
+  }, [
+    chavesMaisVendidos,
+    getQuantidadeProduto,
+    handleAddItem,
+    handleDecreaseItem,
+    handleIncreaseItem,
+    idsNovidades
+  ]);
+
+  const totalItensVitrine = totalProdutosBackend || produtos.length;
+  const totalOfertasDisponiveis = useMemo(() => {
+    return produtosIndexados.filter((item) => item.emPromocao).length;
+  }, [produtosIndexados]);
+
+  const totalMaisVendidosVitrine = chavesMaisVendidos.size;
+
+  const filtrosAplicados = Boolean(normalizeText(busca))
+    || categoria !== CATEGORIA_TODAS
+    || bebidaSubcategoria !== 'todas'
+    || ordenacao !== ORDENACOES_PRODUTOS[0].id;
 
   const podeFinalizarPedido = resumo.itens > 0;
+  const itensResumoTexto = resumo.itens === 1 ? '1 item' : `${resumo.itens} itens`;
+  const subtotalTexto = formatCurrency(resumo.total);
+
+  const mostrarSkeletonInicial = carregando && produtos.length === 0;
+  const mostrarErro = Boolean(erro) && !carregando;
+
+  const renderSemResultados = useCallback((titulo, descricao) => {
+    return (
+      <div className="products-empty-state" role="status" aria-live="polite">
+        <span className="products-empty-icon" aria-hidden="true">🔎</span>
+        <h2>{titulo}</h2>
+        <p>{descricao}</p>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={handleLimparFiltros}
+          disabled={!filtrosAplicados}
+        >
+          Limpar filtros
+        </button>
+      </div>
+    );
+  }, [filtrosAplicados, handleLimparFiltros]);
+
+  let conteudoProdutos = null;
+
+  if (mostrarSkeletonInicial) {
+    conteudoProdutos = <ProdutosSkeletonGrid quantidade={10} />;
+  } else if (mostrarErro) {
+    conteudoProdutos = (
+      <div className="products-error-state" role="alert">
+        <span className="products-error-icon" aria-hidden="true">⚠️</span>
+        <div>
+          <h2>Não foi possível carregar os produtos</h2>
+          <p>{erro || 'Tente novamente em alguns instantes.'}</p>
+        </div>
+        <button className="btn-secondary" type="button" onClick={handleAtualizarProdutos}>
+          Tentar novamente
+        </button>
+      </div>
+    );
+  } else if (produtosFiltradosIndexados.length === 0) {
+    conteudoProdutos = renderSemResultados(
+      'Nenhum produto encontrado',
+      'Tente buscar outro termo ou ajuste os filtros para ver mais opções.'
+    );
+  } else if (categoriaEhBebidas) {
+    if (bebidaSubcategoria === 'todas') {
+      conteudoProdutos = secoesBebidas.length > 0
+        ? (
+          <div className="brand-sections-list" id="produtos-lista">
+            {secoesBebidas.map((secao) => (
+              <section className="brand-section" key={secao.id} aria-label={`Produtos da categoria ${secao.label}`}>
+                <div className="brand-section-banner" style={{ '--brand-bg': `url('${secao.image}')` }}>
+                  <h2>{secao.label}</h2>
+                  <p>{secao.itensIndexados.length} itens nesta categoria</p>
+                </div>
+                {renderProdutosGrid(secao.itensIndexados, {
+                  gridClassName: 'produto-grid brand-produto-grid'
+                })}
+              </section>
+            ))}
+          </div>
+        )
+        : renderSemResultados(
+          'Nenhuma bebida encontrada',
+          'Não encontramos bebidas para os filtros atuais.'
+        );
+    } else {
+      conteudoProdutos = gruposMarcaBebidas.length > 0
+        ? (
+          <div className="brand-sections-list" id="produtos-lista">
+            {gruposMarcaBebidas.map((grupo) => (
+              <section className="brand-section" key={grupo.id} aria-label={`Produtos da marca ${grupo.label}`}>
+                <div className="brand-section-banner" style={{ '--brand-bg': `url('${grupo.image}')` }}>
+                  <h2>{grupo.label}</h2>
+                  <p>{grupo.itensIndexados.length} itens nesta seleção</p>
+                </div>
+                {renderProdutosGrid(grupo.itensIndexados, {
+                  gridClassName: 'produto-grid brand-produto-grid'
+                })}
+              </section>
+            ))}
+          </div>
+        )
+        : renderSemResultados(
+          'Nenhum item nesta subcategoria',
+          'Escolha outra subcategoria de bebidas para continuar navegando.'
+        );
+    }
+  } else {
+    conteudoProdutos = renderProdutosGrid(produtosFiltradosIndexados, { listId: 'produtos-lista' });
+  }
 
   return (
     <section className="page page-produtos">
-      <section className="product-highlight-section" id="produtos" aria-label="Página de produtos">
-        <h1>Produtos</h1>
-        <p className="product-highlight-subtitle">Encontre produtos, compare opções e adicione ao carrinho com facilidade.</p>
+      <section className="products-hero" id="produtos" aria-label="Página de produtos">
+        <div className="products-hero-header">
+          <div className="products-hero-copy">
+            <p className="products-hero-kicker">Vitrine Bomfilho</p>
+            <h1>Produtos</h1>
+            <p className="products-hero-subtitle">
+              Compare preços rapidamente, encontre ofertas do dia e adicione ao carrinho em poucos cliques.
+            </p>
+          </div>
 
-        <div className="search-bar-highlight">
+          <div className="products-hero-metrics" aria-label="Indicadores da vitrine">
+            <article className="products-metric-card">
+              <strong>{totalItensVitrine}</strong>
+              <span>itens na vitrine</span>
+            </article>
+            <article className="products-metric-card products-metric-card-highlight">
+              <strong>{totalOfertasDisponiveis}</strong>
+              <span>promoções do dia</span>
+            </article>
+            <article className="products-metric-card">
+              <strong>{totalMaisVendidosVitrine}</strong>
+              <span>mais vendidos</span>
+            </article>
+          </div>
+        </div>
+
+        <div className="products-search-wrap">
           <label className="field-label" htmlFor="busca-produtos">Buscar produtos</label>
-          <div className="search-bar-react">
+          <div className="products-search-input-wrap">
+            <span className="products-search-icon" aria-hidden="true">🔎</span>
             <input
               id="busca-produtos"
-              className="field-input"
+              className="field-input products-search-input"
               type="search"
               value={busca}
               onChange={handleBuscaChange}
-              placeholder="Ex.: arroz, café, detergente"
+              placeholder="Busque por arroz, leite, café, detergente..."
             />
           </div>
         </div>
 
-        <div className="toolbar-box">
-          <select
-            className="field-input"
-            value={categoria}
-            onChange={handleCategoriaSelectChange}
-          >
-            {categorias.map((item) => (
-              <option key={item} value={item}>
-                {item === CATEGORIA_TODAS ? 'Todas as categorias' : item}
-              </option>
-            ))}
-          </select>
+        <div className="products-toolbar-grid">
+          <div className="products-toolbar-field">
+            <label className="field-label" htmlFor="produtos-categoria-select">Categoria</label>
+            <select
+              id="produtos-categoria-select"
+              className="field-input"
+              value={categoria}
+              onChange={handleCategoriaSelectChange}
+            >
+              {categorias.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </div>
 
-          <button
-            className="btn-primary"
-            type="button"
-            onClick={handleAtualizarProdutos}
-            disabled={carregando}
-          >
-            {carregando ? 'Atualizando...' : 'Atualizar lista'}
-          </button>
+          <div className="products-toolbar-field">
+            <label className="field-label" htmlFor="produtos-ordenacao-select">Ordenar por</label>
+            <select
+              id="produtos-ordenacao-select"
+              className="field-input"
+              value={ordenacao}
+              onChange={handleOrdenacaoChange}
+            >
+              {ORDENACOES_PRODUTOS.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="products-toolbar-actions">
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={handleLimparFiltros}
+              disabled={!filtrosAplicados}
+            >
+              Limpar filtros
+            </button>
+
+            <button
+              className="btn-secondary"
+              type="button"
+              onClick={handleAtualizarProdutos}
+              disabled={carregando}
+            >
+              {carregando ? 'Atualizando vitrine...' : 'Atualizar vitrine'}
+            </button>
+          </div>
         </div>
 
-        <div className="legacy-categories" aria-label="Filtros de categoria">
+        <div className="legacy-categories products-quick-filters" aria-label="Filtros rápidos de categoria">
           {CATEGORIAS_LEGADO.map((item) => (
             <button
               key={item.id}
@@ -1095,77 +1826,25 @@ export default function ProdutosPage() {
             </div>
           </div>
         ) : null}
-      </section>
 
-      <div className="pedido-resumo pedido-resumo-fixo" role="region" aria-label="Resumo do pedido e avanço para pagamento">
-        <div className="pedido-resumo-fixo-conteudo">
-          <div className="pedido-resumo-fixo-info" title={`Itens: ${resumo.itens} | Total: R$ ${resumo.total.toFixed(2)}`}>
-            <span><strong>Itens:</strong> {resumo.itens}</span>
-            <span className="pedido-resumo-fixo-separador" aria-hidden="true">|</span>
-            <span><strong>Total:</strong> R$ {resumo.total.toFixed(2)}</span>
-            {!podeFinalizarPedido ? (
-              <>
-                <span className="pedido-resumo-fixo-separador" aria-hidden="true">|</span>
-                <span className="pedido-resumo-fixo-aviso">Adicione itens para continuar</span>
-              </>
+        <div className="products-results-bar" aria-live="polite">
+          <p>
+            <strong>{produtosFiltradosIndexados.length}</strong> produtos exibidos
+            {totalProdutosBackend > 0 ? ` de ${totalProdutosBackend}` : ''}
+          </p>
+          <div className="products-results-meta">
+            <span>{totalOfertasDisponiveis} em oferta</span>
+            {carregando && produtos.length > 0 ? (
+              <span className="products-results-pill">Atualizando vitrine...</span>
             ) : null}
           </div>
-
-          {podeFinalizarPedido ? (
-            <Link to="/pagamento" className="btn-primary pedido-resumo-fixo-botao">
-              Ir para checkout
-            </Link>
-          ) : (
-            <button type="button" className="btn-primary pedido-resumo-fixo-botao" disabled>
-              Ir para checkout
-            </button>
-          )}
         </div>
-      </div>
+      </section>
 
-      {erro ? <p className="error-text">{erro}</p> : null}
-      {carregando ? <p className="muted-text">Carregando produtos...</p> : null}
-
-      {produtosFiltradosIndexados.length === 0 ? (
-        <p className="muted-text">Nenhum produto encontrado. Ajuste a busca ou os filtros.</p>
-      ) : categoriaEhBebidas ? (
-        bebidaSubcategoria === 'todas' ? (
-          <div className="brand-sections-list" id="produtos-lista">
-            {secoesBebidas.map((secao) => (
-              <section className="brand-section" key={secao.id} aria-label={`Produtos da categoria ${secao.label}`}>
-                <div className="brand-section-banner" style={{ '--brand-bg': `url('${secao.image}')` }}>
-                  <h2>{secao.label}</h2>
-                  <p>{secao.itensIndexados.length} itens nesta categoria</p>
-                </div>
-                {renderProdutosGrid(secao.itensIndexados, {
-                  gridClassName: 'produto-grid brand-produto-grid'
-                })}
-              </section>
-            ))}
-          </div>
-        ) : gruposMarcaBebidas.length === 0 ? (
-          <p className="muted-text">Nenhum produto encontrado nesta subcategoria.</p>
-        ) : (
-          <div className="brand-sections-list" id="produtos-lista">
-            {gruposMarcaBebidas.map((grupo) => (
-              <section className="brand-section" key={grupo.id} aria-label={`Produtos da marca ${grupo.label}`}>
-                <div className="brand-section-banner" style={{ '--brand-bg': `url('${grupo.image}')` }}>
-                  <h2>{grupo.label}</h2>
-                  <p>{grupo.itensIndexados.length} itens nesta marca</p>
-                </div>
-                {renderProdutosGrid(grupo.itensIndexados, {
-                  gridClassName: 'produto-grid brand-produto-grid'
-                })}
-              </section>
-            ))}
-          </div>
-        )
-      ) : (
-        <>{renderProdutosGrid(produtosFiltradosIndexados, { listId: 'produtos-lista' })}</>
-      )}
+      {conteudoProdutos}
 
       {temMaisProdutos ? (
-        <div className="card-box" style={{ marginTop: '0.9rem' }}>
+        <div className="card-box products-load-more">
           <button
             className="btn-primary"
             type="button"
@@ -1178,6 +1857,37 @@ export default function ProdutosPage() {
           </button>
         </div>
       ) : null}
+
+      <div className="pedido-resumo pedido-resumo-fixo" role="region" aria-label="Resumo do pedido e avanço para pagamento">
+        <div className="pedido-resumo-fixo-conteudo">
+          <span className="pedido-resumo-fixo-icone" aria-hidden="true">🛒</span>
+
+          <div className="pedido-resumo-fixo-info" title={`Itens: ${resumo.itens} | Total: ${subtotalTexto}`}>
+            <p className="pedido-resumo-fixo-linha">
+              <strong>{itensResumoTexto}</strong>
+              <span className="pedido-resumo-fixo-separador" aria-hidden="true">•</span>
+              <span>Total {subtotalTexto}</span>
+            </p>
+            <p className="pedido-resumo-fixo-meta">
+              {podeFinalizarPedido
+                ? 'Frete estimado será calculado no checkout'
+                : 'Adicione itens para seguir para o checkout'}
+            </p>
+          </div>
+
+          {podeFinalizarPedido ? (
+            <Link to="/pagamento" className="btn-primary pedido-resumo-fixo-botao">
+              <span className="pedido-resumo-fixo-botao-icon" aria-hidden="true">🧾</span>
+              Ir para checkout
+            </Link>
+          ) : (
+            <button type="button" className="btn-primary pedido-resumo-fixo-botao" disabled>
+              <span className="pedido-resumo-fixo-botao-icon" aria-hidden="true">🧾</span>
+              Ir para checkout
+            </button>
+          )}
+        </div>
+      </div>
     </section>
   );
 }

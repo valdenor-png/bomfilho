@@ -365,6 +365,91 @@ export function getMe() {
   return request('/api/auth/me');
 }
 
+export function getEndereco() {
+  return request('/api/endereco');
+}
+
+function formatarCepVisual(cep) {
+  const digits = String(cep || '').replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 5) {
+    return digits;
+  }
+
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
+export async function buscarEnderecoViaCep(cep) {
+  const cepLimpo = String(cep || '').replace(/\D/g, '').slice(0, 8);
+  if (cepLimpo.length !== 8) {
+    throw new Error('CEP inválido');
+  }
+
+  try {
+    const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+
+    if (!response.ok) {
+      throw new Error('Não foi possível consultar o CEP no momento.');
+    }
+
+    const data = await response.json();
+    if (data?.erro) {
+      throw new Error('CEP não encontrado');
+    }
+
+    return {
+      cep: formatarCepVisual(cepLimpo),
+      logradouro: String(data?.logradouro || '').trim(),
+      bairro: String(data?.bairro || '').trim(),
+      cidade: String(data?.localidade || '').trim(),
+      estado: String(data?.uf || '').trim(),
+      complemento: String(data?.complemento || '').trim()
+    };
+  } catch (error) {
+    const mensagem = String(error?.message || '').trim();
+
+    if (mensagem === 'CEP inválido' || mensagem === 'CEP não encontrado') {
+      throw error;
+    }
+
+    throw new Error('Não foi possível consultar o CEP. Verifique sua conexão e tente novamente.');
+  }
+}
+
+export function salvarEndereco({
+  rua,
+  numero,
+  bairro,
+  cidade,
+  estado,
+  cep,
+  complemento,
+  referencia
+} = {}) {
+  return request('/api/endereco', {
+    method: 'POST',
+    body: {
+      rua: String(rua || '').trim(),
+      numero: String(numero || '').trim(),
+      bairro: String(bairro || '').trim(),
+      cidade: String(cidade || '').trim(),
+      estado: String(estado || '').trim().toUpperCase().slice(0, 2),
+      cep: formatarCepVisual(cep),
+      complemento: String(complemento || '').trim(),
+      referencia: String(referencia || '').trim()
+    }
+  });
+}
+
+export function atualizarPreferenciasWhatsapp({ telefone, whatsappOptIn }) {
+  return request('/api/usuario/whatsapp', {
+    method: 'POST',
+    body: {
+      telefone: String(telefone || '').trim(),
+      whatsapp_opt_in: Boolean(whatsappOptIn)
+    }
+  });
+}
+
 export function getPedidos(params = {}) {
   return request(`/api/pedidos${buildQueryString(params)}`);
 }

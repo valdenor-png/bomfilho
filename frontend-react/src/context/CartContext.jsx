@@ -21,6 +21,9 @@ function readCart() {
         nome: String(item.nome || ''),
         preco: Number(item.preco || 0),
         emoji: String(item.emoji || '📦'),
+        imagem: String(item.imagem || '').trim(),
+        categoria: String(item.categoria || '').trim(),
+        unidade: String(item.unidade || '').trim(),
         quantidade: Math.max(1, Number(item.quantidade || 1))
       }));
   } catch {
@@ -47,6 +50,9 @@ export function CartProvider({ children }) {
             nome: String(produto.nome || ''),
             preco: Number(produto.preco || 0),
             emoji: String(produto.emoji || '📦'),
+            imagem: String(produto.imagem || '').trim(),
+            categoria: String(produto.categoria || '').trim(),
+            unidade: String(produto.unidade || '').trim(),
             quantidade: qtd
           }
         ];
@@ -54,7 +60,16 @@ export function CartProvider({ children }) {
 
       return atual.map((item, itemIndex) =>
         itemIndex === index
-          ? { ...item, quantidade: item.quantidade + qtd }
+          ? {
+              ...item,
+              nome: String(produto.nome || item.nome || '').trim() || item.nome,
+              preco: Number(produto.preco || item.preco || 0),
+              emoji: String(produto.emoji || item.emoji || '📦'),
+              imagem: String(produto.imagem || item.imagem || '').trim(),
+              categoria: String(produto.categoria || item.categoria || '').trim(),
+              unidade: String(produto.unidade || item.unidade || '').trim(),
+              quantidade: item.quantidade + qtd
+            }
           : item
       );
     });

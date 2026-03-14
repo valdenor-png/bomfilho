@@ -2,6 +2,7 @@ import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getProdutos } from '../lib/api';
+import BrandLogo from '../components/BrandLogo';
 
 const CATEGORY_IMAGES = {
   hortifruti: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=60',
@@ -23,6 +24,12 @@ function getProdutoImagem(produto) {
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const destaquesHero = [
+    'Entrega rapida na regiao',
+    'Hortifruti e mercearia selecionados',
+    'Ofertas atualizadas todos os dias'
+  ];
+
   const setores = [
     {
       categoria: 'bebidas',
@@ -113,14 +120,48 @@ export default function HomePage() {
   }
 
   return (
-    <section className="page">
-      <h1>Início</h1>
-      <p>Compre por setor, aproveite as ofertas e finalize seu pedido em poucos passos.</p>
+    <section className="page home-page">
+      {/* Hero principal com branding para reforcar a identidade Bomfilho no primeiro impacto */}
+      <section className="home-hero" aria-label="Boas-vindas Bomfilho">
+        <div className="home-hero-main">
+          <BrandLogo
+            subtitle="Seu supermercado online"
+            tagline="Ofertas, hortifruti e entrega rapida"
+          />
+
+          <p className="home-hero-description">
+            Facilidade para comprar no dia a dia, com precos competitivos e atendimento proximo da sua casa.
+          </p>
+
+          <div className="home-hero-actions">
+            <Link to="/produtos" className="btn-primary home-hero-btn">Ver ofertas do dia</Link>
+            <button className="btn-secondary home-hero-btn" type="button" onClick={() => abrirProdutos({ categoria: 'hortifruti' })}>
+              Comprar hortifruti
+            </button>
+          </div>
+
+          <div className="home-hero-highlights" aria-label="Destaques Bomfilho">
+            {destaquesHero.map((item) => (
+              <span key={item} className="home-hero-pill">{item}</span>
+            ))}
+          </div>
+        </div>
+
+        <aside className="home-hero-panel" aria-label="Informacoes principais da loja">
+          <p className="home-hero-panel-title">Atendimento Bomfilho</p>
+          <p>Seg a Sab: 07:00-19:00</p>
+          <p>Dom: 07:00-12:00</p>
+          <p>Entrega rapida para pedidos online.</p>
+          <a className="home-hero-panel-link" href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener noreferrer">
+            Falar no WhatsApp
+          </a>
+        </aside>
+      </section>
 
       <section className="sector-section" aria-label="Navegar por setor">
         <div className="sector-header">
           <h2>Compre por setor</h2>
-          <p>Acesse rapidamente as categorias mais procuradas.</p>
+          <p>Acesse os setores mais buscados e monte seu carrinho em minutos.</p>
         </div>
         <div className="sector-grid">
           {setores.map((setor) => (
@@ -160,8 +201,8 @@ export default function HomePage() {
 
       <section className="best-sellers">
         <div className="best-sellers-head">
-          <h2>Mais vendidos</h2>
-          <p>Os produtos mais pedidos do momento.</p>
+          <h2>Mais pedidos da semana</h2>
+          <p>Selecao de produtos que os clientes Bomfilho levam primeiro.</p>
         </div>
         <div className="best-sellers-list">
           {maisVendidos.map((produto) => (
@@ -186,7 +227,7 @@ export default function HomePage() {
       </section>
 
       <div style={{ marginTop: '0.85rem' }}>
-        <Link to="/produtos" className="btn-primary">Ver todos os produtos</Link>
+        <Link to="/produtos" className="btn-primary">Explorar catalogo completo</Link>
       </div>
 
       {erro ? <p className="error-text">{erro}</p> : null}
@@ -194,11 +235,7 @@ export default function HomePage() {
 
       <footer className="home-footer">
         <div className="footer-brand">
-          <img src="/img/logo-oficial.png" alt="Comércio Bom Filho" className="store-logo" />
-          <div>
-            <strong>Comércio Bom Filho</strong>
-            <p>Seu supermercado de confiança, agora com compras online.</p>
-          </div>
+          <BrandLogo compact titleTag="h2" subtitle="Supermercado de confianca" />
         </div>
         <div className="footer-info-simple" aria-label="Informações da loja">
           <div className="footer-info-line"><strong>Bom Filho — Supermercado</strong></div>

@@ -4,64 +4,133 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
+const compression = require('compression');
+const timeout = require('connect-timeout');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
 const mysql = require("mysql2/promise");
 const fetch = global.fetch || require('node-fetch');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const {
+  EXTENSOES_IMPORTACAO_ACEITAS,
+  construirModeloImportacaoProdutosCsv,
+  importarProdutosPlanilha,
+  listarImportacoesProdutos
+} = require('./services/produtosImportacao');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const SERVICE_NAME = String(process.env.SERVICE_NAME || 'bom-filho-backend').trim() || 'bom-filho-backend';
+const API_VERSION = String(process.env.API_VERSION || '1.0.0').trim() || '1.0.0';
 const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
 const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
 const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
 const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
 
-  // Configuração Evolution API (WhatsApp)
-  const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-  const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
-  const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'loja';
-  const EVOLUTION_WEBHOOK_TOKEN = String(process.env.EVOLUTION_WEBHOOK_TOKEN || '').trim();
-  const WHATSAPP_AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY_ENABLED === 'true';
-  const WHATSAPP_AUTO_REPLY_TEXT = String(
-    process.env.WHATSAPP_AUTO_REPLY_TEXT ||
-    'Estamos com o site do Bom Filho no ar. Faca seu pedido por la.'
-  ).trim();
-  const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
-    process.env.WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS || '0',
-    10
-  );
+function parseBooleanEnv(name, fallback = false) {
+  const rawValue = String(process.env[name] || '').trim().toLowerCase();
 
-  // Configuração PagBank
-  const PAGBANK_API_URL = PAGBANK_ENV === 'production' 
-    ? 'https://api.pagseguro.com' 
-    : 'https://sandbox.api.pagseguro.com';
-  const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
-  const RECAPTCHA_MIN_SCORE = (() => {
-    const valor = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
-    if (!Number.isFinite(valor)) {
-      return 0.5;
-    }
-    return Math.min(1, Math.max(0, valor));
-  })();
+  if (!rawValue) {
+    return fallback;
+  }
+
+  if (['true', '1', 'yes', 'on', 'sim'].includes(rawValue)) {
+    return true;
+  }
+
+  if (['false', '0', 'no', 'off', 'nao', 'não'].includes(rawValue)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+function escapeRegex(text) {
+  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const NODE_ENV = String(process.env.NODE_ENV || 'development').trim().toLowerCase() || 'development';
+const IS_PRODUCTION = NODE_ENV === 'production';
+const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+const TRUST_PROXY = parseBooleanEnv('TRUST_PROXY', IS_PRODUCTION);
+
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL não configurada no ambiente.');
+}
+
+const PAGBANK_ENV = String(process.env.PAGBANK_ENV || 'sandbox').trim().toLowerCase() === 'production'
+  ? 'production'
+  : 'sandbox';
+const PAGBANK_TOKEN = String(process.env.PAGBANK_TOKEN || '').trim();
+const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
+const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
+const PAGBANK_DEBUG_LOGS = parseBooleanEnv('PAGBANK_DEBUG_LOGS', !IS_PRODUCTION);
+const ALLOW_PIX_MOCK = parseBooleanEnv('ALLOW_PIX_MOCK', false);
+const ALLOW_DEBIT_3DS_MOCK = parseBooleanEnv('ALLOW_DEBIT_3DS_MOCK', false);
+const TAMANHO_MAXIMO_IMPORTACAO_MB = (() => {
+  const valor = Number(process.env.TAMANHO_MAXIMO_IMPORTACAO_MB || 8);
+  return Number.isFinite(valor) && valor > 0 ? Math.min(valor, 100) : 8;
+})();
+const TAMANHO_MAXIMO_IMPORTACAO_BYTES = Math.round(TAMANHO_MAXIMO_IMPORTACAO_MB * 1024 * 1024);
+const MIME_IMPORTACAO_PLANILHA_ACEITOS = new Set([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/csv',
+  'text/plain',
+  'application/octet-stream'
+]);
+
+// Configuração Evolution API (WhatsApp)
+const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
+const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'loja';
+const EVOLUTION_WEBHOOK_TOKEN = String(process.env.EVOLUTION_WEBHOOK_TOKEN || '').trim();
+const WHATSAPP_AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY_ENABLED === 'true';
+const WHATSAPP_AUTO_REPLY_TEXT = String(
+  process.env.WHATSAPP_AUTO_REPLY_TEXT ||
+  'Estamos com o site do Bom Filho no ar. Faca seu pedido por la.'
+).trim();
+const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
+  process.env.WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS || '0',
+  10
+);
+
+// Configuração PagBank
+const PAGBANK_API_URL = PAGBANK_ENV === 'production'
+  ? 'https://api.pagseguro.com'
+  : 'https://sandbox.api.pagseguro.com';
+const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
+const RECAPTCHA_MIN_SCORE = (() => {
+  const valor = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
+  if (!Number.isFinite(valor)) {
+    return 0.5;
+  }
+  return Math.min(1, Math.max(0, valor));
+})();
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '');
-const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
 const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
 const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
   .split(',')
-  .map((origin) => origin.trim())
+  .map((origin) => origin.trim().replace(/\/+$/, '').toLowerCase())
   .filter(Boolean);
+const CORS_ORIGIN_PATTERNS = CORS_ORIGINS
+  .filter((origin) => origin.includes('*'))
+  .map((origin) => {
+    const regexSource = `^${escapeRegex(origin).replace(/\\\*/g, '[^.]+')}$`;
+    return new RegExp(regexSource, 'i');
+  });
 const USER_AUTH_COOKIE_NAME = 'bf_access_token';
 const ADMIN_AUTH_COOKIE_NAME = 'bf_admin_token';
 const CSRF_COOKIE_NAME = 'bf_csrf_token';
 const USER_AUTH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 const ADMIN_AUTH_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
 const CSRF_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
-const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+const COOKIE_SECURE = parseBooleanEnv('COOKIE_SECURE', IS_PRODUCTION);
 const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
 const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').trim().toLowerCase();
 const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW)
@@ -78,6 +147,16 @@ const CEP_GEO_TTL_MS = 24 * 60 * 60 * 1000;
 const cepGeoCache = new Map();
 const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 20000);
 const produtosQueryCache = new Map();
+const READ_QUERY_CACHE_TTL_MS = 30 * 1000;
+const readQueryCache = new Map();
+const FRETE_DEBUG_LOGS = (() => {
+  const raw = String(process.env.FRETE_DEBUG_LOGS || '').trim().toLowerCase();
+  if (!raw) {
+    return String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production';
+  }
+
+  return ['1', 'true', 'yes', 'on', 'sim'].includes(raw);
+})();
 
 const VEICULOS_ENTREGA = {
   bike: {
@@ -122,16 +201,44 @@ function normalizarDistanciaEntregaKm(valor) {
   return Number(Math.min(numero, 80).toFixed(1));
 }
 
-function calcularFreteEntrega(veiculoKey, distanciaKm) {
+function registrarLogFreteDebug(evento, dados = {}) {
+  if (!FRETE_DEBUG_LOGS) {
+    return;
+  }
+
+  const payload = {
+    timestamp: new Date().toISOString(),
+    evento: String(evento || 'frete'),
+    dados
+  };
+
+  console.log(`FRETE_DEBUG ${JSON.stringify(payload)}`);
+}
+
+function calcularFreteEntregaDetalhado(veiculoKey, distanciaKm) {
   const veiculo = VEICULOS_ENTREGA[veiculoKey] || VEICULOS_ENTREGA.moto;
-  const distanciaNormalizada = normalizarDistanciaEntregaKm(distanciaKm);
+  const distanciaBruta = Number(distanciaKm);
+  const distanciaNormalizada = normalizarDistanciaEntregaKm(distanciaBruta);
   const custoCombustivelKm = veiculo.consumoKmLitro
     ? PRECO_COMBUSTIVEL_LITRO / veiculo.consumoKmLitro
     : 0;
   const custoOperacionalKm = (custoCombustivelKm + veiculo.custoManutencaoKm) * veiculo.fatorReparo;
-  const frete = veiculo.taxaBase + (distanciaNormalizada * custoOperacionalKm);
+  const frete = Number((veiculo.taxaBase + (distanciaNormalizada * custoOperacionalKm)).toFixed(2));
 
-  return Number(frete.toFixed(2));
+  return {
+    frete,
+    distancia_bruta_km: Number((Number.isFinite(distanciaBruta) ? distanciaBruta : 0).toFixed(3)),
+    distancia_cobrada_km: distanciaNormalizada,
+    taxa_base: Number(veiculo.taxaBase.toFixed(2)),
+    custo_combustivel_km: Number(custoCombustivelKm.toFixed(4)),
+    custo_manutencao_km: Number(veiculo.custoManutencaoKm.toFixed(4)),
+    fator_reparo: Number(veiculo.fatorReparo.toFixed(2)),
+    custo_operacional_km: Number(custoOperacionalKm.toFixed(4))
+  };
+}
+
+function calcularFreteEntrega(veiculoKey, distanciaKm) {
+  return calcularFreteEntregaDetalhado(veiculoKey, distanciaKm).frete;
 }
 
 function calcularDistanciaHaversineKm(latA, lonA, latB, lonB) {
@@ -149,6 +256,26 @@ function calcularDistanciaHaversineKm(latA, lonA, latB, lonB) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return terraKm * c;
+}
+
+function normalizarTextoComparacao(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function textoCompativel(textoA, textoB) {
+  const a = normalizarTextoComparacao(textoA);
+  const b = normalizarTextoComparacao(textoB);
+
+  if (!a || !b) {
+    return true;
+  }
+
+  return a.includes(b) || b.includes(a);
 }
 
 function criarCoordenadaFonteValida(latitude, longitude, fonte) {
@@ -185,8 +312,8 @@ function listarCoordenadasPossiveis(localidade) {
   }
 
   adicionar(criarCoordenadaFonteValida(localidade?.latitude, localidade?.longitude, localidade?.fonte_coordenadas || 'principal'));
-  adicionar(criarCoordenadaFonteValida(localidade?.coordenadas_alternativas?.nominatim?.latitude, localidade?.coordenadas_alternativas?.nominatim?.longitude, 'nominatim'));
   adicionar(criarCoordenadaFonteValida(localidade?.coordenadas_alternativas?.brasilapi?.latitude, localidade?.coordenadas_alternativas?.brasilapi?.longitude, 'brasilapi'));
+  adicionar(criarCoordenadaFonteValida(localidade?.coordenadas_alternativas?.nominatim?.latitude, localidade?.coordenadas_alternativas?.nominatim?.longitude, 'nominatim'));
 
   return coordenadas;
 }
@@ -201,9 +328,11 @@ function calcularDistanciaEntregaAjustada(origem, destino) {
 
   let menorDistancia = Number.POSITIVE_INFINITY;
   let melhorPar = null;
+  let combinacoesAvaliadas = 0;
 
   for (const coordOrigem of coordsOrigem) {
     for (const coordDestino of coordsDestino) {
+      combinacoesAvaliadas += 1;
       const distancia = Number(
         calcularDistanciaHaversineKm(
           coordOrigem.latitude,
@@ -236,6 +365,7 @@ function calcularDistanciaEntregaAjustada(origem, destino) {
   let distanciaFinal = distanciaBase;
   let fonteOrigem = String(origem?.fonte_coordenadas || 'principal');
   let fonteDestino = String(destino?.fonte_coordenadas || 'principal');
+  let ajusteAplicado = false;
 
   if (Number.isFinite(menorDistancia) && Number.isFinite(distanciaBase) && menorDistancia < distanciaBase) {
     const variacao = distanciaBase > 0 ? (distanciaBase - menorDistancia) / distanciaBase : 0;
@@ -245,25 +375,46 @@ function calcularDistanciaEntregaAjustada(origem, destino) {
       distanciaFinal = menorDistancia;
       fonteOrigem = melhorPar.origem.fonte;
       fonteDestino = melhorPar.destino.fonte;
+      ajusteAplicado = true;
     }
   }
 
   return {
+    metodo_distancia: 'haversine_linha_reta',
     distancia_base_km: distanciaBase,
     distancia_km: Number(distanciaFinal.toFixed(2)),
     fonte_origem: fonteOrigem,
-    fonte_destino: fonteDestino
+    fonte_destino: fonteDestino,
+    ajuste_aplicado: ajusteAplicado,
+    combinacoes_avaliadas: combinacoesAvaliadas
   };
 }
 
-async function buscarCoordenadasPorCep(cep) {
+async function buscarCoordenadasPorCep(cep, { numero = '', tipoLocal = 'destino' } = {}) {
   const cepNormalizado = normalizarCep(cep);
   if (cepNormalizado.length !== 8) {
     throw criarErroHttp(400, 'CEP inválido. Informe 8 dígitos.');
   }
 
-  const cache = cepGeoCache.get(cepNormalizado);
-  if (cache && Date.now() - cache.cachedAt < CEP_GEO_TTL_MS) {
+  const numeroNormalizado = String(numero || '').trim();
+  const chaveCache = numeroNormalizado
+    ? `${cepNormalizado}:${numeroNormalizado}`
+    : cepNormalizado;
+  const cache = cepGeoCache.get(chaveCache);
+  const cacheIdadeMs = cache ? Date.now() - cache.cachedAt : null;
+
+  if (cache && cacheIdadeMs < CEP_GEO_TTL_MS) {
+    registrarLogFreteDebug('geocode_cache_hit', {
+      tipo_local: tipoLocal,
+      cep: formatarCep(cepNormalizado),
+      numero_referencia: numeroNormalizado || null,
+      cache_idade_segundos: Number((cacheIdadeMs / 1000).toFixed(1)),
+      fonte_coordenadas: cache.data?.fonte_coordenadas,
+      metodo_geocodificacao: cache.data?.metodo_geocodificacao,
+      latitude: cache.data?.latitude,
+      longitude: cache.data?.longitude
+    });
+
     return cache.data;
   }
 
@@ -277,15 +428,22 @@ async function buscarCoordenadasPorCep(cep) {
 
   const coordenadasNominatimRaw = await buscarCoordenadasNominatim({
     cepNormalizado,
-    dadosCep: dados
+    dadosCep: dados,
+    numero: numeroNormalizado,
+    tipoLocal
   });
   const coordenadasNominatim = criarCoordenadaFonteValida(
     coordenadasNominatimRaw?.latitude,
     coordenadasNominatimRaw?.longitude,
-    'nominatim'
+    coordenadasNominatimRaw?.fonte || 'nominatim'
   );
 
-  const coordenadaEscolhida = coordenadasNominatim || coordenadasBrasilApi;
+  // Priorizamos resultado por logradouro quando disponível; caso contrário,
+  // mantemos BrasilAPI como primeira fonte e Nominatim como fallback.
+  const nominatimEhLogradouro = String(coordenadasNominatimRaw?.nivel_confianca || '').startsWith('logradouro');
+  const coordenadaEscolhida = nominatimEhLogradouro
+    ? coordenadasNominatim || coordenadasBrasilApi
+    : coordenadasBrasilApi || coordenadasNominatim;
   const latitude = Number(coordenadaEscolhida?.latitude);
   const longitude = Number(coordenadaEscolhida?.longitude);
 
@@ -295,6 +453,7 @@ async function buscarCoordenadasPorCep(cep) {
 
   const resultado = {
     cep: formatarCep(cepNormalizado),
+    numero_referencia: numeroNormalizado || null,
     latitude,
     longitude,
     cidade: String(dados?.city || '').trim(),
@@ -302,6 +461,11 @@ async function buscarCoordenadasPorCep(cep) {
     bairro: String(dados?.neighborhood || '').trim(),
     rua: String(dados?.street || '').trim(),
     fonte_coordenadas: String(coordenadaEscolhida?.fonte || 'desconhecida'),
+    metodo_geocodificacao: nominatimEhLogradouro
+      ? String(coordenadasNominatimRaw?.fonte || 'nominatim_logradouro')
+      : coordenadasBrasilApi
+        ? 'brasilapi'
+        : String(coordenadasNominatimRaw?.fonte || 'nominatim_fallback'),
     coordenadas_alternativas: {
       brasilapi: coordenadasBrasilApi
         ? {
@@ -312,15 +476,37 @@ async function buscarCoordenadasPorCep(cep) {
       nominatim: coordenadasNominatim
         ? {
           latitude: coordenadasNominatim.latitude,
-          longitude: coordenadasNominatim.longitude
+          longitude: coordenadasNominatim.longitude,
+          tipo_consulta: coordenadasNominatimRaw?.tipo_consulta || null,
+          nivel_confianca: coordenadasNominatimRaw?.nivel_confianca || null,
+          score: Number.isFinite(Number(coordenadasNominatimRaw?.score)) ? Number(coordenadasNominatimRaw.score) : null,
+          consulta: coordenadasNominatimRaw?.consulta || null
         }
         : null
     }
   };
 
-  cepGeoCache.set(cepNormalizado, {
+  cepGeoCache.set(chaveCache, {
     cachedAt: Date.now(),
     data: resultado
+  });
+
+  registrarLogFreteDebug('geocode_cep', {
+    tipo_local: tipoLocal,
+    cep: resultado.cep,
+    numero_referencia: resultado.numero_referencia,
+    cache_hit: false,
+    cidade: resultado.cidade,
+    estado: resultado.estado,
+    bairro: resultado.bairro,
+    rua: resultado.rua,
+    fonte_coordenadas: resultado.fonte_coordenadas,
+    metodo_geocodificacao: resultado.metodo_geocodificacao,
+    coordenadas: {
+      latitude: resultado.latitude,
+      longitude: resultado.longitude
+    },
+    coordenadas_alternativas: resultado.coordenadas_alternativas
   });
 
   return resultado;
@@ -371,26 +557,146 @@ async function buscarDadosCepComFallback(cepNormalizado) {
   return dadosMesclados;
 }
 
-function montarConsultasNominatim({ cepNormalizado, dadosCep }) {
+function montarConsultasNominatim({ cepNormalizado, dadosCep, numero }) {
   const cepFormatado = formatarCep(cepNormalizado);
   const rua = String(dadosCep?.street || '').trim();
   const bairro = String(dadosCep?.neighborhood || '').trim();
   const cidade = String(dadosCep?.city || '').trim();
   const estado = String(dadosCep?.state || '').trim();
+  const numeroNormalizado = String(numero || '').trim();
 
-  const consultas = [
-    [rua, bairro, cidade, estado, 'Brasil'].filter(Boolean).join(', '),
-    [cepFormatado, cidade, estado, 'Brasil'].filter(Boolean).join(', '),
-    [cepFormatado, 'Brasil'].filter(Boolean).join(', ')
-  ]
-    .map((item) => String(item || '').trim())
-    .filter(Boolean);
+  const consultas = [];
 
-  return Array.from(new Set(consultas));
+  if (rua && cidade && estado) {
+    if (numeroNormalizado) {
+      consultas.push({
+        texto: [rua, numeroNormalizado, cidade, estado, 'Brasil'].filter(Boolean).join(', '),
+        tipo_consulta: 'logradouro_numero',
+        nivel_confianca: 'logradouro_numero'
+      });
+    }
+
+    consultas.push({
+      texto: [rua, cidade, estado, 'Brasil'].filter(Boolean).join(', '),
+      tipo_consulta: 'logradouro',
+      nivel_confianca: 'logradouro'
+    });
+
+    if (bairro) {
+      consultas.push({
+        texto: [rua, bairro, cidade, estado, 'Brasil'].filter(Boolean).join(', '),
+        tipo_consulta: 'logradouro_bairro',
+        nivel_confianca: 'logradouro'
+      });
+    }
+  }
+
+  consultas.push({
+    texto: [cepFormatado, cidade, estado, 'Brasil'].filter(Boolean).join(', '),
+    tipo_consulta: 'cep_cidade',
+    nivel_confianca: 'cep'
+  });
+  consultas.push({
+    texto: [cepFormatado, 'Brasil'].filter(Boolean).join(', '),
+    tipo_consulta: 'cep_generico',
+    nivel_confianca: 'cep_generico'
+  });
+
+  const consultasUnicas = [];
+  const visitadas = new Set();
+
+  for (const consulta of consultas) {
+    const texto = String(consulta?.texto || '').trim();
+    if (!texto || visitadas.has(texto)) {
+      continue;
+    }
+
+    visitadas.add(texto);
+    consultasUnicas.push({
+      ...consulta,
+      texto
+    });
+  }
+
+  return consultasUnicas;
 }
 
-async function buscarCoordenadasNominatim({ cepNormalizado, dadosCep }) {
-  const consultas = montarConsultasNominatim({ cepNormalizado, dadosCep });
+function resultadoNominatimEhCompativel({ resultado, dadosCep, cepNormalizado, tipoConsulta }) {
+  const endereco = resultado?.address || {};
+  const cidadeEsperada = String(dadosCep?.city || '').trim();
+  const estadoEsperado = String(dadosCep?.state || '').trim();
+  const cidadeRetornada =
+    endereco?.city
+    || endereco?.town
+    || endereco?.village
+    || endereco?.municipality
+    || endereco?.city_district
+    || '';
+  const estadoRetornado = endereco?.state || endereco?.state_district || '';
+  const countryCode = normalizarTextoComparacao(endereco?.country_code);
+
+  if (countryCode && countryCode !== 'br') {
+    return false;
+  }
+
+  if (!textoCompativel(cidadeRetornada, cidadeEsperada) || !textoCompativel(estadoRetornado, estadoEsperado)) {
+    return false;
+  }
+
+  const consultaPorCep = String(tipoConsulta || '').startsWith('cep');
+  if (consultaPorCep) {
+    const cepRetornado = normalizarCep(endereco?.postcode || '');
+    if (cepRetornado && cepRetornado.slice(0, 5) !== cepNormalizado.slice(0, 5)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function pontuarResultadoNominatim({ resultado, dadosCep, cepNormalizado, numero }) {
+  const endereco = resultado?.address || {};
+  const cepRetornado = normalizarCep(endereco?.postcode || '');
+  const cepEsperadoPrefixo5 = String(cepNormalizado || '').slice(0, 5);
+  const cepEsperadoPrefixo3 = String(cepNormalizado || '').slice(0, 3);
+  const ruaEsperada = normalizarTextoComparacao(dadosCep?.street || '');
+  const ruaRetornada = normalizarTextoComparacao(endereco?.road || '');
+  const bairroEsperado = normalizarTextoComparacao(dadosCep?.neighborhood || '');
+  const bairroRetornado = normalizarTextoComparacao(endereco?.suburb || endereco?.quarter || endereco?.neighbourhood || '');
+  const numeroEsperado = String(numero || '').trim();
+  const numeroRetornado = String(endereco?.house_number || '').trim();
+
+  let score = 0;
+
+  if (cepRetornado) {
+    if (cepRetornado.slice(0, 5) === cepEsperadoPrefixo5) {
+      score += 40;
+    } else if (cepRetornado.slice(0, 3) === cepEsperadoPrefixo3) {
+      score += 20;
+    } else {
+      score -= 15;
+    }
+  } else {
+    score -= 3;
+  }
+
+  if (ruaEsperada && ruaRetornada && textoCompativel(ruaRetornada, ruaEsperada)) {
+    score += 10;
+  }
+
+  if (bairroEsperado && bairroRetornado && textoCompativel(bairroRetornado, bairroEsperado)) {
+    score += 6;
+  }
+
+  if (numeroEsperado && numeroRetornado && numeroEsperado === numeroRetornado) {
+    score += 8;
+  }
+
+  return score;
+}
+
+async function buscarCoordenadasNominatim({ cepNormalizado, dadosCep, numero, tipoLocal }) {
+  const consultas = montarConsultasNominatim({ cepNormalizado, dadosCep, numero });
   if (!consultas.length) {
     return null;
   }
@@ -402,36 +708,96 @@ async function buscarCoordenadasNominatim({ cepNormalizado, dadosCep }) {
 
   for (const consulta of consultas) {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(consulta)}&format=jsonv2&limit=1`;
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(consulta.texto)}&format=jsonv2&limit=5&addressdetails=1&countrycodes=br`;
       const response = await fetch(url, { headers });
       if (!response.ok) {
         continue;
       }
 
       const resultados = await response.json().catch(() => []);
-      const primeiro = Array.isArray(resultados) ? resultados[0] : null;
-      const latitude = Number(primeiro?.lat);
-      const longitude = Number(primeiro?.lon);
+      const candidatos = Array.isArray(resultados) ? resultados : [];
+      let melhorCandidato = null;
 
-      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-        return { latitude, longitude };
+      for (const candidato of candidatos) {
+        const latitude = Number(candidato?.lat);
+        const longitude = Number(candidato?.lon);
+
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          continue;
+        }
+
+        const compativel = resultadoNominatimEhCompativel({
+          resultado: candidato,
+          dadosCep,
+          cepNormalizado,
+          tipoConsulta: consulta.tipo_consulta
+        });
+        if (!compativel) {
+          continue;
+        }
+
+        const score = pontuarResultadoNominatim({
+          resultado: candidato,
+          dadosCep,
+          cepNormalizado,
+          numero
+        });
+
+        if (!melhorCandidato || score > melhorCandidato.score) {
+          melhorCandidato = {
+            score,
+            latitude,
+            longitude,
+            candidato
+          };
+        }
+      }
+
+      if (melhorCandidato) {
+        return {
+          latitude: melhorCandidato.latitude,
+          longitude: melhorCandidato.longitude,
+          consulta: consulta.texto,
+          tipo_consulta: consulta.tipo_consulta,
+          nivel_confianca: consulta.nivel_confianca,
+          score: melhorCandidato.score,
+          display_name: String(melhorCandidato.candidato?.display_name || '').trim() || null,
+          fonte: `nominatim_${consulta.tipo_consulta}`
+        };
       }
     } catch {
       // Ignora falha de fallback para tentar a proxima consulta.
     }
   }
 
+  registrarLogFreteDebug('nominatim_sem_match', {
+    tipo_local: tipoLocal || 'desconhecido',
+    cep: formatarCep(cepNormalizado),
+    cidade: String(dadosCep?.city || '').trim(),
+    estado: String(dadosCep?.state || '').trim(),
+    rua: String(dadosCep?.street || '').trim(),
+    numero_referencia: String(numero || '').trim() || null
+  });
+
   return null;
 }
 
-async function calcularEntregaPorCep({ cepDestino, veiculo }) {
+async function calcularEntregaPorCep({ cepDestino, veiculo, numeroDestino = '' }) {
   const veiculoKey = String(veiculo || 'moto').trim().toLowerCase();
   if (!VEICULOS_ENTREGA[veiculoKey]) {
     throw criarErroHttp(400, 'Veículo de entrega inválido');
   }
 
-  const origem = await buscarCoordenadasPorCep(CEP_MERCADO);
-  const destino = await buscarCoordenadasPorCep(cepDestino);
+  // Limitacao tecnica atual: sem numero de destino, a precisao do geocoding pode
+  // cair para nivel de CEP/logradouro aproximado (nao rota viaria porta a porta).
+  const origem = await buscarCoordenadasPorCep(CEP_MERCADO, {
+    numero: NUMERO_MERCADO,
+    tipoLocal: 'origem'
+  });
+  const destino = await buscarCoordenadasPorCep(cepDestino, {
+    numero: numeroDestino,
+    tipoLocal: 'destino'
+  });
   const distanciaInfo = calcularDistanciaEntregaAjustada(origem, destino);
   const distanciaKm = Number(distanciaInfo.distancia_km);
 
@@ -446,17 +812,62 @@ async function calcularEntregaPorCep({ cepDestino, veiculo }) {
     );
   }
 
-  const frete = calcularFreteEntrega(veiculoKey, distanciaKm);
+  const freteDetalhado = calcularFreteEntregaDetalhado(veiculoKey, distanciaKm);
+
+  registrarLogFreteDebug('simulacao_frete', {
+    origem: {
+      cep: origem.cep,
+      numero: NUMERO_MERCADO,
+      cidade: origem.cidade,
+      estado: origem.estado,
+      bairro: origem.bairro,
+      rua: origem.rua,
+      latitude: origem.latitude,
+      longitude: origem.longitude,
+      fonte: origem.fonte_coordenadas,
+      metodo_geocodificacao: origem.metodo_geocodificacao || null
+    },
+    destino: {
+      cep: destino.cep,
+      numero: String(numeroDestino || '').trim() || null,
+      cidade: destino.cidade,
+      estado: destino.estado,
+      bairro: destino.bairro,
+      rua: destino.rua,
+      latitude: destino.latitude,
+      longitude: destino.longitude,
+      fonte: destino.fonte_coordenadas,
+      metodo_geocodificacao: destino.metodo_geocodificacao || null
+    },
+    metodo_distancia: distanciaInfo.metodo_distancia,
+    distancia_bruta_km: distanciaInfo.distancia_base_km,
+    distancia_final_km: distanciaInfo.distancia_km,
+    distancia_cobrada_km: freteDetalhado.distancia_cobrada_km,
+    ajuste_aplicado: distanciaInfo.ajuste_aplicado,
+    combinacoes_avaliadas: distanciaInfo.combinacoes_avaliadas,
+    veiculo: veiculoKey,
+    frete: {
+      valor_final: freteDetalhado.frete,
+      taxa_base: freteDetalhado.taxa_base,
+      custo_operacional_km: freteDetalhado.custo_operacional_km,
+      custo_combustivel_km: freteDetalhado.custo_combustivel_km,
+      custo_manutencao_km: freteDetalhado.custo_manutencao_km,
+      fator_reparo: freteDetalhado.fator_reparo
+    }
+  });
 
   return {
     veiculo: veiculoKey,
-    frete,
+    frete: freteDetalhado.frete,
     distancia_km: distanciaKm,
+    distancia_cobrada_km: freteDetalhado.distancia_cobrada_km,
+    metodo_distancia: distanciaInfo.metodo_distancia,
     distancia_base_km: Number(distanciaInfo.distancia_base_km),
     cep_origem: origem.cep,
     numero_origem: NUMERO_MERCADO,
     fonte_coordenadas_origem: distanciaInfo.fonte_origem,
     cep_destino: destino.cep,
+    numero_destino: String(numeroDestino || '').trim() || null,
     fonte_coordenadas_destino: distanciaInfo.fonte_destino,
     cidade_destino: destino.cidade,
     bairro_destino: destino.bairro
@@ -1095,8 +1506,6 @@ const globalLimiter = rateLimit({
   max: 400,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getRateLimitKey,
-  validate: rateLimitValidateOptions,
   // Limiter leve para API, ignorando rotas críticas/integracoes externas.
   skip: (req) => {
     const pathAtual = req.path || '';
@@ -1126,6 +1535,15 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { erro: 'Muitas tentativas de autenticação. Aguarde 15 minutos.' }
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { erro: 'Muitas tentativas de login. Aguarde 15 minutos.' }
 });
 
 const adminAuthLimiter = rateLimit({
@@ -1674,6 +2092,38 @@ function registrarLogPagBank({
   };
 
   console.log('📦 PagBank debug:', JSON.stringify(logSeguro));
+}
+
+async function enviarPostPagBankOrders({ headers, payload }) {
+  const endpoint = `${PAGBANK_API_URL}/orders`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload || {})
+  });
+
+  const responseBodyText = await response.text().catch(() => '');
+
+  let responsePayload = {};
+  try {
+    responsePayload = responseBodyText ? JSON.parse(responseBodyText) : {};
+  } catch {
+    responsePayload = { raw_text: responseBodyText };
+  }
+
+  registrarLogPagBank({
+    operacao: 'orders.post',
+    endpoint,
+    method: 'POST',
+    httpStatus: response.status,
+    requestPayload: payload,
+    responsePayload
+  });
+
+  return {
+    response,
+    responseBodyText
+  };
 }
 
 function mapearStatusPorEventoPagBank(evento) {
@@ -3483,11 +3933,13 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
 app.get('/api/frete/simular', async (req, res) => {
   try {
     const cep = String(req.query?.cep || '').trim();
+    const numero = String(req.query?.numero || '').trim();
     const veiculo = String(req.query?.veiculo || 'moto').trim().toLowerCase();
 
     const entrega = await calcularEntregaPorCep({
       cepDestino: cep,
-      veiculo
+      veiculo,
+      numeroDestino: numero
     });
 
     return res.json({
@@ -3593,6 +4045,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
 
     const veiculoEntrega = String(entrega.veiculo || 'moto').trim().toLowerCase();
     const cepDestinoEntrega = normalizarCep(entrega.cep_destino || entrega.cep);
+    const numeroDestinoEntrega = String(entrega.numero_destino || entrega.numero || '').trim();
 
     if (cepDestinoEntrega.length !== 8) {
       throw criarErroHttp(400, 'Informe um CEP de entrega válido.');
@@ -3600,16 +4053,20 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
 
     const entregaCalculada = await calcularEntregaPorCep({
       cepDestino: cepDestinoEntrega,
-      veiculo: veiculoEntrega
+      veiculo: veiculoEntrega,
+      numeroDestino: numeroDestinoEntrega
     });
 
     const freteEntrega = entregaCalculada.frete;
     const entregaNormalizada = {
       veiculo: entregaCalculada.veiculo,
       distancia_km: entregaCalculada.distancia_km,
+      distancia_cobrada_km: entregaCalculada.distancia_cobrada_km,
+      metodo_distancia: entregaCalculada.metodo_distancia,
       cep_origem: entregaCalculada.cep_origem,
       numero_origem: entregaCalculada.numero_origem,
-      cep_destino: entregaCalculada.cep_destino
+      cep_destino: entregaCalculada.cep_destino,
+      numero_destino: entregaCalculada.numero_destino
     };
 
     const [usuarioPedidoRows] = await connection.query(
