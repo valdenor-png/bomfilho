@@ -122,6 +122,7 @@ site/
 
 - React + Vite (principal)
 - HTML/CSS/JS legado em `legacy/`
+- Node.js 18+ (recomendado para build/deploy)
 
 ### Backend
 
@@ -130,6 +131,7 @@ site/
 - MySQL
 - JWT
 - bcryptjs
+- Node.js 18+ (recomendado para runtime/deploy)
 
 ## Como rodar localmente
 
@@ -166,6 +168,12 @@ npm start
 
 ### 5) Iniciar frontend (React)
 
+Opcional: crie `frontend-react/.env.local` para desenvolvimento local:
+
+```env
+VITE_API_URL=http://localhost:3000
+```
+
 ```bash
 cd frontend-react
 npm install
@@ -175,6 +183,8 @@ npm run dev
 Abra: `http://127.0.0.1:5173`
 
 > Alternativa rápida (Windows): `scripts/start-servicos.bat`
+
+Para deploy no Vercel (monorepo), configure Root Directory como `frontend-react`.
 
 ### 6) Produção com Node servindo React
 

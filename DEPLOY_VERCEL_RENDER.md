@@ -5,6 +5,7 @@
 - Frontend React (Vite): Vercel
 - Backend Node/Express: Render
 - Banco de dados: MySQL externo (Railway, Hostinger, PlanetScale etc.)
+- Node.js recomendado: 18+
 
 ## 1) Preparar banco MySQL em nuvem
 
@@ -35,6 +36,7 @@ SOURCE backend/migrate_remover_favoritos_fidelidade.sql;
 - TRUST_PROXY=true
 - COOKIE_SECURE=true
 - COOKIE_SAME_SITE=none
+- NODE_VERSION=20 (recomendado)
 - JWT_SECRET=<chave forte com 32+ caracteres>
 - RECAPTCHA_SECRET_KEY=<secret key do Google reCAPTCHA>
 - RECAPTCHA_MIN_SCORE=0.5 (opcional)
@@ -43,6 +45,7 @@ SOURCE backend/migrate_remover_favoritos_fidelidade.sql;
 - ADMIN_LOCAL_ONLY=true (mais seguro) ou false (admin remoto)
 - BASE_URL=https://SEU_BACKEND.onrender.com
 - CORS_ORIGINS=https://SEU_FRONTEND.vercel.app
+- FRONTEND_APP_URL=https://SEU_FRONTEND.vercel.app (opcional, recomendado)
 
 Se utilizar PIX e WhatsApp:
 
@@ -74,13 +77,19 @@ curl https://SEU_BACKEND.onrender.com/ready
 
 - Framework: Vite
 - Root Directory: frontend-react
+- Install Command: npm ci
 - Build Command: npm run build
 - Output Directory: dist
+- Production Branch: main (deploy automático a cada push)
+
+Observação: o arquivo `frontend-react/vercel.json` versiona esses comandos para reduzir erro manual.
 
 4. Configure as variáveis de ambiente na Vercel:
 
 - VITE_API_URL=https://SEU_BACKEND.onrender.com
 - VITE_RECAPTCHA_SITE_KEY=<site key do Google reCAPTCHA>
+
+Importante: em produção não use `localhost` no `VITE_API_URL`.
 
 5. Execute o deploy.
 
@@ -95,6 +104,8 @@ curl https://SEU_BACKEND.onrender.com/ready
 
 - [ ] Backend responde GET /ready
 - [ ] Frontend abre sem erro de CORS
+- [ ] Frontend com Root Directory em frontend-react
+- [ ] Deploy automático da Vercel na branch main
 - [ ] Login e cadastro funcionando
 - [ ] Criação de pedido funcionando
 - [ ] Variáveis sensíveis configuradas apenas no painel

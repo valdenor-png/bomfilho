@@ -1,4 +1,10 @@
-import API_BASE_URL, { API_TIMEOUT_MS, IS_DEVELOPMENT, IS_NGROK_API } from '../config/api';
+import API_BASE_URL, {
+  API_CONFIG_ERROR_MESSAGE,
+  API_TIMEOUT_MS,
+  API_URL_IS_REQUIRED,
+  IS_DEVELOPMENT,
+  IS_NGROK_API
+} from '../config/api';
 
 function logApi(evento, dados) {
   if (!IS_DEVELOPMENT) {
@@ -15,6 +21,10 @@ function logApi(evento, dados) {
 function buildUrl(path) {
   const rawPath = String(path || '').trim();
   if (!rawPath) {
+    if (API_URL_IS_REQUIRED) {
+      throw new Error(API_CONFIG_ERROR_MESSAGE);
+    }
+
     return API_BASE_URL;
   }
 
@@ -23,6 +33,15 @@ function buildUrl(path) {
   }
 
   const normalizedPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+
+  if (!API_BASE_URL) {
+    if (API_URL_IS_REQUIRED && !IS_DEVELOPMENT) {
+      throw new Error(API_CONFIG_ERROR_MESSAGE);
+    }
+
+    return normalizedPath;
+  }
+
   return `${API_BASE_URL}${normalizedPath}`;
 }
 
@@ -92,7 +111,18 @@ export async function apiRequest(path, options = {}) {
   } = options;
 
   const methodUpper = String(method || 'GET').toUpperCase();
-  const url = buildUrl(path);
+  let url = '';
+
+  try {
+    url = buildUrl(path);
+  } catch (erroConfiguracao) {
+    const mensagem = String(erroConfiguracao?.message || '').trim() || API_CONFIG_ERROR_MESSAGE;
+    const erro = new Error(mensagem);
+    erro.code = 'API_CONFIG';
+    erro.status = 500;
+    throw erro;
+  }
+
   const hasBody = body !== undefined;
   const isFormData = hasBody && typeof FormData !== 'undefined' && body instanceof FormData;
   const preparedHeaders = { ...headers };

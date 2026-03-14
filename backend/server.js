@@ -54,7 +54,6 @@ const SERVICE_NAME = String(process.env.SERVICE_NAME || 'bom-filho-backend').tri
 const API_VERSION = String(process.env.API_VERSION || '1.0.0').trim() || '1.0.0';
 const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
 const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
-const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
 const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
 
 function parseBooleanEnv(name, fallback = false) {
@@ -81,6 +80,7 @@ function escapeRegex(text) {
 
 const NODE_ENV = String(process.env.NODE_ENV || 'development').trim().toLowerCase() || 'development';
 const IS_PRODUCTION = NODE_ENV === 'production';
+const SHOULD_SERVE_REACT = parseBooleanEnv('SERVE_REACT', !IS_PRODUCTION);
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
 const TRUST_PROXY = parseBooleanEnv('TRUST_PROXY', IS_PRODUCTION);
 
@@ -156,10 +156,35 @@ if (ALLOW_REMOTE_DIAGNOSTIC && !DIAGNOSTIC_TOKEN) {
   console.warn('⚠️ ALLOW_REMOTE_DIAGNOSTIC=true sem DIAGNOSTIC_TOKEN. O acesso remoto de diagnóstico ficará indisponível.');
 }
 
-const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
+function normalizarOrigin(origin) {
+  return String(origin || '').trim().replace(/\/+$/, '').toLowerCase();
+}
+
+let CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
   .split(',')
-  .map((origin) => origin.trim().replace(/\/+$/, '').toLowerCase())
+  .map((origin) => normalizarOrigin(origin))
   .filter(Boolean);
+
+if (!CORS_ORIGINS.length && !IS_PRODUCTION) {
+  CORS_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+}
+
+const frontendAppOrigin = normalizarOrigin(FRONTEND_APP_URL);
+if (frontendAppOrigin && !CORS_ORIGINS.includes(frontendAppOrigin)) {
+  CORS_ORIGINS.push(frontendAppOrigin);
+}
+
+if (IS_PRODUCTION && CORS_ORIGINS.length === 0) {
+  throw new Error('CORS_ORIGINS nao configurada no ambiente de producao.');
+}
+
+if (IS_PRODUCTION) {
+  const origensLocais = CORS_ORIGINS.filter((origin) => /localhost|127\.0\.0\.1/.test(origin));
+  if (origensLocais.length) {
+    console.warn(`⚠️ CORS_ORIGINS em producao contem origem local: ${origensLocais.join(', ')}`);
+  }
+}
+
 const CORS_ORIGIN_PATTERNS = CORS_ORIGINS
   .filter((origin) => origin.includes('*'))
   .map((origin) => {
@@ -178,6 +203,11 @@ const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').tr
 const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW)
   ? COOKIE_SAME_SITE_RAW
   : 'strict';
+
+if (IS_PRODUCTION && !COOKIE_SECURE) {
+  throw new Error('COOKIE_SECURE deve ser true em producao.');
+}
+
 const PRECO_COMBUSTIVEL_LITRO = Number(process.env.PRECO_COMBUSTIVEL_LITRO || 6.2);
 const CEP_MERCADO = String(process.env.CEP_MERCADO || '68740-180').replace(/\D/g, '');
 const NUMERO_MERCADO = String(process.env.NUMERO_MERCADO || '70').trim() || '70';

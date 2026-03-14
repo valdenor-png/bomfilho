@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "Backend API para supermercado Bom Filho",
   "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "npm@10.9.0",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",

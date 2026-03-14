@@ -11,6 +11,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "20"
       - key: SERVE_REACT
         value: "false"
       - key: TRUST_PROXY
@@ -20,6 +22,8 @@ services:
       - key: COOKIE_SAME_SITE
         value: none
       - key: CORS_ORIGINS
+        sync: false
+      - key: FRONTEND_APP_URL
         sync: false
       - key: JWT_SECRET
         sync: false

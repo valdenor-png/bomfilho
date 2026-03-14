@@ -42,7 +42,11 @@ DATABASE_URL=mysql://root:sua_senha_mysql@localhost:3306/railway
 PORT=3000
 
 # CORS (origens permitidas, separadas por vírgula)
-CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+# Em produção, inclua a URL exata da Vercel.
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://SEU_FRONTEND.vercel.app
+
+# Opcional: frontend principal para adicionar automaticamente na allowlist
+FRONTEND_APP_URL=https://SEU_FRONTEND.vercel.app
 
 # Se estiver atrás de proxy reverso confiável (Nginx/Cloudflare)
 TRUST_PROXY=false
