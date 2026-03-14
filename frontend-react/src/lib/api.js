@@ -1,9 +1,11 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+import API_BASE_URL from '../config/api';
+import { apiGet, apiRequest } from '../services/api';
+
 const CSRF_COOKIE_KEY = 'bf_csrf_token';
 const USER_ACCESS_TOKEN_KEY = 'bf_user_access_token';
 const ADMIN_ACCESS_TOKEN_KEY = 'bf_admin_access_token';
+const GENERIC_USER_ERROR_MESSAGE = 'Não foi possível concluir sua solicitação agora. Tente novamente em instantes.';
 let csrfTokenCache = '';
-const IS_NGROK_API = /ngrok(-free)?\.dev|ngrok\.io/i.test(String(API_BASE_URL || ''));
 
 function readStorage(key) {
   if (typeof window === 'undefined') {
@@ -97,9 +99,85 @@ function obterCsrfToken() {
   return csrfTokenCache || readCookie(CSRF_COOKIE_KEY);
 }
 
-function buildHeaders({ token, hasBody, csrfToken } = {}) {
+function mapHttpStatusMessage(status) {
+  const statusCode = Number(status || 0);
+
+  if (statusCode === 400) {
+    return 'Não foi possível concluir a solicitação. Revise os dados e tente novamente.';
+  }
+
+  if (statusCode === 401) {
+    return 'Sua sessão expirou. Faça login novamente.';
+  }
+
+  if (statusCode === 403) {
+    return 'Você não tem permissão para realizar esta ação.';
+  }
+
+  if (statusCode === 404) {
+    return 'Não encontramos as informações solicitadas.';
+  }
+
+  if (statusCode >= 500) {
+    return GENERIC_USER_ERROR_MESSAGE;
+  }
+
+  return GENERIC_USER_ERROR_MESSAGE;
+}
+
+function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
+  const rawMessage = String(message || '').trim();
+  const normalizedMessage = rawMessage.toLowerCase();
+  const normalizedPath = String(path || '').trim().toLowerCase();
+
+  if (!rawMessage) {
+    return mapHttpStatusMessage(status);
+  }
+
+  if (normalizedMessage.includes('csrf')) {
+    return 'Sua sessão expirou por segurança. Atualize a página e tente novamente.';
+  }
+
+  if (/token não fornecido|token inválido|não autenticado|credenciais|acesso negado/.test(normalizedMessage)) {
+    if (isAdminPath) {
+      return 'Sua sessão administrativa expirou. Faça login novamente.';
+    }
+    return 'Sua sessão expirou. Faça login novamente.';
+  }
+
+  const isPagamentoPath = normalizedPath.startsWith('/api/pagamentos/') || normalizedPath.startsWith('/api/pagbank/');
+  if (isPagamentoPath) {
+    if (normalizedMessage.includes('pagbank não configurado')) {
+      return 'Esta forma de pagamento está temporariamente indisponível. Tente novamente em instantes.';
+    }
+
+    if (normalizedMessage.includes('pedido_id')) {
+      return 'Não foi possível identificar o pedido para pagamento. Atualize a página e tente novamente.';
+    }
+
+    if (normalizedMessage.includes('tax_id') || normalizedMessage.includes('cpf') || normalizedMessage.includes('cnpj')) {
+      return 'Informe um CPF ou CNPJ válido para continuar o pagamento.';
+    }
+
+    if (normalizedMessage.includes('token_cartao')) {
+      return 'Não foi possível validar os dados do cartão. Revise as informações e tente novamente.';
+    }
+  }
+
+  if (/^erro http\s+\d+$/i.test(rawMessage)) {
+    return mapHttpStatusMessage(status);
+  }
+
+  if (Number(status || 0) >= 500) {
+    return GENERIC_USER_ERROR_MESSAGE;
+  }
+
+  return rawMessage;
+}
+
+function buildHeaders({ token, hasJsonBody, csrfToken } = {}) {
   const headers = {};
-  if (hasBody) {
+  if (hasJsonBody) {
     headers['Content-Type'] = 'application/json';
   }
 
@@ -109,11 +187,6 @@ function buildHeaders({ token, hasBody, csrfToken } = {}) {
 
   if (csrfToken) {
     headers['x-csrf-token'] = csrfToken;
-  }
-
-  // Evita a pagina de alerta do ngrok em requisicoes XHR/fetch no browser.
-  if (IS_NGROK_API) {
-    headers['ngrok-skip-browser-warning'] = 'true';
   }
 
   return headers;
@@ -146,16 +219,23 @@ async function garantirCsrfToken(forceRefresh = false) {
     csrfTokenCache = '';
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/auth/csrf`, {
-    method: 'GET',
-    credentials: 'include',
-    headers: buildHeaders()
-  });
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const message = data?.erro || data?.mensagem || `Erro HTTP ${response.status}`;
-    throw new Error(message);
+  let data;
+  try {
+    data = await apiGet('/api/auth/csrf', {
+      headers: buildHeaders()
+    });
+  } catch (error) {
+    const responseStatus = Number(error?.status || 0);
+    const serverMessage = error?.serverMessage || error?.message || `Erro HTTP ${responseStatus || 500}`;
+    const userMessage = mapUserMessage({
+      message: serverMessage,
+      status: responseStatus,
+      path: '/api/auth/csrf'
+    });
+    const mappedError = new Error(userMessage);
+    mappedError.status = responseStatus;
+    mappedError.serverMessage = serverMessage;
+    throw mappedError;
   }
 
   atualizarCsrfToken(data?.csrfToken);
@@ -173,6 +253,8 @@ async function request(path, options = {}, tentativa = 0) {
   const persistedToken = isAdminPath ? getAdminAccessToken() : getUserAccessToken();
   const tokenToUse = String(token || persistedToken || '').trim();
   const hasBody = body !== undefined;
+  const isFormDataBody = hasBody && typeof FormData !== 'undefined' && body instanceof FormData;
+  const hasJsonBody = hasBody && !isFormDataBody;
   const precisaCsrf = isMutatingMethod(methodUpper) && !tokenToUse;
 
   let csrfToken = '';
@@ -180,26 +262,23 @@ async function request(path, options = {}, tentativa = 0) {
     csrfToken = await garantirCsrfToken();
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: methodUpper,
-    credentials: 'include',
-    headers: buildHeaders({ token: tokenToUse, hasBody, csrfToken }),
-    body: hasBody ? JSON.stringify(body) : undefined
-  });
+  let data;
+  try {
+    data = await apiRequest(path, {
+      method: methodUpper,
+      headers: buildHeaders({ token: tokenToUse, hasJsonBody, csrfToken }),
+      body: hasBody ? body : undefined
+    });
+  } catch (error) {
+    const responseStatus = Number(error?.status || 0);
+    const serverMessage = error?.serverMessage || error?.message || `Erro HTTP ${responseStatus || 500}`;
 
-  const data = await response.json().catch(() => ({}));
-  atualizarCsrfToken(data?.csrfToken);
-  salvarTokenPorRota(path, data?.accessToken);
-
-  if (!response.ok) {
-    const message = data?.erro || data?.mensagem || `Erro HTTP ${response.status}`;
-
-    if (response.status === 403 && /csrf/i.test(message) && precisaCsrf && tentativa === 0) {
+    if (responseStatus === 403 && /csrf/i.test(serverMessage) && precisaCsrf && tentativa === 0) {
       await garantirCsrfToken(true);
       return request(path, options, 1);
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (responseStatus === 401 || responseStatus === 403) {
       if (isAdminPath) {
         clearAdminAccessToken();
       } else {
@@ -207,8 +286,21 @@ async function request(path, options = {}, tentativa = 0) {
       }
     }
 
-    throw new Error(message);
+    const userMessage = mapUserMessage({
+      message: serverMessage,
+      status: responseStatus,
+      path,
+      isAdminPath
+    });
+
+    const mappedError = new Error(userMessage);
+    mappedError.status = responseStatus;
+    mappedError.serverMessage = serverMessage;
+    throw mappedError;
   }
+
+  atualizarCsrfToken(data?.csrfToken);
+  salvarTokenPorRota(path, data?.accessToken);
 
   return data;
 }
@@ -330,7 +422,16 @@ export function getPagBankPublicKey() {
   return request('/api/pagbank/public-key');
 }
 
-export function pagarCartao(pedidoId, { taxId, tokenCartao, parcelas = 1, tipoCartao = 'credito' } = {}) {
+export function pagarCartao(
+  pedidoId,
+  {
+    taxId,
+    tokenCartao,
+    parcelas = 1,
+    tipoCartao = 'credito',
+    authenticationMethod
+  } = {}
+) {
   const taxIdDigits = String(taxId || '').replace(/\D/g, '');
   const tokenNormalizado = String(tokenCartao || '').trim();
   const parcelasNormalizadas = Number.parseInt(parcelas, 10);
@@ -347,6 +448,10 @@ export function pagarCartao(pedidoId, { taxId, tokenCartao, parcelas = 1, tipoCa
 
   if (tokenNormalizado) {
     body.token_cartao = tokenNormalizado;
+  }
+
+  if (authenticationMethod && typeof authenticationMethod === 'object') {
+    body.authentication_method = authenticationMethod;
   }
 
   return request('/api/pagamentos/cartao', {
@@ -382,4 +487,31 @@ export function adminExcluirProduto(produtoId) {
   return request(`/api/admin/produtos/${produtoId}`, {
     method: 'DELETE'
   });
+}
+
+export function adminImportarProdutosPlanilha({ arquivo, criarNovos = false, simular = false } = {}) {
+  const isFile = typeof File !== 'undefined' && arquivo instanceof File;
+  const isBlob = typeof Blob !== 'undefined' && arquivo instanceof Blob;
+  if (!isFile && !isBlob) {
+    throw new Error('Selecione um arquivo .xlsx ou .csv para importar.');
+  }
+
+  const formData = new FormData();
+  formData.append('arquivo', arquivo);
+  formData.append('criar_novos', criarNovos ? 'true' : 'false');
+  formData.append('atualizar_estoque', 'false');
+  formData.append('simular', simular ? 'true' : 'false');
+
+  return request('/api/admin/produtos/importar', {
+    method: 'POST',
+    body: formData
+  });
+}
+
+export function adminGetImportacoesProdutos(params = {}) {
+  return request(`/api/admin/produtos/importacoes${buildQueryString(params)}`);
+}
+
+export function getAdminModeloImportacaoUrl() {
+  return `${API_BASE_URL}/api/admin/produtos/importacao/modelo`;
 }

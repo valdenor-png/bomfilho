@@ -12,8 +12,8 @@ import { useCart } from './context/CartContext';
 const BOTTOM_NAV_SAFE_AREA = 90;
 
 const links = [
-  { to: '/', icon: '🏠', label: 'Home' },
-  { to: '/produtos', icon: '🔎', label: 'Busca' },
+  { to: '/', icon: '🏠', label: 'Início' },
+  { to: '/produtos', icon: '🔎', label: 'Produtos' },
   { to: '/pedidos', icon: '📦', label: 'Pedidos' },
   { to: '/conta', icon: '👤', label: 'Conta' }
 ];
@@ -60,7 +60,7 @@ export default function App() {
           <Link
             to="/pagamento"
             className="floating-cart"
-            aria-label="Ir para finalizar pedido"
+            aria-label="Ir para o checkout"
           >
             <span className="floating-cart-icon">🛒</span>
             <span className="floating-cart-total">R$ {resumo.total.toFixed(2)}</span>

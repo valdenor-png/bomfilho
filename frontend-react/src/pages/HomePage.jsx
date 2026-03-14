@@ -115,12 +115,12 @@ export default function HomePage() {
   return (
     <section className="page">
       <h1>Início</h1>
-      <p>Escolha uma categoria, veja o carrossel e confira os mais vendidos.</p>
+      <p>Compre por setor, aproveite as ofertas e finalize seu pedido em poucos passos.</p>
 
       <section className="sector-section" aria-label="Navegar por setor">
         <div className="sector-header">
           <h2>Compre por setor</h2>
-          <p>Atalhos rápidos para as categorias mais buscadas.</p>
+          <p>Acesse rapidamente as categorias mais procuradas.</p>
         </div>
         <div className="sector-grid">
           {setores.map((setor) => (
@@ -132,7 +132,7 @@ export default function HomePage() {
               onClick={() => abrirProdutos({ categoria: setor.categoria, busca: setor.busca })}
             >
               <span className="sector-label">{setor.label}</span>
-              <span className="sector-cta">Quero ver</span>
+              <span className="sector-cta">Ver produtos</span>
             </button>
           ))}
         </div>
@@ -160,7 +160,7 @@ export default function HomePage() {
 
       <section className="best-sellers">
         <div className="best-sellers-head">
-          <h2>🔥 Mais vendidos</h2>
+          <h2>Mais vendidos</h2>
           <p>Os produtos mais pedidos do momento.</p>
         </div>
         <div className="best-sellers-list">
@@ -186,18 +186,18 @@ export default function HomePage() {
       </section>
 
       <div style={{ marginTop: '0.85rem' }}>
-        <Link to="/produtos" className="btn-primary">Ir para página de produtos</Link>
+        <Link to="/produtos" className="btn-primary">Ver todos os produtos</Link>
       </div>
 
       {erro ? <p className="error-text">{erro}</p> : null}
-      {carregando ? <p className="muted-text">Atualizando produtos...</p> : null}
+      {carregando ? <p className="muted-text">Carregando produtos...</p> : null}
 
       <footer className="home-footer">
         <div className="footer-brand">
           <img src="/img/logo-oficial.png" alt="Comércio Bom Filho" className="store-logo" />
           <div>
             <strong>Comércio Bom Filho</strong>
-            <p>Seu mercado de confiança com pedidos online.</p>
+            <p>Seu supermercado de confiança, agora com compras online.</p>
           </div>
         </div>
         <div className="footer-info-simple" aria-label="Informações da loja">
@@ -217,7 +217,7 @@ export default function HomePage() {
           </div>
           <div className="footer-info-line">Horário: Seg a Sáb 07:00–19:00 | Dom 07:00–12:00</div>
         </div>
-        <small>© 2026 Bom Filho - Supermercado — Construído com React + Node.js</small>
+        <small>© 2026 Bom Filho Supermercado. Todos os direitos reservados.</small>
       </footer>
     </section>
   );

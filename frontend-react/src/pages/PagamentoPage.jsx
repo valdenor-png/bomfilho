@@ -13,6 +13,9 @@ const ETAPAS = {
   STATUS: 'status'
 };
 
+const PARCELAMENTO_MINIMO_CREDITO = 100;
+const PARCELAMENTO_MAXIMO_CREDITO = 3;
+
 const CEP_MERCADO = '68740-180';
 const NUMERO_MERCADO = '70';
 const LIMITE_BIKE_KM = 1;
@@ -96,6 +99,69 @@ function formatarCvvCartao(valor) {
   return String(valor || '').replace(/\D/g, '').slice(0, 4);
 }
 
+const STATUS_PEDIDO_LABELS = {
+  pendente: 'Aguardando confirmação',
+  preparando: 'Em preparação',
+  enviado: 'Saiu para entrega',
+  entregue: 'Entregue',
+  cancelado: 'Cancelado',
+  pago: 'Pago'
+};
+
+const STATUS_PAGAMENTO_LABELS = {
+  WAITING: 'Aguardando pagamento',
+  IN_ANALYSIS: 'Em análise',
+  AUTHORIZED: 'Autorizado',
+  PAID: 'Pagamento aprovado',
+  DECLINED: 'Pagamento recusado',
+  CANCELED: 'Pagamento cancelado',
+  EXPIRED: 'Pagamento expirado'
+};
+
+function formatarStatusPedido(statusRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+  return STATUS_PEDIDO_LABELS[status] || 'Em análise';
+}
+
+function formatarStatusPagamento(statusRaw) {
+  const status = String(statusRaw || '').trim().toUpperCase();
+  return STATUS_PAGAMENTO_LABELS[status] || 'Em processamento';
+}
+
+function BotaoVoltarSeta({ onClick, label, disabled = false }) {
+  return (
+    <button
+      className="btn-secondary entrega-voltar-carrinho-btn"
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      disabled={disabled}
+    >
+      <span className="entrega-voltar-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14.5 5.5L8 12L14.5 18.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </button>
+  );
+}
+
+function LinkVoltarSeta({ to, label }) {
+  return (
+    <Link
+      to={to}
+      className="btn-secondary entrega-voltar-carrinho-btn"
+      aria-label={label}
+    >
+      <span className="entrega-voltar-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14.5 5.5L8 12L14.5 18.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </Link>
+  );
+}
+
 export default function PagamentoPage() {
   const { itens, resumo, updateItemQuantity, removeItem, clearCart } = useCart();
   const [resultadoPedido, setResultadoPedido] = useState(null);
@@ -153,12 +219,50 @@ export default function PagamentoPage() {
   const numeroOrigemSelecionado = String(resultadoPedido?.numero_origem_entrega || simulacaoFrete?.numero_origem || NUMERO_MERCADO);
   const totalProdutosPedido = Number(resultadoPedido?.total_produtos ?? resumo.total ?? 0);
   const totalComEntregaPedido = Number(resultadoPedido?.total ?? Number((totalProdutosPedido + freteSelecionado).toFixed(2)));
+  const totalReferenciaParcelamento = Number(resultadoPedido?.total ?? totalComFreteAtual ?? 0);
+  const parcelamentoCreditoDisponivel = totalReferenciaParcelamento >= PARCELAMENTO_MINIMO_CREDITO;
+  const valorMinimoParcelamentoTexto = PARCELAMENTO_MINIMO_CREDITO.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+  const parcelasCartaoEfetivas = (() => {
+    if (formaPagamento === 'debito') {
+      return 1;
+    }
+
+    if (!parcelamentoCreditoDisponivel) {
+      return 1;
+    }
+
+    const parcelasSelecionadas = Number.parseInt(parcelasCartao, 10);
+    if (!Number.isFinite(parcelasSelecionadas) || parcelasSelecionadas < 1) {
+      return 1;
+    }
+
+    return Math.min(PARCELAMENTO_MAXIMO_CREDITO, parcelasSelecionadas);
+  })();
   const pagamentoCartaoSelecionado = formaPagamento === 'credito' || formaPagamento === 'debito';
   const tituloFormaPagamento = formaPagamento === 'pix'
     ? 'PIX'
     : formaPagamento === 'debito'
       ? 'Cartão de Débito'
       : 'Cartão de Crédito';
+
+  useEffect(() => {
+    if (formaPagamento !== 'credito') {
+      return;
+    }
+
+    if (!parcelamentoCreditoDisponivel && parcelasCartao !== '1') {
+      setParcelasCartao('1');
+      return;
+    }
+
+    const parcelasSelecionadas = Number.parseInt(parcelasCartao, 10);
+    if (Number.isFinite(parcelasSelecionadas) && parcelasSelecionadas > PARCELAMENTO_MAXIMO_CREDITO) {
+      setParcelasCartao(String(PARCELAMENTO_MAXIMO_CREDITO));
+    }
+  }, [formaPagamento, parcelamentoCreditoDisponivel, parcelasCartao]);
 
   useEffect(() => {
     let ativo = true;
@@ -274,7 +378,7 @@ export default function PagamentoPage() {
       const data = await getPagBankPublicKey();
       const chave = String(data?.public_key || '').trim();
       if (!chave) {
-        throw new Error('A API não retornou a chave pública do PagBank.');
+        throw new Error('Não foi possível iniciar o pagamento com cartão no momento.');
       }
 
       setPagBankPublicKey(chave);
@@ -345,12 +449,12 @@ export default function PagamentoPage() {
 
     if (autenticado !== true) {
       setAutenticado(false);
-      setErro('Faça login na conta para concluir o pedido.');
+      setErro('Faça login para concluir o pedido.');
       return;
     }
 
     if (itensPedido.length === 0) {
-      setErro('Adicione produtos ao carrinho para criar o pedido.');
+      setErro('Adicione produtos ao carrinho para continuar.');
       return;
     }
 
@@ -386,7 +490,7 @@ export default function PagamentoPage() {
       try {
         await carregarChavePublicaPagBank();
       } catch (error) {
-        setErro(error.message || 'Não foi possível obter a chave pública do PagBank para cartão.');
+        setErro(error.message || 'Não foi possível preparar o pagamento com cartão.');
         setEtapaAtual(ETAPAS.PAGAMENTO);
         return;
       }
@@ -486,7 +590,7 @@ export default function PagamentoPage() {
       try {
         tokenNormalizado = await handleCriptografarCartao();
       } catch (error) {
-        setErro(error.message || 'Falha ao criptografar cartão no PagBank.');
+        setErro(error.message || 'Não foi possível validar os dados do cartão.');
         return;
       }
     }
@@ -496,7 +600,7 @@ export default function PagamentoPage() {
       const data = await pagarCartao(pedidoId, {
         taxId: documentoDigits,
         tokenCartao: tokenNormalizado,
-        parcelas: formaPagamento === 'debito' ? 1 : parcelasCartao,
+        parcelas: parcelasCartaoEfetivas,
         tipoCartao: formaPagamento
       });
 
@@ -527,8 +631,9 @@ export default function PagamentoPage() {
   }
 
   const etapaIndex = getIndiceEtapa(etapaAtual);
-  const labelStatus = statusPedidoAtual || resultadoPedido?.status || 'pendente';
+  const labelStatus = formatarStatusPedido(statusPedidoAtual || resultadoPedido?.status || 'pendente');
   const tituloEtapa4 = formaPagamento === 'pix' ? 'PIX' : tituloFormaPagamento;
+  const carrinhoVazio = itens.length === 0;
   const statusCartaoAtual = String(resultadoCartao?.status || '').toUpperCase();
   const statusInternoCartaoAtual = String(resultadoCartao?.status_interno || '').toLowerCase();
   const cartaoRecusado = statusCartaoAtual === 'DECLINED' || statusCartaoAtual === 'CANCELED';
@@ -539,25 +644,15 @@ export default function PagamentoPage() {
     return (
       <section className="page">
         <h1>Finalizar pedido</h1>
-        <p>Verificando sua sessão...</p>
+        <p>Validando sua sessão...</p>
       </section>
     );
   }
 
   return (
-    <section className="page">
+    <section className={`page ${etapaAtual === ETAPAS.CARRINHO ? 'page-checkout-carrinho' : ''}`}>
       <h1>Finalizar pedido</h1>
-      <p>Fluxo em etapas: carrinho, entrega por CEP, forma de pagamento, processamento e confirmação.</p>
-
-      {autenticado === false ? (
-        <div className="card-box">
-          <p><strong>Faça login para concluir o pedido e processar o pagamento.</strong></p>
-          <p>Você pode revisar e editar o carrinho normalmente antes do login.</p>
-          <Link to="/conta" className="btn-primary" style={{ display: 'inline-block', marginTop: '0.4rem' }}>
-            Ir para Conta
-          </Link>
-        </div>
-      ) : null}
+      <p>Revise seu carrinho, confirme a entrega, escolha o pagamento e acompanhe a confirmação do pedido.</p>
 
       <div className="checkout-steps" aria-label="Etapas do checkout">
         {['Carrinho', 'Entrega', 'Pagamento', tituloEtapa4, 'Confirmação'].map((titulo, index) => (
@@ -571,56 +666,74 @@ export default function PagamentoPage() {
       {erro ? <p className="error-text">{erro}</p> : null}
 
       {etapaAtual === ETAPAS.CARRINHO ? (
-        <div className="card-box">
-          <p><strong>Etapa 1: Carrinho</strong></p>
-          {itens.length === 0 ? (
-            <>
-              <p className="muted-text">Carrinho vazio. Adicione produtos na página de produtos.</p>
-              <Link to="/produtos" className="btn-secondary" style={{ display: 'inline-block' }}>
-                Voltar para produtos
-              </Link>
-            </>
-          ) : (
-            <div className="produto-lista">
-              {itens.map((item) => (
-                <div className="produto-item" key={item.id}>
-                  <div>
-                    <p><strong>{item.emoji || '📦'} {item.nome}</strong></p>
-                    <p>R$ {Number(item.preco || 0).toFixed(2)}</p>
+        <>
+          <div className="card-box">
+            <p><strong>Etapa 1: Carrinho</strong></p>
+            {carrinhoVazio ? (
+              <p className="muted-text">Seu carrinho está vazio. Adicione produtos para continuar.</p>
+            ) : (
+              <div className="produto-lista">
+                {itens.map((item) => (
+                  <div className="produto-item" key={item.id}>
+                    <div>
+                      <p><strong>{item.emoji || '📦'} {item.nome}</strong></p>
+                      <p>R$ {Number(item.preco || 0).toFixed(2)}</p>
+                    </div>
+                    <div className="cart-item-actions">
+                      <input
+                        className="qtd-input"
+                        type="number"
+                        min="1"
+                        value={item.quantidade}
+                        onChange={(event) => updateItemQuantity(item.id, event.target.value)}
+                      />
+                      <button className="btn-secondary" type="button" onClick={() => removeItem(item.id)}>
+                        Remover
+                      </button>
+                    </div>
                   </div>
-                  <div className="cart-item-actions">
-                    <input
-                      className="qtd-input"
-                      type="number"
-                      min="1"
-                      value={item.quantidade}
-                      onChange={(event) => updateItemQuantity(item.id, event.target.value)}
-                    />
-                    <button className="btn-secondary" type="button" onClick={() => removeItem(item.id)}>
-                      Remover
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="pedido-resumo">
-            <p><strong>Resumo:</strong> {resumo.itens} item(ns)</p>
-            <p><strong>Total previsto:</strong> R$ {resumo.total.toFixed(2)}</p>
+                ))}
+              </div>
+            )}
           </div>
 
-          <button className="btn-primary" type="button" onClick={() => setEtapaAtual(ETAPAS.ENTREGA)} disabled={itens.length === 0}>
-            Ir para entrega
-          </button>
-        </div>
+          <div className="checkout-carrinho-bar" role="region" aria-label="Resumo do carrinho, retorno para produtos e avanço para entrega">
+            <div className="checkout-carrinho-bar-voltar-slot">
+              <LinkVoltarSeta to="/produtos" label="Voltar para buscar produtos" />
+            </div>
+
+            <div className="checkout-carrinho-bar-info">
+              <span><strong>Resumo:</strong> {resumo.itens} item(ns)</span>
+              <span className="checkout-carrinho-bar-separador" aria-hidden="true">|</span>
+              <span><strong>Total previsto:</strong> R$ {resumo.total.toFixed(2)}</span>
+              {carrinhoVazio ? (
+                <>
+                  <span className="checkout-carrinho-bar-separador" aria-hidden="true">|</span>
+                  <span className="checkout-carrinho-bar-aviso">Adicione itens para continuar</span>
+                </>
+              ) : null}
+            </div>
+
+            <div className="checkout-carrinho-bar-acoes">
+              <button
+                className="btn-primary checkout-carrinho-bar-botao"
+                type="button"
+                onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
+                disabled={carrinhoVazio}
+              >
+                Continuar para entrega
+              </button>
+            </div>
+          </div>
+
+        </>
       ) : null}
 
       {etapaAtual === ETAPAS.ENTREGA ? (
         <div className="card-box">
           <p><strong>Etapa 2: Entrega</strong></p>
-          <p className="muted-text">Informe o CEP de entrega e escolha o veículo para calcular o frete.</p>
-          <p className="muted-text">Mercado: CEP {CEP_MERCADO}, número {NUMERO_MERCADO}. Bike atende até {LIMITE_BIKE_KM.toFixed(1)} km.</p>
+          <p className="muted-text">Informe o CEP e selecione o tipo de entrega para calcular o frete.</p>
+          <p className="muted-text">Origem da loja: CEP {CEP_MERCADO}, nº {NUMERO_MERCADO}. Bike disponível até {LIMITE_BIKE_KM.toFixed(1)} km.</p>
 
           <label htmlFor="cep-entrega"><strong>CEP de entrega</strong></label>
           <div className="entrega-cep-row">
@@ -648,7 +761,7 @@ export default function PagamentoPage() {
               }}
               disabled={simulandoFrete || normalizarCep(cepEntrega).length !== 8}
             >
-              {simulandoFrete ? 'Calculando...' : 'Calcular frete'}
+              {simulandoFrete ? 'Calculando frete...' : 'Calcular frete'}
             </button>
           </div>
 
@@ -680,7 +793,7 @@ export default function PagamentoPage() {
                     </span>
                   </span>
                   <span className="entrega-veiculo-meta">
-                    Fator reparo {veiculo.fatorReparo.toFixed(1)}x • {veiculo.observacao}
+                    Estimativa operacional {veiculo.fatorReparo.toFixed(1)}x • {veiculo.observacao}
                   </span>
                 </button>
               );
@@ -698,19 +811,10 @@ export default function PagamentoPage() {
           </div>
 
           <div className="entrega-acoes-row">
-            <button
-              className="btn-secondary entrega-voltar-carrinho-btn"
-              type="button"
+            <BotaoVoltarSeta
               onClick={() => setEtapaAtual(ETAPAS.CARRINHO)}
-              aria-label="Voltar para carrinho"
-              title="Voltar para carrinho"
-            >
-              <span className="entrega-voltar-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M14.5 5.5L8 12L14.5 18.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
-            </button>
+              label="Voltar para carrinho"
+            />
 
             <button
               className="btn-primary entrega-ir-pagamento-btn"
@@ -718,7 +822,7 @@ export default function PagamentoPage() {
               onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}
               disabled={itens.length === 0 || !simulacaoFrete || simulandoFrete}
             >
-              Ir para pagamento
+              Continuar para pagamento
             </button>
           </div>
         </div>
@@ -726,7 +830,7 @@ export default function PagamentoPage() {
 
       {etapaAtual === ETAPAS.PAGAMENTO ? (
         <div className="card-box">
-          <p><strong>Etapa 3: Escolha a forma de pagamento</strong></p>
+          <p><strong>Etapa 3: Pagamento</strong></p>
           <p className="muted-text">
             {simulacaoFrete
               ? `Frete via ${VEICULOS_ENTREGA[veiculoEntrega]?.label || 'Moto'}: R$ ${freteAtual.toFixed(2)} (${Number(simulacaoFrete.distancia_km || 0).toFixed(2)} km)`
@@ -737,7 +841,7 @@ export default function PagamentoPage() {
               <div className="card-box" style={{ marginTop: '0.3rem' }}>
                 <p><strong>Forma selecionada:</strong> {tituloFormaPagamento}</p>
                 <p className="muted-text" style={{ marginTop: '0.2rem' }}>
-                  PIX gera QR Code automaticamente. Cartões são criptografados no navegador via SDK PagBank e pagos pela API Orders.
+                  PIX gera QR Code na hora. Cartões são processados com segurança pelo PagBank.
                 </p>
               </div>
 
@@ -755,11 +859,14 @@ export default function PagamentoPage() {
                 >
                   <span className="entrega-veiculo-head">
                     <span className="entrega-veiculo-info">
-                      <span className="entrega-veiculo-nome">PIX</span>
-                      <span className="entrega-veiculo-consumo">QR Code e copia e cola</span>
+                      <span className="entrega-veiculo-nome">
+                        <span aria-hidden="true">💠 </span>
+                        PIX
+                      </span>
+                      <span className="entrega-veiculo-consumo">QR Code e código Copia e Cola</span>
                     </span>
                   </span>
-                  <span className="entrega-veiculo-meta">Aprovação rápida com webhook no PagBank</span>
+                  <span className="entrega-veiculo-meta">Confirmação automática após aprovação do pagamento</span>
                 </button>
 
                 <button
@@ -775,11 +882,14 @@ export default function PagamentoPage() {
                 >
                   <span className="entrega-veiculo-head">
                     <span className="entrega-veiculo-info">
-                      <span className="entrega-veiculo-nome">Cartão de Crédito</span>
-                      <span className="entrega-veiculo-consumo">Cobrança via API Orders</span>
+                      <span className="entrega-veiculo-nome">
+                        <span aria-hidden="true">💳 </span>
+                        Cartão de Crédito
+                      </span>
+                      <span className="entrega-veiculo-consumo">Parcelamento disponível em até 3x</span>
                     </span>
                   </span>
-                  <span className="entrega-veiculo-meta">Permite parcelamento (1x a 12x)</span>
+                  <span className="entrega-veiculo-meta">Para pedidos a partir de R$ 100,00</span>
                 </button>
 
                 <button
@@ -796,11 +906,14 @@ export default function PagamentoPage() {
                 >
                   <span className="entrega-veiculo-head">
                     <span className="entrega-veiculo-info">
-                      <span className="entrega-veiculo-nome">Cartão de Débito</span>
-                      <span className="entrega-veiculo-consumo">Cobrança via API Orders</span>
+                      <span className="entrega-veiculo-nome">
+                        <span aria-hidden="true">🏧 </span>
+                        Cartão de Débito
+                      </span>
+                      <span className="entrega-veiculo-consumo">Pagamento à vista no cartão</span>
                     </span>
                   </span>
-                  <span className="entrega-veiculo-meta">Pagamento à vista (1x)</span>
+                  <span className="entrega-veiculo-meta">Confirmação após aprovação da operadora</span>
                 </button>
               </div>
 
@@ -904,16 +1017,22 @@ export default function PagamentoPage() {
                         value={parcelasCartao}
                         onChange={(event) => setParcelasCartao(event.target.value)}
                       >
-                        {Array.from({ length: 12 }, (_, idx) => idx + 1).map((parcela) => (
+                        {Array.from({ length: parcelamentoCreditoDisponivel ? PARCELAMENTO_MAXIMO_CREDITO : 1 }, (_, idx) => idx + 1).map((parcela) => (
                           <option key={parcela} value={String(parcela)}>
                             {parcela}x
                           </option>
                         ))}
                       </select>
+
+                      <p className="muted-text" style={{ marginTop: '0.3rem' }}>
+                        {parcelamentoCreditoDisponivel
+                          ? `Parcelamento liberado para este pedido (até ${PARCELAMENTO_MAXIMO_CREDITO}x).`
+                          : `Parcelamento disponível apenas para pedidos a partir de R$ ${valorMinimoParcelamentoTexto}.`}
+                      </p>
                     </>
                   ) : (
                     <p className="muted-text" style={{ marginTop: '0.3rem' }}>
-                      Débito processa somente em 1x.
+                      No débito, o pagamento é sempre à vista (1x).
                     </p>
                   )}
 
@@ -923,17 +1042,17 @@ export default function PagamentoPage() {
                     disabled={criptografandoCartao || buscandoChavePublica}
                     onClick={() => {
                       void handleCriptografarCartao().catch((error) => {
-                        setErro(error.message || 'Falha ao criptografar cartão com PagBank.');
+                        setErro(error.message || 'Não foi possível validar os dados do cartão.');
                       });
                     }}
                   >
-                    {criptografandoCartao ? 'Criptografando cartão...' : 'Criptografar cartão (PagBank SDK)'}
+                    {criptografandoCartao ? 'Validando dados do cartão...' : 'Validar cartão com segurança'}
                   </button>
 
                   <p className="muted-text" style={{ marginTop: '0.2rem' }}>
                     {tokenCartao
-                      ? 'Cartão criptografado com sucesso.'
-                      : 'Os dados são criptografados no navegador antes do envio ao backend.'}
+                      ? 'Dados do cartão validados com sucesso.'
+                      : 'Os dados do cartão são protegidos antes do envio para pagamento.'}
                   </p>
                 </>
               ) : null}
@@ -949,24 +1068,33 @@ export default function PagamentoPage() {
             </>
           ) : (
             <>
-              <p className="muted-text">Entre na sua conta para continuar para o pagamento.</p>
-              <Link to="/conta" className="btn-primary" style={{ display: 'inline-block' }}>
-                Ir para Conta
-              </Link>
+              <p className="muted-text">Faça login para continuar para o pagamento.</p>
+              <div className="entrega-acoes-row">
+                <BotaoVoltarSeta
+                  onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
+                  label="Voltar para entrega"
+                />
+                <Link to="/conta" className="btn-primary entrega-ir-pagamento-btn">
+                  Ir para Conta
+                </Link>
+              </div>
             </>
           )}
-          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}>
-            Voltar para entrega
-          </button>
+          {autenticado === true ? (
+            <BotaoVoltarSeta
+              onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
+              label="Voltar para entrega"
+            />
+          ) : null}
         </div>
       ) : null}
 
       {etapaAtual === ETAPAS.PIX ? (
         <div className="card-box">
-          <p><strong>Etapa 4: {formaPagamento === 'pix' ? 'Fazer pagamento PIX' : `Processar pagamento com ${tituloFormaPagamento.toLowerCase()}`}</strong></p>
+          <p><strong>Etapa 4: {formaPagamento === 'pix' ? 'Pagamento via PIX' : `Pagamento com ${tituloFormaPagamento.toLowerCase()}`}</strong></p>
           {resultadoPedido ? (
             <>
-              <p>Pedido #{resultadoPedido.pedido_id} criado.</p>
+              <p>Pedido #{resultadoPedido.pedido_id} criado com sucesso.</p>
               <p>Total dos produtos: R$ {totalProdutosPedido.toFixed(2)}</p>
               <p>
                 Frete ({veiculoSelecionadoResumo.label}, {distanciaSelecionadaTexto}, CEP {cepDestinoSelecionado}):
@@ -985,12 +1113,12 @@ export default function PagamentoPage() {
                 disabled={carregando || !resultadoPedido?.pedido_id}
                 onClick={() => handleGerarPix(resultadoPedido.pedido_id)}
               >
-                {carregando ? 'Gerando PIX...' : 'Gerar/Atualizar QR Code PIX'}
+                {carregando ? 'Gerando PIX...' : 'Gerar ou atualizar QR Code PIX'}
               </button>
 
               {resultadoPix ? (
                 <>
-                  <p>Status do PIX: {resultadoPix.status || '-'}</p>
+                  <p>Status do PIX: {formatarStatusPagamento(resultadoPix.status)}</p>
                   {resultadoPix.qr_data ? (
                     <textarea
                       className="field-input"
@@ -1008,7 +1136,7 @@ export default function PagamentoPage() {
                   ) : null}
                 </>
               ) : (
-                <p className="muted-text">Clique em gerar PIX para exibir QR Code e código copia e cola.</p>
+                <p className="muted-text">Clique em gerar PIX para visualizar o QR Code e o código Copia e Cola.</p>
               )}
             </>
           ) : (
@@ -1019,23 +1147,23 @@ export default function PagamentoPage() {
                 disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id}
                 onClick={() => handlePagarCartao(resultadoPedido.pedido_id)}
               >
-                {carregando ? `Processando ${tituloFormaPagamento.toLowerCase()}...` : `Pagar com ${tituloFormaPagamento} (API Order)`}
+                {carregando ? `Processando ${tituloFormaPagamento.toLowerCase()}...` : `Pagar com ${tituloFormaPagamento}`}
               </button>
 
               {resultadoCartao ? (
                 <>
-                  <p>Status do pagamento: {resultadoCartao.status || '-'}</p>
-                  <p>Status interno: {resultadoCartao.status_interno || '-'}</p>
-                  <p>Order PagBank: {resultadoCartao.pagbank_order_id || '-'}</p>
-                  <p>Charge/Pagamento: {resultadoCartao.payment_id || '-'}</p>
+                  <p>Status do pagamento: {formatarStatusPagamento(resultadoCartao.status)}</p>
+                  <p>Status do pedido: {formatarStatusPedido(resultadoCartao.status_interno || 'pendente')}</p>
+                  <p>Referência do pedido no PagBank: {resultadoCartao.pagbank_order_id || '-'}</p>
+                  <p>Referência da transação: {resultadoCartao.payment_id || '-'}</p>
                   <p>Método: {resultadoCartao.tipo_cartao === 'debito' ? 'Cartão de Débito' : 'Cartão de Crédito'}</p>
-                  <p>Parcelas: {resultadoCartao.tipo_cartao === 'debito' ? '1x' : `${resultadoCartao.parcelas || parcelasCartao}x`}</p>
+                  <p>Parcelas: {resultadoCartao.tipo_cartao === 'debito' ? '1x' : `${resultadoCartao.parcelas || parcelasCartaoEfetivas}x`}</p>
                   {cartaoRecusado ? (
-                    <p className="error-text">Pagamento recusado. Revise token/cartão e tente novamente.</p>
+                    <p className="error-text">Pagamento não aprovado. Revise os dados do cartão e tente novamente.</p>
                   ) : null}
                 </>
               ) : (
-                <p className="muted-text">Clique no botão para processar o cartão pela API Orders do PagBank.</p>
+                <p className="muted-text">Revise os dados e clique no botão para concluir o pagamento no cartão.</p>
               )}
             </>
           )}
@@ -1049,17 +1177,18 @@ export default function PagamentoPage() {
               setEtapaAtual(ETAPAS.STATUS);
             }}
           >
-            {formaPagamento === 'pix' ? 'Confirmar pagamento' : 'Ir para confirmação'}
+            {formaPagamento === 'pix' ? 'Já paguei via PIX' : 'Continuar para confirmação'}
           </button>
-          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}>
-            Voltar
-          </button>
+          <BotaoVoltarSeta
+            onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}
+            label="Voltar para pagamento"
+          />
         </div>
       ) : null}
 
       {etapaAtual === ETAPAS.STATUS ? (
         <div className="card-box">
-          <p><strong>Etapa 5: Status do pedido</strong></p>
+          <p><strong>Etapa 5: Acompanhamento do pedido</strong></p>
           {resultadoPedido ? (
             <>
               <p>Pedido: #{resultadoPedido.pedido_id}</p>
@@ -1070,28 +1199,29 @@ export default function PagamentoPage() {
               {pagamentoConfirmado ? (
                 <div className="pagamento-ok" aria-label="Pagamento confirmado com sucesso">
                   <span className="pagamento-ok-icon">✅</span>
-                  <span>Pagamento efetuado com sucesso</span>
+                  <span>Pagamento confirmado com sucesso.</span>
                 </div>
               ) : null}
               <p className="muted-text">Atualização automática a cada 15 segundos.</p>
             </>
           ) : (
-            <p className="muted-text">Crie um pedido antes de acompanhar status.</p>
+            <p className="muted-text">Finalize um pedido para acompanhar o status.</p>
           )}
 
           <div className="card-box" style={{ marginTop: '0.4rem' }}>
-            <p><strong>Ajuda rápida</strong></p>
+            <p><strong>Precisa de ajuda?</strong></p>
             <p>
               {formaPagamento === 'pix'
-                ? 'Se o QR não abrir no banco, copie o código PIX e cole no app manualmente.'
-                : 'Se o pagamento com cartão falhar, gere um novo token/cartão criptografado e tente novamente.'}
+                ? 'Se o QR Code não abrir no seu banco, copie o código PIX e cole manualmente no aplicativo.'
+                : 'Se o pagamento não for aprovado, revise os dados do cartão e tente novamente.'}
             </p>
-            <p>Após o pagamento, a loja confirma e inicia a preparação/envio do pedido.</p>
+            <p>Após a confirmação do pagamento, iniciamos a preparação e o envio do pedido.</p>
           </div>
 
-          <button className="btn-secondary" type="button" onClick={() => setEtapaAtual(ETAPAS.PIX)}>
-            Voltar para {tituloEtapa4}
-          </button>
+          <BotaoVoltarSeta
+            onClick={() => setEtapaAtual(ETAPAS.PIX)}
+            label={`Voltar para ${tituloEtapa4}`}
+          />
         </div>
       ) : null}
     </section>

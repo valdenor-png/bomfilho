@@ -1,12 +1,12 @@
-# 🛒 Bom Filho Web
+# Bom Filho Web
 
-Sistema web completo para supermercado e delivery local, com experiência de compra focada em simplicidade, velocidade e operação real.
+Plataforma web de supermercado com delivery local, focada em uma experiência de compra clara, rápida e confiável.
 
 ![Logo do projeto](img/logo-cupom.png)
 
-## 📌 Visão Geral
+## Visão Geral
 
-O **Bom Filho Web** integra frontend e backend para oferecer um fluxo de compra completo:
+O Bom Filho Web integra frontend e backend para oferecer um fluxo de compra completo:
 
 - cadastro e login de clientes
 - catálogo de produtos com busca e filtros
@@ -16,9 +16,9 @@ O **Bom Filho Web** integra frontend e backend para oferecer um fluxo de compra 
 - cupons e avaliações
 - área administrativa de pedidos/produtos
 
-O projeto foi estruturado para ser **fácil de evoluir**, com separação por módulos no frontend e uma API REST no backend.
+O projeto foi estruturado para facilitar evolução contínua, com separação por módulos no frontend e API REST no backend.
 
-## ✅ Direção atual: React no frontend + Node.js no backend
+## Direção atual: React no frontend + Node.js no backend
 
 O padrão de evolução do projeto passa a ser:
 
@@ -27,7 +27,7 @@ O padrão de evolução do projeto passa a ser:
 - Em desenvolvimento, o Vite usa proxy para `/api`
 - Em produção, o backend pode servir a build do React em `frontend-react/dist`
 
-Isso permite centralizar tudo em JavaScript, mantendo as rotas de API já existentes.
+Essa arquitetura centraliza o desenvolvimento em JavaScript e preserva as rotas de API existentes.
 
 ### Rotas React atuais
 
@@ -37,11 +37,11 @@ Isso permite centralizar tudo em JavaScript, mantendo as rotas de API já existe
 - `/#/sobre` informações do negócio
 - `/#/admin` painel administrativo (pedidos e produtos)
 
-## 🧭 Objetivo do Projeto
+## Objetivo do projeto
 
-Criar uma base sólida para um e-commerce de supermercado local, pronta para uso prático e melhoria contínua, sem depender de frameworks complexos no frontend.
+Criar uma base sólida para um e-commerce de supermercado local, pronta para operação real e melhoria contínua.
 
-## ✨ Principais Funcionalidades
+## Principais funcionalidades
 
 ### Para o cliente
 
@@ -65,11 +65,11 @@ Criar uma base sólida para um e-commerce de supermercado local, pronta para uso
 
 > Observação: funcionalidades de **favoritos** e **programa de fidelidade/pontos** foram removidas da versão atual.
 
-## 🖼️ Imagens
+## Imagens
 
 
 
-## 🏗️ Arquitetura
+## Arquitetura
 
 ### Frontend
 
@@ -84,7 +84,7 @@ Criar uma base sólida para um e-commerce de supermercado local, pronta para uso
 - Senhas com `bcryptjs`
 - CORS e endpoints REST
 
-## 🗂️ Estrutura do Projeto
+## Estrutura do projeto
 
 ```text
 site/
@@ -116,7 +116,7 @@ site/
 	└── migrations (*.sql)
 ```
 
-## ⚙️ Tecnologias Utilizadas
+## Tecnologias utilizadas
 
 ### Frontend
 
@@ -131,7 +131,7 @@ site/
 - JWT
 - bcryptjs
 
-## 🚀 Como Rodar Localmente
+## Como rodar localmente
 
 ### 1) Banco de dados
 
@@ -190,7 +190,7 @@ npm start
 
 Com a build gerada, o backend serve o frontend React no mesmo host/porta da API.
 
-## 🔌 Endpoints Principais da API
+## Endpoints principais da API
 
 ### Autenticação
 
@@ -231,28 +231,28 @@ Com a build gerada, o backend serve o frontend React no mesmo host/porta da API.
 - `POST /api/pagamentos/cartao`
 - `POST /api/webhooks/pagbank`
 
-## 🔒 Segurança
+## Segurança
 
 - Senhas protegidas com hash (`bcryptjs`)
 - Sessão autenticada por token JWT
 - Rotas sensíveis protegidas por middleware de autenticação
 - Uso de consultas parametrizadas no MySQL
 
-## 🧪 Qualidade e Validação
+## Qualidade e validação
 
 O projeto inclui documentação e scripts de apoio para testes e manutenção em `docs/` e `scripts/`.
 
-## 🛣️ Roadmap (Resumo)
+## Roadmap (resumo)
 
 - melhorar mídia real dos produtos
 - evoluir métricas de conversão no checkout
 - ampliar automações operacionais no painel admin
 - fortalecer monitoramento de erros e logs
 
-## 🤝 Contribuição
+## Contribuição
 
 Contribuições são bem-vindas para melhorias técnicas, visuais e de processo. A recomendação é trabalhar em branch própria e abrir PR com descrição clara das mudanças.
 
-## 📄 Licença
+## Licença
 
 Projeto de uso educacional e operacional interno.

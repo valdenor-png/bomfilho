@@ -1,14 +1,14 @@
-# 🛒 BOM FILHO SUPERMERCADO - Backend API
+# Bom Filho Supermercado - Backend API
 
-Backend completo com Node.js, Express e MySQL para o supermercado Bom Filho.
+API backend em Node.js, Express e MySQL para operação do supermercado Bom Filho.
 
-## 📋 Pré-requisitos
+## Pré-requisitos
 
 - Node.js (v14 ou superior)
 - MySQL (v5.7 ou superior)
 - NPM ou Yarn
 
-## 🚀 Instalação
+## Instalação
 
 ### 1. Instalar dependências
 
@@ -70,10 +70,13 @@ RECAPTCHA_MIN_SCORE=0.5
 # Proteção opcional para rotas de diagnóstico
 DIAGNOSTIC_TOKEN=
 
-# PagBank (PIX + Cartao)
+# PagBank (PIX + Cartão)
 PAGBANK_ENV=sandbox
 PAGBANK_TOKEN=SEU_TOKEN_PAGBANK
 PAGBANK_PUBLIC_KEY=SUA_CHAVE_PUBLICA_PAGBANK
+PAGBANK_DEBUG_LOGS=true
+ALLOW_PIX_MOCK=false
+ALLOW_DEBIT_3DS_MOCK=true
 
 # Proteção do webhook PagBank
 PAGBANK_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
@@ -87,25 +90,33 @@ EVOLUTION_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
 
 # Auto-resposta para mensagens recebidas no WhatsApp
 WHATSAPP_AUTO_REPLY_ENABLED=false
-WHATSAPP_AUTO_REPLY_TEXT=Estamos com o site do Bom Filho no ar. Faca seu pedido por la.
+WHATSAPP_AUTO_REPLY_TEXT=Estamos com o site do Bom Filho no ar. Faça seu pedido por lá.
 WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS=0
 ```
 
-## 💠 PIX automático (PagBank)
+## PIX automático (PagBank)
 
 O fluxo do PIX automático funciona assim:
 
 - Ao criar o pedido com `forma_pagamento = pix`, o backend cria uma cobrança PIX no PagBank e devolve `pix_codigo`/`pix_qrcode`.
 - Quando o cliente paga, o PagBank chama o webhook `POST /api/webhooks/pagbank` e o backend atualiza o status do pedido para `pago`.
 
-Para isso funcionar em ambiente local, o webhook precisa ser acessível publicamente.
+Para esse fluxo funcionar localmente, o webhook precisa estar acessível publicamente.
 
 ### 1) Preencher variáveis no `.env`
 
 - `PAGBANK_TOKEN`: token do Portal PagBank
 - `PAGBANK_ENV`: `sandbox` (teste) ou `production`
 - `PAGBANK_PUBLIC_KEY`: chave pública usada para criptografar cartão no frontend
+- `ALLOW_PIX_MOCK`: `true` apenas para desenvolvimento local com PIX simulado
+- `ALLOW_DEBIT_3DS_MOCK`: `true` apenas em sandbox para fallback 3DS mock no débito
 - `BASE_URL`: URL pública do seu backend (ex.: ngrok/Cloudflare Tunnel)
+
+### Pagamento com cartão de débito (3DS)
+
+- Em débito, o PagBank exige `authentication_method` com `type=THREEDS`.
+- Em produção, envie `authentication_method` real no `POST /api/pagamentos/cartao`.
+- Em sandbox, se `ALLOW_DEBIT_3DS_MOCK=true`, o backend injeta dados 3DS mock quando o campo não for enviado.
 
 ### 2) Rodar migração do PIX no MySQL
 
@@ -121,7 +132,7 @@ ngrok http 3000
 
 Depois, coloque a URL HTTPS que o ngrok gerar em `BASE_URL`.
 
-### 3.1) (Opcional) Testar se o token PagBank está OK
+### 3.1) (Opcional) Validar credencial PagBank
 
 Com o backend rodando, você pode validar rapidamente se a credencial está aceitando autenticação:
 
@@ -131,23 +142,31 @@ GET /api/pagbank/status
 
 Ele retorna `auth_check` com `ok=true/false` e também mostra qual `webhook_url` está sendo usado.
 
-### 3.2) (Opcional) Expor chave publica para checkout com cartao
+### 3.2) (Opcional) Expor chave pública para checkout com cartão
 
 ```http
 GET /api/pagbank/public-key
 ```
 
-Retorna a chave pública (`public_key`) e URL do SDK para criptografia do cartão via `PagSeguro.encryptCard`.
+Retorna a chave pública (`public_key`) usada no frontend para criptografia do cartão via `PagSeguro.encryptCard`.
 
-## 💬 Auto-resposta no WhatsApp (Evolution)
+Resposta esperada:
+
+```json
+{
+  "public_key": "SUA_PUBLIC_KEY_PAGBANK"
+}
+```
+
+## Auto-resposta no WhatsApp (Evolution)
 
 Quando o webhook da Evolution estiver configurado, o backend pode responder automaticamente
-sempre que um cliente enviar mensagem para o numero da loja.
+sempre que um cliente enviar mensagem para o número da loja.
 
 ### 1) Ative no `.env`
 
 - `WHATSAPP_AUTO_REPLY_ENABLED=true`
-- `WHATSAPP_AUTO_REPLY_TEXT=Estamos com o site do Bom Filho no ar. Faca seu pedido por la.`
+- `WHATSAPP_AUTO_REPLY_TEXT=Estamos com o site do Bom Filho no ar. Faça seu pedido por lá.`
 - Opcional: `WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS=30`
 
 ### 2) Configure o webhook na Evolution
@@ -158,8 +177,8 @@ sempre que um cliente enviar mensagem para o numero da loja.
 
 ### 3) Observações
 
-- O backend ignora mensagens enviadas pelo proprio bot (`fromMe`) para evitar loop.
-- Mensagens em grupos/broadcast tambem sao ignoradas.
+- O backend ignora mensagens enviadas pelo próprio bot (`fromMe`) para evitar loop.
+- Mensagens em grupos/broadcast também são ignoradas.
 
 ### 4. Iniciar o servidor
 

@@ -169,11 +169,11 @@ export default function ContaPage() {
 
   return (
     <section className="page">
-      <h1>Conta</h1>
+      <h1>Minha conta</h1>
 
       <div className="card-box accessibility-box">
         <p><strong>Acessibilidade</strong></p>
-        <p className="muted-text accessibility-helper">Ajuste o tamanho da letra em todo o app.</p>
+        <p className="muted-text accessibility-helper">Defina como deseja visualizar o sistema.</p>
         <div className="accessibility-controls" role="group" aria-label="Ajustar tamanho da fonte">
           {FONT_SCALE_OPTIONS.map((option) => (
             <button
@@ -217,7 +217,7 @@ export default function ContaPage() {
           <p><strong>E-mail:</strong> {usuario.email}</p>
           <p><strong>Telefone:</strong> {usuario.telefone || 'Não informado'}</p>
           <button className="btn-primary" type="button" onClick={handleLogout} disabled={carregando}>
-            Sair
+            Sair da conta
           </button>
         </div>
       ) : (
@@ -243,14 +243,14 @@ export default function ContaPage() {
                 resetRecaptcha();
               }}
             >
-              Cadastrar
+              Criar conta
             </button>
           </div>
 
           <p>
             {modo === 'login'
-              ? 'Faça login para liberar conta e pagamento.'
-              : 'Crie sua conta e já entre automaticamente.'}
+              ? 'Entre para acompanhar seus pedidos e concluir pagamentos com segurança.'
+              : 'Crie sua conta para salvar seus dados e acompanhar seus pedidos.'}
           </p>
 
           {modo === 'cadastro' ? (
@@ -304,7 +304,7 @@ export default function ContaPage() {
                 checked={whatsappOptIn}
                 onChange={(event) => setWhatsappOptIn(event.target.checked)}
               />
-              Receber atualizações no WhatsApp
+              Quero receber atualizações do pedido no WhatsApp
             </label>
           ) : null}
 
@@ -325,7 +325,7 @@ export default function ContaPage() {
                 onExpired={() => setRecaptchaToken('')}
                 onErrored={() => {
                   setRecaptchaToken('');
-                  setRecaptchaErroCarregamento('Falha ao carregar o reCAPTCHA neste dominio. Use o endereco oficial do site ou atualize os dominios permitidos da chave no Google reCAPTCHA.');
+                  setRecaptchaErroCarregamento('Não foi possível validar o reCAPTCHA neste domínio. Acesse o endereço oficial da loja ou atualize os domínios permitidos no Google reCAPTCHA.');
                 }}
               />
 
@@ -341,10 +341,10 @@ export default function ContaPage() {
             {carregando
               ? modo === 'login'
                 ? 'Entrando...'
-                : 'Cadastrando...'
+                : 'Criando conta...'
               : modo === 'login'
-                ? 'Entrar'
-                : 'Cadastrar'}
+                ? 'Entrar na conta'
+                : 'Criar conta'}
           </button>
         </form>
       )}

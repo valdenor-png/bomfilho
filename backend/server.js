@@ -4,8 +4,6 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
-const compression = require('compression');
-const timeout = require('connect-timeout');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -17,67 +15,41 @@ const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.set('json spaces', 0);
-const SERVICE_NAME = String(process.env.SERVICE_NAME || 'bom-filho-backend').trim() || 'bom-filho-backend';
-const API_VERSION = String(process.env.API_VERSION || '1.0.0').trim() || '1.0.0';
 const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
 const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
 const SHOULD_SERVE_REACT = process.env.SERVE_REACT !== 'false';
 const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
 
-// Configuração Evolution API (WhatsApp)
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
-const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'loja';
-const EVOLUTION_WEBHOOK_TOKEN = String(process.env.EVOLUTION_WEBHOOK_TOKEN || '').trim();
-const WHATSAPP_AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY_ENABLED === 'true';
-const WHATSAPP_AUTO_REPLY_TEXT = String(
-  process.env.WHATSAPP_AUTO_REPLY_TEXT ||
-  'Estamos com o site do Bom Filho no ar. Faca seu pedido por la.'
-).trim();
-const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
-  process.env.WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS || '0',
-  10
-);
+  // Configuração Evolution API (WhatsApp)
+  const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+  const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
+  const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'loja';
+  const EVOLUTION_WEBHOOK_TOKEN = String(process.env.EVOLUTION_WEBHOOK_TOKEN || '').trim();
+  const WHATSAPP_AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY_ENABLED === 'true';
+  const WHATSAPP_AUTO_REPLY_TEXT = String(
+    process.env.WHATSAPP_AUTO_REPLY_TEXT ||
+    'Estamos com o site do Bom Filho no ar. Faca seu pedido por la.'
+  ).trim();
+  const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
+    process.env.WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS || '0',
+    10
+  );
 
-// Configuração PagBank
-const PAGBANK_TOKEN = process.env.PAGBANK_TOKEN;
-const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
-const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
-const PAGBANK_API_URL = process.env.PAGBANK_ENV === 'production' 
-  ? 'https://api.pagseguro.com' 
-  : 'https://sandbox.api.pagseguro.com';
-const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
-const RECAPTCHA_MIN_SCORE = (() => {
-  const valor = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
-  if (!Number.isFinite(valor)) {
-    return 0.5;
-  }
-  return Math.min(1, Math.max(0, valor));
-})();
+  // Configuração PagBank
+  const PAGBANK_API_URL = PAGBANK_ENV === 'production' 
+    ? 'https://api.pagseguro.com' 
+    : 'https://sandbox.api.pagseguro.com';
+  const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
+  const RECAPTCHA_MIN_SCORE = (() => {
+    const valor = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
+    if (!Number.isFinite(valor)) {
+      return 0.5;
+    }
+    return Math.min(1, Math.max(0, valor));
+  })();
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '');
-const TRUST_PROXY_RAW = String(process.env.TRUST_PROXY || '').trim().toLowerCase();
-const TRUST_PROXY = (() => {
-  if (['true', '1', 'yes'].includes(TRUST_PROXY_RAW)) {
-    return 1;
-  }
-
-  if (!TRUST_PROXY_RAW || ['false', '0', 'no'].includes(TRUST_PROXY_RAW)) {
-    return false;
-  }
-
-  const proxyHops = Number.parseInt(TRUST_PROXY_RAW, 10);
-  if (Number.isInteger(proxyHops) && proxyHops > 0) {
-    return proxyHops;
-  }
-
-  if (['loopback', 'linklocal', 'uniquelocal'].includes(TRUST_PROXY_RAW)) {
-    return TRUST_PROXY_RAW;
-  }
-
-  return false;
-})();
+const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
 const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
 const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
   .split(',')
@@ -104,10 +76,8 @@ const LIMITE_BIKE_KM = (() => {
 })();
 const CEP_GEO_TTL_MS = 24 * 60 * 60 * 1000;
 const cepGeoCache = new Map();
-const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 30000);
+const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 20000);
 const produtosQueryCache = new Map();
-const READ_QUERY_CACHE_TTL_MS = 30 * 1000;
-const readQueryCache = new Map();
 
 const VEICULOS_ENTREGA = {
   bike: {
@@ -181,6 +151,111 @@ function calcularDistanciaHaversineKm(latA, lonA, latB, lonB) {
   return terraKm * c;
 }
 
+function criarCoordenadaFonteValida(latitude, longitude, fonte) {
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  return {
+    latitude: lat,
+    longitude: lon,
+    fonte: String(fonte || 'desconhecida')
+  };
+}
+
+function listarCoordenadasPossiveis(localidade) {
+  const coordenadas = [];
+  const visitados = new Set();
+
+  function adicionar(coord) {
+    if (!coord || !Number.isFinite(coord.latitude) || !Number.isFinite(coord.longitude)) {
+      return;
+    }
+
+    const chave = `${coord.latitude.toFixed(6)}:${coord.longitude.toFixed(6)}`;
+    if (visitados.has(chave)) {
+      return;
+    }
+
+    visitados.add(chave);
+    coordenadas.push(coord);
+  }
+
+  adicionar(criarCoordenadaFonteValida(localidade?.latitude, localidade?.longitude, localidade?.fonte_coordenadas || 'principal'));
+  adicionar(criarCoordenadaFonteValida(localidade?.coordenadas_alternativas?.nominatim?.latitude, localidade?.coordenadas_alternativas?.nominatim?.longitude, 'nominatim'));
+  adicionar(criarCoordenadaFonteValida(localidade?.coordenadas_alternativas?.brasilapi?.latitude, localidade?.coordenadas_alternativas?.brasilapi?.longitude, 'brasilapi'));
+
+  return coordenadas;
+}
+
+function calcularDistanciaEntregaAjustada(origem, destino) {
+  const distanciaBase = Number(
+    calcularDistanciaHaversineKm(origem.latitude, origem.longitude, destino.latitude, destino.longitude).toFixed(2)
+  );
+
+  const coordsOrigem = listarCoordenadasPossiveis(origem);
+  const coordsDestino = listarCoordenadasPossiveis(destino);
+
+  let menorDistancia = Number.POSITIVE_INFINITY;
+  let melhorPar = null;
+
+  for (const coordOrigem of coordsOrigem) {
+    for (const coordDestino of coordsDestino) {
+      const distancia = Number(
+        calcularDistanciaHaversineKm(
+          coordOrigem.latitude,
+          coordOrigem.longitude,
+          coordDestino.latitude,
+          coordDestino.longitude
+        ).toFixed(2)
+      );
+
+      if (!Number.isFinite(distancia) || distancia <= 0) {
+        continue;
+      }
+
+      if (distancia < menorDistancia) {
+        menorDistancia = distancia;
+        melhorPar = {
+          origem: coordOrigem,
+          destino: coordDestino
+        };
+      }
+    }
+  }
+
+  const cidadeOrigem = String(origem?.cidade || '').trim().toLowerCase();
+  const cidadeDestino = String(destino?.cidade || '').trim().toLowerCase();
+  const estadoOrigem = String(origem?.estado || '').trim().toLowerCase();
+  const estadoDestino = String(destino?.estado || '').trim().toLowerCase();
+  const mesmaCidadeEstado = Boolean(cidadeOrigem && cidadeDestino && cidadeOrigem === cidadeDestino && estadoOrigem && estadoDestino && estadoOrigem === estadoDestino);
+
+  let distanciaFinal = distanciaBase;
+  let fonteOrigem = String(origem?.fonte_coordenadas || 'principal');
+  let fonteDestino = String(destino?.fonte_coordenadas || 'principal');
+
+  if (Number.isFinite(menorDistancia) && Number.isFinite(distanciaBase) && menorDistancia < distanciaBase) {
+    const variacao = distanciaBase > 0 ? (distanciaBase - menorDistancia) / distanciaBase : 0;
+    const podeAjustar = mesmaCidadeEstado || variacao >= 0.2;
+
+    if (podeAjustar && melhorPar) {
+      distanciaFinal = menorDistancia;
+      fonteOrigem = melhorPar.origem.fonte;
+      fonteDestino = melhorPar.destino.fonte;
+    }
+  }
+
+  return {
+    distancia_base_km: distanciaBase,
+    distancia_km: Number(distanciaFinal.toFixed(2)),
+    fonte_origem: fonteOrigem,
+    fonte_destino: fonteDestino
+  };
+}
+
 async function buscarCoordenadasPorCep(cep) {
   const cepNormalizado = normalizarCep(cep);
   if (cepNormalizado.length !== 8) {
@@ -194,20 +269,25 @@ async function buscarCoordenadasPorCep(cep) {
 
   const dados = await buscarDadosCepComFallback(cepNormalizado);
 
-  let latitude = Number(dados?.location?.coordinates?.latitude);
-  let longitude = Number(dados?.location?.coordinates?.longitude);
+  const coordenadasBrasilApi = criarCoordenadaFonteValida(
+    dados?.location?.coordinates?.latitude,
+    dados?.location?.coordinates?.longitude,
+    'brasilapi'
+  );
 
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    const coordenadasFallback = await buscarCoordenadasNominatim({
-      cepNormalizado,
-      dadosCep: dados
-    });
+  const coordenadasNominatimRaw = await buscarCoordenadasNominatim({
+    cepNormalizado,
+    dadosCep: dados
+  });
+  const coordenadasNominatim = criarCoordenadaFonteValida(
+    coordenadasNominatimRaw?.latitude,
+    coordenadasNominatimRaw?.longitude,
+    'nominatim'
+  );
 
-    if (coordenadasFallback) {
-      latitude = coordenadasFallback.latitude;
-      longitude = coordenadasFallback.longitude;
-    }
-  }
+  const coordenadaEscolhida = coordenadasNominatim || coordenadasBrasilApi;
+  const latitude = Number(coordenadaEscolhida?.latitude);
+  const longitude = Number(coordenadaEscolhida?.longitude);
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     throw criarErroHttp(400, 'CEP sem coordenadas para cálculo de entrega.');
@@ -220,7 +300,22 @@ async function buscarCoordenadasPorCep(cep) {
     cidade: String(dados?.city || '').trim(),
     estado: String(dados?.state || '').trim(),
     bairro: String(dados?.neighborhood || '').trim(),
-    rua: String(dados?.street || '').trim()
+    rua: String(dados?.street || '').trim(),
+    fonte_coordenadas: String(coordenadaEscolhida?.fonte || 'desconhecida'),
+    coordenadas_alternativas: {
+      brasilapi: coordenadasBrasilApi
+        ? {
+          latitude: coordenadasBrasilApi.latitude,
+          longitude: coordenadasBrasilApi.longitude
+        }
+        : null,
+      nominatim: coordenadasNominatim
+        ? {
+          latitude: coordenadasNominatim.latitude,
+          longitude: coordenadasNominatim.longitude
+        }
+        : null
+    }
   };
 
   cepGeoCache.set(cepNormalizado, {
@@ -337,9 +432,8 @@ async function calcularEntregaPorCep({ cepDestino, veiculo }) {
 
   const origem = await buscarCoordenadasPorCep(CEP_MERCADO);
   const destino = await buscarCoordenadasPorCep(cepDestino);
-  const distanciaKm = Number(
-    calcularDistanciaHaversineKm(origem.latitude, origem.longitude, destino.latitude, destino.longitude).toFixed(2)
-  );
+  const distanciaInfo = calcularDistanciaEntregaAjustada(origem, destino);
+  const distanciaKm = Number(distanciaInfo.distancia_km);
 
   if (!Number.isFinite(distanciaKm)) {
     throw criarErroHttp(500, 'Não foi possível calcular a distância da entrega.');
@@ -358,9 +452,12 @@ async function calcularEntregaPorCep({ cepDestino, veiculo }) {
     veiculo: veiculoKey,
     frete,
     distancia_km: distanciaKm,
+    distancia_base_km: Number(distanciaInfo.distancia_base_km),
     cep_origem: origem.cep,
     numero_origem: NUMERO_MERCADO,
+    fonte_coordenadas_origem: distanciaInfo.fonte_origem,
     cep_destino: destino.cep,
+    fonte_coordenadas_destino: distanciaInfo.fonte_destino,
     cidade_destino: destino.cidade,
     bairro_destino: destino.bairro
   };
@@ -368,7 +465,7 @@ async function calcularEntregaPorCep({ cepDestino, veiculo }) {
 
 if (JWT_SECRET.length < 32) {
   const aviso = 'JWT_SECRET deve ter no mínimo 32 caracteres para segurança adequada.';
-  if (process.env.NODE_ENV === 'production') {
+  if (IS_PRODUCTION) {
     throw new Error(aviso);
   }
   console.warn(`⚠️ ${aviso}`);
@@ -416,11 +513,12 @@ function isOriginPermitida(origin) {
     return true;
   }
 
-  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+  const originNormalizada = String(origin).trim().replace(/\/+$/, '').toLowerCase();
+  if (CORS_ORIGINS.includes(originNormalizada)) {
     return true;
   }
 
-  return CORS_ORIGINS.includes(origin);
+  return CORS_ORIGIN_PATTERNS.some((pattern) => pattern.test(originNormalizada));
 }
 
 function montarWebhookPagBankUrl({ incluirToken = true } = {}) {
@@ -432,6 +530,126 @@ function montarWebhookPagBankUrl({ incluirToken = true } = {}) {
   }
 
   return webhookBase;
+}
+
+function analisarChavePublicaPagBank() {
+  const chaveBruta = String(process.env.PAGBANK_PUBLIC_KEY || PAGBANK_PUBLIC_KEY || '').trim();
+  if (!chaveBruta) {
+    return {
+      valid: false,
+      reason: 'missing',
+      publicKey: ''
+    };
+  }
+
+  // Remove aspas acidentais na configuração e normaliza quebras de linha escapadas.
+  const chaveNormalizada = chaveBruta
+    .replace(/^['"]|['"]$/g, '')
+    .replace(/\\n/g, '\n')
+    .trim();
+
+  if (!chaveNormalizada) {
+    return {
+      valid: false,
+      reason: 'empty_after_normalize',
+      publicKey: ''
+    };
+  }
+
+  // "..." costuma indicar valor truncado/placeholder copiado parcialmente.
+  if (chaveNormalizada.includes('...')) {
+    return {
+      valid: false,
+      reason: 'placeholder_or_truncated',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  const hasPemHeader = /-----BEGIN PUBLIC KEY-----/.test(chaveNormalizada);
+  const hasPemFooter = /-----END PUBLIC KEY-----/.test(chaveNormalizada);
+
+  if (hasPemHeader !== hasPemFooter) {
+    return {
+      valid: false,
+      reason: 'malformed_pem_header_footer',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  const base64Body = (hasPemHeader || hasPemFooter)
+    ? chaveNormalizada
+      .replace(/-----BEGIN PUBLIC KEY-----/g, '')
+      .replace(/-----END PUBLIC KEY-----/g, '')
+      .replace(/\s+/g, '')
+    : chaveNormalizada.replace(/\s+/g, '');
+
+  if (!base64Body) {
+    return {
+      valid: false,
+      reason: 'empty_base64_body',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  if (!/^[A-Za-z0-9+/=]+$/.test(base64Body)) {
+    return {
+      valid: false,
+      reason: 'invalid_base64_characters',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  // Chaves RSA públicas reais (2048+) normalmente passam com folga desse tamanho.
+  if (base64Body.length < 300) {
+    return {
+      valid: false,
+      reason: 'base64_too_short',
+      publicKey: chaveNormalizada
+    };
+  }
+
+  return {
+    valid: true,
+    reason: 'ok',
+    publicKey: chaveNormalizada
+  };
+}
+
+function traduzirMotivoChavePublicaPagBank(reason) {
+  const motivo = String(reason || '').trim().toLowerCase();
+
+  if (motivo === 'missing') return 'PAGBANK_PUBLIC_KEY ausente';
+  if (motivo === 'empty_after_normalize') return 'PAGBANK_PUBLIC_KEY vazia após normalização';
+  if (motivo === 'placeholder_or_truncated') return 'PAGBANK_PUBLIC_KEY truncada/placeholder (contém "...")';
+  if (motivo === 'malformed_pem_header_footer') return 'PAGBANK_PUBLIC_KEY com PEM malformado (BEGIN/END inconsistentes)';
+  if (motivo === 'empty_base64_body') return 'PAGBANK_PUBLIC_KEY sem conteúdo base64';
+  if (motivo === 'invalid_base64_characters') return 'PAGBANK_PUBLIC_KEY com caracteres inválidos';
+  if (motivo === 'base64_too_short') return 'PAGBANK_PUBLIC_KEY curta demais (possível valor incompleto)';
+
+  return 'PAGBANK_PUBLIC_KEY inválida';
+}
+
+function obterPagBankPublicKeyAtual() {
+  const info = analisarChavePublicaPagBank();
+  return info.valid ? info.publicKey : '';
+}
+
+function registrarLogEndpointDiagnostico({ endpoint, statusHttp, detalhe, extra } = {}) {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    endpoint: String(endpoint || ''),
+    status_http: Number.isFinite(Number(statusHttp)) ? Number(statusHttp) : null,
+    detalhe: detalhe ? String(detalhe) : undefined,
+    extra
+  };
+
+  const status = Number(payload.status_http || 0);
+  if (status >= 500) {
+    console.error('📍 API diagnóstico:', JSON.stringify(payload));
+    return;
+  }
+
+  console.log('📍 API diagnóstico:', JSON.stringify(payload));
 }
 
 function extrairBearerToken(req) {
@@ -534,7 +752,7 @@ async function validarRecaptcha({ token, req, action = '' } = {}) {
       body: formData.toString()
     });
   } catch {
-    throw criarErroHttp(503, 'Nao foi possivel validar o reCAPTCHA no momento.');
+    throw criarErroHttp(503, 'Não foi possível validar o reCAPTCHA no momento.');
   }
 
   const payload = await response.json().catch(() => ({}));
@@ -548,15 +766,15 @@ async function validarRecaptcha({ token, req, action = '' } = {}) {
       throw criarErroHttp(400, 'reCAPTCHA expirado. Confirme novamente.');
     }
 
-    throw criarErroHttp(400, 'Falha na validacao do reCAPTCHA. Tente novamente.');
+    throw criarErroHttp(400, 'Falha na validação do reCAPTCHA. Tente novamente.');
   }
 
   if (typeof payload?.score === 'number' && payload.score < RECAPTCHA_MIN_SCORE) {
-    throw criarErroHttp(403, 'Verificacao de seguranca reprovada. Tente novamente.');
+    throw criarErroHttp(403, 'A validação de segurança não foi aprovada. Tente novamente.');
   }
 
   if (action && payload?.action && String(payload.action).trim() !== String(action).trim()) {
-    throw criarErroHttp(400, 'Falha na validacao do reCAPTCHA. Tente novamente.');
+    throw criarErroHttp(400, 'Falha na validação do reCAPTCHA. Tente novamente.');
   }
 }
 
@@ -571,6 +789,67 @@ function parsePositiveInt(value, fallback, { min = 1, max = 1000 } = {}) {
   }
 
   return Math.max(min, Math.min(max, parsed));
+}
+
+function parseBooleanInput(value, fallback = false) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (['1', 'true', 'sim', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'nao', 'não', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+const uploadImportacaoProdutos = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: TAMANHO_MAXIMO_IMPORTACAO_BYTES
+  },
+  fileFilter(req, file, callback) {
+    const nomeArquivo = String(file?.originalname || '').trim();
+    const extensao = path.extname(nomeArquivo).toLowerCase();
+    const mimeType = String(file?.mimetype || '').trim().toLowerCase();
+
+    if (!EXTENSOES_IMPORTACAO_ACEITAS.includes(extensao)) {
+      return callback(new Error('Formato de arquivo não suportado. Envie .xlsx ou .csv.'));
+    }
+
+    if (mimeType && !MIME_IMPORTACAO_PLANILHA_ACEITOS.has(mimeType)) {
+      return callback(new Error('Tipo de arquivo inválido para importação de produtos.'));
+    }
+
+    return callback(null, true);
+  }
+});
+
+function middlewareUploadImportacaoProdutos(req, res, next) {
+  uploadImportacaoProdutos.single('arquivo')(req, res, (erroUpload) => {
+    if (!erroUpload) {
+      return next();
+    }
+
+    if (erroUpload instanceof multer.MulterError) {
+      if (erroUpload.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({
+          erro: `Arquivo acima de ${Math.round(TAMANHO_MAXIMO_IMPORTACAO_BYTES / (1024 * 1024))}MB. Reduza o tamanho da planilha e tente novamente.`
+        });
+      }
+
+      return res.status(400).json({ erro: 'Não foi possível processar o upload da planilha.' });
+    }
+
+    return res.status(400).json({
+      erro: erroUpload?.message || 'Arquivo inválido para importação.'
+    });
+  });
 }
 
 function escapeLike(value) {
@@ -838,8 +1117,6 @@ const publicLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getRateLimitKey,
-  validate: rateLimitValidateOptions,
   message: { erro: 'Muitas requisições. Tente novamente em alguns minutos.' }
 });
 
@@ -848,20 +1125,7 @@ const authLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getRateLimitKey,
-  validate: rateLimitValidateOptions,
-  message: { erro: 'Muitas tentativas de cadastro/autenticação. Aguarde 15 minutos.' }
-});
-
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: getRateLimitKey,
-  validate: rateLimitValidateOptions,
-  skipSuccessfulRequests: true,
-  message: { erro: 'Muitas tentativas de login. Aguarde 15 minutos.' }
+  message: { erro: 'Muitas tentativas de autenticação. Aguarde 15 minutos.' }
 });
 
 const adminAuthLimiter = rateLimit({
@@ -869,9 +1133,6 @@ const adminAuthLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: getRateLimitKey,
-  validate: rateLimitValidateOptions,
-  skipSuccessfulRequests: true,
   message: { erro: 'Muitas tentativas de login admin. Aguarde 15 minutos.' }
 });
 
@@ -901,7 +1162,7 @@ app.use((req, res, next) => {
     return next();
   }
 
-  if (pathAtual.startsWith('/api/webhooks/')) {
+  if (pathAtual.startsWith('/api/webhooks/') || pathAtual === '/api/pagbank/webhook') {
     return next();
   }
 
@@ -917,7 +1178,7 @@ app.use((req, res, next) => {
   const csrfHeader = String(req.headers['x-csrf-token'] || '').trim();
 
   if (!csrfCookie || !csrfHeader || !compararTextoSegura(csrfCookie, csrfHeader)) {
-    return res.status(403).json({ erro: 'Falha de validação CSRF' });
+    return res.status(403).json({ erro: 'Sua sessão expirou por segurança. Atualize a página e tente novamente.' });
   }
 
   return next();
@@ -929,17 +1190,60 @@ if (SHOULD_SERVE_REACT && fs.existsSync(FRONTEND_DIST_PATH)) {
 
 // Chave publica do PagBank para criptografia de cartao no frontend
 app.get('/api/pagbank/public-key', (req, res) => {
-  if (!PAGBANK_PUBLIC_KEY) {
-    return res.status(503).json({
-      erro: 'PAGBANK_PUBLIC_KEY não configurada no backend'
+  const endpoint = '/api/pagbank/public-key';
+
+  try {
+    const chaveInfo = analisarChavePublicaPagBank();
+    const publicKey = chaveInfo.valid ? chaveInfo.publicKey : '';
+
+    if (!publicKey) {
+      registrarLogEndpointDiagnostico({
+        endpoint,
+        statusHttp: 500,
+        detalhe: traduzirMotivoChavePublicaPagBank(chaveInfo.reason),
+        extra: {
+          pagbank_env: PAGBANK_ENV,
+          public_key_present: Boolean(chaveInfo.publicKey),
+          public_key_valid: false,
+          validation_reason: chaveInfo.reason
+        }
+      });
+
+      return res.status(500).json({
+        erro: 'PAGBANK_PUBLIC_KEY não configurada no backend',
+        detalhe: traduzirMotivoChavePublicaPagBank(chaveInfo.reason),
+        public_key: ''
+      });
+    }
+
+    registrarLogEndpointDiagnostico({
+      endpoint,
+      statusHttp: 200,
+      detalhe: 'Chave pública PagBank retornada com sucesso',
+      extra: {
+        pagbank_env: PAGBANK_ENV,
+        public_key_present: true
+      }
+    });
+
+    return res.status(200).json({
+      public_key: publicKey
+    });
+  } catch (erro) {
+    registrarLogEndpointDiagnostico({
+      endpoint,
+      statusHttp: 500,
+      detalhe: erro?.message || 'Erro inesperado ao obter chave pública PagBank',
+      extra: {
+        pagbank_env: PAGBANK_ENV
+      }
+    });
+
+    return res.status(500).json({
+      erro: 'Erro ao obter a chave pública do PagBank',
+      public_key: ''
     });
   }
-
-  return res.json({
-    pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
-    public_key: PAGBANK_PUBLIC_KEY,
-    sdk_url: 'https://assets.pagseguro.com.br/checkout-sdk-js/rc/dist/browser/pagseguro.min.js'
-  });
 });
 
 // Diagnóstico PagBank: valida token e mostra URLs configuradas
@@ -948,6 +1252,7 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
     const baseUrl = String(process.env.BASE_URL || 'http://localhost:3000');
     const webhookUrl = montarWebhookPagBankUrl({ incluirToken: false });
     const token = process.env.PAGBANK_TOKEN || '';
+    const chaveInfo = analisarChavePublicaPagBank();
 
     // Atualiza o cache se nunca foi checado ou se está velho
     const shouldRefresh = !pagbankLastAuthCheck.checkedAt ||
@@ -958,12 +1263,14 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
     }
 
     res.json({
-      pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
+      pagbank_env: PAGBANK_ENV,
       pagbank_api_url: PAGBANK_API_URL,
       base_url: baseUrl,
       webhook_url: webhookUrl,
       token_present: !!token,
-      public_key_present: !!PAGBANK_PUBLIC_KEY,
+      public_key_present: Boolean(chaveInfo.publicKey),
+      public_key_valid: chaveInfo.valid,
+      public_key_validation_reason: chaveInfo.reason,
       webhook_protected: !!PAGBANK_WEBHOOK_TOKEN,
       auth_check: pagbankLastAuthCheck
     });
@@ -1044,7 +1351,7 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
     // Para diagnóstico no sandbox, aceitamos enviar um CPF de teste se não for informado.
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
-    const taxId = taxIdDigits || (process.env.PAGBANK_ENV === 'production' ? null : '12345678909');
+    const taxId = taxIdDigits || (PAGBANK_ENV === 'production' ? null : '12345678909');
 
     if (!taxId) {
       return res.status(400).json({
@@ -1065,13 +1372,23 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
     const qr0 = resultadoPix?.qr_codes?.[0] || null;
     const pixCodigo = qr0?.text || null;
     const pixQrCode = qr0?.links?.[0]?.href || null;
+    const statusInfo = extrairStatusPagamentoPagBank(resultadoPix);
+    const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
+    const chargePrincipal = statusInfo.chargePrincipal || {};
+    const chargeId = chargePrincipal?.id || null;
 
     return res.json({
       ok: true,
-      pagbank_env: process.env.PAGBANK_ENV || 'sandbox',
+      pagbank_env: PAGBANK_ENV,
       notification_url: montarWebhookPagBankUrl({ incluirToken: false }),
       webhook_protected: !!PAGBANK_WEBHOOK_TOKEN,
       pagbank_order_id: resultadoPix?.id || null,
+      charge_id: chargeId,
+      status: statusPagBank,
+      status_interno: mapearStatusPedido(statusPagBank),
+      status_order: statusInfo.orderStatus || null,
+      status_charge: statusInfo.chargeStatus || null,
+      status_fonte: statusInfo.fonteStatus,
       pix_codigo: pixCodigo,
       pix_qrcode: pixQrCode,
       raw: resultadoPix
@@ -1087,12 +1404,7 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
 // ============================================
 // CONEXÃO COM O BANCO DE DADOS
 // ============================================
-const databaseUrlRaw = String(process.env.DATABASE_URL || '').trim();
-if (!databaseUrlRaw) {
-  throw new Error('DATABASE_URL não configurada no ambiente.');
-}
-
-const dbUrl = new URL(databaseUrlRaw);
+const dbUrl = new URL(DATABASE_URL);
 
 const pool = mysql.createPool({
   host: dbUrl.hostname,
@@ -1263,13 +1575,168 @@ function mapearStatusPedido(statusPagBank) {
   return 'pendente';
 }
 
+function mascararTextoSensivel(valor, { prefixo = 6, sufixo = 4 } = {}) {
+  const texto = String(valor || '').trim();
+  if (!texto) {
+    return '';
+  }
+
+  if (texto.length <= prefixo + sufixo) {
+    return `${texto.slice(0, 2)}***`;
+  }
+
+  return `${texto.slice(0, prefixo)}***${texto.slice(-sufixo)}`;
+}
+
+function deveMascararCampoLog({ chave, caminho }) {
+  const key = String(chave || '').toLowerCase();
+  const pathKey = `${String(caminho || '').toLowerCase()}.${key}`;
+
+  if (['token_cartao', 'cartao_encriptado', 'encrypted', 'encryptedcard'].includes(key)) {
+    return true;
+  }
+
+  if (['tax_id', 'cpf', 'cnpj', 'x-webhook-token', 'webhook_token'].includes(key)) {
+    return true;
+  }
+
+  if (key === 'token' || key.endsWith('_token')) {
+    return true;
+  }
+
+  if (['cvv', 'securitycode', 'security_code'].includes(key)) {
+    return true;
+  }
+
+  if (key === 'number' && pathKey.includes('.card')) {
+    return true;
+  }
+
+  return false;
+}
+
+function mascararTokensEmTexto(texto) {
+  return String(texto || '').replace(
+    /([?&](?:token|access_token|signature|webhook_token)=)([^&]+)/gi,
+    '$1***'
+  );
+}
+
+function sanitizarPayloadPagBankParaLog(valor, caminho = 'root') {
+  if (Array.isArray(valor)) {
+    return valor.map((item, index) => sanitizarPayloadPagBankParaLog(item, `${caminho}[${index}]`));
+  }
+
+  if (typeof valor === 'string') {
+    return mascararTokensEmTexto(valor);
+  }
+
+  if (!valor || typeof valor !== 'object') {
+    return valor;
+  }
+
+  const saida = {};
+
+  for (const [chave, conteudo] of Object.entries(valor)) {
+    if (deveMascararCampoLog({ chave, caminho })) {
+      saida[chave] = mascararTextoSensivel(conteudo);
+      continue;
+    }
+
+    saida[chave] = sanitizarPayloadPagBankParaLog(conteudo, `${caminho}.${chave}`);
+  }
+
+  return saida;
+}
+
+function registrarLogPagBank({
+  operacao,
+  endpoint,
+  method,
+  httpStatus,
+  requestPayload,
+  responsePayload,
+  extra
+} = {}) {
+  if (!PAGBANK_DEBUG_LOGS) {
+    return;
+  }
+
+  const logSeguro = {
+    operacao: String(operacao || 'pagbank'),
+    method: String(method || 'POST').toUpperCase(),
+    endpoint: String(endpoint || ''),
+    http_status: Number.isFinite(Number(httpStatus)) ? Number(httpStatus) : null,
+    request: requestPayload !== undefined ? sanitizarPayloadPagBankParaLog(requestPayload) : undefined,
+    response: responsePayload !== undefined ? sanitizarPayloadPagBankParaLog(responsePayload) : undefined,
+    extra: extra !== undefined ? sanitizarPayloadPagBankParaLog(extra) : undefined,
+    timestamp: new Date().toISOString()
+  };
+
+  console.log('📦 PagBank debug:', JSON.stringify(logSeguro));
+}
+
+function mapearStatusPorEventoPagBank(evento) {
+  const eventoUpper = String(evento || '').trim().toUpperCase();
+
+  if (!eventoUpper) {
+    return '';
+  }
+
+  if (['CHARGE.PAID', 'ORDER.PAID', 'CHARGE.CAPTURED'].includes(eventoUpper)) {
+    return 'PAID';
+  }
+
+  if (['CHARGE.DECLINED', 'ORDER.CANCELED', 'CHARGE.CANCELED', 'ORDER.DECLINED'].includes(eventoUpper)) {
+    return 'DECLINED';
+  }
+
+  if (['CHARGE.IN_ANALYSIS', 'ORDER.IN_ANALYSIS'].includes(eventoUpper)) {
+    return 'IN_ANALYSIS';
+  }
+
+  if (['ORDER.CREATED', 'CHARGE.CREATED', 'ORDER.WAITING', 'CHARGE.WAITING'].includes(eventoUpper)) {
+    return 'WAITING';
+  }
+
+  return '';
+}
+
+function extrairStatusPagamentoPagBank(payload = {}, evento) {
+  const charges = Array.isArray(payload?.charges) ? payload.charges : [];
+  const chargePrincipal = charges[0] || null;
+  const chargeStatus = String(chargePrincipal?.status || '').trim().toUpperCase();
+  const orderStatus = String(payload?.status || '').trim().toUpperCase();
+  const eventStatus = mapearStatusPorEventoPagBank(evento);
+  const statusResolvido = chargeStatus || eventStatus || orderStatus || 'WAITING';
+
+  let fonteStatus = 'fallback';
+  if (chargeStatus) {
+    fonteStatus = 'charge';
+  } else if (eventStatus) {
+    fonteStatus = 'event';
+  } else if (orderStatus) {
+    fonteStatus = 'order';
+  }
+
+  return {
+    statusResolvido,
+    fonteStatus,
+    orderStatus,
+    chargeStatus,
+    eventStatus,
+    chargePrincipal,
+    charges
+  };
+}
+
 function normalizarParcelasCartao(valor) {
   const parcelas = Number.parseInt(valor, 10);
   if (!Number.isFinite(parcelas) || parcelas < 1) {
     return 1;
   }
 
-  return Math.min(12, parcelas);
+  return Math.min(3, parcelas);
 }
 
 function normalizarTipoCartao(valor) {
@@ -1278,74 +1745,6 @@ function normalizarTipoCartao(valor) {
     return 'debito';
   }
   return 'credito';
-}
-
-const PAGBANK_LOG_PATH = path.join(__dirname, 'logs', 'pagbank.log');
-
-function stringifyLogJson(data) {
-  return JSON.stringify(data, null, 2);
-}
-
-function sanitizarHeadersPagBank(headers = {}) {
-  const sanitized = {};
-
-  for (const [key, value] of Object.entries(headers)) {
-    if (String(key || '').toLowerCase() === 'authorization') {
-      continue;
-    }
-    sanitized[key] = value;
-  }
-
-  return sanitized;
-}
-
-function escreverLogPagBank(texto) {
-  console.log(texto);
-
-  try {
-    const logsDir = path.dirname(PAGBANK_LOG_PATH);
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
-
-    fs.appendFileSync(PAGBANK_LOG_PATH, `${new Date().toISOString()}\n${texto}\n\n`, 'utf8');
-  } catch (err) {
-    console.warn('⚠️ Falha ao escrever log em logs/pagbank.log:', err?.message || err);
-  }
-}
-
-async function enviarPostPagBankOrders({ headers, payload }) {
-  const url = `${PAGBANK_API_URL}/orders`;
-  const method = 'POST';
-  const safeHeaders = sanitizarHeadersPagBank(headers);
-  const payloadBody = JSON.stringify(payload);
-
-  escreverLogPagBank(
-    `PAGBANK REQUEST\nURL: ${url}\nMETHOD: ${method}\nHEADERS:\n${stringifyLogJson(safeHeaders)}\nBODY:\n${stringifyLogJson(payload)}`
-  );
-
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: payloadBody
-  });
-
-  const responseBodyText = await response.clone().text().catch(() => '');
-  let responseBodyParsed = responseBodyText;
-  try {
-    responseBodyParsed = responseBodyText ? JSON.parse(responseBodyText) : {};
-  } catch {
-    // Mantém texto puro quando a API não retornar JSON válido.
-  }
-
-  escreverLogPagBank(
-    `PAGBANK RESPONSE\nSTATUS: ${response.status}\nBODY:\n${stringifyLogJson(responseBodyParsed)}`
-  );
-
-  return {
-    response,
-    responseBodyText
-  };
 }
 
 async function verificarCredencialPagBank() {
@@ -1459,18 +1858,38 @@ async function verificarCredencialPagBank() {
 async function obterPedidoPagBank(orderId) {
   if (!PAGBANK_TOKEN) return null;
   if (!orderId) return null;
-  const response = await fetch(`${PAGBANK_API_URL}/orders/${orderId}`, {
+  const endpoint = `${PAGBANK_API_URL}/orders/${orderId}`;
+  const response = await fetch(endpoint, {
     method: 'GET',
     headers: {
       'Authorization': `Bearer ${PAGBANK_TOKEN}`,
       'Content-Type': 'application/json'
     }
   });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Erro ao consultar PagBank order ${orderId}: ${response.status} - ${errorText}`);
+  const responseText = await response.text();
+  let responsePayload = {};
+  try {
+    responsePayload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responsePayload = { raw_text: responseText };
   }
-  return await response.json();
+
+  registrarLogPagBank({
+    operacao: 'orders.get',
+    endpoint,
+    method: 'GET',
+    httpStatus: response.status,
+    responsePayload,
+    extra: { order_id: orderId }
+  });
+
+  if (!response.ok) {
+    const detalheErro = typeof responsePayload?.raw_text === 'string'
+      ? responsePayload.raw_text
+      : JSON.stringify(responsePayload);
+    throw new Error(`Erro ao consultar PagBank order ${orderId}: ${response.status} - ${detalheErro}`);
+  }
+  return responsePayload;
 }
 
 async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxId }) {
@@ -1541,25 +1960,54 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
-  const headers = {
-    'Authorization': `Bearer ${PAGBANK_TOKEN}`,
-    'x-idempotency-key': idempotencyKey,
-    'accept': 'application/json',
-    'Content-Type': 'application/json'
-  };
+  const response = await fetch(`${PAGBANK_API_URL}/orders`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${PAGBANK_TOKEN}`,
+      'x-idempotency-key': idempotencyKey,
+      'accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
 
-  const { response, responseBodyText } = await enviarPostPagBankOrders({
-    headers,
-    payload
+  const responseText = await response.text();
+  let responsePayload = {};
+  try {
+    responsePayload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responsePayload = { raw_text: responseText };
+  }
+
+  const statusInfoPix = extrairStatusPagamentoPagBank(responsePayload);
+  const chargePrincipalPix = statusInfoPix.chargePrincipal || {};
+  const statusPagBankPix = String(statusInfoPix.statusResolvido || responsePayload?.status || '').toUpperCase() || null;
+
+  registrarLogPagBank({
+    operacao: 'orders.pix.response',
+    endpoint,
+    method: 'POST',
+    httpStatus: response.status,
+    requestPayload: payload,
+    responsePayload,
+    extra: {
+      idempotency_key: idempotencyKey,
+      pedido_id: pedidoId,
+      order_id: responsePayload?.id || null,
+      charge_id: chargePrincipalPix?.id || null,
+      status_pagbank: statusPagBankPix,
+      status_order: statusInfoPix.orderStatus || null,
+      status_charge: statusInfoPix.chargeStatus || null,
+      status_fonte: statusInfoPix.fonteStatus
+    }
   });
 
   if (!response.ok) {
-    const errorText = responseBodyText || await response.text();
+    const errorText = await response.text();
     throw new Error(`Erro PagBank: ${response.status} - ${errorText}`);
   }
 
-  const resultado = await response.json();
-  return resultado;
+  return responsePayload;
 }
 
 async function criarPagamentoCartao({
@@ -1571,7 +2019,8 @@ async function criarPagamentoCartao({
   taxId,
   tokenCartao,
   parcelas,
-  tipoCartao
+  tipoCartao,
+  authenticationMethod
 }) {
   if (!PAGBANK_TOKEN) {
     throw new Error('PAGBANK_TOKEN ausente');
@@ -1589,8 +2038,10 @@ async function criarPagamentoCartao({
 
   const tipoCartaoNormalizado = normalizarTipoCartao(tipoCartao);
   const paymentMethodType = tipoCartaoNormalizado === 'debito' ? 'DEBIT_CARD' : 'CREDIT_CARD';
+  const authenticationMethodNormalizado = normalizarAuthenticationMethodPagBank(authenticationMethod);
   const parcelasNormalizadas = normalizarParcelasCartao(parcelas);
   const valorCentavos = Math.max(1, Math.round(Number(total || 0) * 100));
+  let authenticationMethodMode = 'none';
 
   const paymentMethod = {
     type: paymentMethodType,
@@ -1607,6 +2058,33 @@ async function criarPagamentoCartao({
 
   if (tipoCartaoNormalizado !== 'debito') {
     paymentMethod.installments = parcelasNormalizadas;
+  } else {
+    let authParaUso = authenticationMethodNormalizado;
+    let origemAuth = 'request';
+
+    if (!authParaUso && PAGBANK_ENV !== 'production' && ALLOW_DEBIT_3DS_MOCK) {
+      authParaUso = montarAuthenticationMethodMock3DS();
+      origemAuth = 'mock';
+    }
+
+    const validacaoAuth = validarAuthenticationMethodPagBank(authParaUso);
+    if (!validacaoAuth.ok) {
+      throw new Error(
+        'authentication_method 3DS é obrigatório para pagamento com débito. '
+        + 'Envie payment_method.authentication_method com type=THREEDS e dados válidos.'
+      );
+    }
+
+    paymentMethod.authentication_method = validacaoAuth.auth;
+    authenticationMethodMode = origemAuth === 'mock' ? 'mock_external' : validacaoAuth.modo;
+  }
+
+  if (tipoCartaoNormalizado !== 'debito' && authenticationMethodNormalizado) {
+    const validacaoAuth = validarAuthenticationMethodPagBank(authenticationMethodNormalizado);
+    if (validacaoAuth.ok) {
+      paymentMethod.authentication_method = validacaoAuth.auth;
+      authenticationMethodMode = validacaoAuth.modo;
+    }
   }
 
   const payload = {
@@ -1639,26 +2117,64 @@ async function criarPagamentoCartao({
     ]
   };
 
+  const hasEncryptedCard = Boolean(payload?.charges?.[0]?.payment_method?.card?.encrypted);
+  if (!hasEncryptedCard) {
+    throw new Error('payment_method.card.encrypted não foi preenchido para o PagBank.');
+  }
+
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
 
-  const headers = {
-    'Authorization': `Bearer ${PAGBANK_TOKEN}`,
-    'x-idempotency-key': idempotencyKey,
-    'accept': 'application/json',
-    'Content-Type': 'application/json'
-  };
+  const response = await fetch(`${PAGBANK_API_URL}/orders`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${PAGBANK_TOKEN}`,
+      'x-idempotency-key': idempotencyKey,
+      'accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
 
-  const { response, responseBodyText } = await enviarPostPagBankOrders({
-    headers,
-    payload
+  const responseText = await response.text();
+  let responsePayload = {};
+  try {
+    responsePayload = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    responsePayload = { raw_text: responseText };
+  }
+
+  const statusInfoCartao = extrairStatusPagamentoPagBank(responsePayload);
+  const chargePrincipalCartao = statusInfoCartao.chargePrincipal || {};
+  const statusPagBankCartao = String(statusInfoCartao.statusResolvido || responsePayload?.status || '').toUpperCase() || null;
+
+  registrarLogPagBank({
+    operacao: 'orders.cartao.response',
+    endpoint,
+    method: 'POST',
+    httpStatus: response.status,
+    requestPayload: payload,
+    responsePayload,
+    extra: {
+      idempotency_key: idempotencyKey,
+      pedido_id: pedidoId,
+      tipo_cartao: tipoCartaoNormalizado,
+      authentication_method_mode: authenticationMethodMode,
+      has_charges_in_response: Array.isArray(responsePayload?.charges) && responsePayload.charges.length > 0,
+      order_id: responsePayload?.id || null,
+      charge_id: chargePrincipalCartao?.id || null,
+      status_pagbank: statusPagBankCartao,
+      status_order: statusInfoCartao.orderStatus || null,
+      status_charge: statusInfoCartao.chargeStatus || null,
+      status_fonte: statusInfoCartao.fonteStatus
+    }
   });
 
   if (!response.ok) {
-    const errorText = responseBodyText || await response.text();
+    const errorText = await response.text();
     throw new Error(`Erro PagBank cartão: ${response.status} - ${errorText}`);
   }
 
-  return await response.json();
+  return responsePayload;
 }
 
 async function enviarWhatsappTexto({ telefone, mensagem }) {
@@ -1727,13 +2243,13 @@ const autenticarToken = (req, res, next) => {
   const token = extrairTokenUsuarioRequest(req);
 
   if (!token) {
-    return res.status(401).json({ erro: 'Token não fornecido' });
+    return res.status(401).json({ erro: 'Sessão não encontrada. Faça login para continuar.' });
   }
 
   jwt.verify(token, JWT_SECRET, (err, usuario) => {
     if (err) {
       limparCookie(res, USER_AUTH_COOKIE_NAME, { httpOnly: true });
-      return res.status(403).json({ erro: 'Token inválido' });
+      return res.status(403).json({ erro: 'Sua sessão expirou. Faça login novamente.' });
     }
     req.usuario = usuario;
     next();
@@ -1760,7 +2276,7 @@ const exigirAcessoLocalAdmin = (req, res, next) => {
 
   const ip = extrairIpRequisicao(req);
   if (!isIpLocal(ip)) {
-    return res.status(403).json({ erro: 'Acesso administrativo permitido apenas no computador da loja' });
+    return res.status(403).json({ erro: 'O acesso administrativo é permitido apenas no computador da loja.' });
   }
 
   next();
@@ -1770,13 +2286,13 @@ const autenticarAdminToken = (req, res, next) => {
   const token = extrairTokenAdminRequest(req);
 
   if (!token) {
-    return res.status(401).json({ erro: 'Token admin não fornecido' });
+    return res.status(401).json({ erro: 'Sessão administrativa não encontrada. Faça login para continuar.' });
   }
 
   jwt.verify(token, JWT_SECRET, (err, payload) => {
     if (err || !payload || payload.role !== 'admin') {
       limparCookie(res, ADMIN_AUTH_COOKIE_NAME, { httpOnly: true });
-      return res.status(403).json({ erro: 'Token admin inválido' });
+      return res.status(403).json({ erro: 'Sua sessão administrativa expirou. Faça login novamente.' });
     }
 
     req.admin = payload;
@@ -1903,21 +2419,21 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     });
 
     if (!nome || !email || !senha || !telefone) {
-      return res.status(400).json({ erro: 'Todos os campos são obrigatórios' });
+      return res.status(400).json({ erro: 'Preencha todos os campos obrigatórios.' });
     }
 
     if (!/^\S+@\S+\.\S+$/.test(String(email))) {
-      return res.status(400).json({ erro: 'E-mail inválido' });
+      return res.status(400).json({ erro: 'Informe um e-mail válido.' });
     }
 
     if (String(senha).length < 8) {
-      return res.status(400).json({ erro: 'A senha deve ter ao menos 8 caracteres' });
+      return res.status(400).json({ erro: 'A senha deve ter no mínimo 8 caracteres.' });
     }
 
     // Verificar se o email já existe
     const [usuarios] = await pool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
     if (usuarios.length > 0) {
-      return res.status(409).json({ erro: 'E-mail já cadastrado' });
+      return res.status(409).json({ erro: 'Já existe uma conta com este e-mail.' });
     }
 
     // Criptografar senha
@@ -1940,7 +2456,7 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     definirCookieAuth(res, USER_AUTH_COOKIE_NAME, token, USER_AUTH_COOKIE_MAX_AGE);
 
     res.status(201).json({
-      mensagem: 'Usuário cadastrado com sucesso',
+      mensagem: 'Cadastro realizado com sucesso.',
       csrfToken,
       accessToken: token,
       usuario: {
@@ -1957,7 +2473,7 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     }
 
     console.error('Erro ao cadastrar usuário:', erro);
-    return res.status(500).json({ erro: 'Erro ao cadastrar usuário' });
+    return res.status(500).json({ erro: 'Não foi possível concluir o cadastro. Tente novamente.' });
   }
 });
 
@@ -1973,13 +2489,13 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     });
 
     if (!email || !senha) {
-      return res.status(400).json({ erro: 'E-mail e senha são obrigatórios' });
+      return res.status(400).json({ erro: 'Informe e-mail e senha.' });
     }
 
     // Buscar usuário
     const [usuarios] = await pool.query('SELECT * FROM usuarios WHERE email = ?', [email]);
     if (usuarios.length === 0) {
-      return res.status(401).json({ erro: 'E-mail ou senha inválidos' });
+      return res.status(401).json({ erro: 'E-mail ou senha não conferem.' });
     }
 
     const usuario = usuarios[0];
@@ -1987,7 +2503,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     // Verificar senha
     const senhaValida = await bcrypt.compare(senha, usuario.senha);
     if (!senhaValida) {
-      return res.status(401).json({ erro: 'E-mail ou senha inválidos' });
+      return res.status(401).json({ erro: 'E-mail ou senha não conferem.' });
     }
 
     // Gerar token
@@ -2001,7 +2517,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     definirCookieAuth(res, USER_AUTH_COOKIE_NAME, token, USER_AUTH_COOKIE_MAX_AGE);
 
     res.json({
-      mensagem: 'Login realizado com sucesso',
+      mensagem: 'Login realizado com sucesso.',
       csrfToken,
       accessToken: token,
       usuario: {
@@ -2018,7 +2534,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
 
     console.error('Erro ao fazer login:', erro);
-    return res.status(500).json({ erro: 'Erro ao fazer login' });
+    return res.status(500).json({ erro: 'Não foi possível concluir o login. Tente novamente.' });
   }
 });
 
@@ -2028,15 +2544,15 @@ app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (re
     const { usuario, senha } = req.body || {};
 
     if (!ADMIN_PASSWORD) {
-      return res.status(503).json({ erro: 'ADMIN_PASSWORD não configurado no servidor' });
+      return res.status(503).json({ erro: 'A autenticação administrativa está indisponível no momento.' });
     }
 
     if (!usuario || !senha) {
-      return res.status(400).json({ erro: 'Usuário e senha admin são obrigatórios' });
+      return res.status(400).json({ erro: 'Informe usuário e senha de administrador.' });
     }
 
     if (!compararTextoSegura(String(usuario).trim(), ADMIN_USER) || !compararTextoSegura(String(senha), ADMIN_PASSWORD)) {
-      return res.status(401).json({ erro: 'Credenciais admin inválidas' });
+      return res.status(401).json({ erro: 'Usuário ou senha de administrador inválidos.' });
     }
 
     const token = jwt.sign(
@@ -2049,14 +2565,14 @@ app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (re
     definirCookieAuth(res, ADMIN_AUTH_COOKIE_NAME, token, ADMIN_AUTH_COOKIE_MAX_AGE);
 
     return res.json({
-      mensagem: 'Login admin realizado com sucesso',
+      mensagem: 'Acesso administrativo liberado com sucesso.',
       usuario: ADMIN_USER,
       csrfToken,
       accessToken: token
     });
   } catch (erro) {
     console.error('Erro no login admin:', erro);
-    return res.status(500).json({ erro: 'Erro ao fazer login admin' });
+    return res.status(500).json({ erro: 'Não foi possível concluir o login administrativo.' });
   }
 });
 
@@ -2068,7 +2584,7 @@ app.get('/api/auth/csrf', (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   limparCookie(res, USER_AUTH_COOKIE_NAME, { httpOnly: true });
   limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
-  return res.json({ mensagem: 'Logout realizado com sucesso' });
+  return res.json({ mensagem: 'Sessão encerrada com sucesso.' });
 });
 
 app.get('/api/admin/me', exigirAcessoLocalAdmin, autenticarAdminToken, (req, res) => {
@@ -2078,7 +2594,7 @@ app.get('/api/admin/me', exigirAcessoLocalAdmin, autenticarAdminToken, (req, res
 app.post('/api/admin/logout', exigirAcessoLocalAdmin, (req, res) => {
   limparCookie(res, ADMIN_AUTH_COOKIE_NAME, { httpOnly: true });
   limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
-  return res.json({ mensagem: 'Logout admin realizado com sucesso' });
+  return res.json({ mensagem: 'Sessão administrativa encerrada com sucesso.' });
 });
 
 // Obter dados do usuário logado
@@ -2090,13 +2606,13 @@ app.get('/api/auth/me', autenticarToken, async (req, res) => {
     );
 
     if (usuarios.length === 0) {
-      return res.status(404).json({ erro: 'Usuário não encontrado' });
+      return res.status(404).json({ erro: 'Não encontramos sua conta.' });
     }
 
     res.json({ usuario: usuarios[0] });
   } catch (erro) {
     console.error('Erro ao buscar usuário:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar usuário' });
+    res.status(500).json({ erro: 'Não foi possível carregar os dados da sua conta.' });
   }
 });
 
@@ -2106,7 +2622,7 @@ app.post('/api/usuario/whatsapp', autenticarToken, async (req, res) => {
     const { telefone, whatsapp_opt_in } = req.body;
 
     if (!telefone) {
-      return res.status(400).json({ erro: 'Telefone é obrigatório' });
+      return res.status(400).json({ erro: 'Informe um telefone para continuar.' });
     }
 
     const numeroLimpo = telefone.trim();
@@ -2117,10 +2633,10 @@ app.post('/api/usuario/whatsapp', autenticarToken, async (req, res) => {
       [numeroLimpo, optIn, req.usuario.id]
     );
 
-    res.json({ mensagem: 'Preferências de WhatsApp atualizadas', whatsapp_opt_in: optIn, telefone: numeroLimpo });
+    res.json({ mensagem: 'Preferências de WhatsApp atualizadas com sucesso.', whatsapp_opt_in: optIn, telefone: numeroLimpo });
   } catch (erro) {
     console.error('Erro ao atualizar WhatsApp:', erro);
-    res.status(500).json({ erro: 'Erro ao atualizar preferências de WhatsApp' });
+    res.status(500).json({ erro: 'Não foi possível atualizar suas preferências de WhatsApp.' });
   }
 });
 
@@ -2143,7 +2659,7 @@ app.get('/api/endereco', autenticarToken, async (req, res) => {
     res.json({ endereco: enderecos[0] });
   } catch (erro) {
     console.error('Erro ao buscar endereço:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar endereço' });
+    res.status(500).json({ erro: 'Não foi possível carregar seu endereço.' });
   }
 });
 
@@ -2153,7 +2669,7 @@ app.post('/api/endereco', autenticarToken, async (req, res) => {
     const { rua, numero, bairro, cidade, estado, cep } = req.body;
 
     if (!rua || !numero || !bairro || !cidade || !estado || !cep) {
-      return res.status(400).json({ erro: 'Todos os campos são obrigatórios' });
+      return res.status(400).json({ erro: 'Preencha todos os campos do endereço.' });
     }
 
     // Verificar se já existe endereço
@@ -2176,10 +2692,10 @@ app.post('/api/endereco', autenticarToken, async (req, res) => {
       );
     }
 
-    res.json({ mensagem: 'Endereço salvo com sucesso' });
+    res.json({ mensagem: 'Endereço salvo com sucesso.' });
   } catch (erro) {
     console.error('Erro ao salvar endereço:', erro);
-    res.status(500).json({ erro: 'Erro ao salvar endereço' });
+    res.status(500).json({ erro: 'Não foi possível salvar seu endereço. Tente novamente.' });
   }
 });
 
@@ -2333,7 +2849,7 @@ app.get('/api/produtos', async (req, res) => {
     return res.json(payload);
   } catch (erro) {
     console.error('Erro ao buscar produtos:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar produtos' });
+    res.status(500).json({ erro: 'Não foi possível carregar os produtos no momento.' });
   }
 });
 
@@ -2413,7 +2929,7 @@ app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autentica
   try {
     const codigo = String(req.params.codigo || '').replace(/\D/g, '');
     if (codigo.length < 8) {
-      return res.status(400).json({ erro: 'Código de barras inválido' });
+      return res.status(400).json({ erro: 'Informe um código de barras válido.' });
     }
 
     const externoOpenFoodFacts = await buscarProdutoOpenFoodFacts(codigo);
@@ -2442,10 +2958,10 @@ app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autentica
       }
     }
 
-    return res.status(404).json({ erro: 'Produto não encontrado em APIs externas nem na base local' });
+    return res.status(404).json({ erro: 'Produto não encontrado no catálogo e nas bases consultadas.' });
   } catch (erro) {
     console.error('Erro ao buscar produto por código de barras:', erro);
-    return res.status(500).json({ erro: 'Erro ao buscar produto por código de barras' });
+    return res.status(500).json({ erro: 'Não foi possível consultar o código de barras.' });
   }
 });
 
@@ -2458,13 +2974,13 @@ app.get('/api/produtos/:id', async (req, res) => {
     );
 
     if (produtos.length === 0) {
-      return res.status(404).json({ erro: 'Produto não encontrado' });
+      return res.status(404).json({ erro: 'Produto não encontrado.' });
     }
 
     res.json({ produto: produtos[0] });
   } catch (erro) {
     console.error('Erro ao buscar produto:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar produto' });
+    res.status(500).json({ erro: 'Não foi possível carregar este produto.' });
   }
 });
 
@@ -2485,7 +3001,7 @@ app.post('/api/admin/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, as
     } = req.body;
 
     if (!nome || !preco || !unidade || !categoria) {
-      return res.status(400).json({ erro: 'Campos obrigatórios faltando' });
+      return res.status(400).json({ erro: 'Preencha os campos obrigatórios do produto.' });
     }
 
     const colunas = await obterColunasProdutos();
@@ -2526,7 +3042,7 @@ app.post('/api/admin/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, as
     });
   } catch (erro) {
     console.error('Erro ao cadastrar produto:', erro);
-    res.status(500).json({ erro: 'Erro ao cadastrar produto' });
+    res.status(500).json({ erro: 'Não foi possível cadastrar o produto.' });
   }
 });
 
@@ -2538,7 +3054,7 @@ app.post('/api/admin/produtos/bulk', exigirAcessoLocalAdmin, autenticarAdminToke
     const { produtos } = req.body;
 
     if (!produtos || !Array.isArray(produtos) || produtos.length === 0) {
-      return res.status(400).json({ erro: 'Lista de produtos inválida' });
+      return res.status(400).json({ erro: 'Envie uma lista válida de produtos para importação.' });
     }
 
     await connection.beginTransaction();
@@ -2567,11 +3083,98 @@ app.post('/api/admin/produtos/bulk', exigirAcessoLocalAdmin, autenticarAdminToke
   } catch (erro) {
     await connection.rollback();
     console.error('Erro ao importar produtos:', erro);
-    res.status(500).json({ erro: 'Erro ao importar produtos' });
+    res.status(500).json({ erro: 'Não foi possível importar os produtos.' });
   } finally {
     connection.release();
   }
 });
+
+app.get('/api/admin/produtos/importacao/modelo', exigirAcessoLocalAdmin, autenticarAdminToken, (req, res) => {
+  const csvModelo = construirModeloImportacaoProdutosCsv();
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="modelo-importacao-produtos.csv"');
+  res.setHeader('Cache-Control', 'no-store');
+
+  return res.status(200).send(`\uFEFF${csvModelo}`);
+});
+
+app.get('/api/admin/produtos/importacoes', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const page = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
+    const limit = parsePositiveInt(req.query?.limit || req.query?.limite, 20, { min: 1, max: 100 });
+
+    const resultado = await listarImportacoesProdutos({
+      pool,
+      page,
+      limit
+    });
+
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao listar histórico de importações de produtos:', erro);
+    return res.status(500).json({
+      erro: 'Não foi possível carregar o histórico de importações agora.'
+    });
+  }
+});
+
+app.post(
+  '/api/admin/produtos/importar',
+  exigirAcessoLocalAdmin,
+  autenticarAdminToken,
+  middlewareUploadImportacaoProdutos,
+  async (req, res) => {
+    try {
+      if (!req.file || !Buffer.isBuffer(req.file.buffer)) {
+        return res.status(400).json({ erro: 'Selecione um arquivo .xlsx ou .csv para importar.' });
+      }
+
+      const criarNovos = parseBooleanInput(req.body?.criar_novos, false);
+      const atualizarEstoque = parseBooleanInput(req.body?.atualizar_estoque, false);
+      const simular = parseBooleanInput(req.body?.simular, false);
+
+      const resultado = await importarProdutosPlanilha({
+        pool,
+        fileBuffer: req.file.buffer,
+        originalName: req.file.originalname,
+        createMissing: criarNovos,
+        updateStock: atualizarEstoque,
+        simulate: simular,
+        adminUser: req.admin?.usuario || ADMIN_USER,
+        adminUserId: req.admin?.id || null
+      });
+
+      if (!simular) {
+        produtosColumnsCache = null;
+
+        if (Number(resultado?.total_atualizados || 0) > 0 || Number(resultado?.total_criados || 0) > 0) {
+          limparCacheProdutos();
+        }
+      }
+
+      return res.status(200).json(resultado);
+    } catch (erro) {
+      const status = Number.isFinite(Number(erro?.httpStatus))
+        ? Number(erro.httpStatus)
+        : 500;
+
+      if (status >= 500) {
+        console.error('Erro ao importar planilha de produtos:', erro);
+      }
+
+      const payloadErro = {
+        erro: erro?.message || 'Não foi possível processar a importação da planilha.'
+      };
+
+      if (erro?.extra && typeof erro.extra === 'object') {
+        payloadErro.detalhes = erro.extra;
+      }
+
+      return res.status(status).json(payloadErro);
+    }
+  }
+);
 
 // Excluir produto (admin) - soft delete
 app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
@@ -2583,10 +3186,10 @@ app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminTok
 
     limparCacheProdutos();
 
-    res.json({ mensagem: 'Produto excluído com sucesso' });
+    res.json({ mensagem: 'Produto removido com sucesso.' });
   } catch (erro) {
     console.error('Erro ao excluir produto:', erro);
-    res.status(500).json({ erro: 'Erro ao excluir produto' });
+    res.status(500).json({ erro: 'Não foi possível remover o produto.' });
   }
 });
 
@@ -2600,22 +3203,22 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
     const { pedido_id } = req.body;
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
-    const taxId = taxIdDigits || (process.env.PAGBANK_ENV === 'production' ? null : '12345678909');
+    const taxId = taxIdDigits || (PAGBANK_ENV === 'production' ? null : '12345678909');
 
     if (!PAGBANK_TOKEN) {
-      return res.status(503).json({ erro: 'PagBank não configurado' });
+      return res.status(503).json({ erro: 'Esta forma de pagamento está temporariamente indisponível.' });
     }
 
     if (!pedido_id) {
-      return res.status(400).json({ erro: 'pedido_id é obrigatório' });
+      return res.status(400).json({ erro: 'Não foi possível identificar o pedido para pagamento.' });
     }
 
     if (!taxId) {
-      return res.status(400).json({ erro: 'tax_id (CPF/CNPJ) é obrigatório para gerar PIX no PagBank em produção' });
+      return res.status(400).json({ erro: 'Informe CPF ou CNPJ para gerar o PIX.' });
     }
 
     if (![11, 14].includes(String(taxId).length)) {
-      return res.status(400).json({ erro: 'tax_id inválido. Informe CPF (11 dígitos) ou CNPJ (14 dígitos).' });
+      return res.status(400).json({ erro: 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.' });
     }
 
     // Buscar pedido e dados do usuário
@@ -2629,7 +3232,7 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(404).json({ erro: 'Pedido não encontrado para este usuário' });
+      return res.status(404).json({ erro: 'Pedido não encontrado para esta conta.' });
     }
 
     const pedido = rows[0];
@@ -2682,7 +3285,7 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
     });
   } catch (erro) {
     console.error('Erro ao gerar PIX:', erro);
-    res.status(500).json({ erro: 'Erro ao gerar PIX' });
+    res.status(500).json({ erro: 'Não foi possível gerar o PIX. Tente novamente.' });
   }
 });
 
@@ -2693,23 +3296,35 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
     const tokenCartao = String(req.body?.token_cartao || req.body?.cartao_encriptado || '').trim();
+    const authenticationMethod = req.body?.authentication_method;
     const tipoCartaoSolicitado = String(req.body?.tipo_cartao || req.body?.forma_pagamento || '').trim();
     const parcelas = normalizarParcelasCartao(req.body?.parcelas);
 
+    registrarLogPagBank({
+      operacao: 'api.pagamentos.cartao.request',
+      endpoint: '/api/pagamentos/cartao',
+      method: 'POST',
+      requestPayload: req.body,
+      extra: {
+        usuario_id: req.usuario?.id || null,
+        pedido_id
+      }
+    });
+
     if (!PAGBANK_TOKEN) {
-      return res.status(503).json({ erro: 'PagBank não configurado' });
+      return res.status(503).json({ erro: 'Esta forma de pagamento está temporariamente indisponível.' });
     }
 
     if (!pedido_id) {
-      return res.status(400).json({ erro: 'pedido_id é obrigatório' });
+      return res.status(400).json({ erro: 'Não foi possível identificar o pedido para pagamento.' });
     }
 
     if (![11, 14].includes(taxIdDigits.length)) {
-      return res.status(400).json({ erro: 'tax_id inválido. Informe CPF (11 dígitos) ou CNPJ (14 dígitos).' });
+      return res.status(400).json({ erro: 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.' });
     }
 
     if (!tokenCartao) {
-      return res.status(400).json({ erro: 'token_cartao é obrigatório para pagamento com cartão.' });
+      return res.status(400).json({ erro: 'Não foi possível validar os dados do cartão.' });
     }
 
     const [rows] = await pool.query(
@@ -2722,7 +3337,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(404).json({ erro: 'Pedido não encontrado para este usuário' });
+      return res.status(404).json({ erro: 'Pedido não encontrado para esta conta.' });
     }
 
     const pedido = rows[0];
@@ -2732,18 +3347,39 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       ? normalizarTipoCartao(tipoCartaoSolicitado)
       : tipoEsperadoPedido;
     if (!['cartao', 'credito', 'debito'].includes(formaPagamentoPedido)) {
-      return res.status(400).json({ erro: 'Este pedido não está configurado para pagamento com cartão (crédito/débito).' });
+      return res.status(400).json({ erro: 'Este pedido não está disponível para pagamento com cartão.' });
     }
 
     if (formaPagamentoPedido === 'debito' && tipoCartao !== 'debito') {
-      return res.status(400).json({ erro: 'Este pedido foi criado para débito. Use tipo_cartao=debito.' });
+      return res.status(400).json({ erro: 'Este pedido deve ser pago no débito.' });
     }
 
     if (['cartao', 'credito'].includes(formaPagamentoPedido) && tipoCartao === 'debito') {
-      return res.status(400).json({ erro: 'Este pedido foi criado para crédito. Use tipo_cartao=credito.' });
+      return res.status(400).json({ erro: 'Este pedido deve ser pago no crédito.' });
     }
 
-    const pagamento = await criarPagamentoCartao({
+    const totalPedido = Number(pedido.total || 0);
+    const parcelamentoCreditoDisponivel = totalPedido >= 100;
+    if (tipoCartao === 'credito' && parcelas > 1 && !parcelamentoCreditoDisponivel) {
+      return res.status(400).json({
+        erro: 'Parcelamento no crédito disponível apenas para pedidos a partir de R$ 100,00.'
+      });
+    }
+
+    const parcelasAplicadas = tipoCartao === 'debito'
+      ? 1
+      : (parcelamentoCreditoDisponivel ? parcelas : 1);
+
+    if (tipoCartao === 'debito' && PAGBANK_ENV === 'production') {
+      const validacaoAuthDebito = validarAuthenticationMethodPagBank(authenticationMethod);
+      if (!validacaoAuthDebito.ok) {
+        return res.status(400).json({
+          erro: 'Não foi possível validar a autenticação de segurança do cartão.'
+        });
+      }
+    }
+
+    let pagamento = await criarPagamentoCartao({
       pedidoId: pedido.id,
       total: pedido.total,
       descricao: `Pedido #${pedido.id}`,
@@ -2751,17 +3387,35 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       nome: pedido.nome,
       taxId: taxIdDigits,
       tokenCartao,
-      parcelas,
-      tipoCartao
+      parcelas: parcelasAplicadas,
+      tipoCartao,
+      authenticationMethod
     });
 
-    const chargePrincipal = pagamento?.charges?.[0] || {};
-    const paymentResponse = chargePrincipal?.payment_response || {};
-    const statusPagBank = String(
-      chargePrincipal?.status || pagamento?.status || 'WAITING'
-    ).toUpperCase();
-    const statusInterno = mapearStatusPedido(statusPagBank);
     const pagbankOrderId = pagamento?.id || null;
+    let statusInfo = extrairStatusPagamentoPagBank(pagamento);
+
+    const precisaReconsultaOrder = Boolean(
+      pagbankOrderId
+      && (!statusInfo.chargeStatus || statusInfo.orderStatus === 'CREATED')
+    );
+
+    if (precisaReconsultaOrder) {
+      try {
+        const detalhesOrder = await obterPedidoPagBank(pagbankOrderId);
+        if (detalhesOrder) {
+          pagamento = detalhesOrder;
+          statusInfo = extrairStatusPagamentoPagBank(detalhesOrder);
+        }
+      } catch (erroConsultaOrder) {
+        console.warn('⚠️ Não foi possível reconsultar order no PagBank após criação:', erroConsultaOrder?.message || erroConsultaOrder);
+      }
+    }
+
+    const chargePrincipal = statusInfo.chargePrincipal || {};
+    const paymentResponse = chargePrincipal?.payment_response || {};
+    const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
+    const statusInterno = mapearStatusPedido(statusPagBank);
     const pagbankChargeId = chargePrincipal?.id || null;
 
     try {
@@ -2775,20 +3429,53 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       console.warn('Não foi possível salvar dados do pagamento cartão (faltam colunas?):', err.message);
     }
 
-    return res.json({
+    const payloadResposta = {
       payment_id: pagbankChargeId,
       pagbank_order_id: pagbankOrderId,
       status: statusPagBank,
       status_interno: statusInterno,
-      tipo_cartao: tipoEsperadoPedido,
-      parcelas: tipoEsperadoPedido === 'debito' ? 1 : parcelas,
+      status_order: statusInfo.orderStatus || null,
+      status_charge: statusInfo.chargeStatus || null,
+      status_fonte: statusInfo.fonteStatus,
+      tipo_cartao: tipoCartao,
+      parcelas: tipoCartao === 'debito' ? 1 : parcelasAplicadas,
       authorization_code: paymentResponse?.code || null,
       message: paymentResponse?.message || null,
       raw: pagamento
+    };
+
+    registrarLogPagBank({
+      operacao: 'api.pagamentos.cartao.response',
+      endpoint: '/api/pagamentos/cartao',
+      method: 'POST',
+      httpStatus: 200,
+      responsePayload: payloadResposta,
+      extra: {
+        usuario_id: req.usuario?.id || null,
+        pedido_id: pedido.id,
+        pagbank_order_id: pagbankOrderId,
+        pagbank_charge_id: pagbankChargeId
+      }
     });
+
+    return res.json(payloadResposta);
   } catch (erro) {
+    registrarLogPagBank({
+      operacao: 'api.pagamentos.cartao.error',
+      endpoint: '/api/pagamentos/cartao',
+      method: 'POST',
+      httpStatus: 500,
+      requestPayload: req.body,
+      responsePayload: {
+        erro: erro?.message || 'Não foi possível processar o pagamento com cartão'
+      },
+      extra: {
+        usuario_id: req.usuario?.id || null
+      }
+    });
+
     console.error('Erro ao processar pagamento com cartão:', erro);
-    return res.status(500).json({ erro: erro?.message || 'Erro ao processar pagamento com cartão' });
+    return res.status(500).json({ erro: erro?.message || 'Não foi possível processar o pagamento com cartão.' });
   }
 });
 
@@ -2814,7 +3501,7 @@ app.get('/api/frete/simular', async (req, res) => {
     }
 
     console.error('Erro ao simular frete por CEP:', erro);
-    return res.status(500).json({ erro: 'Erro ao simular frete' });
+    return res.status(500).json({ erro: 'Não foi possível calcular o frete no momento.' });
   }
 });
 
@@ -2828,26 +3515,31 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     let usuarioPedido = null;
 
     if (!Array.isArray(itens) || itens.length === 0) {
-      throw criarErroHttp(400, 'Carrinho vazio');
+      throw criarErroHttp(400, 'Seu carrinho está vazio.');
     }
 
     if (itens.length > 100) {
-      throw criarErroHttp(400, 'Quantidade máxima de itens por pedido excedida');
+      throw criarErroHttp(400, 'Este pedido excede a quantidade máxima de itens permitida.');
     }
 
     const formaPagamento = String(forma_pagamento || 'pix').toLowerCase();
     const formasPermitidas = new Set(['pix', 'dinheiro', 'debito', 'credito', 'cartao']);
     if (!formasPermitidas.has(formaPagamento)) {
-      throw criarErroHttp(400, 'Forma de pagamento inválida');
+      throw criarErroHttp(400, 'Forma de pagamento inválida para este pedido.');
     }
 
     const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
     const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
-    const pagbankProducao = process.env.PAGBANK_ENV === 'production';
+    const pagbankProducao = PAGBANK_ENV === 'production';
     const usaPagbank = ['pix', 'cartao', 'credito', 'debito'].includes(formaPagamento);
+    const pixMockPermitido = !pagbankProducao && ALLOW_PIX_MOCK;
 
     if (usaPagbank && pagbankProducao && !PAGBANK_TOKEN) {
-      throw criarErroHttp(503, 'PagBank não configurado para pagamentos em produção.');
+      throw criarErroHttp(503, 'Esta forma de pagamento está temporariamente indisponível.');
+    }
+
+    if (formaPagamento === 'pix' && !PAGBANK_TOKEN && !pixMockPermitido) {
+      throw criarErroHttp(503, 'O pagamento via PIX está temporariamente indisponível.');
     }
 
     if (usaPagbank && pagbankProducao && ![11, 14].includes(taxIdDigits.length)) {
@@ -2860,7 +3552,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     }));
 
     if (itensNormalizados.some((item) => !Number.isInteger(item.produto_id) || item.produto_id <= 0 || !Number.isInteger(item.quantidade) || item.quantidade <= 0 || item.quantidade > 100)) {
-      throw criarErroHttp(400, 'Itens do pedido inválidos');
+      throw criarErroHttp(400, 'Há itens inválidos no carrinho.');
     }
 
     const idsProdutos = [...new Set(itensNormalizados.map((item) => item.produto_id))];
@@ -2872,7 +3564,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     );
 
     if (produtos.length !== idsProdutos.length) {
-      throw criarErroHttp(400, 'Um ou mais produtos são inválidos ou estão inativos');
+      throw criarErroHttp(400, 'Um ou mais produtos do carrinho estão indisponíveis.');
     }
 
     const produtosPorId = new Map(produtos.map((produto) => [Number(produto.id), produto]));
@@ -2892,18 +3584,18 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
 
     const total = Number(itensCalculados.reduce((acumulado, item) => acumulado + item.subtotal, 0).toFixed(2));
     if (!Number.isFinite(total) || total <= 0) {
-      throw criarErroHttp(400, 'Total do pedido inválido');
+      throw criarErroHttp(400, 'Não foi possível calcular o total do pedido.');
     }
 
     if (!entrega || typeof entrega !== 'object') {
-      throw criarErroHttp(400, 'Informe os dados de entrega (CEP e veículo).');
+      throw criarErroHttp(400, 'Informe os dados de entrega para continuar.');
     }
 
     const veiculoEntrega = String(entrega.veiculo || 'moto').trim().toLowerCase();
     const cepDestinoEntrega = normalizarCep(entrega.cep_destino || entrega.cep);
 
     if (cepDestinoEntrega.length !== 8) {
-      throw criarErroHttp(400, 'CEP de entrega inválido.');
+      throw criarErroHttp(400, 'Informe um CEP de entrega válido.');
     }
 
     const entregaCalculada = await calcularEntregaPorCep({
@@ -2927,7 +3619,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     usuarioPedido = usuarioPedidoRows.length ? usuarioPedidoRows[0] : null;
 
     if (!usuarioPedido) {
-      throw criarErroHttp(404, 'Usuário não encontrado');
+      throw criarErroHttp(404, 'Não encontramos a conta do usuário para este pedido.');
     }
 
     await connection.beginTransaction();
@@ -2939,7 +3631,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     if (cupom_id !== undefined && cupom_id !== null && String(cupom_id).trim() !== '') {
       const cupomIdNumerico = Number(cupom_id);
       if (!Number.isInteger(cupomIdNumerico) || cupomIdNumerico <= 0) {
-        throw criarErroHttp(400, 'Cupom inválido');
+        throw criarErroHttp(400, 'Cupom inválido.');
       }
 
       const [cupons] = await connection.query(
@@ -2953,7 +3645,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       );
 
       if (cupons.length === 0) {
-        throw criarErroHttp(400, 'Cupom inválido ou expirado');
+        throw criarErroHttp(400, 'Cupom inválido ou expirado.');
       }
 
       const cupom = cupons[0];
@@ -2968,7 +3660,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       );
 
       if (usados.length > 0) {
-        throw criarErroHttp(400, 'Você já utilizou este cupom');
+        throw criarErroHttp(400, 'Este cupom já foi utilizado nesta conta.');
       }
 
       if (cupom.tipo === 'percentual') {
@@ -3025,6 +3717,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     let pixQrCode = null;
     let pixId = null;
     let pixErro = null;
+    const podeUsarPixMock = !pagbankProducao && ALLOW_PIX_MOCK;
 
     if (formaPagamento === 'pix' && PAGBANK_TOKEN) {
       try {
@@ -3056,13 +3749,13 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
         console.error('Erro ao gerar PIX PagBank:', erro.message);
         pixErro = erro.message;
 
-        if (!pagbankProducao) {
-          // Em sandbox/dev, mantém fallback para facilitar testes locais.
+        if (podeUsarPixMock) {
+          // Fallback local controlado por flag explícita.
           pixCodigo = '00020126580014BR.GOV.BCB.PIX' + pedidoId.toString().padStart(10, '0');
         }
       }
-    } else if (formaPagamento === 'pix' && !pagbankProducao) {
-      // Gerar código PIX simulado se PagBank não estiver configurado
+    } else if (formaPagamento === 'pix' && podeUsarPixMock) {
+      // Gerar código PIX simulado somente quando ALLOW_PIX_MOCK=true.
       pixCodigo = '00020126580014BR.GOV.BCB.PIX' + pedidoId.toString().padStart(10, '0');
     }
 
@@ -3081,7 +3774,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     }
 
     res.status(201).json({
-      mensagem: 'Pedido realizado com sucesso',
+      mensagem: 'Pedido confirmado com sucesso.',
       pedido_id: pedidoId,
       total: totalFinal,
       total_produtos: totalProdutos,
@@ -3108,7 +3801,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     }
 
     console.error('Erro ao criar pedido:', erro);
-    res.status(500).json({ erro: 'Erro ao criar pedido' });
+    res.status(500).json({ erro: 'Não foi possível finalizar seu pedido. Tente novamente.' });
   } finally {
     connection.release();
   }
@@ -3154,7 +3847,7 @@ app.get('/api/pedidos', autenticarToken, async (req, res) => {
     });
   } catch (erro) {
     console.error('Erro ao buscar pedidos:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar pedidos' });
+    res.status(500).json({ erro: 'Não foi possível carregar seus pedidos.' });
   }
 });
 
@@ -3167,7 +3860,7 @@ app.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     );
 
     if (pedidos.length === 0) {
-      return res.status(404).json({ erro: 'Pedido não encontrado' });
+      return res.status(404).json({ erro: 'Pedido não encontrado.' });
     }
 
     // Buscar itens com informações do produto (incluindo emoji)
@@ -3187,7 +3880,7 @@ app.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     });
   } catch (erro) {
     console.error('Erro ao buscar pedido:', erro);
-    res.status(500).json({ erro: 'Erro ao buscar pedido' });
+    res.status(500).json({ erro: 'Não foi possível carregar os detalhes do pedido.' });
   }
 });
 
@@ -3211,7 +3904,7 @@ app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
     );
 
     if (cupons.length === 0) {
-      return res.status(404).json({ erro: 'Cupom inválido ou expirado' });
+      return res.status(404).json({ erro: 'Cupom inválido ou expirado.' });
     }
 
     const cupom = cupons[0];
@@ -3230,7 +3923,7 @@ app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
     );
 
     if (usados.length > 0) {
-      return res.status(400).json({ erro: 'Você já utilizou este cupom' });
+      return res.status(400).json({ erro: 'Este cupom já foi utilizado nesta conta.' });
     }
 
     // Calcular desconto
@@ -3258,7 +3951,7 @@ app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
     });
   } catch (erro) {
     console.error('Erro ao validar cupom:', erro);
-    res.status(500).json({ erro: 'Erro ao validar cupom' });
+    res.status(500).json({ erro: 'Não foi possível validar o cupom. Tente novamente.' });
   }
 });
 
@@ -3277,7 +3970,7 @@ app.get('/api/cupons/disponiveis', async (req, res) => {
     res.json({ cupons: cupons });
   } catch (erro) {
     console.error('Erro ao listar cupons:', erro);
-    res.status(500).json({ erro: 'Erro ao listar cupons' });
+    res.status(500).json({ erro: 'Não foi possível carregar os cupons disponíveis.' });
   }
 });
 
@@ -3392,7 +4085,7 @@ app.get('/api/admin/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, asyn
     return res.json({ pedidos });
   } catch (erro) {
     console.error('Erro ao buscar pedidos (admin):', erro);
-    res.status(500).json({ erro: 'Erro ao buscar pedidos' });
+    res.status(500).json({ erro: 'Não foi possível carregar os pedidos no painel.' });
   }
 });
 
@@ -3405,7 +4098,7 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
     const statusValidos = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado'];
     
     if (!statusValidos.includes(status)) {
-      return res.status(400).json({ erro: 'Status inválido' });
+      return res.status(400).json({ erro: 'Selecione um status de pedido válido.' });
     }
 
     await pool.query(
@@ -3446,10 +4139,10 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
       }
     }
 
-    res.json({ mensagem: 'Status atualizado com sucesso', status: status });
+    res.json({ mensagem: 'Status do pedido atualizado com sucesso.', status: status });
   } catch (erro) {
     console.error('Erro ao atualizar status:', erro);
-    res.status(500).json({ erro: 'Erro ao atualizar status' });
+    res.status(500).json({ erro: 'Não foi possível atualizar o status do pedido.' });
   }
 });
 
@@ -3519,20 +4212,16 @@ app.post('/api/webhooks/evolution', async (req, res) => {
 });
 
 // ============================================
-// WEBHOOK PAGBANK (PIX)
+// WEBHOOK PAGBANK (PIX + CARTAO)
 // ============================================
-app.post('/api/webhooks/pagbank', async (req, res) => {
+async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pagbank') {
   try {
     if (!validarWebhookPagBank(req)) {
       return res.status(401).json({ erro: 'Webhook não autorizado' });
     }
 
-    const notificacao = req.body;
-
-    console.log('📩 Webhook PagBank recebido:', {
-      id: notificacao?.id || null,
-      reference_id: notificacao?.reference_id || null
-    });
+    const notificacao = req.body || {};
+    const eventType = String(notificacao?.event || notificacao?.type || '').trim().toUpperCase();
 
     // PagBank envia notificações com estrutura:
     // { id, reference_id, charges: [{ id, status, ... }] }
@@ -3541,29 +4230,53 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
       return res.status(400).json({ erro: 'Notificação inválida' });
     }
 
-    const orderId = notificacao.id;
+    const orderId = String(notificacao.id).trim();
 
     // Alguns eventos podem vir sem reference_id/charges.
     // Se faltar, consulta o pedido no PagBank para obter os dados completos.
     let referenceId = notificacao.reference_id; // Ex: "pedido_123"
-    let charges = notificacao.charges || [];
-    if ((!referenceId || charges.length === 0) && PAGBANK_TOKEN) {
+    let charges = Array.isArray(notificacao.charges) ? notificacao.charges : [];
+    let orderStatus = String(notificacao?.status || '').trim().toUpperCase();
+    if ((!referenceId || charges.length === 0 || !orderStatus) && PAGBANK_TOKEN) {
       try {
         const detalhes = await obterPedidoPagBank(orderId);
         referenceId = referenceId || detalhes?.reference_id;
         charges = charges.length ? charges : (detalhes?.charges || []);
+        orderStatus = orderStatus || String(detalhes?.status || '').trim().toUpperCase();
       } catch (errConsulta) {
         console.error('Erro ao consultar pedido no PagBank:', errConsulta.message);
       }
     }
-    
-    // Pegar o status da primeira cobrança
-    let statusPagBank = 'WAITING';
-    if (charges.length > 0) {
-      statusPagBank = charges[0].status || 'WAITING';
-    }
+
+    const statusInfo = extrairStatusPagamentoPagBank(
+      {
+        status: orderStatus,
+        charges
+      },
+      eventType
+    );
+    const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
+    const chargePrincipal = statusInfo.chargePrincipal || {};
+    const chargeId = chargePrincipal?.id || null;
 
     const statusInterno = mapearStatusPedido(statusPagBank);
+
+    registrarLogPagBank({
+      operacao: 'webhook.pagbank.recebido',
+      endpoint: endpointLog,
+      method: 'POST',
+      requestPayload: notificacao,
+      extra: {
+        event_type: eventType || null,
+        order_id: orderId,
+        charge_id: chargeId,
+        reference_id: referenceId || null,
+        status_pagbank: statusPagBank,
+        status_fonte: statusInfo.fonteStatus,
+        status_order: statusInfo.orderStatus || null,
+        status_charge: statusInfo.chargeStatus || null
+      }
+    });
     
     // Extrair pedidoId do reference_id (formato: "pedido_123")
     let pedidoId = null;
@@ -3574,22 +4287,87 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
 
     if (pedidoId) {
       try {
-        await pool.query(
-          'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ? WHERE id = ?',
-          [statusInterno, statusPagBank, orderId, pedidoId]
-        );
+        let resultadoUpdate = null;
+        let modoPersistencia = 'completo';
+
+        try {
+          const [resultadoCompleto] = await pool.query(
+            'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ? WHERE id = ?',
+            [statusInterno, statusPagBank, orderId, pedidoId]
+          );
+          resultadoUpdate = resultadoCompleto;
+        } catch (erroUpdateCompleto) {
+          const colunaPixAusente = /unknown column\s+'(?:pix_status|pix_id)'/i.test(String(erroUpdateCompleto?.message || ''));
+          if (!colunaPixAusente) {
+            throw erroUpdateCompleto;
+          }
+
+          const [resultadoFallback] = await pool.query(
+            'UPDATE pedidos SET status = ? WHERE id = ?',
+            [statusInterno, pedidoId]
+          );
+          resultadoUpdate = resultadoFallback;
+          modoPersistencia = 'fallback_sem_colunas_pix';
+          console.warn('⚠️ Coluna pix_status/pix_id ausente. Persistindo webhook PagBank em modo fallback por status.');
+        }
+
         console.log(`✅ Pedido #${pedidoId} atualizado para status: ${statusInterno}`);
+        registrarLogPagBank({
+          operacao: 'webhook.pagbank.persistencia',
+          endpoint: endpointLog,
+          method: 'POST',
+          responsePayload: {
+            pedido_id: pedidoId,
+            order_id: orderId,
+            charge_id: chargeId,
+            persist_mode: modoPersistencia,
+            status_interno: statusInterno,
+            status_pagbank: statusPagBank,
+            linhas_afetadas: Number(resultadoUpdate?.affectedRows || 0)
+          }
+        });
       } catch (err) {
         console.error('Erro ao atualizar pedido:', err.message);
       }
     } else {
       // Tentar encontrar pelo pix_id
       try {
-        await pool.query(
-          'UPDATE pedidos SET status = ?, pix_status = ? WHERE pix_id = ?',
-          [statusInterno, statusPagBank, orderId]
-        );
+        let resultadoUpdate = null;
+        let modoPersistencia = 'completo';
+
+        try {
+          const [resultadoCompleto] = await pool.query(
+            'UPDATE pedidos SET status = ?, pix_status = ? WHERE pix_id = ?',
+            [statusInterno, statusPagBank, orderId]
+          );
+          resultadoUpdate = resultadoCompleto;
+        } catch (erroUpdateCompleto) {
+          const colunaPixAusente = /unknown column\s+'(?:pix_status|pix_id)'/i.test(String(erroUpdateCompleto?.message || ''));
+          if (!colunaPixAusente) {
+            throw erroUpdateCompleto;
+          }
+
+          // Sem pix_id no schema, não é possível localizar pedido por orderId quando reference_id não mapeia para pedido_id.
+          resultadoUpdate = { affectedRows: 0 };
+          modoPersistencia = 'fallback_sem_colunas_pix_sem_lookup';
+          console.warn('⚠️ Coluna pix_status/pix_id ausente e sem pedido_id no reference_id. Persistência do webhook não aplicada.');
+        }
+
         console.log(`✅ Pedido com pix_id ${orderId} atualizado para status: ${statusInterno}`);
+        registrarLogPagBank({
+          operacao: 'webhook.pagbank.persistencia',
+          endpoint: endpointLog,
+          method: 'POST',
+          responsePayload: {
+            pix_id: orderId,
+            order_id: orderId,
+            charge_id: chargeId,
+            persist_mode: modoPersistencia,
+            status_interno: statusInterno,
+            status_pagbank: statusPagBank,
+            linhas_afetadas: Number(resultadoUpdate?.affectedRows || 0)
+          }
+        });
       } catch (err) {
         console.error('Erro ao atualizar pedido por pix_id:', err.message);
       }
@@ -3600,6 +4378,14 @@ app.post('/api/webhooks/pagbank', async (req, res) => {
     console.error('Erro no webhook do PagBank:', erro);
     return res.sendStatus(500);
   }
+}
+
+app.post('/api/webhooks/pagbank', (req, res) => {
+  return processarWebhookPagBank(req, res, '/api/webhooks/pagbank');
+});
+
+app.post('/api/pagbank/webhook', (req, res) => {
+  return processarWebhookPagBank(req, res, '/api/pagbank/webhook');
 });
 
 // ============================================
@@ -3714,7 +4500,7 @@ app.get('/api/avaliacoes/:produto_id', async (req, res) => {
     res.json({ avaliacoes });
   } catch (error) {
     console.error('Erro ao carregar avaliações:', error);
-    res.status(500).json({ erro: 'Erro ao carregar avaliações' });
+    res.status(500).json({ erro: 'Não foi possível carregar as avaliações.' });
   }
 });
 
@@ -3724,7 +4510,7 @@ app.post('/api/avaliacoes', autenticarToken, async (req, res) => {
     const { produto_id, nota, comentario } = req.body;
     
     if (!produto_id || !nota || nota < 1 || nota > 5) {
-      return res.status(400).json({ erro: 'Dados inválidos' });
+      return res.status(400).json({ erro: 'Informe uma nota válida entre 1 e 5.' });
     }
     
     // Verificar se já existe avaliação
@@ -3747,10 +4533,10 @@ app.post('/api/avaliacoes', autenticarToken, async (req, res) => {
       );
     }
     
-    res.json({ mensagem: 'Avaliação registrada com sucesso' });
+    res.json({ mensagem: 'Avaliação registrada com sucesso.' });
   } catch (error) {
     console.error('Erro ao salvar avaliação:', error);
-    res.status(500).json({ erro: 'Erro ao salvar avaliação' });
+    res.status(500).json({ erro: 'Não foi possível salvar sua avaliação.' });
   }
 });
 
@@ -3776,6 +4562,8 @@ if (SHOULD_SERVE_REACT && fs.existsSync(REACT_DIST_INDEX)) {
 app.listen(PORT, () => {
   console.log(`\n🚀 Servidor rodando na porta ${PORT}`);
   console.log(`📍 URL: http://localhost:${PORT}`);
+  console.log(`🌍 CORS_ORIGINS: ${CORS_ORIGINS.join(', ') || '(nenhuma origem explícita)'}`);
+  console.log(`🍪 Cookies: secure=${COOKIE_SECURE} sameSite=${COOKIE_SAME_SITE} domain=${COOKIE_DOMAIN || '(sem domínio)'}`);
   console.log(`\n📚 Endpoints disponíveis:`);
   console.log(`   POST   /api/auth/cadastro`);
   console.log(`   POST   /api/auth/login`);

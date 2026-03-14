@@ -1,14 +1,14 @@
 # Deploy Vercel + Render (Passo a Passo)
 
-## Visao geral
+## Visão geral
 
 - Frontend React (Vite): Vercel
 - Backend Node/Express: Render
-- Banco de dados: MySQL externo (Railway, Hostinger, PlanetScale, etc.)
+- Banco de dados: MySQL externo (Railway, Hostinger, PlanetScale etc.)
 
 ## 1) Preparar banco MySQL em nuvem
 
-O backend usa `mysql2`, entao voce precisa de um host MySQL publico.
+O backend utiliza mysql2, então é necessário um host MySQL público.
 
 No banco novo, execute:
 
@@ -22,34 +22,37 @@ SOURCE backend/migrate_remover_favoritos_fidelidade.sql;
 
 ## 2) Deploy do backend no Render
 
-### Opcao A: Blueprint (recomendada)
+### Opção A: Blueprint (recomendada)
 
-1. No Render, clique em **New +** -> **Blueprint**.
-2. Conecte o repositorio GitHub.
-3. O Render vai usar `render.yaml` automaticamente.
+1. No Render, clique em New + e selecione Blueprint.
+2. Conecte o repositório do GitHub.
+3. O Render detecta automaticamente o arquivo render.yaml.
 
-### Variaveis obrigatorias no Render
+### Variáveis obrigatórias no Render
 
-- `NODE_ENV=production`
-- `SERVE_REACT=false`
-- `TRUST_PROXY=true`
-- `COOKIE_SECURE=true`
-- `COOKIE_SAME_SITE=none`
-- `JWT_SECRET=<chave forte com 32+ caracteres>`
-- `RECAPTCHA_SECRET_KEY=<secret key do Google reCAPTCHA>`
-- `RECAPTCHA_MIN_SCORE=0.5` (opcional, usado em respostas com score)
-- `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT`
-- `ADMIN_USER`, `ADMIN_PASSWORD`
-- `ADMIN_LOCAL_ONLY=true` (seguro) ou `false` (admin remoto)
-- `BASE_URL=https://SEU_BACKEND.onrender.com`
-- `CORS_ORIGINS=https://SEU_FRONTEND.vercel.app`
+- NODE_ENV=production
+- SERVE_REACT=false
+- TRUST_PROXY=true
+- COOKIE_SECURE=true
+- COOKIE_SAME_SITE=none
+- JWT_SECRET=<chave forte com 32+ caracteres>
+- RECAPTCHA_SECRET_KEY=<secret key do Google reCAPTCHA>
+- RECAPTCHA_MIN_SCORE=0.5 (opcional)
+- DATABASE_URL=mysql://USUARIO:SENHA@HOST:PORT/BANCO
+- ADMIN_USER e ADMIN_PASSWORD
+- ADMIN_LOCAL_ONLY=true (mais seguro) ou false (admin remoto)
+- BASE_URL=https://SEU_BACKEND.onrender.com
+- CORS_ORIGINS=https://SEU_FRONTEND.vercel.app
 
-Se usar PIX/WhatsApp:
+Se utilizar PIX e WhatsApp:
 
-- `PAGBANK_ENV`, `PAGBANK_TOKEN`, `PAGBANK_WEBHOOK_TOKEN`
-- `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`
+- PAGBANK_ENV, PAGBANK_TOKEN, PAGBANK_PUBLIC_KEY, PAGBANK_WEBHOOK_TOKEN
+- PAGBANK_DEBUG_LOGS=true (recomendado em homologação)
+- ALLOW_PIX_MOCK=false (recomendado em homologação real)
+- ALLOW_DEBIT_3DS_MOCK=false (produção/homologação real deve usar 3DS real)
+- EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE
 
-Teste rapido:
+Teste rápido:
 
 ```bash
 curl https://SEU_BACKEND.onrender.com/api
@@ -57,33 +60,33 @@ curl https://SEU_BACKEND.onrender.com/api
 
 ## 3) Deploy do frontend na Vercel
 
-1. Vercel -> **Add New...** -> **Project**.
-2. Importe o mesmo repositorio.
+1. Na Vercel, clique em Add New e selecione Project.
+2. Importe o mesmo repositório.
 3. Configure:
 
-- Framework: `Vite`
-- Root Directory: `frontend-react`
-- Build: `npm run build`
-- Output: `dist`
+- Framework: Vite
+- Root Directory: frontend-react
+- Build Command: npm run build
+- Output Directory: dist
 
-4. Env var na Vercel:
+4. Configure as variáveis de ambiente na Vercel:
 
-- `VITE_API_URL=https://SEU_BACKEND.onrender.com`
-- `VITE_RECAPTCHA_SITE_KEY=<site key do Google reCAPTCHA>`
+- VITE_API_URL=https://SEU_BACKEND.onrender.com
+- VITE_RECAPTCHA_SITE_KEY=<site key do Google reCAPTCHA>
 
-5. Deploy.
+5. Execute o deploy.
 
-## 4) Pos-deploy
+## 4) Pós-deploy
 
-1. Copie a URL da Vercel (`https://SEU_FRONTEND.vercel.app`).
-2. Atualize `CORS_ORIGINS` no Render com essa URL.
-3. Reinicie/redeploy do backend no Render.
-4. Teste login, produtos e criacao de pedido.
+1. Copie a URL da Vercel (exemplo: https://SEU_FRONTEND.vercel.app).
+2. Atualize CORS_ORIGINS no Render com a URL exata do frontend.
+3. Reinicie/redeploy o backend no Render.
+4. Valide os fluxos de login, produtos e criação de pedido.
 
-## 5) Checklist rapido
+## 5) Checklist rápido
 
-- [ ] Backend responde `GET /api`
+- [ ] Backend responde GET /api
 - [ ] Frontend abre sem erro de CORS
-- [ ] Login/cadastro funcionando
-- [ ] Pedido funcionando
-- [ ] Variaveis sensiveis somente no painel
+- [ ] Login e cadastro funcionando
+- [ ] Criação de pedido funcionando
+- [ ] Variáveis sensíveis configuradas apenas no painel
