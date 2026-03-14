@@ -160,19 +160,40 @@ function normalizarOrigin(origin) {
   return String(origin || '').trim().replace(/\/+$/, '').toLowerCase();
 }
 
-let CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((origin) => normalizarOrigin(origin))
-  .filter(Boolean);
+const CORS_ORIGENS_FIXAS_PRODUCAO = [
+  'https://bomfilho-delivery.vercel.app'
+];
 
-if (!CORS_ORIGINS.length && !IS_PRODUCTION) {
-  CORS_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
+const CORS_ORIGENS_FIXAS_DESENVOLVIMENTO = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174'
+];
+
+const origensPadrao = IS_PRODUCTION
+  ? CORS_ORIGENS_FIXAS_PRODUCAO
+  : [...CORS_ORIGENS_FIXAS_DESENVOLVIMENTO, ...CORS_ORIGENS_FIXAS_PRODUCAO];
+
+const CORS_ORIGINS_SET = new Set(
+  origensPadrao
+    .map((origin) => normalizarOrigin(origin))
+    .filter(Boolean)
+);
+
+for (const origin of String(process.env.CORS_ORIGINS || '').split(',')) {
+  const originNormalizada = normalizarOrigin(origin);
+  if (originNormalizada) {
+    CORS_ORIGINS_SET.add(originNormalizada);
+  }
 }
 
 const frontendAppOrigin = normalizarOrigin(FRONTEND_APP_URL);
-if (frontendAppOrigin && !CORS_ORIGINS.includes(frontendAppOrigin)) {
-  CORS_ORIGINS.push(frontendAppOrigin);
+if (frontendAppOrigin) {
+  CORS_ORIGINS_SET.add(frontendAppOrigin);
 }
+
+const CORS_ORIGINS = Array.from(CORS_ORIGINS_SET);
 
 if (IS_PRODUCTION && CORS_ORIGINS.length === 0) {
   throw new Error('CORS_ORIGINS nao configurada no ambiente de producao.');
@@ -1563,7 +1584,7 @@ app.use(helmet({
 }));
 app.use(haltOnTimedout);
 
-app.use(cors({
+const corsOptions = {
   origin(origin, callback) {
     if (isOriginPermitida(origin)) {
       return callback(null, true);
@@ -1571,10 +1592,15 @@ app.use(cors({
     return callback(null, false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-diagnostic-token', 'x-webhook-token', 'x-csrf-token', 'ngrok-skip-browser-warning'],
+  optionsSuccessStatus: 204,
+  preflightContinue: false,
   maxAge: 600
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(haltOnTimedout);
 
 app.use(compression());
