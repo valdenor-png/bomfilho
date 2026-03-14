@@ -1,7 +1,6 @@
 import API_BASE_URL, {
   API_CONFIG_ERROR_MESSAGE,
   API_TIMEOUT_MS,
-  API_URL_IS_REQUIRED,
   IS_DEVELOPMENT,
   IS_NGROK_API
 } from '../config/api';
@@ -20,11 +19,11 @@ function logApi(evento, dados) {
 
 function buildUrl(path) {
   const rawPath = String(path || '').trim();
-  if (!rawPath) {
-    if (API_URL_IS_REQUIRED) {
-      throw new Error(API_CONFIG_ERROR_MESSAGE);
-    }
+  if (!API_BASE_URL) {
+    throw new Error(API_CONFIG_ERROR_MESSAGE);
+  }
 
+  if (!rawPath) {
     return API_BASE_URL;
   }
 
@@ -32,17 +31,8 @@ function buildUrl(path) {
     return rawPath;
   }
 
-  const normalizedPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
-
-  if (!API_BASE_URL) {
-    if (API_URL_IS_REQUIRED && !IS_DEVELOPMENT) {
-      throw new Error(API_CONFIG_ERROR_MESSAGE);
-    }
-
-    return normalizedPath;
-  }
-
-  return `${API_BASE_URL}${normalizedPath}`;
+  const normalizedPath = rawPath.startsWith('/') ? rawPath : '/' + rawPath;
+  return API_BASE_URL + normalizedPath;
 }
 
 function buildLowerHeaderMap(headers = {}) {

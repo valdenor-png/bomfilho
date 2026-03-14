@@ -1,5 +1,6 @@
 // Em producao/homologacao a URL da API deve vir explicitamente de VITE_API_URL.
 const DEFAULT_API_BASE_URL = '';
+const DEFAULT_DEV_API_BASE_URL = 'http://localhost:3000';
 const DEFAULT_API_TIMEOUT_MS = 15000;
 
 function normalizarBaseUrl(url) {
@@ -42,7 +43,7 @@ function parseTimeoutMs(valor, fallback) {
 
 const RUNTIME_ENV = detectarAmbienteRuntime();
 const ENV_API_BASE_URL = normalizarBaseUrl(import.meta.env.VITE_API_URL);
-const API_BASE_URL = ENV_API_BASE_URL || (RUNTIME_ENV === 'development' ? '' : DEFAULT_API_BASE_URL);
+const API_BASE_URL = ENV_API_BASE_URL || (RUNTIME_ENV === 'development' ? DEFAULT_DEV_API_BASE_URL : DEFAULT_API_BASE_URL);
 const API_TIMEOUT_MS = parseTimeoutMs(import.meta.env.VITE_API_TIMEOUT_MS, DEFAULT_API_TIMEOUT_MS);
 const IS_DEVELOPMENT = RUNTIME_ENV === 'development';
 const IS_PREVIEW = RUNTIME_ENV === 'vercel-preview';
@@ -57,6 +58,7 @@ if (API_URL_IS_REQUIRED && typeof console !== 'undefined') {
 
 export {
   DEFAULT_API_BASE_URL,
+  DEFAULT_DEV_API_BASE_URL,
   DEFAULT_API_TIMEOUT_MS,
   API_BASE_URL,
   API_TIMEOUT_MS,

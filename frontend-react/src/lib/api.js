@@ -576,7 +576,7 @@ export function getPedidoById(pedidoId) {
 }
 
 export function getProdutos(params = {}) {
-  return request(`/api/produtos${buildQueryString(params)}`);
+  return request('/api/produtos' + buildQueryString(params));
 }
 
 export function simularFretePorCep({ cep, veiculo = 'moto' }) {
