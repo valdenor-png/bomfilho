@@ -5,10 +5,16 @@ const CSRF_COOKIE_KEY = 'bf_csrf_token';
 const USER_ACCESS_TOKEN_KEY = 'bf_user_access_token';
 const ADMIN_ACCESS_TOKEN_KEY = 'bf_admin_access_token';
 const GENERIC_USER_ERROR_MESSAGE = 'Não foi possível concluir sua solicitação agora. Tente novamente em instantes.';
+const ENABLE_TOKEN_STORAGE = String(import.meta.env.VITE_ENABLE_TOKEN_STORAGE || 'false').trim().toLowerCase() === 'true';
+const CEP_LOOKUP_TIMEOUT_MS = 8000;
+const CEP_LOOKUP_CACHE_TTL_MS = 5 * 60 * 1000;
+const CEP_LOOKUP_CACHE_MAX_ENTRIES = 200;
 let csrfTokenCache = '';
+const cepLookupCache = new Map();
+const cepLookupInFlight = new Map();
 
 function readStorage(key) {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || !ENABLE_TOKEN_STORAGE) {
     return '';
   }
 
@@ -30,6 +36,11 @@ function writeStorage(key, value) {
       window.localStorage.removeItem(key);
       return;
     }
+
+    if (!ENABLE_TOKEN_STORAGE) {
+      return;
+    }
+
     window.localStorage.setItem(key, normalized);
   } catch {
     // Ignora falhas de storage para nao bloquear a navegacao.
@@ -107,6 +118,10 @@ function mapHttpStatusMessage(status) {
   }
 
   if (statusCode === 401) {
+    if (!ENABLE_TOKEN_STORAGE) {
+      return 'Sua sessão expirou. Faça login novamente. Se o problema continuar, verifique se os cookies do navegador estão habilitados.';
+    }
+
     return 'Sua sessão expirou. Faça login novamente.';
   }
 
@@ -142,7 +157,16 @@ function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
     if (isAdminPath) {
       return 'Sua sessão administrativa expirou. Faça login novamente.';
     }
+
+    if (!ENABLE_TOKEN_STORAGE) {
+      return 'Sua sessão expirou. Faça login novamente. Se o problema continuar, verifique se os cookies do navegador estão habilitados.';
+    }
+
     return 'Sua sessão expirou. Faça login novamente.';
+  }
+
+  if (!ENABLE_TOKEN_STORAGE && normalizedPath === '/api/auth/me' && Number(status || 0) === 401) {
+    return 'Não foi possível validar sua sessão. Verifique se os cookies do navegador estão habilitados e tente novamente.';
   }
 
   const isPagamentoPath = normalizedPath.startsWith('/api/pagamentos/') || normalizedPath.startsWith('/api/pagbank/');
@@ -284,6 +308,10 @@ async function request(path, options = {}, tentativa = 0) {
       } else {
         clearUserAccessToken();
       }
+
+      if (!ENABLE_TOKEN_STORAGE && typeof console !== 'undefined') {
+        console.warn('Sessão por cookie não reconhecida. Verifique configuração de cookies/CORS entre frontend e backend.');
+      }
     }
 
     const userMessage = mapUserMessage({
@@ -378,14 +406,34 @@ function formatarCepVisual(cep) {
   return `${digits.slice(0, 5)}-${digits.slice(5)}`;
 }
 
-export async function buscarEnderecoViaCep(cep) {
-  const cepLimpo = String(cep || '').replace(/\D/g, '').slice(0, 8);
-  if (cepLimpo.length !== 8) {
-    throw new Error('CEP inválido');
-  }
+function normalizarCep(cep) {
+  return String(cep || '').replace(/\D/g, '').slice(0, 8);
+}
+
+function montarEnderecoViaCep(data, cepLimpo) {
+  return {
+    cep: formatarCepVisual(cepLimpo),
+    logradouro: String(data?.logradouro || '').trim(),
+    bairro: String(data?.bairro || '').trim(),
+    cidade: String(data?.localidade || '').trim(),
+    estado: String(data?.uf || '').trim(),
+    complemento: String(data?.complemento || '').trim()
+  };
+}
+
+async function consultarEnderecoViaCepRemoto(cepLimpo) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => {
+      controller.abort();
+    }, CEP_LOOKUP_TIMEOUT_MS)
+    : null;
 
   try {
-    const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+    const response = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`, {
+      signal: controller?.signal,
+      cache: 'no-store'
+    });
 
     if (!response.ok) {
       throw new Error('Não foi possível consultar o CEP no momento.');
@@ -396,22 +444,91 @@ export async function buscarEnderecoViaCep(cep) {
       throw new Error('CEP não encontrado');
     }
 
-    return {
-      cep: formatarCepVisual(cepLimpo),
-      logradouro: String(data?.logradouro || '').trim(),
-      bairro: String(data?.bairro || '').trim(),
-      cidade: String(data?.localidade || '').trim(),
-      estado: String(data?.uf || '').trim(),
-      complemento: String(data?.complemento || '').trim()
-    };
+    return montarEnderecoViaCep(data, cepLimpo);
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Consulta de CEP demorou mais do que o esperado. Tente novamente.');
+    }
+
+    throw error;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+function salvarEnderecoCepNoCache(cep, endereco) {
+  if (!cep || !endereco) {
+    return;
+  }
+
+  cepLookupCache.set(cep, {
+    cachedAt: Date.now(),
+    endereco
+  });
+
+  if (cepLookupCache.size > CEP_LOOKUP_CACHE_MAX_ENTRIES) {
+    const chaveMaisAntiga = cepLookupCache.keys().next().value;
+    if (chaveMaisAntiga) {
+      cepLookupCache.delete(chaveMaisAntiga);
+    }
+  }
+}
+
+function obterEnderecoCepDoCache(cep) {
+  const cached = cepLookupCache.get(cep);
+  if (!cached) {
+    return null;
+  }
+
+  if ((Date.now() - Number(cached.cachedAt || 0)) > CEP_LOOKUP_CACHE_TTL_MS) {
+    cepLookupCache.delete(cep);
+    return null;
+  }
+
+  return cached.endereco || null;
+}
+
+export async function buscarEnderecoViaCep(cep) {
+  const cepLimpo = normalizarCep(cep);
+  if (cepLimpo.length !== 8) {
+    throw new Error('CEP inválido');
+  }
+
+  const cached = obterEnderecoCepDoCache(cepLimpo);
+  if (cached) {
+    return cached;
+  }
+
+  if (cepLookupInFlight.has(cepLimpo)) {
+    return cepLookupInFlight.get(cepLimpo);
+  }
+
+  const consultaPromise = (async () => {
+    const endereco = await consultarEnderecoViaCepRemoto(cepLimpo);
+    salvarEnderecoCepNoCache(cepLimpo, endereco);
+    return endereco;
+  })();
+
+  cepLookupInFlight.set(cepLimpo, consultaPromise);
+
+  try {
+    return await consultaPromise;
   } catch (error) {
     const mensagem = String(error?.message || '').trim();
 
-    if (mensagem === 'CEP inválido' || mensagem === 'CEP não encontrado') {
+    if (
+      mensagem === 'CEP inválido'
+      || mensagem === 'CEP não encontrado'
+      || mensagem === 'Consulta de CEP demorou mais do que o esperado. Tente novamente.'
+    ) {
       throw error;
     }
 
     throw new Error('Não foi possível consultar o CEP. Verifique sua conexão e tente novamente.');
+  } finally {
+    cepLookupInFlight.delete(cepLimpo);
   }
 }
 

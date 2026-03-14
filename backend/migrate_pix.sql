@@ -1,8 +1,7 @@
 -- Adiciona colunas para pagamentos via PIX (compatível com MySQL)
 -- Observação: MySQL NÃO suporta `ADD COLUMN IF NOT EXISTS`.
 -- Este script é idempotente: roda mais de uma vez sem quebrar.
-
-USE railway;
+-- Execute conectado ao banco alvo (ex.: mysql -D nome_do_banco < migrate_pix.sql).
 
 SET @db := DATABASE();
 

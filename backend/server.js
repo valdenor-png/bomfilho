@@ -21,6 +21,32 @@ const {
   importarProdutosPlanilha,
   listarImportacoesProdutos
 } = require('./services/produtosImportacao');
+const {
+  FORMAS_PAGAMENTO_PEDIDO_VALIDAS,
+  buscarPedidoDoUsuarioPorId,
+  extrairTaxIdDigits,
+  itensPedidoSaoValidos,
+  normalizarEntregaPedidoInput,
+  normalizarFormaPagamentoPedido,
+  normalizarItensPedidoInput
+} = require('./services/pedidoPagamentoHelpers');
+const {
+  extrairStatusPagamentoPagBank,
+  extrairPedidoIdReferencePagBank,
+  mapearStatusPedido,
+  persistirAtualizacaoPedidoWebhookPagBank,
+  resolverDadosWebhookPagBank,
+  validarTokenWebhookPagBank
+} = require('./services/pagbankWebhookService');
+const { criarRegistradorLogPagBank } = require('./services/pagbankLogService');
+const {
+  normalizarParcelasCartao,
+  normalizarTipoCartao
+} = require('./services/pagbankPaymentHelpers');
+const {
+  enviarPostPagBankOrders: enviarPostPagBankOrdersClient,
+  obterPedidoPagBank: obterPedidoPagBankClient
+} = require('./services/pagbankClientService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -69,6 +95,7 @@ const PAGBANK_TOKEN = String(process.env.PAGBANK_TOKEN || '').trim();
 const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
 const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
 const PAGBANK_DEBUG_LOGS = parseBooleanEnv('PAGBANK_DEBUG_LOGS', !IS_PRODUCTION);
+const registrarLogPagBank = criarRegistradorLogPagBank({ ativo: PAGBANK_DEBUG_LOGS });
 const ALLOW_PIX_MOCK = parseBooleanEnv('ALLOW_PIX_MOCK', false);
 const ALLOW_DEBIT_3DS_MOCK = parseBooleanEnv('ALLOW_DEBIT_3DS_MOCK', false);
 const TAMANHO_MAXIMO_IMPORTACAO_MB = (() => {
@@ -103,6 +130,15 @@ const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
 const PAGBANK_API_URL = PAGBANK_ENV === 'production'
   ? 'https://api.pagseguro.com'
   : 'https://sandbox.api.pagseguro.com';
+
+if (IS_PRODUCTION && !PAGBANK_WEBHOOK_TOKEN) {
+  throw new Error('PAGBANK_WEBHOOK_TOKEN é obrigatório em produção para validação segura dos webhooks PagBank.');
+}
+
+if (!PAGBANK_WEBHOOK_TOKEN) {
+  console.warn('⚠️ PAGBANK_WEBHOOK_TOKEN não configurado. Em produção o servidor não inicializa sem essa variável.');
+}
+
 const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
 const RECAPTCHA_MIN_SCORE = (() => {
   const valor = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
@@ -114,6 +150,12 @@ const RECAPTCHA_MIN_SCORE = (() => {
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '');
 const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
+const ALLOW_REMOTE_DIAGNOSTIC = parseBooleanEnv('ALLOW_REMOTE_DIAGNOSTIC', false);
+
+if (ALLOW_REMOTE_DIAGNOSTIC && !DIAGNOSTIC_TOKEN) {
+  console.warn('⚠️ ALLOW_REMOTE_DIAGNOSTIC=true sem DIAGNOSTIC_TOKEN. O acesso remoto de diagnóstico ficará indisponível.');
+}
+
 const CORS_ORIGINS = String(process.env.CORS_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim().replace(/\/+$/, '').toLowerCase())
@@ -1093,15 +1135,28 @@ function protegerDiagnostico(req, res, next) {
   const ip = normalizarIp(req.ip || req.socket?.remoteAddress);
   const acessoLocal = ip === '127.0.0.1' || ip === '::1';
 
-  if (!acessoLocal) {
+  if (acessoLocal) {
+    if (DIAGNOSTIC_TOKEN) {
+      const token = extrairTokenDiagnostico(req);
+      if (!token || token !== DIAGNOSTIC_TOKEN) {
+        return res.status(401).json({ erro: 'Token de diagnóstico inválido' });
+      }
+    }
+
+    return next();
+  }
+
+  if (!ALLOW_REMOTE_DIAGNOSTIC) {
     return res.status(403).json({ erro: 'Rota de diagnóstico permitida apenas localmente' });
   }
 
-  if (DIAGNOSTIC_TOKEN) {
-    const token = extrairTokenDiagnostico(req);
-    if (!token || token !== DIAGNOSTIC_TOKEN) {
-      return res.status(401).json({ erro: 'Token de diagnóstico inválido' });
-    }
+  if (!DIAGNOSTIC_TOKEN) {
+    return res.status(503).json({ erro: 'Diagnóstico remoto indisponível: DIAGNOSTIC_TOKEN não configurado.' });
+  }
+
+  const token = extrairTokenDiagnostico(req);
+  if (!token || token !== DIAGNOSTIC_TOKEN) {
+    return res.status(401).json({ erro: 'Token de diagnóstico inválido' });
   }
 
   return next();
@@ -1347,14 +1402,13 @@ function salvarCacheProdutos(chave, payload) {
 }
 
 function validarWebhookPagBank(req) {
-  if (!PAGBANK_WEBHOOK_TOKEN) {
-    return true;
-  }
-
-  const tokenHeader = String(req.headers['x-webhook-token'] || '').trim();
-  const tokenQuery = String(req.query?.token || '').trim();
-
-  return tokenHeader === PAGBANK_WEBHOOK_TOKEN || tokenQuery === PAGBANK_WEBHOOK_TOKEN;
+  return validarTokenWebhookPagBank({
+    tokenHeader: req.headers['x-webhook-token'],
+    tokenQuery: req.query?.token,
+    webhookToken: PAGBANK_WEBHOOK_TOKEN,
+    isProduction: IS_PRODUCTION,
+    compararTextoSegura
+  });
 }
 
 function validarWebhookEvolution(req) {
@@ -1698,7 +1752,7 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
 });
 
 // Teste de homologação: cria pedido mínimo no sandbox para gerar logs PagBank
-app.get('/api/pagbank/test', async (req, res) => {
+app.get('/api/pagbank/test', protegerDiagnostico, async (req, res) => {
   try {
     if (!PAGBANK_TOKEN) {
       return res.status(503).json({ erro: 'PAGBANK_TOKEN não configurado no backend' });
@@ -1985,216 +2039,13 @@ function formatarTelefoneWhatsapp(telefone) {
   return '55' + digits;
 }
 
-// Mapeia status do PagBank para status interno do pedido
-function mapearStatusPedido(statusPagBank) {
-  if (statusPagBank === 'PAID') return 'pago';
-  if (statusPagBank === 'WAITING' || statusPagBank === 'IN_ANALYSIS') return 'pendente';
-  if (statusPagBank === 'DECLINED' || statusPagBank === 'CANCELED') return 'cancelado';
-  return 'pendente';
-}
-
-function mascararTextoSensivel(valor, { prefixo = 6, sufixo = 4 } = {}) {
-  const texto = String(valor || '').trim();
-  if (!texto) {
-    return '';
-  }
-
-  if (texto.length <= prefixo + sufixo) {
-    return `${texto.slice(0, 2)}***`;
-  }
-
-  return `${texto.slice(0, prefixo)}***${texto.slice(-sufixo)}`;
-}
-
-function deveMascararCampoLog({ chave, caminho }) {
-  const key = String(chave || '').toLowerCase();
-  const pathKey = `${String(caminho || '').toLowerCase()}.${key}`;
-
-  if (['token_cartao', 'cartao_encriptado', 'encrypted', 'encryptedcard'].includes(key)) {
-    return true;
-  }
-
-  if (['tax_id', 'cpf', 'cnpj', 'x-webhook-token', 'webhook_token'].includes(key)) {
-    return true;
-  }
-
-  if (key === 'token' || key.endsWith('_token')) {
-    return true;
-  }
-
-  if (['cvv', 'securitycode', 'security_code'].includes(key)) {
-    return true;
-  }
-
-  if (key === 'number' && pathKey.includes('.card')) {
-    return true;
-  }
-
-  return false;
-}
-
-function mascararTokensEmTexto(texto) {
-  return String(texto || '').replace(
-    /([?&](?:token|access_token|signature|webhook_token)=)([^&]+)/gi,
-    '$1***'
-  );
-}
-
-function sanitizarPayloadPagBankParaLog(valor, caminho = 'root') {
-  if (Array.isArray(valor)) {
-    return valor.map((item, index) => sanitizarPayloadPagBankParaLog(item, `${caminho}[${index}]`));
-  }
-
-  if (typeof valor === 'string') {
-    return mascararTokensEmTexto(valor);
-  }
-
-  if (!valor || typeof valor !== 'object') {
-    return valor;
-  }
-
-  const saida = {};
-
-  for (const [chave, conteudo] of Object.entries(valor)) {
-    if (deveMascararCampoLog({ chave, caminho })) {
-      saida[chave] = mascararTextoSensivel(conteudo);
-      continue;
-    }
-
-    saida[chave] = sanitizarPayloadPagBankParaLog(conteudo, `${caminho}.${chave}`);
-  }
-
-  return saida;
-}
-
-function registrarLogPagBank({
-  operacao,
-  endpoint,
-  method,
-  httpStatus,
-  requestPayload,
-  responsePayload,
-  extra
-} = {}) {
-  if (!PAGBANK_DEBUG_LOGS) {
-    return;
-  }
-
-  const logSeguro = {
-    operacao: String(operacao || 'pagbank'),
-    method: String(method || 'POST').toUpperCase(),
-    endpoint: String(endpoint || ''),
-    http_status: Number.isFinite(Number(httpStatus)) ? Number(httpStatus) : null,
-    request: requestPayload !== undefined ? sanitizarPayloadPagBankParaLog(requestPayload) : undefined,
-    response: responsePayload !== undefined ? sanitizarPayloadPagBankParaLog(responsePayload) : undefined,
-    extra: extra !== undefined ? sanitizarPayloadPagBankParaLog(extra) : undefined,
-    timestamp: new Date().toISOString()
-  };
-
-  console.log('📦 PagBank debug:', JSON.stringify(logSeguro));
-}
-
 async function enviarPostPagBankOrders({ headers, payload }) {
-  const endpoint = `${PAGBANK_API_URL}/orders`;
-  const response = await fetch(endpoint, {
-    method: 'POST',
+  return enviarPostPagBankOrdersClient({
+    apiUrl: PAGBANK_API_URL,
     headers,
-    body: JSON.stringify(payload || {})
+    payload,
+    registrarLogPagBank
   });
-
-  const responseBodyText = await response.text().catch(() => '');
-
-  let responsePayload = {};
-  try {
-    responsePayload = responseBodyText ? JSON.parse(responseBodyText) : {};
-  } catch {
-    responsePayload = { raw_text: responseBodyText };
-  }
-
-  registrarLogPagBank({
-    operacao: 'orders.post',
-    endpoint,
-    method: 'POST',
-    httpStatus: response.status,
-    requestPayload: payload,
-    responsePayload
-  });
-
-  return {
-    response,
-    responseBodyText
-  };
-}
-
-function mapearStatusPorEventoPagBank(evento) {
-  const eventoUpper = String(evento || '').trim().toUpperCase();
-
-  if (!eventoUpper) {
-    return '';
-  }
-
-  if (['CHARGE.PAID', 'ORDER.PAID', 'CHARGE.CAPTURED'].includes(eventoUpper)) {
-    return 'PAID';
-  }
-
-  if (['CHARGE.DECLINED', 'ORDER.CANCELED', 'CHARGE.CANCELED', 'ORDER.DECLINED'].includes(eventoUpper)) {
-    return 'DECLINED';
-  }
-
-  if (['CHARGE.IN_ANALYSIS', 'ORDER.IN_ANALYSIS'].includes(eventoUpper)) {
-    return 'IN_ANALYSIS';
-  }
-
-  if (['ORDER.CREATED', 'CHARGE.CREATED', 'ORDER.WAITING', 'CHARGE.WAITING'].includes(eventoUpper)) {
-    return 'WAITING';
-  }
-
-  return '';
-}
-
-function extrairStatusPagamentoPagBank(payload = {}, evento) {
-  const charges = Array.isArray(payload?.charges) ? payload.charges : [];
-  const chargePrincipal = charges[0] || null;
-  const chargeStatus = String(chargePrincipal?.status || '').trim().toUpperCase();
-  const orderStatus = String(payload?.status || '').trim().toUpperCase();
-  const eventStatus = mapearStatusPorEventoPagBank(evento);
-  const statusResolvido = chargeStatus || eventStatus || orderStatus || 'WAITING';
-
-  let fonteStatus = 'fallback';
-  if (chargeStatus) {
-    fonteStatus = 'charge';
-  } else if (eventStatus) {
-    fonteStatus = 'event';
-  } else if (orderStatus) {
-    fonteStatus = 'order';
-  }
-
-  return {
-    statusResolvido,
-    fonteStatus,
-    orderStatus,
-    chargeStatus,
-    eventStatus,
-    chargePrincipal,
-    charges
-  };
-}
-
-function normalizarParcelasCartao(valor) {
-  const parcelas = Number.parseInt(valor, 10);
-  if (!Number.isFinite(parcelas) || parcelas < 1) {
-    return 1;
-  }
-
-  return Math.min(3, parcelas);
-}
-
-function normalizarTipoCartao(valor) {
-  const tipo = String(valor || '').trim().toLowerCase();
-  if (['debito', 'debit', 'debit_card'].includes(tipo)) {
-    return 'debito';
-  }
-  return 'credito';
 }
 
 async function verificarCredencialPagBank() {
@@ -2306,40 +2157,12 @@ async function verificarCredencialPagBank() {
 }
 
 async function obterPedidoPagBank(orderId) {
-  if (!PAGBANK_TOKEN) return null;
-  if (!orderId) return null;
-  const endpoint = `${PAGBANK_API_URL}/orders/${orderId}`;
-  const response = await fetch(endpoint, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${PAGBANK_TOKEN}`,
-      'Content-Type': 'application/json'
-    }
+  return obterPedidoPagBankClient({
+    apiUrl: PAGBANK_API_URL,
+    token: PAGBANK_TOKEN,
+    orderId,
+    registrarLogPagBank
   });
-  const responseText = await response.text();
-  let responsePayload = {};
-  try {
-    responsePayload = responseText ? JSON.parse(responseText) : {};
-  } catch {
-    responsePayload = { raw_text: responseText };
-  }
-
-  registrarLogPagBank({
-    operacao: 'orders.get',
-    endpoint,
-    method: 'GET',
-    httpStatus: response.status,
-    responsePayload,
-    extra: { order_id: orderId }
-  });
-
-  if (!response.ok) {
-    const detalheErro = typeof responsePayload?.raw_text === 'string'
-      ? responsePayload.raw_text
-      : JSON.stringify(responsePayload);
-    throw new Error(`Erro ao consultar PagBank order ${orderId}: ${response.status} - ${detalheErro}`);
-  }
-  return responsePayload;
 }
 
 async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxId }) {
@@ -2409,8 +2232,9 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
   console.log('🔔 PagBank notification URL:', payload.notification_urls?.[0]);
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const endpoint = `${PAGBANK_API_URL}/orders`;
 
-  const response = await fetch(`${PAGBANK_API_URL}/orders`, {
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${PAGBANK_TOKEN}`,
@@ -2453,7 +2277,8 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
+    const errorText = responseText
+      || (typeof responsePayload?.raw_text === 'string' ? responsePayload.raw_text : JSON.stringify(responsePayload));
     throw new Error(`Erro PagBank: ${response.status} - ${errorText}`);
   }
 
@@ -2573,8 +2398,9 @@ async function criarPagamentoCartao({
   }
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+  const endpoint = `${PAGBANK_API_URL}/orders`;
 
-  const response = await fetch(`${PAGBANK_API_URL}/orders`, {
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${PAGBANK_TOKEN}`,
@@ -2620,7 +2446,8 @@ async function criarPagamentoCartao({
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
+    const errorText = responseText
+      || (typeof responsePayload?.raw_text === 'string' ? responsePayload.raw_text : JSON.stringify(responsePayload));
     throw new Error(`Erro PagBank cartão: ${response.status} - ${errorText}`);
   }
 
@@ -3651,8 +3478,7 @@ app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminTok
 app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
   try {
     const { pedido_id } = req.body;
-    const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
-    const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
+    const taxIdDigits = extrairTaxIdDigits(req.body);
     const taxId = taxIdDigits || (PAGBANK_ENV === 'production' ? null : '12345678909');
 
     if (!PAGBANK_TOKEN) {
@@ -3671,21 +3497,15 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
       return res.status(400).json({ erro: 'Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.' });
     }
 
-    // Buscar pedido e dados do usuário
-    const [rows] = await pool.query(
-      `SELECT p.id, p.total, p.status, p.forma_pagamento, u.email, u.nome
-       FROM pedidos p
-       JOIN usuarios u ON p.usuario_id = u.id
-       WHERE p.id = ? AND p.usuario_id = ?
-       LIMIT 1`,
-      [pedido_id, req.usuario.id]
-    );
+    const pedido = await buscarPedidoDoUsuarioPorId({
+      connection: pool,
+      pedidoId: pedido_id,
+      usuarioId: req.usuario.id
+    });
 
-    if (!rows.length) {
+    if (!pedido) {
       return res.status(404).json({ erro: 'Pedido não encontrado para esta conta.' });
     }
-
-    const pedido = rows[0];
 
     const pagamento = await criarPagamentoPix({
       pedidoId: pedido.id,
@@ -3743,8 +3563,7 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
 app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
   try {
     const { pedido_id } = req.body || {};
-    const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
-    const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
+    const taxIdDigits = extrairTaxIdDigits(req.body);
     const tokenCartao = String(req.body?.token_cartao || req.body?.cartao_encriptado || '').trim();
     const authenticationMethod = req.body?.authentication_method;
     const tipoCartaoSolicitado = String(req.body?.tipo_cartao || req.body?.forma_pagamento || '').trim();
@@ -3777,20 +3596,15 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       return res.status(400).json({ erro: 'Não foi possível validar os dados do cartão.' });
     }
 
-    const [rows] = await pool.query(
-      `SELECT p.id, p.total, p.status, p.forma_pagamento, u.email, u.nome
-       FROM pedidos p
-       JOIN usuarios u ON p.usuario_id = u.id
-       WHERE p.id = ? AND p.usuario_id = ?
-       LIMIT 1`,
-      [pedido_id, req.usuario.id]
-    );
+    const pedido = await buscarPedidoDoUsuarioPorId({
+      connection: pool,
+      pedidoId: pedido_id,
+      usuarioId: req.usuario.id
+    });
 
-    if (!rows.length) {
+    if (!pedido) {
       return res.status(404).json({ erro: 'Pedido não encontrado para esta conta.' });
     }
-
-    const pedido = rows[0];
     const formaPagamentoPedido = String(pedido.forma_pagamento || '').toLowerCase();
     const tipoEsperadoPedido = normalizarTipoCartao(formaPagamentoPedido);
     const tipoCartao = tipoCartaoSolicitado
@@ -3890,9 +3704,12 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       tipo_cartao: tipoCartao,
       parcelas: tipoCartao === 'debito' ? 1 : parcelasAplicadas,
       authorization_code: paymentResponse?.code || null,
-      message: paymentResponse?.message || null,
-      raw: pagamento
+      message: paymentResponse?.message || null
     };
+
+    if (PAGBANK_DEBUG_LOGS && !IS_PRODUCTION) {
+      payloadResposta.raw = pagamento;
+    }
 
     registrarLogPagBank({
       operacao: 'api.pagamentos.cartao.response',
@@ -3966,22 +3783,21 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     const { itens, forma_pagamento, cupom_id, entrega } = req.body || {};
     let usuarioPedido = null;
 
-    if (!Array.isArray(itens) || itens.length === 0) {
+    const itensNormalizados = normalizarItensPedidoInput(itens);
+    if (itensNormalizados.length === 0) {
       throw criarErroHttp(400, 'Seu carrinho está vazio.');
     }
 
-    if (itens.length > 100) {
+    if (itensNormalizados.length > 100) {
       throw criarErroHttp(400, 'Este pedido excede a quantidade máxima de itens permitida.');
     }
 
-    const formaPagamento = String(forma_pagamento || 'pix').toLowerCase();
-    const formasPermitidas = new Set(['pix', 'dinheiro', 'debito', 'credito', 'cartao']);
-    if (!formasPermitidas.has(formaPagamento)) {
+    const formaPagamento = normalizarFormaPagamentoPedido(forma_pagamento);
+    if (!FORMAS_PAGAMENTO_PEDIDO_VALIDAS.has(formaPagamento)) {
       throw criarErroHttp(400, 'Forma de pagamento inválida para este pedido.');
     }
 
-    const taxIdRaw = req.body?.tax_id ?? req.body?.cpf;
-    const taxIdDigits = (taxIdRaw || '').toString().replace(/\D/g, '');
+    const taxIdDigits = extrairTaxIdDigits(req.body);
     const pagbankProducao = PAGBANK_ENV === 'production';
     const usaPagbank = ['pix', 'cartao', 'credito', 'debito'].includes(formaPagamento);
     const pixMockPermitido = !pagbankProducao && ALLOW_PIX_MOCK;
@@ -3998,54 +3814,23 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       throw criarErroHttp(400, 'Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamentos via PagBank.');
     }
 
-    const itensNormalizados = itens.map((item) => ({
-      produto_id: Number(item?.produto_id),
-      quantidade: Math.floor(Number(item?.quantidade || 1))
-    }));
-
-    if (itensNormalizados.some((item) => !Number.isInteger(item.produto_id) || item.produto_id <= 0 || !Number.isInteger(item.quantidade) || item.quantidade <= 0 || item.quantidade > 100)) {
+    if (!itensPedidoSaoValidos(itensNormalizados)) {
       throw criarErroHttp(400, 'Há itens inválidos no carrinho.');
     }
 
     const idsProdutos = [...new Set(itensNormalizados.map((item) => item.produto_id))];
     const placeholdersProdutos = idsProdutos.map(() => '?').join(', ');
+    let itensCalculados = [];
+    let total = 0;
 
-    const [produtos] = await connection.query(
-      `SELECT id, nome, preco FROM produtos WHERE ativo = TRUE AND id IN (${placeholdersProdutos})`,
-      idsProdutos
-    );
-
-    if (produtos.length !== idsProdutos.length) {
-      throw criarErroHttp(400, 'Um ou mais produtos do carrinho estão indisponíveis.');
-    }
-
-    const produtosPorId = new Map(produtos.map((produto) => [Number(produto.id), produto]));
-    const itensCalculados = itensNormalizados.map((item) => {
-      const produto = produtosPorId.get(item.produto_id);
-      const precoUnitario = Number(produto.preco || 0);
-      const subtotal = Number((precoUnitario * item.quantidade).toFixed(2));
-
-      return {
-        produto_id: item.produto_id,
-        nome: produto.nome,
-        preco: precoUnitario,
-        quantidade: item.quantidade,
-        subtotal
-      };
-    });
-
-    const total = Number(itensCalculados.reduce((acumulado, item) => acumulado + item.subtotal, 0).toFixed(2));
-    if (!Number.isFinite(total) || total <= 0) {
-      throw criarErroHttp(400, 'Não foi possível calcular o total do pedido.');
-    }
-
-    if (!entrega || typeof entrega !== 'object') {
+    const entregaInput = normalizarEntregaPedidoInput(entrega, normalizarCep);
+    if (!entregaInput) {
       throw criarErroHttp(400, 'Informe os dados de entrega para continuar.');
     }
 
-    const veiculoEntrega = String(entrega.veiculo || 'moto').trim().toLowerCase();
-    const cepDestinoEntrega = normalizarCep(entrega.cep_destino || entrega.cep);
-    const numeroDestinoEntrega = String(entrega.numero_destino || entrega.numero || '').trim();
+    const veiculoEntrega = entregaInput.veiculo;
+    const cepDestinoEntrega = entregaInput.cepDestino;
+    const numeroDestinoEntrega = entregaInput.numeroDestino;
 
     if (cepDestinoEntrega.length !== 8) {
       throw criarErroHttp(400, 'Informe um CEP de entrega válido.');
@@ -4081,6 +3866,44 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
 
     await connection.beginTransaction();
     transacaoAberta = true;
+
+    const [produtos] = await connection.query(
+      `SELECT id, nome, preco, estoque
+       FROM produtos
+       WHERE ativo = TRUE AND id IN (${placeholdersProdutos})
+       FOR UPDATE`,
+      idsProdutos
+    );
+
+    if (produtos.length !== idsProdutos.length) {
+      throw criarErroHttp(400, 'Um ou mais produtos do carrinho estão indisponíveis.');
+    }
+
+    const produtosPorId = new Map(produtos.map((produto) => [Number(produto.id), produto]));
+    itensCalculados = itensNormalizados.map((item) => {
+      const produto = produtosPorId.get(item.produto_id);
+      const precoUnitario = Number(produto.preco || 0);
+      const estoqueDisponivel = Math.max(0, Number(produto.estoque || 0));
+
+      if (item.quantidade > estoqueDisponivel) {
+        throw criarErroHttp(409, `Estoque insuficiente para ${produto.nome}. Disponível: ${estoqueDisponivel}.`);
+      }
+
+      const subtotal = Number((precoUnitario * item.quantidade).toFixed(2));
+
+      return {
+        produto_id: item.produto_id,
+        nome: produto.nome,
+        preco: precoUnitario,
+        quantidade: item.quantidade,
+        subtotal
+      };
+    });
+
+    total = Number(itensCalculados.reduce((acumulado, item) => acumulado + item.subtotal, 0).toFixed(2));
+    if (!Number.isFinite(total) || total <= 0) {
+      throw criarErroHttp(400, 'Não foi possível calcular o total do pedido.');
+    }
 
     let descontoAplicado = 0;
     let cupomIdValidado = null;
@@ -4151,6 +3974,15 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
         'INSERT INTO pedido_itens (pedido_id, produto_id, nome_produto, preco, quantidade, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
         [pedidoId, item.produto_id, item.nome, item.preco, item.quantidade, item.subtotal]
       );
+
+      const [resultadoEstoque] = await connection.query(
+        'UPDATE produtos SET estoque = estoque - ? WHERE id = ? AND estoque >= ?',
+        [item.quantidade, item.produto_id, item.quantidade]
+      );
+
+      if (!Number(resultadoEstoque?.affectedRows || 0)) {
+        throw criarErroHttp(409, `Não foi possível reservar estoque para ${item.nome}.`);
+      }
     }
 
     // Registrar uso do cupom
@@ -4674,36 +4506,68 @@ app.post('/api/webhooks/evolution', async (req, res) => {
 async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pagbank') {
   try {
     if (!validarWebhookPagBank(req)) {
+      registrarLogPagBank({
+        operacao: 'webhook.pagbank.rejeitado',
+        endpoint: endpointLog,
+        method: 'POST',
+        httpStatus: 401,
+        requestPayload: req.body,
+        responsePayload: {
+          erro: 'Webhook não autorizado'
+        },
+        extra: {
+          motivo: PAGBANK_WEBHOOK_TOKEN ? 'token_invalido' : 'webhook_token_nao_configurado',
+          ambiente: NODE_ENV
+        }
+      });
+
       return res.status(401).json({ erro: 'Webhook não autorizado' });
     }
 
     const notificacao = req.body || {};
     const eventType = String(notificacao?.event || notificacao?.type || '').trim().toUpperCase();
 
-    // PagBank envia notificações com estrutura:
+    // PagBank envia notificacoes com estrutura:
     // { id, reference_id, charges: [{ id, status, ... }] }
-    
-    if (!notificacao || !notificacao.id) {
-      return res.status(400).json({ erro: 'Notificação inválida' });
+    const dadosWebhook = await resolverDadosWebhookPagBank({
+      notificacao,
+      pagbankToken: PAGBANK_TOKEN,
+      isProduction: IS_PRODUCTION,
+      obterPedidoPagBank,
+      eventType
+    });
+
+    if (dadosWebhook?.erroResposta) {
+      registrarLogPagBank({
+        operacao: 'webhook.pagbank.invalido',
+        endpoint: endpointLog,
+        method: 'POST',
+        httpStatus: dadosWebhook.erroResposta.status,
+        requestPayload: notificacao,
+        responsePayload: {
+          erro: dadosWebhook.erroResposta.mensagem
+        },
+        extra: {
+          event_type: eventType || null,
+          consulta_pagbank_tentou: Boolean(dadosWebhook?.consultaPagBank?.tentou),
+          consulta_pagbank_sucesso: Boolean(dadosWebhook?.consultaPagBank?.sucesso),
+          consulta_pagbank_erro: dadosWebhook?.consultaPagBank?.erro || null
+        }
+      });
+
+      return res.status(dadosWebhook.erroResposta.status).json({
+        erro: dadosWebhook.erroResposta.mensagem
+      });
     }
 
-    const orderId = String(notificacao.id).trim();
-
-    // Alguns eventos podem vir sem reference_id/charges.
-    // Se faltar, consulta o pedido no PagBank para obter os dados completos.
-    let referenceId = notificacao.reference_id; // Ex: "pedido_123"
-    let charges = Array.isArray(notificacao.charges) ? notificacao.charges : [];
-    let orderStatus = String(notificacao?.status || '').trim().toUpperCase();
-    if ((!referenceId || charges.length === 0 || !orderStatus) && PAGBANK_TOKEN) {
-      try {
-        const detalhes = await obterPedidoPagBank(orderId);
-        referenceId = referenceId || detalhes?.reference_id;
-        charges = charges.length ? charges : (detalhes?.charges || []);
-        orderStatus = orderStatus || String(detalhes?.status || '').trim().toUpperCase();
-      } catch (errConsulta) {
-        console.error('Erro ao consultar pedido no PagBank:', errConsulta.message);
-      }
-    }
+    const {
+      orderId,
+      referenceId,
+      charges,
+      orderStatus,
+      detalhesOrder,
+      consultaPagBank
+    } = dadosWebhook;
 
     const statusInfo = extrairStatusPagamentoPagBank(
       {
@@ -4731,108 +4595,89 @@ async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pa
         status_pagbank: statusPagBank,
         status_fonte: statusInfo.fonteStatus,
         status_order: statusInfo.orderStatus || null,
-        status_charge: statusInfo.chargeStatus || null
+        status_charge: statusInfo.chargeStatus || null,
+        dados_confirmados_pagbank: Boolean(detalhesOrder),
+        consulta_pagbank_tentou: Boolean(consultaPagBank?.tentou),
+        consulta_pagbank_sucesso: Boolean(consultaPagBank?.sucesso),
+        consulta_pagbank_erro: consultaPagBank?.erro || null
       }
     });
-    
-    // Extrair pedidoId do reference_id (formato: "pedido_123")
-    let pedidoId = null;
-    if (referenceId && referenceId.startsWith('pedido_')) {
-      const parsedPedidoId = Number.parseInt(referenceId.replace('pedido_', ''), 10);
-      pedidoId = Number.isInteger(parsedPedidoId) ? parsedPedidoId : null;
+
+    const pedidoId = extrairPedidoIdReferencePagBank(referenceId);
+    const resultadoPersistencia = await persistirAtualizacaoPedidoWebhookPagBank({
+      pool,
+      pedidoId,
+      orderId,
+      statusInterno,
+      statusPagBank,
+      chargeId,
+      endpointLog,
+      registrarLogPagBank
+    });
+
+    if (!resultadoPersistencia?.ok) {
+      registrarLogPagBank({
+        operacao: 'webhook.pagbank.persistencia.falha',
+        endpoint: endpointLog,
+        method: 'POST',
+        httpStatus: Number(resultadoPersistencia?.httpStatus || 503),
+        requestPayload: notificacao,
+        responsePayload: {
+          erro: resultadoPersistencia?.mensagem || 'Evento recebido, mas não foi possível persistir o webhook localmente.',
+          status_interno: statusInterno,
+          status_pagbank: statusPagBank
+        },
+        extra: {
+          order_id: orderId,
+          pedido_id: pedidoId,
+          retryable: Boolean(resultadoPersistencia?.retryable),
+          lookup: resultadoPersistencia?.lookup || null,
+          persist_mode: resultadoPersistencia?.modoPersistencia || null,
+          linhas_afetadas: Number(resultadoPersistencia?.linhasAfetadas || 0)
+        }
+      });
+
+      return res.status(Number(resultadoPersistencia?.httpStatus || 503)).json({
+        erro: resultadoPersistencia?.mensagem || 'Evento recebido, mas não foi possível persistir o webhook localmente.'
+      });
     }
 
-    if (pedidoId) {
-      try {
-        let resultadoUpdate = null;
-        let modoPersistencia = 'completo';
-
-        try {
-          const [resultadoCompleto] = await pool.query(
-            'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ? WHERE id = ?',
-            [statusInterno, statusPagBank, orderId, pedidoId]
-          );
-          resultadoUpdate = resultadoCompleto;
-        } catch (erroUpdateCompleto) {
-          const colunaPixAusente = /unknown column\s+'(?:pix_status|pix_id)'/i.test(String(erroUpdateCompleto?.message || ''));
-          if (!colunaPixAusente) {
-            throw erroUpdateCompleto;
-          }
-
-          const [resultadoFallback] = await pool.query(
-            'UPDATE pedidos SET status = ? WHERE id = ?',
-            [statusInterno, pedidoId]
-          );
-          resultadoUpdate = resultadoFallback;
-          modoPersistencia = 'fallback_sem_colunas_pix';
-          console.warn('⚠️ Coluna pix_status/pix_id ausente. Persistindo webhook PagBank em modo fallback por status.');
+    if (resultadoPersistencia.parcial) {
+      registrarLogPagBank({
+        operacao: 'webhook.pagbank.persistencia.parcial',
+        endpoint: endpointLog,
+        method: 'POST',
+        httpStatus: 202,
+        responsePayload: {
+          mensagem: resultadoPersistencia?.mensagem || 'Webhook persistido parcialmente.'
+        },
+        extra: {
+          order_id: orderId,
+          pedido_id: pedidoId,
+          lookup: resultadoPersistencia?.lookup || null,
+          persist_mode: resultadoPersistencia?.modoPersistencia || null,
+          linhas_afetadas: Number(resultadoPersistencia?.linhasAfetadas || 0)
         }
+      });
 
-        console.log(`✅ Pedido #${pedidoId} atualizado para status: ${statusInterno}`);
-        registrarLogPagBank({
-          operacao: 'webhook.pagbank.persistencia',
-          endpoint: endpointLog,
-          method: 'POST',
-          responsePayload: {
-            pedido_id: pedidoId,
-            order_id: orderId,
-            charge_id: chargeId,
-            persist_mode: modoPersistencia,
-            status_interno: statusInterno,
-            status_pagbank: statusPagBank,
-            linhas_afetadas: Number(resultadoUpdate?.affectedRows || 0)
-          }
-        });
-      } catch (err) {
-        console.error('Erro ao atualizar pedido:', err.message);
-      }
-    } else {
-      // Tentar encontrar pelo pix_id
-      try {
-        let resultadoUpdate = null;
-        let modoPersistencia = 'completo';
-
-        try {
-          const [resultadoCompleto] = await pool.query(
-            'UPDATE pedidos SET status = ?, pix_status = ? WHERE pix_id = ?',
-            [statusInterno, statusPagBank, orderId]
-          );
-          resultadoUpdate = resultadoCompleto;
-        } catch (erroUpdateCompleto) {
-          const colunaPixAusente = /unknown column\s+'(?:pix_status|pix_id)'/i.test(String(erroUpdateCompleto?.message || ''));
-          if (!colunaPixAusente) {
-            throw erroUpdateCompleto;
-          }
-
-          // Sem pix_id no schema, não é possível localizar pedido por orderId quando reference_id não mapeia para pedido_id.
-          resultadoUpdate = { affectedRows: 0 };
-          modoPersistencia = 'fallback_sem_colunas_pix_sem_lookup';
-          console.warn('⚠️ Coluna pix_status/pix_id ausente e sem pedido_id no reference_id. Persistência do webhook não aplicada.');
-        }
-
-        console.log(`✅ Pedido com pix_id ${orderId} atualizado para status: ${statusInterno}`);
-        registrarLogPagBank({
-          operacao: 'webhook.pagbank.persistencia',
-          endpoint: endpointLog,
-          method: 'POST',
-          responsePayload: {
-            pix_id: orderId,
-            order_id: orderId,
-            charge_id: chargeId,
-            persist_mode: modoPersistencia,
-            status_interno: statusInterno,
-            status_pagbank: statusPagBank,
-            linhas_afetadas: Number(resultadoUpdate?.affectedRows || 0)
-          }
-        });
-      } catch (err) {
-        console.error('Erro ao atualizar pedido por pix_id:', err.message);
-      }
+      return res.sendStatus(202);
     }
 
     return res.sendStatus(200);
   } catch (erro) {
     console.error('Erro no webhook do PagBank:', erro);
+
+    registrarLogPagBank({
+      operacao: 'webhook.pagbank.erro',
+      endpoint: endpointLog,
+      method: 'POST',
+      httpStatus: 500,
+      requestPayload: req.body,
+      responsePayload: {
+        erro: erro?.message || 'Erro interno no processamento do webhook PagBank'
+      }
+    });
+
     return res.sendStatus(500);
   }
 }

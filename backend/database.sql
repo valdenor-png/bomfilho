@@ -70,11 +70,19 @@ CREATE TABLE IF NOT EXISTS pedidos (
     total DECIMAL(10, 2) NOT NULL,
     status VARCHAR(50) DEFAULT 'pendente',
     forma_pagamento VARCHAR(20) DEFAULT 'pix',
+    mp_payment_id VARCHAR(64) NULL,
+    pix_status VARCHAR(32) NULL,
+    pix_qr_data TEXT NULL,
+    pix_qr_base64 LONGTEXT NULL,
+    pix_id VARCHAR(64) NULL,
+    pix_codigo TEXT NULL,
+    pix_qrcode TEXT NULL,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
     INDEX idx_usuario (usuario_id),
-    INDEX idx_status (status)
+    INDEX idx_status (status),
+    INDEX idx_pix_id (pix_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================

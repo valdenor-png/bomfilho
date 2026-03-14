@@ -59,7 +59,13 @@ Defina no painel do Render:
 Se usar pagamento/whatsapp:
 
 - `PAGBANK_ENV`, `PAGBANK_TOKEN`, `PAGBANK_WEBHOOK_TOKEN`
+- `PAGBANK_WEBHOOK_TOKEN` é obrigatório em produção (sem ele o backend não inicializa)
 - `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`
+
+Diagnóstico remoto opcional (somente quando necessário):
+
+- `ALLOW_REMOTE_DIAGNOSTIC=true`
+- `DIAGNOSTIC_TOKEN=<token forte e aleatório>`
 
 ### Teste rapido do backend
 

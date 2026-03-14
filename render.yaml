@@ -53,6 +53,8 @@ services:
         value: "false"
       - key: DIAGNOSTIC_TOKEN
         sync: false
+      - key: ALLOW_REMOTE_DIAGNOSTIC
+        value: "false"
       - key: CEP_MERCADO
         sync: false
       - key: NUMERO_MERCADO

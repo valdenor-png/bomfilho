@@ -47,10 +47,16 @@ SOURCE backend/migrate_remover_favoritos_fidelidade.sql;
 Se utilizar PIX e WhatsApp:
 
 - PAGBANK_ENV, PAGBANK_TOKEN, PAGBANK_PUBLIC_KEY, PAGBANK_WEBHOOK_TOKEN
+- PAGBANK_WEBHOOK_TOKEN é obrigatório em produção (o backend não inicializa sem essa variável)
 - PAGBANK_DEBUG_LOGS=true (recomendado em homologação)
 - ALLOW_PIX_MOCK=false (recomendado em homologação real)
 - ALLOW_DEBIT_3DS_MOCK=false (produção/homologação real deve usar 3DS real)
 - EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE
+
+Diagnóstico remoto opcional (somente quando necessário):
+
+- ALLOW_REMOTE_DIAGNOSTIC=true
+- DIAGNOSTIC_TOKEN=<token forte e aleatório>
 
 Teste rápido:
 
