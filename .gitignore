@@ -117,4 +117,7 @@ Desktop.ini
 .directory
 .Trash-*
 
+# Evita clone aninhado do proprio repositorio na raiz
+/bomfilho/
+
 
