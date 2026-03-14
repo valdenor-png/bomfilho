@@ -1693,6 +1693,120 @@ body {
   margin-top: 0;
 }
 
+.conta-auth-field-note {
+  margin: -0.18rem 0 0;
+  color: #4a5568;
+  font-size: 0.79rem;
+}
+
+.conta-auth-field-note.is-error {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.conta-auth-field-note.is-success {
+  color: #166534;
+  font-weight: 700;
+}
+
+.conta-password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.42rem;
+  align-items: center;
+}
+
+.conta-password-toggle {
+  border: 1px solid #cbd5e0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2937;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.conta-password-toggle:hover {
+  border-color: #9aa7b8;
+  background: #f8fafc;
+}
+
+.conta-password-strength-box {
+  border: 1px solid #dce8e0;
+  border-radius: 10px;
+  background: #fbfefc;
+  padding: 0.58rem;
+  display: grid;
+  gap: 0.36rem;
+}
+
+.conta-password-meter {
+  height: 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.conta-password-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  width: 0;
+  transition: width 180ms ease, background-color 180ms ease;
+}
+
+.conta-password-meter-fill.is-weak {
+  background: #dc2626;
+}
+
+.conta-password-meter-fill.is-medium {
+  background: #d97706;
+}
+
+.conta-password-meter-fill.is-strong {
+  background: #15803d;
+}
+
+.conta-password-strength-label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.conta-password-strength-label.is-weak {
+  color: #b91c1c;
+}
+
+.conta-password-strength-label.is-medium {
+  color: #92400e;
+}
+
+.conta-password-strength-label.is-strong {
+  color: #166534;
+}
+
+.conta-password-checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.conta-password-checklist li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.conta-password-checklist li.is-ok {
+  color: #166534;
+  font-weight: 700;
+}
+
 .conta-auth-note {
   margin-top: 0.35rem;
 }
@@ -1720,7 +1834,10 @@ body {
 :root[data-high-contrast='true'] .conta-address-content,
 :root[data-high-contrast='true'] .conta-endereco-feedback,
 :root[data-high-contrast='true'] .conta-endereco-field .field-input,
-:root[data-high-contrast='true'] .conta-info-text {
+:root[data-high-contrast='true'] .conta-info-text,
+:root[data-high-contrast='true'] .conta-password-strength-box,
+:root[data-high-contrast='true'] .conta-password-toggle,
+:root[data-high-contrast='true'] .conta-password-field .field-input {
   background: #ffffff;
   color: #111111;
   border-color: #111111;
@@ -2298,6 +2415,7 @@ body {
 :root[data-high-contrast='true'] .payment-taxid,
 :root[data-high-contrast='true'] .payment-card-panel,
 :root[data-high-contrast='true'] .payment-order-summary,
+:root[data-high-contrast='true'] .payment-readiness-card,
 :root[data-high-contrast='true'] .checkout-payment-actions-card,
 :root[data-high-contrast='true'] .checkout-pix-main,
 :root[data-high-contrast='true'] .checkout-pix-payment-panel,
@@ -3302,6 +3420,52 @@ body {
 .checkout-payment-actions-card {
   margin-top: 0;
   gap: 0.5rem;
+}
+
+.payment-readiness-card {
+  border: 1px solid #d7e6dc;
+  border-radius: 12px;
+  background: #f8fdf9;
+  padding: 0.62rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.payment-readiness-title {
+  margin: 0;
+  color: #14532d;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.payment-readiness-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.payment-readiness-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #475569;
+  font-size: 0.84rem;
+}
+
+.payment-readiness-list li.is-ok {
+  color: #166534;
+  font-weight: 700;
+}
+
+.payment-readiness-icon {
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
+  font-weight: 800;
 }
 
 .checkout-payment-actions {

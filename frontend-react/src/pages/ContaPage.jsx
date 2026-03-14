@@ -108,6 +108,81 @@ function formatarTelefone(valor) {
   return String(valor || '').trim();
 }
 
+function normalizarTelefoneCadastro(valor) {
+  return String(valor || '').replace(/\D/g, '').slice(0, 11);
+}
+
+function formatarTelefoneCadastro(valor) {
+  const digits = normalizarTelefoneCadastro(valor);
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  if (digits.length <= 6) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  }
+
+  if (digits.length <= 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+function avaliarForcaSenha(valor) {
+  const senhaAtual = String(valor || '');
+  const checks = [
+    {
+      id: 'length',
+      label: 'Pelo menos 8 caracteres',
+      ok: senhaAtual.length >= 8
+    },
+    {
+      id: 'letters',
+      label: 'Letras maiúsculas e minúsculas',
+      ok: /[A-Z]/.test(senhaAtual) && /[a-z]/.test(senhaAtual)
+    },
+    {
+      id: 'number',
+      label: 'Ao menos 1 número',
+      ok: /\d/.test(senhaAtual)
+    },
+    {
+      id: 'symbol',
+      label: 'Ao menos 1 símbolo',
+      ok: /[^A-Za-z0-9]/.test(senhaAtual)
+    }
+  ];
+
+  const score = checks.reduce((accumulator, check) => accumulator + (check.ok ? 1 : 0), 0);
+
+  if (score <= 1) {
+    return {
+      checks,
+      score,
+      level: 'fraca',
+      tone: 'weak'
+    };
+  }
+
+  if (score <= 3) {
+    return {
+      checks,
+      score,
+      level: 'média',
+      tone: 'medium'
+    };
+  }
+
+  return {
+    checks,
+    score,
+    level: 'forte',
+    tone: 'strong'
+  };
+}
+
 function obterIniciais(nome) {
   const normalizado = String(nome || '').trim();
   if (!normalizado) {
@@ -264,6 +339,8 @@ export default function ContaPage() {
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [confirmacaoSenha, setConfirmacaoSenha] = useState('');
+  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [telefone, setTelefone] = useState('');
   const [whatsappOptIn, setWhatsappOptIn] = useState(true);
   const [recaptchaToken, setRecaptchaToken] = useState('');
@@ -623,6 +700,23 @@ export default function ContaPage() {
     setErro('');
     setMensagemInfo('');
 
+    const telefoneNormalizado = normalizarTelefoneCadastro(telefone);
+    if (telefoneNormalizado.length < 10) {
+      setErro('Informe um telefone com DDD para criar a conta.');
+      return;
+    }
+
+    const scoreSenha = avaliarForcaSenha(senha).score;
+    if (scoreSenha < 3) {
+      setErro('Use uma senha mais forte para criar a conta.');
+      return;
+    }
+
+    if (senha !== confirmacaoSenha) {
+      setErro('A confirmação de senha não confere.');
+      return;
+    }
+
     if (recaptchaEnabled && !recaptchaToken) {
       setErro(recaptchaErroCarregamento || 'Confirme o reCAPTCHA para continuar.');
       return;
@@ -635,7 +729,7 @@ export default function ContaPage() {
         nome: nome.trim(),
         email: email.trim(),
         senha,
-        telefone: telefone.trim(),
+        telefone: telefoneNormalizado,
         whatsappOptIn,
         recaptchaToken
       });
@@ -645,6 +739,8 @@ export default function ContaPage() {
         promocoesWhatsapp: Boolean(data?.usuario?.whatsapp_opt_in ?? whatsappOptIn)
       }));
       setSenha('');
+      setConfirmacaoSenha('');
+      setMostrarSenha(false);
     } catch (error) {
       setErro(error.message);
     } finally {
@@ -669,6 +765,8 @@ export default function ContaPage() {
     setNome('');
     setEmail('');
     setSenha('');
+    setConfirmacaoSenha('');
+    setMostrarSenha(false);
     setTelefone('');
     setWhatsappOptIn(true);
     setMensagemInfo('');
@@ -751,6 +849,10 @@ export default function ContaPage() {
   const nomeExibicao = String(usuario?.nome || 'Cliente').trim() || 'Cliente';
   const emailExibicao = String(usuario?.email || 'Sem e-mail cadastrado').trim() || 'Sem e-mail cadastrado';
   const telefoneExibicao = formatarTelefone(usuario?.telefone);
+  const telefoneCadastroNormalizado = normalizarTelefoneCadastro(telefone);
+  const senhaStrength = useMemo(() => avaliarForcaSenha(senha), [senha]);
+  const senhaFracaCadastro = modo === 'cadastro' && senha.length > 0 && senhaStrength.score < 3;
+  const confirmacaoSenhaInvalida = modo === 'cadastro' && confirmacaoSenha.length > 0 && senha !== confirmacaoSenha;
   const iniciaisAvatar = obterIniciais(nomeExibicao);
   const resumoEndereco = useMemo(() => montarResumoEndereco(enderecoPrincipal), [enderecoPrincipal]);
 
@@ -1135,6 +1237,9 @@ export default function ContaPage() {
                   className={`auth-switch-btn ${modo === 'login' ? 'active' : ''}`}
                   onClick={() => {
                     setModo('login');
+                    setSenha('');
+                    setConfirmacaoSenha('');
+                    setMostrarSenha(false);
                     setErro('');
                     setMensagemInfo('');
                     resetRecaptcha();
@@ -1147,6 +1252,9 @@ export default function ContaPage() {
                   className={`auth-switch-btn ${modo === 'cadastro' ? 'active' : ''}`}
                   onClick={() => {
                     setModo('cadastro');
+                    setSenha('');
+                    setConfirmacaoSenha('');
+                    setMostrarSenha(false);
                     setErro('');
                     setMensagemInfo('');
                     resetRecaptcha();
@@ -1179,10 +1287,18 @@ export default function ContaPage() {
                     id="telefone"
                     className="field-input"
                     type="tel"
+                    inputMode="numeric"
+                    autoComplete="tel"
+                    maxLength={15}
+                    placeholder="(91) 99999-9999"
                     value={telefone}
-                    onChange={(event) => setTelefone(event.target.value)}
+                    onChange={(event) => setTelefone(formatarTelefoneCadastro(event.target.value))}
                     required
                   />
+
+                  <p className="conta-auth-field-note">
+                    Telefone com DDD para receber atualizações de entrega.
+                  </p>
                 </>
               ) : null}
 
@@ -1197,14 +1313,79 @@ export default function ContaPage() {
               />
 
               <label className="field-label" htmlFor="senha">Senha</label>
-              <input
-                id="senha"
-                className="field-input"
-                type="password"
-                value={senha}
-                onChange={(event) => setSenha(event.target.value)}
-                required
-              />
+              <div className="conta-password-field">
+                <input
+                  id="senha"
+                  className="field-input"
+                  type={mostrarSenha ? 'text' : 'password'}
+                  value={senha}
+                  onChange={(event) => setSenha(event.target.value)}
+                  required
+                />
+
+                <button
+                  className="conta-password-toggle"
+                  type="button"
+                  onClick={() => setMostrarSenha((current) => !current)}
+                  aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                >
+                  {mostrarSenha ? 'Ocultar' : 'Mostrar'}
+                </button>
+              </div>
+
+              {modo === 'cadastro' ? (
+                <>
+                  <div className="conta-password-strength-box" aria-live="polite">
+                    <div className="conta-password-meter" aria-hidden="true">
+                      <span
+                        className={`conta-password-meter-fill is-${senhaStrength.tone}`}
+                        style={{ width: `${(senhaStrength.score / 4) * 100}%` }}
+                      />
+                    </div>
+
+                    <p className={`conta-password-strength-label is-${senhaStrength.tone}`}>
+                      Força da senha: {senhaStrength.level}
+                    </p>
+
+                    <ul className="conta-password-checklist">
+                      {senhaStrength.checks.map((check) => (
+                        <li key={check.id} className={check.ok ? 'is-ok' : ''}>
+                          <span aria-hidden="true">{check.ok ? '✓' : '•'}</span>
+                          <span>{check.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <label className="field-label" htmlFor="confirmacao-senha">Confirmar senha</label>
+                  <input
+                    id="confirmacao-senha"
+                    className="field-input"
+                    type={mostrarSenha ? 'text' : 'password'}
+                    value={confirmacaoSenha}
+                    onChange={(event) => setConfirmacaoSenha(event.target.value)}
+                    required
+                  />
+
+                  {confirmacaoSenha ? (
+                    <p className={`conta-auth-field-note ${confirmacaoSenhaInvalida ? 'is-error' : 'is-success'}`}>
+                      {confirmacaoSenhaInvalida ? 'As senhas não coincidem.' : 'As senhas conferem.'}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+
+              {senhaFracaCadastro ? (
+                <p className="conta-auth-field-note is-error">
+                  Reforce sua senha para seguir com o cadastro.
+                </p>
+              ) : null}
+
+              {modo === 'cadastro' && telefoneCadastroNormalizado.length > 0 && telefoneCadastroNormalizado.length < 10 ? (
+                <p className="conta-auth-field-note is-error">
+                  Telefone incompleto. Informe DDD e número.
+                </p>
+              ) : null}
 
               {modo === 'cadastro' ? (
                 <label className="check-row">

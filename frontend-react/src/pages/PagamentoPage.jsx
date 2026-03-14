@@ -1582,6 +1582,20 @@ export default function PagamentoPage() {
   const documentoObrigatorioNaoPreenchido = documentoTocado && documentoDigits.length === 0;
   const documentoInvalidoPagamento = documentoTocado && documentoDigits.length > 0 && !documentoValidoPagamento;
   const documentoValidoFeedback = documentoTocado && documentoValidoPagamento;
+  const nomeTitularCartaoValido = String(nomeTitularCartao || '').trim().length >= 3;
+  const numeroCartaoValido = normalizarNumeroCartao(numeroCartao).length >= 13;
+  const mesCartaoNumero = Number.parseInt(formatarMesCartao(mesExpiracaoCartao), 10);
+  const mesCartaoValido = Number.isInteger(mesCartaoNumero) && mesCartaoNumero >= 1 && mesCartaoNumero <= 12;
+  const anoCartaoNormalizado = formatarAnoCartao(anoExpiracaoCartao);
+  const anoCartaoNumero = Number.parseInt(anoCartaoNormalizado, 10);
+  const anoAtual = new Date().getFullYear();
+  const mesAtual = new Date().getMonth() + 1;
+  const anoCartaoValido = anoCartaoNormalizado.length === 4
+    && Number.isInteger(anoCartaoNumero)
+    && (anoCartaoNumero > anoAtual || (anoCartaoNumero === anoAtual && mesCartaoValido && mesCartaoNumero >= mesAtual));
+  const cvvCartaoValido = [3, 4].includes(formatarCvvCartao(cvvCartao).length);
+  const dadosCartaoCompletos = nomeTitularCartaoValido && numeroCartaoValido && mesCartaoValido && anoCartaoValido && cvvCartaoValido;
+  const cartaoProntoParaContinuar = !pagamentoCartaoSelecionado || Boolean(tokenCartao) || dadosCartaoCompletos;
   const formaPagamentoAtual = FORMAS_PAGAMENTO_OPCOES[formaPagamento] || FORMAS_PAGAMENTO_OPCOES.pix;
   const resumoFretePagamento = resultadoPedido?.pedido_id ? freteSelecionado : simulacaoFrete ? freteAtual : null;
   const resumoTotalPagamento = resultadoPedido?.pedido_id ? totalComEntregaPedido : simulacaoFrete ? totalComFreteAtual : Number(resumo.total || 0);
@@ -1593,7 +1607,8 @@ export default function PagamentoPage() {
     || carregando
     || simulandoFrete
     || buscandoChavePublica
-    || !documentoValidoPagamento;
+    || !documentoValidoPagamento
+    || (pagamentoCartaoSelecionado && !cartaoProntoParaContinuar);
   const mensagemBloqueioPagamento = pagamentoSemItens
     ? 'Seu carrinho está vazio. Adicione produtos para seguir com o pagamento.'
     : pagamentoSemFreteCalculado
@@ -1602,6 +1617,8 @@ export default function PagamentoPage() {
         ? 'Informe CPF/CNPJ para habilitar a continuação.'
         : !documentoValidoPagamento
           ? 'Documento inválido. Use CPF com 11 dígitos ou CNPJ com 14 dígitos.'
+          : pagamentoCartaoSelecionado && !cartaoProntoParaContinuar
+            ? 'Complete os dados do cartão para habilitar a continuação.'
         : '';
   const codigoPixAtual = String(resultadoPix?.qr_data || resultadoPix?.pix_codigo || resultadoPedido?.pix_codigo || '').trim();
   const qrCodeBase64Atual = String(resultadoPix?.qr_code_base64 || '').trim();
@@ -1620,6 +1637,30 @@ export default function PagamentoPage() {
     : codigoPixAtual || qrCodePixSrc
       ? 'Atualizar QR Code'
       : 'Gerar QR Code PIX';
+  const checklistPagamento = [
+    {
+      id: 'itens',
+      label: 'Itens do pedido prontos',
+      ok: !pagamentoSemItens || Boolean(resultadoPedido?.pedido_id)
+    },
+    {
+      id: 'frete',
+      label: 'Frete calculado',
+      ok: !pagamentoSemFreteCalculado
+    },
+    {
+      id: 'documento',
+      label: 'CPF/CNPJ válido',
+      ok: documentoValidoPagamento
+    },
+    pagamentoCartaoSelecionado
+      ? {
+        id: 'cartao',
+        label: tokenCartao ? 'Dados do cartão validados' : 'Dados do cartão preenchidos',
+        ok: cartaoProntoParaContinuar
+      }
+      : null
+  ].filter(Boolean);
   const itensResumoPix = Number(resultadoPedido?.itens_count || resumoPedidoSnapshot?.itens || 0);
   const itensResumoPixExibicao = itensResumoPix > 0
     ? itensResumoPix
@@ -2174,6 +2215,19 @@ export default function PagamentoPage() {
 
             {autenticado === true ? (
               <div className="card-box checkout-payment-actions-card">
+                <article className="payment-readiness-card" aria-label="Checklist para continuar">
+                  <p className="payment-readiness-title">Checklist antes de continuar</p>
+
+                  <ul className="payment-readiness-list">
+                    {checklistPagamento.map((item) => (
+                      <li key={item.id} className={item.ok ? 'is-ok' : 'is-pending'}>
+                        <span className="payment-readiness-icon" aria-hidden="true">{item.ok ? '✓' : '•'}</span>
+                        <span>{item.label}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+
                 {mensagemBloqueioPagamento ? (
                   <p className="payment-action-feedback is-warning" role="status">{mensagemBloqueioPagamento}</p>
                 ) : null}
