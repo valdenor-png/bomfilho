@@ -149,13 +149,11 @@ npm install
 Crie/configure um arquivo `.env` no backend com:
 
 ```env
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=sua_senha
-DB_NAME=railway
-DB_PORT=3306
+DATABASE_URL=mysql://root:sua_senha@localhost:3306/railway
 PORT=3000
-JWT_SECRET=sua_chave_secreta
+JWT_SECRET=sua_chave_secreta_com_32_ou_mais_caracteres
+BASE_URL=http://localhost:3000
+PAGBANK_WEBHOOK_TOKEN=token_grande_e_aleatorio
 ```
 
 ### 4) Iniciar backend

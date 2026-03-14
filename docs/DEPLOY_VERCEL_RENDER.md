@@ -36,7 +36,7 @@ Se seu cliente SQL nao suportar `SOURCE`, rode cada arquivo manualmente.
 - Root Directory: `backend`
 - Build Command: `npm ci`
 - Start Command: `npm start`
-- Health Check Path: `/api`
+- Health Check Path: `/ready`
 
 ### Variaveis obrigatorias no Render
 
@@ -50,7 +50,7 @@ Defina no painel do Render:
 - `JWT_SECRET=<chave com 32+ caracteres>`
 - `RECAPTCHA_SECRET_KEY=<secret key do Google reCAPTCHA>`
 - `RECAPTCHA_MIN_SCORE=0.5` (opcional, usado em respostas com score)
-- `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT`
+- `DATABASE_URL=mysql://USUARIO:SENHA@HOST:PORT/BANCO`
 - `ADMIN_USER`, `ADMIN_PASSWORD`
 - `ADMIN_LOCAL_ONLY=true` (seguro) ou `false` (se quiser admin remoto)
 - `BASE_URL=https://SEU_BACKEND.onrender.com`
@@ -60,6 +60,7 @@ Se usar pagamento/whatsapp:
 
 - `PAGBANK_ENV`, `PAGBANK_TOKEN`, `PAGBANK_WEBHOOK_TOKEN`
 - `PAGBANK_WEBHOOK_TOKEN` é obrigatório em produção (sem ele o backend não inicializa)
+- Estrategia de webhook PagBank: o backend gera `notification_url` com `?token=...` e valida por query (ou por header `x-webhook-token` quando enviado)
 - `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`
 
 Diagnóstico remoto opcional (somente quando necessário):
@@ -70,7 +71,7 @@ Diagnóstico remoto opcional (somente quando necessário):
 ### Teste rapido do backend
 
 ```bash
-curl https://SEU_BACKEND.onrender.com/api
+curl https://SEU_BACKEND.onrender.com/ready
 ```
 
 Esperado: status online.
@@ -107,7 +108,7 @@ Esperado: status online.
 
 ## 5) Checklist de producao
 
-- [ ] Backend responde `GET /api`
+- [ ] Backend responde `GET /ready`
 - [ ] Frontend abre sem erro de CORS
 - [ ] Login/cadastro funcionando
 - [ ] Pedido criado com sucesso

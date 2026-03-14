@@ -37,11 +37,7 @@ copy .env.example .env
 
 2. Edite o arquivo `.env` com suas configurações:
 ```
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=sua_senha_mysql
-DB_NAME=railway
-DB_PORT=3306
+DATABASE_URL=mysql://root:sua_senha_mysql@localhost:3306/railway
 
 PORT=3000
 
@@ -80,6 +76,8 @@ ALLOW_DEBIT_3DS_MOCK=true
 
 # Proteção do webhook PagBank
 PAGBANK_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
+# O backend inclui este token na notification_url como ?token=...
+# e valida por query (ou pelo header x-webhook-token quando enviado)
 BASE_URL=https://SUA_URL_PUBLICA
 
 # Evolution API (WhatsApp)
@@ -110,6 +108,7 @@ Para esse fluxo funcionar localmente, o webhook precisa estar acessível publica
 - `PAGBANK_PUBLIC_KEY`: chave pública usada para criptografar cartão no frontend
 - `ALLOW_PIX_MOCK`: `true` apenas para desenvolvimento local com PIX simulado
 - `ALLOW_DEBIT_3DS_MOCK`: `true` apenas em sandbox para fallback 3DS mock no débito
+- `PAGBANK_WEBHOOK_TOKEN`: token compartilhado validado no webhook PagBank
 - `BASE_URL`: URL pública do seu backend (ex.: ngrok/Cloudflare Tunnel)
 
 ### Pagamento com cartão de débito (3DS)

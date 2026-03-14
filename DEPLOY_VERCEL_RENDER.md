@@ -48,6 +48,7 @@ Se utilizar PIX e WhatsApp:
 
 - PAGBANK_ENV, PAGBANK_TOKEN, PAGBANK_PUBLIC_KEY, PAGBANK_WEBHOOK_TOKEN
 - PAGBANK_WEBHOOK_TOKEN é obrigatório em produção (o backend não inicializa sem essa variável)
+- Estratégia de webhook PagBank: o backend gera `notification_url` com `?token=...` e valida o token por query (ou por header `x-webhook-token` quando enviado)
 - PAGBANK_DEBUG_LOGS=true (recomendado em homologação)
 - ALLOW_PIX_MOCK=false (recomendado em homologação real)
 - ALLOW_DEBIT_3DS_MOCK=false (produção/homologação real deve usar 3DS real)
@@ -62,6 +63,7 @@ Teste rápido:
 
 ```bash
 curl https://SEU_BACKEND.onrender.com/api
+curl https://SEU_BACKEND.onrender.com/ready
 ```
 
 ## 3) Deploy do frontend na Vercel
@@ -91,7 +93,7 @@ curl https://SEU_BACKEND.onrender.com/api
 
 ## 5) Checklist rápido
 
-- [ ] Backend responde GET /api
+- [ ] Backend responde GET /ready
 - [ ] Frontend abre sem erro de CORS
 - [ ] Login e cadastro funcionando
 - [ ] Criação de pedido funcionando

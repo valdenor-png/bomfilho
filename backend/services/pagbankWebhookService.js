@@ -22,7 +22,8 @@ function validarTokenWebhookPagBank({
     return true;
   }
 
-  if (!isProduction && queryNormalizada && compararSeguro(queryNormalizada, webhookTokenNormalizado)) {
+  // Compatibilidade: notification_url gerada pelo backend usa ?token=...
+  if (queryNormalizada && compararSeguro(queryNormalizada, webhookTokenNormalizado)) {
     return true;
   }
 
