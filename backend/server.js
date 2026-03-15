@@ -1,4 +1,10 @@
-require('dotenv').config();
+const path = require('path');
+const dotenv = require('dotenv');
+
+// Carrega variaveis de ambiente independente do cwd do processo.
+dotenv.config({ path: path.join(__dirname, '.env') });
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+dotenv.config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -14,13 +20,29 @@ const mysql = require("mysql2/promise");
 const fetch = global.fetch || require('node-fetch');
 const crypto = require('crypto');
 const fs = require('fs');
-const path = require('path');
 const {
   EXTENSOES_IMPORTACAO_ACEITAS,
+  MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO,
+  validarArquivoImportacao,
   construirModeloImportacaoProdutosCsv,
   importarProdutosPlanilha,
   listarImportacoesProdutos
 } = require('./services/produtosImportacao');
+const { createDefaultBarcodeLookupService } = require('./services/barcode/BarcodeLookupService');
+const {
+  ensureAdminCatalogSchema,
+  getAdminProdutosDashboard,
+  listarProdutosAdmin,
+  atualizarProdutoAdmin,
+  enriquecerProdutoPorId,
+  reprocessarFalhasEnriquecimento,
+  enriquecerProdutosSemImagem,
+  enriquecerProdutosImportacaoRecente,
+  listarEnrichmentLogs,
+  registrarProductImportLog,
+  listarImportLogs,
+  exportarProdutosParaExcel
+} = require('./services/admin/catalogoAdminService');
 const {
   FORMAS_PAGAMENTO_PEDIDO_VALIDAS,
   buscarPedidoDoUsuarioPorId,
@@ -103,13 +125,6 @@ const TAMANHO_MAXIMO_IMPORTACAO_MB = (() => {
   return Number.isFinite(valor) && valor > 0 ? Math.min(valor, 100) : 8;
 })();
 const TAMANHO_MAXIMO_IMPORTACAO_BYTES = Math.round(TAMANHO_MAXIMO_IMPORTACAO_MB * 1024 * 1024);
-const MIME_IMPORTACAO_PLANILHA_ACEITOS = new Set([
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-excel',
-  'text/csv',
-  'text/plain',
-  'application/octet-stream'
-]);
 
 // Configuração Evolution API (WhatsApp)
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
@@ -1325,22 +1340,61 @@ function parseBooleanInput(value, fallback = false) {
   return fallback;
 }
 
+function parseJsonObjectInput(rawValue, fallback = null) {
+  if (rawValue === null || rawValue === undefined || rawValue === '') {
+    return fallback;
+  }
+
+  if (typeof rawValue === 'object' && !Array.isArray(rawValue)) {
+    return rawValue;
+  }
+
+  try {
+    const parsed = JSON.parse(String(rawValue));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    return fallback;
+  }
+
+  return fallback;
+}
+
+function parseOverwriteImageModeInput(value, fallback = 'if_empty') {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (['if_empty', 'only_if_empty', 'empty_only', 'preserve_existing', 'preservar_existente'].includes(normalized)) {
+    return 'if_empty';
+  }
+
+  if (['always', 'overwrite', 'replace', 'sobrescrever'].includes(normalized)) {
+    return 'always';
+  }
+
+  if (['never', 'keep', 'manter'].includes(normalized)) {
+    return 'never';
+  }
+
+  return fallback;
+}
+
 const uploadImportacaoProdutos = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: TAMANHO_MAXIMO_IMPORTACAO_BYTES
   },
   fileFilter(req, file, callback) {
-    const nomeArquivo = String(file?.originalname || '').trim();
-    const extensao = path.extname(nomeArquivo).toLowerCase();
-    const mimeType = String(file?.mimetype || '').trim().toLowerCase();
-
-    if (!EXTENSOES_IMPORTACAO_ACEITAS.includes(extensao)) {
-      return callback(new Error('Formato de arquivo não suportado. Envie .xlsx ou .csv.'));
-    }
-
-    if (mimeType && !MIME_IMPORTACAO_PLANILHA_ACEITOS.has(mimeType)) {
-      return callback(new Error('Tipo de arquivo inválido para importação de produtos.'));
+    try {
+      validarArquivoImportacao({
+        nomeArquivo: file?.originalname,
+        mimeType: file?.mimetype
+      });
+    } catch (erroValidacao) {
+      return callback(new Error(erroValidacao?.message || MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO));
     }
 
     return callback(null, true);
@@ -1562,20 +1616,26 @@ function haltOnTimedout(req, res, next) {
   }
 }
 
-const rateLimitIpKeyGenerator = typeof rateLimit.ipKeyGenerator === 'function'
-  ? rateLimit.ipKeyGenerator
-  : (ip) => ip || 'unknown';
-
-function getRateLimitKey(req) {
-  const ip = req.ip || req.socket?.remoteAddress || '';
-  return rateLimitIpKeyGenerator(ip) || 'unknown';
-}
-
 const rateLimitValidateOptions = TRUST_PROXY !== false
-  ? undefined
+  ? { trustProxy: false }
   : { xForwardedForHeader: false };
 
-app.use(timeout('10s'));
+const REQUEST_TIMEOUT_PADRAO = '10s';
+const REQUEST_TIMEOUT_IMPORTACAO = String(process.env.REQUEST_TIMEOUT_IMPORTACAO || '600s').trim() || '600s';
+const ROTAS_TIMEOUT_IMPORTACAO = new Set([
+  '/api/admin/catalogo/produtos/importar',
+  '/api/admin/produtos/importar'
+]);
+const timeoutPadraoMiddleware = timeout(REQUEST_TIMEOUT_PADRAO);
+const timeoutImportacaoMiddleware = timeout(REQUEST_TIMEOUT_IMPORTACAO);
+
+app.use((req, res, next) => {
+  const rota = String(req.path || '');
+  const metodo = String(req.method || 'GET').toUpperCase();
+  const ehRotaImportacao = metodo === 'POST' && ROTAS_TIMEOUT_IMPORTACAO.has(rota);
+  const timeoutMiddleware = ehRotaImportacao ? timeoutImportacaoMiddleware : timeoutPadraoMiddleware;
+  return timeoutMiddleware(req, res, next);
+});
 app.use(haltOnTimedout);
 
 app.use(helmet({
@@ -1614,6 +1674,7 @@ app.use(haltOnTimedout);
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 400,
+  validate: rateLimitValidateOptions,
   standardHeaders: true,
   legacyHeaders: false,
   // Limiter leve para API, ignorando rotas críticas/integracoes externas.
@@ -1634,6 +1695,7 @@ const globalLimiter = rateLimit({
 const publicLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 200,
+  validate: rateLimitValidateOptions,
   standardHeaders: true,
   legacyHeaders: false,
   message: { erro: 'Muitas requisições. Tente novamente em alguns minutos.' }
@@ -1642,6 +1704,7 @@ const publicLimiter = rateLimit({
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
+  validate: rateLimitValidateOptions,
   standardHeaders: true,
   legacyHeaders: false,
   message: { erro: 'Muitas tentativas de autenticação. Aguarde 15 minutos.' }
@@ -1650,6 +1713,7 @@ const authLimiter = rateLimit({
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
+  validate: rateLimitValidateOptions,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
@@ -1659,6 +1723,7 @@ const loginLimiter = rateLimit({
 const adminAuthLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
+  validate: rateLimitValidateOptions,
   standardHeaders: true,
   legacyHeaders: false,
   message: { erro: 'Muitas tentativas de login admin. Aguarde 15 minutos.' }
@@ -1945,6 +2010,11 @@ const pool = mysql.createPool({
   queueLimit: 0
 });
 
+const barcodeLookupService = createDefaultBarcodeLookupService({
+  pool,
+  logger: console
+});
+
 console.log('🧭 MySQL config:', {
   host: dbUrl.hostname,
   port: dbUrl.port,
@@ -2079,6 +2149,8 @@ async function preloadData() {
     const conn = await pool.getConnection();
     console.log('✅ MySQL conectado');
     conn.release();
+    await ensureAdminCatalogSchema(pool);
+    await barcodeLookupService.ensureCacheSchema();
     await preloadData();
   } catch (err) {
     console.error('❌ Erro ao conectar ao MySQL:', err);
@@ -3258,21 +3330,29 @@ app.get('/api/banners', async (req, res) => {
   }
 });
 
-app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+async function responderBuscaProdutoPorCodigoBarrasAdmin(req, res) {
   try {
     const codigo = String(req.params.codigo || '').replace(/\D/g, '');
     if (codigo.length < 8) {
-      return res.status(400).json({ erro: 'Informe um código de barras válido.' });
+      return res.status(400).json({ erro: 'Informe um codigo de barras valido.' });
     }
 
-    const externoOpenFoodFacts = await buscarProdutoOpenFoodFacts(codigo);
-    if (externoOpenFoodFacts) {
-      return res.json(externoOpenFoodFacts);
-    }
+    const force = parseBooleanInput(req.query?.force, false);
+    const lookup = await barcodeLookupService.lookup(codigo, { force });
 
-    const externoUpcItemDb = await buscarProdutoUpcItemDb(codigo);
-    if (externoUpcItemDb) {
-      return res.json(externoUpcItemDb);
+    if (lookup?.status === 'found' && lookup?.product) {
+      return res.json({
+        fonte: lookup.source,
+        provider: lookup.provider,
+        produto: {
+          codigo_barras: codigo,
+          nome: lookup.product.nome || '',
+          marca: lookup.product.marca || '',
+          descricao: lookup.product.descricao || '',
+          imagem: lookup.product.imagem || ''
+        },
+        tentativas: lookup.attemptedProviders || []
+      });
     }
 
     const colunas = await obterColunasProdutos();
@@ -3287,16 +3367,443 @@ app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autentica
       );
 
       if (locais.length > 0) {
-        return res.json({ fonte: 'local', produto: locais[0] });
+        return res.json({
+          fonte: 'local',
+          provider: lookup?.provider || null,
+          produto: locais[0],
+          tentativas: lookup?.attemptedProviders || []
+        });
       }
     }
 
-    return res.status(404).json({ erro: 'Produto não encontrado no catálogo e nas bases consultadas.' });
+    return res.status(404).json({
+      erro: lookup?.message || 'Produto nao encontrado no catalogo e nas bases consultadas.',
+      tentativas: lookup?.attemptedProviders || []
+    });
   } catch (erro) {
-    console.error('Erro ao buscar produto por código de barras:', erro);
-    return res.status(500).json({ erro: 'Não foi possível consultar o código de barras.' });
+    console.error('Erro ao buscar produto por codigo de barras:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel consultar o codigo de barras.' });
+  }
+}
+
+async function processarImportacaoProdutosAdmin(req, res) {
+  const nomeArquivo = req.file?.originalname || 'importacao_sem_arquivo.csv';
+  const formatoArquivo = String(path.extname(nomeArquivo || '') || '').toLowerCase();
+  const inicioProcessamentoMs = Date.now();
+
+  try {
+    if (!req.file || !Buffer.isBuffer(req.file.buffer)) {
+      return res.status(400).json({ erro: 'Selecione um arquivo .xls, .xlsx ou .csv para importar.' });
+    }
+
+    try {
+      validarArquivoImportacao({
+        nomeArquivo: req.file?.originalname,
+        mimeType: req.file?.mimetype
+      });
+    } catch (erroValidacaoArquivo) {
+      return res.status(400).json({
+        erro: erroValidacaoArquivo?.message || MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO
+      });
+    }
+
+    await ensureAdminCatalogSchema(pool);
+
+    const criarNovos = parseBooleanInput(req.body?.criar_novos, false);
+    const atualizarEstoque = parseBooleanInput(req.body?.atualizar_estoque, false);
+    const simular = parseBooleanInput(req.body?.simular, false);
+    const overwriteImageMode = parseOverwriteImageModeInput(
+      req.body?.overwrite_image_mode || req.body?.politica_imagem || req.query?.overwrite_image_mode,
+      'if_empty'
+    );
+    const enriquecerPosImportacao = parseBooleanInput(
+      req.body?.enriquecer_imagens_pos_importacao || req.body?.auto_enriquecer_imagens,
+      false
+    );
+    const enriquecerApenasSemImagem = parseBooleanInput(req.body?.enriquecer_apenas_sem_imagem, true);
+    const enriquecerLimite = parsePositiveInt(
+      req.body?.enriquecer_limite || req.query?.enriquecer_limite,
+      80,
+      { min: 1, max: 800 }
+    );
+    const enriquecerConcorrencia = parsePositiveInt(
+      req.body?.enriquecer_concorrencia || req.query?.enriquecer_concorrencia,
+      3,
+      { min: 1, max: 10 }
+    );
+    const enriquecerForceLookup = parseBooleanInput(
+      req.body?.enriquecer_force_lookup || req.query?.enriquecer_force_lookup,
+      false
+    );
+    const enriquecerJanelaMinutos = parsePositiveInt(
+      req.body?.enriquecer_janela_minutos || req.query?.enriquecer_janela_minutos,
+      180,
+      { min: 5, max: 43200 }
+    );
+    const mapeamentoColunas = parseJsonObjectInput(
+      req.body?.mapeamento_colunas || req.body?.column_mapping,
+      null
+    );
+
+    const resultado = await importarProdutosPlanilha({
+      pool,
+      fileBuffer: req.file.buffer,
+      originalName: nomeArquivo,
+      createMissing: criarNovos,
+      updateStock: atualizarEstoque,
+      simulate: simular,
+      columnMapping: mapeamentoColunas,
+      barcodeLookupService,
+      adminUser: req.admin?.usuario || ADMIN_USER,
+      adminUserId: req.admin?.id || null
+    });
+
+    let resultadoEnriquecimentoPosImportacao = null;
+    let avisoEnriquecimento = '';
+    if (!simular && enriquecerPosImportacao) {
+      try {
+        const resultadoEnriquecimentoCompleto = await enriquecerProdutosImportacaoRecente(pool, barcodeLookupService, {
+          sinceDate: new Date(inicioProcessamentoMs - 15000),
+          windowMinutes: enriquecerJanelaMinutos,
+          somenteSemImagem: enriquecerApenasSemImagem,
+          limit: enriquecerLimite,
+          concurrency: enriquecerConcorrencia,
+          force: enriquecerForceLookup,
+          overwriteImageMode,
+          preferSpreadsheet: true
+        });
+
+        resultadoEnriquecimentoPosImportacao = {
+          resumo: resultadoEnriquecimentoCompleto?.resumo || {},
+          itens: Array.isArray(resultadoEnriquecimentoCompleto?.itens)
+            ? resultadoEnriquecimentoCompleto.itens.slice(0, 80)
+            : []
+        };
+      } catch (erroEnriquecimento) {
+        console.error('Falha no enriquecimento pos-importacao:', erroEnriquecimento);
+        avisoEnriquecimento = erroEnriquecimento?.message || 'Importacao concluida, mas houve falha no enriquecimento pos-importacao.';
+      }
+    }
+
+    const duracaoMs = Date.now() - inicioProcessamentoMs;
+    const resultadoComMetadados = {
+      ...resultado,
+      arquivo_nome: nomeArquivo,
+      formato_arquivo: formatoArquivo,
+      duracao_ms: duracaoMs,
+      configuracao_enriquecimento: {
+        overwrite_image_mode: overwriteImageMode,
+        pos_importacao_ativo: enriquecerPosImportacao,
+        pos_importacao_apenas_sem_imagem: enriquecerApenasSemImagem,
+        pos_importacao_limite: enriquecerLimite,
+        pos_importacao_concorrencia: enriquecerConcorrencia
+      },
+      enriquecimento_pos_importacao: resultadoEnriquecimentoPosImportacao
+    };
+
+    let avisoLog = '';
+    try {
+      await registrarProductImportLog(pool, {
+        arquivo_nome: nomeArquivo,
+        total_linhas: Number(resultado?.total_linhas || 0),
+        linhas_validas: Number(resultado?.total_validos || 0),
+        linhas_com_erro: Number(resultado?.total_erros || 0),
+        status: resultado?.status || (simular ? 'simulado' : 'concluido'),
+        resumo: resultadoComMetadados,
+        criado_por: req.admin?.usuario || ADMIN_USER
+      });
+    } catch (erroLog) {
+      console.error('Falha ao registrar log administrativo de importacao:', erroLog);
+      avisoLog = 'Importacao concluida, mas nao foi possivel registrar no log administrativo.';
+    }
+
+    if (!simular) {
+      produtosColumnsCache = null;
+      if (Number(resultado?.total_atualizados || 0) > 0 || Number(resultado?.total_criados || 0) > 0) {
+        limparCacheProdutos();
+      }
+
+      if (Number(resultadoEnriquecimentoPosImportacao?.resumo?.total_atualizados || 0) > 0) {
+        limparCacheProdutos();
+      }
+    }
+
+    if (avisoLog || avisoEnriquecimento) {
+      return res.status(200).json({
+        ...resultadoComMetadados,
+        aviso_log: avisoLog || undefined,
+        aviso_enriquecimento: avisoEnriquecimento || undefined
+      });
+    }
+
+    return res.status(200).json(resultadoComMetadados);
+  } catch (erro) {
+    const duracaoMs = Date.now() - inicioProcessamentoMs;
+    const status = Number.isFinite(Number(erro?.httpStatus))
+      ? Number(erro.httpStatus)
+      : 500;
+
+    if (status >= 500) {
+      console.error('Erro ao importar planilha de produtos:', erro);
+    }
+
+    const detalhesErro = erro?.extra && typeof erro.extra === 'object'
+      ? {
+        ...erro.extra,
+        formato_arquivo: formatoArquivo,
+        duracao_ms: duracaoMs
+      }
+      : {
+        formato_arquivo: formatoArquivo,
+        duracao_ms: duracaoMs
+      };
+
+    try {
+      await registrarProductImportLog(pool, {
+        arquivo_nome: nomeArquivo,
+        total_linhas: 0,
+        linhas_validas: 0,
+        linhas_com_erro: 1,
+        status: 'erro',
+        resumo: {
+          erro: erro?.message || 'Falha ao processar importacao.',
+          formato_arquivo: formatoArquivo,
+          duracao_ms: duracaoMs,
+          detalhes: detalhesErro
+        },
+        criado_por: req.admin?.usuario || ADMIN_USER
+      });
+    } catch {
+      // mantem erro original
+    }
+
+    const payloadErro = {
+      erro: erro?.message || 'Nao foi possivel processar a importacao da planilha.'
+    };
+
+    if (erro?.extra && typeof erro.extra === 'object') {
+      payloadErro.detalhes = detalhesErro;
+    } else {
+      payloadErro.detalhes = detalhesErro;
+    }
+
+    return res.status(status).json(payloadErro);
+  }
+}
+
+app.get('/api/admin/catalogo/dashboard', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const dashboard = await getAdminProdutosDashboard(pool);
+    return res.json({ dashboard });
+  } catch (erro) {
+    console.error('Erro ao carregar dashboard de produtos admin:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel carregar o dashboard administrativo.' });
   }
 });
+
+app.get('/api/admin/catalogo/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const resultado = await listarProdutosAdmin(pool, req.query || {});
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao listar produtos do catalogo admin:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel listar os produtos administrativos.' });
+  }
+});
+
+app.patch('/api/admin/catalogo/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const produto = await atualizarProdutoAdmin(pool, req.params.id, req.body || {});
+    limparCacheProdutos();
+    return res.json({
+      mensagem: 'Produto atualizado com sucesso.',
+      produto
+    });
+  } catch (erro) {
+    const mensagem = erro?.message || 'Nao foi possivel atualizar o produto.';
+    const status = /nao encontrado/i.test(mensagem)
+      ? 404
+      : (/invalido|valido|Nenhum campo/i.test(mensagem) ? 400 : 500);
+    if (status >= 500) {
+      console.error('Erro ao atualizar produto admin:', erro);
+    }
+    return res.status(status).json({ erro: mensagem });
+  }
+});
+
+app.get('/api/admin/catalogo/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autenticarAdminToken, responderBuscaProdutoPorCodigoBarrasAdmin);
+
+app.post('/api/admin/catalogo/produtos/:id/enriquecer', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const force = parseBooleanInput(req.body?.force || req.query?.force, false);
+    const preferSpreadsheet = parseBooleanInput(req.body?.prefer_spreadsheet, true);
+    const overwriteImageMode = parseOverwriteImageModeInput(
+      req.body?.overwrite_image_mode || req.query?.overwrite_image_mode,
+      'if_empty'
+    );
+    const resultado = await enriquecerProdutoPorId(pool, barcodeLookupService, req.params.id, {
+      force,
+      preferSpreadsheet,
+      overwriteImageMode
+    });
+
+    if (resultado?.atualizado) {
+      limparCacheProdutos();
+    }
+
+    return res.json(resultado);
+  } catch (erro) {
+    const mensagem = erro?.message || 'Nao foi possivel reprocessar enriquecimento.';
+    const status = /invalido|nao encontrado/i.test(mensagem) ? 400 : 500;
+    if (status >= 500) {
+      console.error('Erro ao enriquecer produto por id:', erro);
+    }
+    return res.status(status).json({ erro: mensagem });
+  }
+});
+
+app.post('/api/admin/catalogo/enriquecimento/reprocessar-falhas', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const limit = parsePositiveInt(req.body?.limit || req.query?.limit, 30, { min: 1, max: 200 });
+    const concurrency = parsePositiveInt(req.body?.concurrency || req.query?.concurrency, 3, { min: 1, max: 10 });
+    const overwriteImageMode = parseOverwriteImageModeInput(
+      req.body?.overwrite_image_mode || req.query?.overwrite_image_mode,
+      'if_empty'
+    );
+
+    const resultado = await reprocessarFalhasEnriquecimento(pool, barcodeLookupService, {
+      limit,
+      concurrency,
+      overwriteImageMode
+    });
+
+    if (Number(resultado?.resumo?.total_enriquecidos || 0) > 0) {
+      limparCacheProdutos();
+    }
+
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao reprocessar falhas de enriquecimento:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel reprocessar os itens com falha.' });
+  }
+});
+
+app.post('/api/admin/catalogo/enriquecimento/sem-imagem', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const limit = parsePositiveInt(req.body?.limit || req.query?.limit, 80, { min: 1, max: 500 });
+    const concurrency = parsePositiveInt(req.body?.concurrency || req.query?.concurrency, 3, { min: 1, max: 10 });
+    const force = parseBooleanInput(req.body?.force || req.query?.force, false);
+    const overwriteImageMode = parseOverwriteImageModeInput(
+      req.body?.overwrite_image_mode || req.query?.overwrite_image_mode,
+      'if_empty'
+    );
+
+    const resultado = await enriquecerProdutosSemImagem(pool, barcodeLookupService, {
+      limit,
+      concurrency,
+      force,
+      preferSpreadsheet: true,
+      overwriteImageMode
+    });
+
+    if (Number(resultado?.resumo?.total_atualizados || 0) > 0) {
+      limparCacheProdutos();
+    }
+
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao enriquecer produtos sem imagem:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel enriquecer produtos sem imagem agora.' });
+  }
+});
+
+app.post('/api/admin/catalogo/enriquecimento/importacao-recente', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const limit = parsePositiveInt(req.body?.limit || req.query?.limit, 120, { min: 1, max: 800 });
+    const concurrency = parsePositiveInt(req.body?.concurrency || req.query?.concurrency, 3, { min: 1, max: 10 });
+    const force = parseBooleanInput(req.body?.force || req.query?.force, false);
+    const somenteSemImagem = parseBooleanInput(req.body?.somente_sem_imagem || req.query?.somente_sem_imagem, true);
+    const windowMinutes = parsePositiveInt(
+      req.body?.window_minutes || req.body?.janela_minutos || req.query?.window_minutes || req.query?.janela_minutos,
+      180,
+      { min: 5, max: 43200 }
+    );
+    const overwriteImageMode = parseOverwriteImageModeInput(
+      req.body?.overwrite_image_mode || req.query?.overwrite_image_mode,
+      'if_empty'
+    );
+
+    const resultado = await enriquecerProdutosImportacaoRecente(pool, barcodeLookupService, {
+      limit,
+      concurrency,
+      force,
+      somenteSemImagem,
+      windowMinutes,
+      preferSpreadsheet: true,
+      overwriteImageMode
+    });
+
+    if (Number(resultado?.resumo?.total_atualizados || 0) > 0) {
+      limparCacheProdutos();
+    }
+
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao enriquecer importacao recente:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel enriquecer itens de importacao recente agora.' });
+  }
+});
+
+app.get('/api/admin/catalogo/enriquecimento/logs', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const resultado = await listarEnrichmentLogs(pool, req.query || {});
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao listar logs de enriquecimento:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel carregar os logs de enriquecimento.' });
+  }
+});
+
+app.get('/api/admin/catalogo/importacoes', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const resultado = await listarImportLogs(pool, req.query || {});
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao listar logs de importacao (catalogo):', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel carregar os logs de importacao.' });
+  }
+});
+
+app.get('/api/admin/catalogo/produtos/importacao/modelo', exigirAcessoLocalAdmin, autenticarAdminToken, (req, res) => {
+  const csvModelo = construirModeloImportacaoProdutosCsv();
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="modelo-importacao-produtos.csv"');
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).send(`\uFEFF${csvModelo}`);
+});
+
+app.post(
+  '/api/admin/catalogo/produtos/importar',
+  exigirAcessoLocalAdmin,
+  autenticarAdminToken,
+  middlewareUploadImportacaoProdutos,
+  processarImportacaoProdutosAdmin
+);
+
+app.get('/api/admin/catalogo/produtos/exportar.xlsx', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const resultado = await exportarProdutosParaExcel(pool, req.query || {});
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${resultado.fileName}"`);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(200).send(resultado.buffer);
+  } catch (erro) {
+    console.error('Erro ao exportar produtos para excel:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel exportar os produtos agora.' });
+  }
+});
+
+app.get('/api/admin/produtos/barcode/:codigo', exigirAcessoLocalAdmin, autenticarAdminToken, responderBuscaProdutoPorCodigoBarrasAdmin);
 
 // Buscar produto por ID
 app.get('/api/produtos/:id', async (req, res) => {
@@ -3457,56 +3964,7 @@ app.post(
   exigirAcessoLocalAdmin,
   autenticarAdminToken,
   middlewareUploadImportacaoProdutos,
-  async (req, res) => {
-    try {
-      if (!req.file || !Buffer.isBuffer(req.file.buffer)) {
-        return res.status(400).json({ erro: 'Selecione um arquivo .xlsx ou .csv para importar.' });
-      }
-
-      const criarNovos = parseBooleanInput(req.body?.criar_novos, false);
-      const atualizarEstoque = parseBooleanInput(req.body?.atualizar_estoque, false);
-      const simular = parseBooleanInput(req.body?.simular, false);
-
-      const resultado = await importarProdutosPlanilha({
-        pool,
-        fileBuffer: req.file.buffer,
-        originalName: req.file.originalname,
-        createMissing: criarNovos,
-        updateStock: atualizarEstoque,
-        simulate: simular,
-        adminUser: req.admin?.usuario || ADMIN_USER,
-        adminUserId: req.admin?.id || null
-      });
-
-      if (!simular) {
-        produtosColumnsCache = null;
-
-        if (Number(resultado?.total_atualizados || 0) > 0 || Number(resultado?.total_criados || 0) > 0) {
-          limparCacheProdutos();
-        }
-      }
-
-      return res.status(200).json(resultado);
-    } catch (erro) {
-      const status = Number.isFinite(Number(erro?.httpStatus))
-        ? Number(erro.httpStatus)
-        : 500;
-
-      if (status >= 500) {
-        console.error('Erro ao importar planilha de produtos:', erro);
-      }
-
-      const payloadErro = {
-        erro: erro?.message || 'Não foi possível processar a importação da planilha.'
-      };
-
-      if (erro?.extra && typeof erro.extra === 'object') {
-        payloadErro.detalhes = erro.extra;
-      }
-
-      return res.status(status).json(payloadErro);
-    }
-  }
+  processarImportacaoProdutosAdmin
 );
 
 // Excluir produto (admin) - soft delete

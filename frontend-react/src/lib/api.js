@@ -267,7 +267,43 @@ async function garantirCsrfToken(forceRefresh = false) {
 }
 
 export function isAuthErrorMessage(message) {
-  return /não autenticado|token não fornecido|token inválido|credenciais|acesso negado|401|403/i.test(String(message || ''));
+  return /nao autenticado|não autenticado|token nao fornecido|token não fornecido|token invalido|token inválido|credenciais|acesso negado|sess[aã]o|401|403|permiss[aã]o/i.test(String(message || ''));
+}
+
+function isAuthStatus(status) {
+  const statusCode = Number(status || 0);
+  return statusCode === 401 || statusCode === 403;
+}
+
+function extrairNomeArquivoCabecalho(contentDisposition) {
+  const header = String(contentDisposition || '').trim();
+  if (!header) {
+    return '';
+  }
+
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return String(utf8Match[1]);
+    }
+  }
+
+  const quotedMatch = header.match(/filename="?([^";]+)"?/i);
+  return quotedMatch?.[1] ? String(quotedMatch[1]).trim() : '';
+}
+
+function sanitizarNomeArquivoDownload(nomeArquivo, fallback = 'download.bin') {
+  const normalizado = String(nomeArquivo || '')
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .trim();
+
+  if (!normalizado) {
+    return fallback;
+  }
+
+  return normalizado;
 }
 
 async function request(path, options = {}, tentativa = 0) {
@@ -302,7 +338,7 @@ async function request(path, options = {}, tentativa = 0) {
       return request(path, options, 1);
     }
 
-    if (responseStatus === 401 || responseStatus === 403) {
+    if (isAuthStatus(responseStatus)) {
       if (isAdminPath) {
         clearAdminAccessToken();
       } else {
@@ -331,6 +367,79 @@ async function request(path, options = {}, tentativa = 0) {
   salvarTokenPorRota(path, data?.accessToken);
 
   return data;
+}
+
+async function requestArquivo(path, options = {}, tentativa = 0) {
+  const {
+    method = 'GET',
+    token,
+    body,
+    fallbackFileName = 'download.bin'
+  } = options;
+
+  const methodUpper = String(method || 'GET').toUpperCase();
+  const isAdminPath = String(path || '').startsWith('/api/admin/');
+  const persistedToken = isAdminPath ? getAdminAccessToken() : getUserAccessToken();
+  const tokenToUse = String(token || persistedToken || '').trim();
+  const hasBody = body !== undefined;
+  const isFormDataBody = hasBody && typeof FormData !== 'undefined' && body instanceof FormData;
+  const hasJsonBody = hasBody && !isFormDataBody;
+  const precisaCsrf = isMutatingMethod(methodUpper) && !tokenToUse;
+
+  let csrfToken = '';
+  if (precisaCsrf) {
+    csrfToken = await garantirCsrfToken();
+  }
+
+  let response;
+  try {
+    response = await apiRequest(path, {
+      method: methodUpper,
+      headers: buildHeaders({ token: tokenToUse, hasJsonBody, csrfToken }),
+      body: hasBody ? body : undefined,
+      responseType: 'raw'
+    });
+  } catch (error) {
+    const responseStatus = Number(error?.status || 0);
+    const serverMessage = error?.serverMessage || error?.message || `Erro HTTP ${responseStatus || 500}`;
+
+    if (responseStatus === 403 && /csrf/i.test(serverMessage) && precisaCsrf && tentativa === 0) {
+      await garantirCsrfToken(true);
+      return requestArquivo(path, options, 1);
+    }
+
+    if (isAuthStatus(responseStatus)) {
+      if (isAdminPath) {
+        clearAdminAccessToken();
+      } else {
+        clearUserAccessToken();
+      }
+    }
+
+    const userMessage = mapUserMessage({
+      message: serverMessage,
+      status: responseStatus,
+      path,
+      isAdminPath
+    });
+
+    const mappedError = new Error(userMessage);
+    mappedError.status = responseStatus;
+    mappedError.serverMessage = serverMessage;
+    throw mappedError;
+  }
+
+  const contentDisposition = response?.headers?.get?.('content-disposition');
+  const fileNameHeader = extrairNomeArquivoCabecalho(contentDisposition);
+  const fileName = sanitizarNomeArquivoDownload(fileNameHeader, fallbackFileName);
+  const contentType = String(response?.headers?.get?.('content-type') || '').trim();
+  const blob = await response.blob();
+
+  return {
+    blob,
+    fileName,
+    contentType
+  };
 }
 
 export function adminLogin(usuario, senha) {
@@ -695,7 +804,7 @@ export function adminImportarProdutosPlanilha({ arquivo, criarNovos = false, sim
   const isFile = typeof File !== 'undefined' && arquivo instanceof File;
   const isBlob = typeof Blob !== 'undefined' && arquivo instanceof Blob;
   if (!isFile && !isBlob) {
-    throw new Error('Selecione um arquivo .xlsx ou .csv para importar.');
+    throw new Error('Selecione um arquivo .xls, .xlsx ou .csv para importar.');
   }
 
   const formData = new FormData();
@@ -716,4 +825,161 @@ export function adminGetImportacoesProdutos(params = {}) {
 
 export function getAdminModeloImportacaoUrl() {
   return `${API_BASE_URL}/api/admin/produtos/importacao/modelo`;
+}
+
+export function adminGetCatalogDashboard() {
+  return request('/api/admin/catalogo/dashboard');
+}
+
+export function adminListarCatalogoProdutos(params = {}) {
+  return request(`/api/admin/catalogo/produtos${buildQueryString(params)}`);
+}
+
+export function adminAtualizarProdutoCatalogo(produtoId, payload = {}) {
+  return request(`/api/admin/catalogo/produtos/${produtoId}`, {
+    method: 'PATCH',
+    body: payload
+  });
+}
+
+export function adminEnriquecerProdutoCatalogo(produtoId, {
+  force = false,
+  preferSpreadsheet = true,
+  overwriteImageMode = 'if_empty'
+} = {}) {
+  return request(`/api/admin/catalogo/produtos/${produtoId}/enriquecer`, {
+    method: 'POST',
+    body: {
+      force: Boolean(force),
+      prefer_spreadsheet: Boolean(preferSpreadsheet),
+      overwrite_image_mode: String(overwriteImageMode || 'if_empty').trim() || 'if_empty'
+    }
+  });
+}
+
+export function adminReprocessarFalhasEnriquecimento({
+  limit = 30,
+  concurrency = 3,
+  overwriteImageMode = 'if_empty'
+} = {}) {
+  return request('/api/admin/catalogo/enriquecimento/reprocessar-falhas', {
+    method: 'POST',
+    body: {
+      limit,
+      concurrency,
+      overwrite_image_mode: String(overwriteImageMode || 'if_empty').trim() || 'if_empty'
+    }
+  });
+}
+
+export function adminEnriquecerProdutosSemImagem({
+  limit = 80,
+  concurrency = 3,
+  force = false,
+  overwriteImageMode = 'if_empty'
+} = {}) {
+  return request('/api/admin/catalogo/enriquecimento/sem-imagem', {
+    method: 'POST',
+    body: {
+      limit,
+      concurrency,
+      force: Boolean(force),
+      overwrite_image_mode: String(overwriteImageMode || 'if_empty').trim() || 'if_empty'
+    }
+  });
+}
+
+export function adminEnriquecerImportacaoRecente({
+  windowMinutes = 180,
+  limit = 120,
+  concurrency = 3,
+  somenteSemImagem = true,
+  force = false,
+  overwriteImageMode = 'if_empty'
+} = {}) {
+  return request('/api/admin/catalogo/enriquecimento/importacao-recente', {
+    method: 'POST',
+    body: {
+      window_minutes: windowMinutes,
+      limit,
+      concurrency,
+      somente_sem_imagem: Boolean(somenteSemImagem),
+      force: Boolean(force),
+      overwrite_image_mode: String(overwriteImageMode || 'if_empty').trim() || 'if_empty'
+    }
+  });
+}
+
+export function adminGetEnriquecimentoLogs(params = {}) {
+  return request(`/api/admin/catalogo/enriquecimento/logs${buildQueryString(params)}`);
+}
+
+export function adminGetCatalogImportLogs(params = {}) {
+  return request(`/api/admin/catalogo/importacoes${buildQueryString(params)}`);
+}
+
+export function adminImportarCatalogoPlanilha({
+  arquivo,
+  criarNovos = false,
+  simular = false,
+  atualizarEstoque = false,
+  mapeamentoColunas = null,
+  enriquecerPosImportacao = false,
+  enriquecerApenasSemImagem = true,
+  enriquecerLimite = 80,
+  enriquecerConcorrencia = 3,
+  enriquecerForceLookup = false,
+  enriquecerJanelaMinutos = 180,
+  overwriteImageMode = 'if_empty'
+} = {}) {
+  const isFile = typeof File !== 'undefined' && arquivo instanceof File;
+  const isBlob = typeof Blob !== 'undefined' && arquivo instanceof Blob;
+  if (!isFile && !isBlob) {
+    throw new Error('Selecione um arquivo .xls, .xlsx ou .csv para importar.');
+  }
+
+  const formData = new FormData();
+  formData.append('arquivo', arquivo);
+  formData.append('criar_novos', criarNovos ? 'true' : 'false');
+  formData.append('simular', simular ? 'true' : 'false');
+  formData.append('atualizar_estoque', atualizarEstoque ? 'true' : 'false');
+  formData.append('overwrite_image_mode', String(overwriteImageMode || 'if_empty').trim() || 'if_empty');
+
+  if (!simular) {
+    formData.append('enriquecer_imagens_pos_importacao', enriquecerPosImportacao ? 'true' : 'false');
+    formData.append('enriquecer_apenas_sem_imagem', enriquecerApenasSemImagem ? 'true' : 'false');
+    formData.append('enriquecer_limite', String(enriquecerLimite));
+    formData.append('enriquecer_concorrencia', String(enriquecerConcorrencia));
+    formData.append('enriquecer_force_lookup', enriquecerForceLookup ? 'true' : 'false');
+    formData.append('enriquecer_janela_minutos', String(enriquecerJanelaMinutos));
+  }
+
+  if (mapeamentoColunas && typeof mapeamentoColunas === 'object') {
+    formData.append('mapeamento_colunas', JSON.stringify(mapeamentoColunas));
+  }
+
+  return request('/api/admin/catalogo/produtos/importar', {
+    method: 'POST',
+    body: formData
+  });
+}
+
+export function getAdminCatalogModeloImportacaoUrl() {
+  return `${API_BASE_URL}/api/admin/catalogo/produtos/importacao/modelo`;
+}
+
+export function getAdminCatalogExportUrl(params = {}) {
+  return `${API_BASE_URL}/api/admin/catalogo/produtos/exportar.xlsx${buildQueryString(params)}`;
+}
+
+export function adminBaixarCatalogModeloImportacao() {
+  return requestArquivo('/api/admin/catalogo/produtos/importacao/modelo', {
+    fallbackFileName: 'modelo-importacao-produtos.csv'
+  });
+}
+
+export function adminBaixarCatalogoExportacao(params = {}) {
+  return requestArquivo(`/api/admin/catalogo/produtos/exportar.xlsx${buildQueryString(params)}`, {
+    fallbackFileName: 'produtos_admin.xlsx'
+  });
 }

@@ -1,0 +1,477 @@
+'use strict';
+
+const OpenFoodFactsProvider = require('./providers/OpenFoodFactsProvider');
+const UpcItemDbProvider = require('./providers/UpcItemDbProvider');
+const CosmosProvider = require('./providers/CosmosProvider');
+const {
+  normalizarBarcode,
+  validarBarcode,
+  isHttpImageUrl
+} = require('./utils/barcodeUtils');
+
+const TABLE_CACHE = 'barcode_lookup_cache';
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function aguardar(ms) {
+  const delay = Number.isFinite(Number(ms)) ? Math.max(0, Number(ms)) : 0;
+  if (!delay) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    setTimeout(resolve, delay);
+  });
+}
+
+function parseProviderOrder(rawValue) {
+  return String(rawValue || '')
+    .split(',')
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+class BarcodeLookupService {
+  constructor({
+    pool,
+    providers = [],
+    ttlFoundSeconds = 7 * 24 * 60 * 60,
+    ttlNotFoundSeconds = 24 * 60 * 60,
+    ttlErrorSeconds = 15 * 60,
+    providerMaxRetries = 1,
+    providerBackoffMs = 450,
+    providerInterRequestDelayMs = 120,
+    logger = console
+  } = {}) {
+    this.pool = pool || null;
+    this.providers = Array.isArray(providers) ? providers : [];
+    this.ttlFoundSeconds = Math.max(60, Number(ttlFoundSeconds) || 7 * 24 * 60 * 60);
+    this.ttlNotFoundSeconds = Math.max(60, Number(ttlNotFoundSeconds) || 24 * 60 * 60);
+    this.ttlErrorSeconds = Math.max(30, Number(ttlErrorSeconds) || 15 * 60);
+    this.providerMaxRetries = Math.max(0, Math.min(4, Number.parseInt(providerMaxRetries, 10) || 0));
+    this.providerBackoffMs = Math.max(120, Math.min(6000, Number.parseInt(providerBackoffMs, 10) || 450));
+    this.providerInterRequestDelayMs = Math.max(0, Math.min(5000, Number.parseInt(providerInterRequestDelayMs, 10) || 120));
+    this.logger = logger;
+    this.memoryCache = new Map();
+    this.schemaReady = false;
+  }
+
+  normalizeBarcode(barcode) {
+    return normalizarBarcode(barcode);
+  }
+
+  normalizeProduct(product = {}) {
+    const imagemNormalizada = String(product?.imagem || product?.image || product?.imageUrl || '').trim();
+
+    return {
+      nome: String(product?.nome || '').trim().slice(0, 255),
+      marca: String(product?.marca || product?.brand || '').trim().slice(0, 120),
+      descricao: String(product?.descricao || '').trim().slice(0, 1200),
+      imagem: isHttpImageUrl(imagemNormalizada) ? imagemNormalizada : ''
+    };
+  }
+
+  createResult(payload = {}) {
+    const product = payload.product ? this.normalizeProduct(payload.product) : null;
+
+    return {
+      barcode: this.normalizeBarcode(payload.barcode),
+      status: String(payload.status || 'not_found').trim().toLowerCase(),
+      provider: String(payload.provider || '').trim().toLowerCase() || null,
+      product,
+      name: product?.nome || '',
+      brand: product?.marca || '',
+      description: product?.descricao || '',
+      imageUrl: product?.imagem || '',
+      imageFound: Boolean(product?.imagem),
+      message: String(payload.message || '').trim() || null,
+      attemptedProviders: Array.isArray(payload.attemptedProviders)
+        ? payload.attemptedProviders
+        : [],
+      source: String(payload.source || 'provider').trim().toLowerCase(),
+      lookedUpAt: payload.lookedUpAt || nowIso(),
+      durationMs: Number.isFinite(Number(payload.durationMs)) ? Number(payload.durationMs) : 0,
+      statusReason: String(payload.statusReason || '').trim() || null
+    };
+  }
+
+  computeExpiresAt(status, { hasImage = true } = {}) {
+    const now = Date.now();
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+
+    let ttlMs = this.ttlNotFoundSeconds * 1000;
+    if (normalizedStatus === 'found') {
+      ttlMs = hasImage ? this.ttlFoundSeconds * 1000 : this.ttlNotFoundSeconds * 1000;
+    } else if (normalizedStatus === 'error') {
+      ttlMs = this.ttlErrorSeconds * 1000;
+    }
+
+    return new Date(now + ttlMs);
+  }
+
+  getMemoryCache(barcode) {
+    const cached = this.memoryCache.get(barcode);
+    if (!cached) {
+      return null;
+    }
+
+    if (Date.now() > cached.expiresAt) {
+      this.memoryCache.delete(barcode);
+      return null;
+    }
+
+    return cached.result;
+  }
+
+  setMemoryCache(barcode, result) {
+    const expiresAt = this.computeExpiresAt(result?.status, {
+      hasImage: Boolean(result?.imageUrl)
+    }).getTime();
+    this.memoryCache.set(barcode, {
+      expiresAt,
+      result
+    });
+  }
+
+  async ensureCacheSchema() {
+    if (this.schemaReady || !this.pool) {
+      return;
+    }
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS ${TABLE_CACHE} (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        barcode VARCHAR(32) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'not_found',
+        provider VARCHAR(80) NULL,
+        payload_json LONGTEXT NULL,
+        error_message VARCHAR(255) NULL,
+        looked_up_at DATETIME NULL,
+        expires_at DATETIME NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_barcode_lookup_cache_barcode (barcode),
+        INDEX idx_barcode_lookup_cache_status (status),
+        INDEX idx_barcode_lookup_cache_expires (expires_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    this.schemaReady = true;
+  }
+
+  async getPersistentCache(barcode) {
+    if (!this.pool) {
+      return null;
+    }
+
+    await this.ensureCacheSchema();
+
+    const [rows] = await this.pool.query(
+      `SELECT barcode, status, provider, payload_json, error_message, looked_up_at, expires_at
+         FROM ${TABLE_CACHE}
+        WHERE barcode = ?
+          AND (expires_at IS NULL OR expires_at > NOW())
+        LIMIT 1`,
+      [barcode]
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    let payload = null;
+    if (row.payload_json) {
+      try {
+        payload = JSON.parse(row.payload_json);
+      } catch {
+        payload = null;
+      }
+    }
+
+    const result = this.createResult({
+      barcode,
+      status: row.status,
+      provider: row.provider,
+      product: payload?.product || null,
+      message: row.error_message || payload?.message || null,
+      attemptedProviders: Array.isArray(payload?.attemptedProviders) ? payload.attemptedProviders : [],
+      source: 'cache-db',
+      lookedUpAt: row.looked_up_at || nowIso()
+    });
+
+    this.setMemoryCache(barcode, result);
+    return result;
+  }
+
+  async savePersistentCache(result) {
+    if (!this.pool) {
+      return;
+    }
+
+    await this.ensureCacheSchema();
+
+    const payload = {
+      product: result?.product || null,
+      attemptedProviders: result?.attemptedProviders || [],
+      message: result?.message || null
+    };
+
+    await this.pool.query(
+      `INSERT INTO ${TABLE_CACHE}
+        (barcode, status, provider, payload_json, error_message, looked_up_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, NOW(), ?)
+       ON DUPLICATE KEY UPDATE
+        status = VALUES(status),
+        provider = VALUES(provider),
+        payload_json = VALUES(payload_json),
+        error_message = VALUES(error_message),
+        looked_up_at = VALUES(looked_up_at),
+        expires_at = VALUES(expires_at)`,
+      [
+        result.barcode,
+        result.status,
+        result.provider,
+        JSON.stringify(payload),
+        result.status === 'error' ? result.message : null,
+        this.computeExpiresAt(result.status, { hasImage: Boolean(result?.imageUrl) })
+      ]
+    );
+  }
+
+  shouldRetryProvider(status, message) {
+    if (String(status || '').toLowerCase() !== 'error') {
+      return false;
+    }
+
+    const mensagem = String(message || '').toLowerCase();
+    if (!mensagem) {
+      return true;
+    }
+
+    if (/sem token|unauthorized|forbidden|401|403|invalido|inv[aá]lido/.test(mensagem)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  async consultarProviderComRetry(provider, barcode) {
+    const providerName = String(provider?.providerName || provider?.name || 'provider').toLowerCase();
+    const maxTentativas = this.providerMaxRetries + 1;
+    const inicioMs = Date.now();
+
+    let ultimaResposta = null;
+    let statusFinal = 'error';
+    let tentativasExecutadas = 0;
+
+    for (let tentativa = 1; tentativa <= maxTentativas; tentativa += 1) {
+      tentativasExecutadas = tentativa;
+
+      try {
+        ultimaResposta = await provider.lookup(barcode);
+      } catch (error) {
+        ultimaResposta = {
+          provider: providerName,
+          found: false,
+          status: 'error',
+          message: error?.message || 'Falha inesperada no provedor externo.'
+        };
+      }
+
+      statusFinal = String(ultimaResposta?.status || (ultimaResposta?.found ? 'found' : 'not_found')).toLowerCase();
+
+      const retry = tentativa < maxTentativas && this.shouldRetryProvider(statusFinal, ultimaResposta?.message);
+      if (!retry) {
+        break;
+      }
+
+      const atrasoMs = this.providerBackoffMs * tentativa;
+      await aguardar(atrasoMs);
+    }
+
+    return {
+      providerName,
+      providerResult: ultimaResposta,
+      status: statusFinal,
+      attempts: tentativasExecutadas,
+      durationMs: Date.now() - inicioMs
+    };
+  }
+
+  async lookup(barcode, options = {}) {
+    const inicioLookupMs = Date.now();
+    const validacaoBarcode = validarBarcode(barcode);
+
+    if (!validacaoBarcode.ok) {
+      return this.createResult({
+        barcode: validacaoBarcode.normalized || barcode,
+        status: validacaoBarcode.reason === 'sem_barcode' ? 'missing_barcode' : 'invalid_barcode',
+        statusReason: validacaoBarcode.reason,
+        message: validacaoBarcode.message,
+        source: 'input',
+        durationMs: Date.now() - inicioLookupMs
+      });
+    }
+
+    const normalizedBarcode = validacaoBarcode.normalized;
+    const force = Boolean(options.force);
+
+    if (!force) {
+      const memory = this.getMemoryCache(normalizedBarcode);
+      if (memory) {
+        return {
+          ...memory,
+          source: 'cache-memory'
+        };
+      }
+
+      const persistent = await this.getPersistentCache(normalizedBarcode);
+      if (persistent) {
+        return persistent;
+      }
+    }
+
+    const attemptedProviders = [];
+    let firstErrorMessage = '';
+    let melhorSemImagem = null;
+
+    for (let index = 0; index < this.providers.length; index += 1) {
+      const provider = this.providers[index];
+      if (!provider || typeof provider.lookup !== 'function') {
+        continue;
+      }
+
+      const providerLookup = await this.consultarProviderComRetry(provider, normalizedBarcode);
+      const providerName = providerLookup.providerName;
+      const providerResult = providerLookup.providerResult;
+      const status = providerLookup.status;
+
+      attemptedProviders.push({
+        provider: providerName,
+        status,
+        message: providerResult?.message || null,
+        tentativas: providerLookup.attempts,
+        duracao_ms: providerLookup.durationMs
+      });
+
+      if (providerResult?.found && providerResult?.produto) {
+        const produtoNormalizado = this.normalizeProduct(providerResult.produto);
+
+        if (produtoNormalizado.imagem) {
+          const successResult = this.createResult({
+            barcode: normalizedBarcode,
+            status: 'found',
+            provider: providerName,
+            product: produtoNormalizado,
+            attemptedProviders,
+            source: 'provider',
+            durationMs: Date.now() - inicioLookupMs
+          });
+
+          this.setMemoryCache(normalizedBarcode, successResult);
+          await this.savePersistentCache(successResult);
+          return successResult;
+        }
+
+        if (!melhorSemImagem) {
+          melhorSemImagem = {
+            provider: providerName,
+            product: produtoNormalizado
+          };
+        }
+      }
+
+      if (!firstErrorMessage && status === 'error') {
+        firstErrorMessage = String(providerResult?.message || '').trim();
+      }
+
+      const possuiProximoProvider = index < this.providers.length - 1;
+      if (possuiProximoProvider && this.providerInterRequestDelayMs > 0) {
+        await aguardar(this.providerInterRequestDelayMs);
+      }
+    }
+
+    if (melhorSemImagem) {
+      const semImagemResult = this.createResult({
+        barcode: normalizedBarcode,
+        status: 'found',
+        provider: melhorSemImagem.provider,
+        product: melhorSemImagem.product,
+        message: 'Produto encontrado, mas sem imagem valida nos provedores consultados.',
+        attemptedProviders,
+        source: 'provider',
+        durationMs: Date.now() - inicioLookupMs,
+        statusReason: 'sem_imagem_no_provedor'
+      });
+
+      this.setMemoryCache(normalizedBarcode, semImagemResult);
+      await this.savePersistentCache(semImagemResult);
+      return semImagemResult;
+    }
+
+    const houveNaoEncontrado = attemptedProviders.some((item) => item.status === 'not_found');
+    const finalStatus = firstErrorMessage && !houveNaoEncontrado ? 'error' : 'not_found';
+    const finalMessage = firstErrorMessage || 'Produto nao encontrado nos providers configurados.';
+
+    const finalResult = this.createResult({
+      barcode: normalizedBarcode,
+      status: finalStatus,
+      message: finalMessage,
+      attemptedProviders,
+      source: 'provider',
+      durationMs: Date.now() - inicioLookupMs
+    });
+
+    this.setMemoryCache(normalizedBarcode, finalResult);
+    await this.savePersistentCache(finalResult);
+    return finalResult;
+  }
+}
+
+function createDefaultBarcodeLookupService({ pool, logger = console } = {}) {
+  const providerOrder = parseProviderOrder(process.env.BARCODE_PROVIDER_ORDER || 'openfoodfacts,cosmos,upcitemdb');
+
+  const registry = {
+    openfoodfacts: () => new OpenFoodFactsProvider({
+      timeoutMs: Number(process.env.BARCODE_PROVIDER_TIMEOUT_MS || 4500),
+      baseUrl: process.env.OPENFOODFACTS_API_URL,
+      userAgent: process.env.OPENFOODFACTS_USER_AGENT
+    }),
+    cosmos: () => new CosmosProvider({
+      timeoutMs: Number(process.env.BARCODE_PROVIDER_TIMEOUT_MS || 4500),
+      baseUrl: process.env.COSMOS_API_URL,
+      lookupPathTemplate: process.env.COSMOS_LOOKUP_PATH_TEMPLATE,
+      apiToken: process.env.COSMOS_API_TOKEN
+    }),
+    upcitemdb: () => new UpcItemDbProvider({
+      timeoutMs: Number(process.env.BARCODE_PROVIDER_TIMEOUT_MS || 4500),
+      baseUrl: process.env.UPCITEMDB_API_URL,
+      apiKey: process.env.UPCITEMDB_API_KEY
+    })
+  };
+
+  const providers = providerOrder
+    .map((name) => registry[name])
+    .filter(Boolean)
+    .map((factory) => factory());
+
+  return new BarcodeLookupService({
+    pool,
+    providers,
+    ttlFoundSeconds: Number(process.env.BARCODE_CACHE_TTL_FOUND_SECONDS || 7 * 24 * 60 * 60),
+    ttlNotFoundSeconds: Number(process.env.BARCODE_CACHE_TTL_NOT_FOUND_SECONDS || 24 * 60 * 60),
+    ttlErrorSeconds: Number(process.env.BARCODE_CACHE_TTL_ERROR_SECONDS || 15 * 60),
+    providerMaxRetries: Number(process.env.BARCODE_PROVIDER_MAX_RETRIES || 1),
+    providerBackoffMs: Number(process.env.BARCODE_PROVIDER_BACKOFF_MS || 450),
+    providerInterRequestDelayMs: Number(process.env.BARCODE_PROVIDER_INTER_REQUEST_DELAY_MS || 120),
+    logger
+  });
+}
+
+module.exports = {
+  BarcodeLookupService,
+  createDefaultBarcodeLookupService
+};

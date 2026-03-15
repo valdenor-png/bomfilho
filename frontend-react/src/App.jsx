@@ -7,6 +7,7 @@ import PedidosPage from './pages/PedidosPage';
 import SobrePage from './pages/SobrePage';
 import ContaPage from './pages/ContaPage';
 import AdminPage from './pages/AdminPage';
+import AdminGerenciaPage from './pages/AdminGerenciaPage';
 import { useCart } from './context/CartContext';
 
 const BOTTOM_NAV_SAFE_AREA = 90;
@@ -31,7 +32,9 @@ export default function App() {
       <div className="app-shell admin-shell">
         <main className="content admin-content">
           <Routes>
-            <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/" replace />} />
+            <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/admin/gerencia" replace />} />
+            <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
+            <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
           </Routes>
         </main>
       </div>
@@ -46,7 +49,7 @@ export default function App() {
           <Route path="/produtos" element={<ProdutosPage />} />
           <Route path="/pagamento" element={<PagamentoPage />} />
           <Route path="/pedidos" element={<PedidosPage />} />
-          <Route path="/admin" element={isLocalHost ? <Navigate to="/admin" replace /> : <Navigate to="/" replace />} />
+          <Route path="/admin" element={<Navigate to="/admin/gerencia" replace />} />
           <Route path="/sobre" element={<SobrePage />} />
           <Route path="/conta" element={<ContaPage />} />
         </Routes>

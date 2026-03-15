@@ -4,9 +4,41 @@ const path = require('path');
 const XLSX = require('xlsx');
 const fetch = global.fetch || require('node-fetch');
 
-const EXTENSOES_IMPORTACAO_ACEITAS = Object.freeze(['.csv', '.xlsx']);
+const EXTENSOES_IMPORTACAO_ACEITAS = Object.freeze(['.csv', '.xls', '.xlsx']);
+const MIME_IMPORTACAO_ACEITOS = Object.freeze(new Set([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'application/excel',
+  'application/x-excel',
+  'application/x-msexcel',
+  'application/xls',
+  'application/x-xls',
+  'application/vnd.ms-office',
+  'application/csv',
+  'text/csv',
+  'text/plain',
+  'application/octet-stream'
+]));
+const MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO = 'Formato de arquivo não suportado. Envie .xls, .xlsx ou .csv.';
 const LIMITE_PREVIEW_LOGS = 120;
+const LIMITE_PREVIEW_LINHAS_AMOSTRA = 200;
 const LIMITE_LINHAS_IMPORTACAO = 50000;
+const INTERVALO_CEDER_EVENT_LOOP = 600;
+
+const TAMANHO_LOTE_INSERCAO = (() => {
+  const valor = Number.parseInt(process.env.IMPORTACAO_TAMANHO_LOTE_INSERCAO || '300', 10);
+  return Number.isFinite(valor) ? Math.max(100, Math.min(valor, 1200)) : 300;
+})();
+
+const TAMANHO_LOTE_ATUALIZACAO = (() => {
+  const valor = Number.parseInt(process.env.IMPORTACAO_TAMANHO_LOTE_ATUALIZACAO || '250', 10);
+  return Number.isFinite(valor) ? Math.max(100, Math.min(valor, 1000)) : 250;
+})();
+
+const TAMANHO_LOTE_PRE_CARGA_CHAVES = (() => {
+  const valor = Number.parseInt(process.env.IMPORTACAO_TAMANHO_LOTE_PRE_CARGA_CHAVES || '1000', 10);
+  return Number.isFinite(valor) ? Math.max(200, Math.min(valor, 2000)) : 1000;
+})();
 
 const COLUNAS_ALIAS = {
   codigo_interno: [
@@ -154,6 +186,39 @@ function detectarExtensaoArquivo(nomeArquivo) {
   return path.extname(String(nomeArquivo || '')).toLowerCase();
 }
 
+function validarArquivoImportacao({ nomeArquivo, mimeType } = {}) {
+  const extensao = detectarExtensaoArquivo(nomeArquivo);
+  if (!EXTENSOES_IMPORTACAO_ACEITAS.includes(extensao)) {
+    throw criarErroImportacao(400, MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO);
+  }
+
+  const mimeNormalizado = normalizarTexto(mimeType).toLowerCase();
+  if (!mimeNormalizado) {
+    return {
+      extensao,
+      mimeType: ''
+    };
+  }
+
+  if (MIME_IMPORTACAO_ACEITOS.has(mimeNormalizado)) {
+    return {
+      extensao,
+      mimeType: mimeNormalizado
+    };
+  }
+
+  // Alguns navegadores/ERPs enviam MIME não padronizado para planilhas; aceita variantes que indiquem Excel/CSV.
+  const mimeCompativelPlanilha = /(excel|spreadsheet|csv|comma-separated|ms-office|octet-stream|plain)/i.test(mimeNormalizado);
+  if (!mimeCompativelPlanilha) {
+    throw criarErroImportacao(400, MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO);
+  }
+
+  return {
+    extensao,
+    mimeType: mimeNormalizado
+  };
+}
+
 function temValorPreenchido(valor) {
   if (valor === null || valor === undefined) {
     return false;
@@ -280,52 +345,326 @@ function parseCsv(texto, delimitador) {
 }
 
 function lerArquivoTabular({ buffer, nomeArquivo }) {
-  const extensao = detectarExtensaoArquivo(nomeArquivo);
+  const { extensao } = validarArquivoImportacao({ nomeArquivo });
 
-  if (!EXTENSOES_IMPORTACAO_ACEITAS.includes(extensao)) {
-    throw criarErroImportacao(400, 'Arquivo invalido. Envie uma planilha .xlsx ou .csv.');
+  if (extensao === '.xlsx' || extensao === '.xls') {
+    try {
+      const workbook = XLSX.read(buffer, {
+        type: 'buffer',
+        cellDates: false,
+        raw: false,
+        dense: true
+      });
+
+      if (!Array.isArray(workbook.SheetNames) || workbook.SheetNames.length === 0) {
+        throw criarErroImportacao(400, 'Nao foi possivel localizar abas na planilha enviada.');
+      }
+
+      const primeiraAba = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[primeiraAba];
+      const linhas = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: '',
+        raw: false,
+        blankrows: false
+      });
+
+      return {
+        extensao,
+        delimitador: null,
+        linhas
+      };
+    } catch (erroLeitura) {
+      if (erroLeitura?.httpStatus) {
+        throw erroLeitura;
+      }
+
+      throw criarErroImportacao(400, 'Nao foi possivel ler a planilha. Verifique se o arquivo esta integro e em formato Excel/CSV valido.');
+    }
   }
 
-  if (extensao === '.xlsx') {
-    const workbook = XLSX.read(buffer, {
-      type: 'buffer',
-      cellDates: false,
-      raw: false,
-      dense: true
-    });
-
-    if (!Array.isArray(workbook.SheetNames) || workbook.SheetNames.length === 0) {
-      throw criarErroImportacao(400, 'Nao foi possivel localizar abas na planilha enviada.');
-    }
-
-    const primeiraAba = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[primeiraAba];
-    const linhas = XLSX.utils.sheet_to_json(worksheet, {
-      header: 1,
-      defval: '',
-      raw: false,
-      blankrows: false
-    });
+  try {
+    const conteudo = decodificarCsvBuffer(buffer);
+    const delimitador = detectarDelimitadorCsv(conteudo);
+    const linhas = parseCsv(conteudo, delimitador);
 
     return {
       extensao,
-      delimitador: null,
+      delimitador,
       linhas
     };
+  } catch {
+    throw criarErroImportacao(400, 'Nao foi possivel ler a planilha. Verifique se o arquivo esta integro e em formato Excel/CSV valido.');
+  }
+}
+
+const PALAVRAS_METADADOS_RELATORIO = /cnpj|pagina|página|grupo|empresa|relatorio|emissao|emitido|filial|telefone|endereco|endereço|total\s+de\s+registros|sistema|data\s+de\s+emissao/i;
+
+const ALIASES_CABECALHO_DETECCAO = Object.freeze({
+  identificador: [
+    ...COLUNAS_ALIAS.codigo_interno,
+    ...COLUNAS_ALIAS.codigo_barras,
+    'codigo',
+    'cod',
+    'ean',
+    'gtin',
+    'upc'
+  ],
+  nome: [
+    ...COLUNAS_ALIAS.nome,
+    ...COLUNAS_ALIAS.descricao,
+    'descricao'
+  ],
+  preco: [
+    ...COLUNAS_ALIAS.preco,
+    'venda1',
+    'venda2',
+    'preco1',
+    'preco2',
+    'valorvenda1',
+    'valorvenda2',
+    'custo'
+  ],
+  complementares: [
+    ...COLUNAS_ALIAS.preco_promocional,
+    ...COLUNAS_ALIAS.estoque,
+    ...COLUNAS_ALIAS.unidade,
+    ...COLUNAS_ALIAS.categoria,
+    ...COLUNAS_ALIAS.ativo,
+    ...COLUNAS_ALIAS.imagem
+  ]
+});
+
+function pontuarCompatibilidadeCabecalho(celulaNormalizada, aliasNormalizado) {
+  if (!celulaNormalizada || !aliasNormalizado) {
+    return 0;
   }
 
-  const conteudo = decodificarCsvBuffer(buffer);
-  const delimitador = detectarDelimitadorCsv(conteudo);
-  const linhas = parseCsv(conteudo, delimitador);
+  if (celulaNormalizada === aliasNormalizado) {
+    return 4;
+  }
 
-  return {
-    extensao,
-    delimitador,
-    linhas
-  };
+  if (celulaNormalizada.startsWith(aliasNormalizado) || celulaNormalizada.endsWith(aliasNormalizado)) {
+    return 3;
+  }
+
+  if (celulaNormalizada.includes(aliasNormalizado) || aliasNormalizado.includes(celulaNormalizada)) {
+    return 2;
+  }
+
+  const distancia = calcularDistanciaLevenshteinLimitada(celulaNormalizada, aliasNormalizado, 2);
+  if (distancia <= 1) {
+    return 2;
+  }
+
+  if (distancia === 2 && Math.min(celulaNormalizada.length, aliasNormalizado.length) >= 6) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function calcularDistanciaLevenshteinLimitada(origem, destino, limite = 2) {
+  const textoOrigem = String(origem || '');
+  const textoDestino = String(destino || '');
+
+  if (textoOrigem === textoDestino) {
+    return 0;
+  }
+
+  const tamanhoOrigem = textoOrigem.length;
+  const tamanhoDestino = textoDestino.length;
+
+  if (!tamanhoOrigem || !tamanhoDestino) {
+    return Math.max(tamanhoOrigem, tamanhoDestino);
+  }
+
+  if (Math.abs(tamanhoOrigem - tamanhoDestino) > limite) {
+    return limite + 1;
+  }
+
+  let anterior = new Array(tamanhoDestino + 1);
+  let atual = new Array(tamanhoDestino + 1);
+
+  for (let j = 0; j <= tamanhoDestino; j += 1) {
+    anterior[j] = j;
+  }
+
+  for (let i = 1; i <= tamanhoOrigem; i += 1) {
+    atual[0] = i;
+    let menorNaLinha = atual[0];
+
+    for (let j = 1; j <= tamanhoDestino; j += 1) {
+      const custoSubstituicao = textoOrigem[i - 1] === textoDestino[j - 1] ? 0 : 1;
+      atual[j] = Math.min(
+        anterior[j] + 1,
+        atual[j - 1] + 1,
+        anterior[j - 1] + custoSubstituicao
+      );
+
+      if (atual[j] < menorNaLinha) {
+        menorNaLinha = atual[j];
+      }
+    }
+
+    if (menorNaLinha > limite) {
+      return limite + 1;
+    }
+
+    const troca = anterior;
+    anterior = atual;
+    atual = troca;
+  }
+
+  return anterior[tamanhoDestino];
+}
+
+function possuiValorNumericoIsolado(valor) {
+  return /^[-+]?\d+(?:[.,]\d+)?$/.test(normalizarTexto(valor));
+}
+
+function pontuarLinhaCabecalho(linha = []) {
+  if (!Array.isArray(linha)) {
+    return -999;
+  }
+
+  const celulasBrutas = linha
+    .map((item) => normalizarTexto(item))
+    .filter(Boolean);
+
+  if (celulasBrutas.length < 2) {
+    return -999;
+  }
+
+  const celulasNormalizadas = celulasBrutas
+    .map((item) => normalizarCabecalho(item))
+    .filter(Boolean);
+
+  if (!celulasNormalizadas.length) {
+    return -999;
+  }
+
+  let pontuacao = 0;
+  const gruposEncontrados = new Set();
+
+  for (const celula of celulasNormalizadas) {
+    for (const [grupo, aliases] of Object.entries(ALIASES_CABECALHO_DETECCAO)) {
+      for (const alias of aliases) {
+        const aliasNormalizado = normalizarCabecalho(alias);
+        const score = pontuarCompatibilidadeCabecalho(celula, aliasNormalizado);
+
+        if (score > 0) {
+          pontuacao += score;
+          gruposEncontrados.add(grupo);
+          break;
+        }
+      }
+    }
+  }
+
+  if (gruposEncontrados.has('identificador') && gruposEncontrados.has('nome')) {
+    pontuacao += 6;
+  }
+
+  if (gruposEncontrados.has('preco')) {
+    pontuacao += 5;
+  }
+
+  if (gruposEncontrados.size >= 3) {
+    pontuacao += 4;
+  }
+
+  const linhaTexto = celulasBrutas.join(' ');
+  if (PALAVRAS_METADADOS_RELATORIO.test(linhaTexto)) {
+    pontuacao -= 10;
+  }
+
+  const totalNumericas = celulasBrutas.filter((valor) => possuiValorNumericoIsolado(valor)).length;
+  if (totalNumericas >= celulasBrutas.length - 1) {
+    pontuacao -= 5;
+  }
+
+  if (celulasNormalizadas.some((item) => /venda1|valorvenda1|precodevenda1/.test(item))) {
+    pontuacao += 5;
+  }
+
+  if (
+    celulasNormalizadas.some((item) => /custo|precocusto/.test(item))
+    && celulasNormalizadas.some((item) => /venda|preco|valor/.test(item))
+  ) {
+    pontuacao += 2;
+  }
+
+  return pontuacao;
+}
+
+function linhaContemAliasCabecalho(celulasNormalizadas = [], aliases = []) {
+  if (!Array.isArray(celulasNormalizadas) || !Array.isArray(aliases) || !aliases.length) {
+    return false;
+  }
+
+  for (const celula of celulasNormalizadas) {
+    for (const alias of aliases) {
+      if (pontuarCompatibilidadeCabecalho(celula, normalizarCabecalho(alias)) > 0) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function linhaPareceMetadadoRelatorio(celulasBrutas = []) {
+  const texto = celulasBrutas.join(' ');
+  if (PALAVRAS_METADADOS_RELATORIO.test(texto)) {
+    return true;
+  }
+
+  const totalNumericas = celulasBrutas.filter((valor) => possuiValorNumericoIsolado(valor)).length;
+  return totalNumericas >= celulasBrutas.length - 1;
 }
 
 function encontrarLinhaCabecalho(linhas) {
+  const limite = Math.min(Array.isArray(linhas) ? linhas.length : 0, 80);
+
+  for (let i = 0; i < limite; i += 1) {
+    const linha = Array.isArray(linhas[i]) ? linhas[i] : [];
+    const celulasBrutas = linha
+      .map((item) => normalizarTexto(item))
+      .filter(Boolean);
+
+    if (celulasBrutas.length < 3 || linhaPareceMetadadoRelatorio(celulasBrutas)) {
+      continue;
+    }
+
+    const celulasNormalizadas = celulasBrutas
+      .map((item) => normalizarCabecalho(item))
+      .filter(Boolean);
+
+    const temIdentificador = linhaContemAliasCabecalho(celulasNormalizadas, ALIASES_CABECALHO_DETECCAO.identificador);
+    const temNomeDescricao = linhaContemAliasCabecalho(celulasNormalizadas, ALIASES_CABECALHO_DETECCAO.nome);
+    const temPreco = linhaContemAliasCabecalho(celulasNormalizadas, ALIASES_CABECALHO_DETECCAO.preco);
+
+    if (temIdentificador && temNomeDescricao && temPreco) {
+      return i;
+    }
+  }
+
+  let melhorIndice = -1;
+  let melhorPontuacao = -999;
+
+  for (let i = 0; i < limite; i += 1) {
+    const score = pontuarLinhaCabecalho(linhas[i]);
+    if (score > melhorPontuacao) {
+      melhorPontuacao = score;
+      melhorIndice = i;
+    }
+  }
+
+  if (melhorIndice >= 0 && melhorPontuacao >= 8) {
+    return melhorIndice;
+  }
+
   for (let i = 0; i < linhas.length; i += 1) {
     if (!linhaVazia(linhas[i])) {
       return i;
@@ -353,13 +692,63 @@ function construirCabecalhosUnicos(cabecalhosRaw) {
   });
 }
 
+function bonusCampoPorCabecalho(campo, headerNorm) {
+  if (!headerNorm) {
+    return 0;
+  }
+
+  if (campo === 'preco') {
+    if (/venda1|valorvenda1|precovenda1|precodevenda1/.test(headerNorm)) {
+      return 12;
+    }
+
+    if (/venda|precovenda|valorvenda/.test(headerNorm)) {
+      return 8;
+    }
+
+    if (/custo|compra|cmv|precocusto/.test(headerNorm)) {
+      return -12;
+    }
+
+    if (/promoc|oferta/.test(headerNorm)) {
+      return -3;
+    }
+  }
+
+  if (campo === 'codigo_interno') {
+    if (/codigo|cod|sku|referencia/.test(headerNorm) && !/ean|barras|gtin|upc/.test(headerNorm)) {
+      return 6;
+    }
+
+    if (/ean|barras|gtin|upc/.test(headerNorm)) {
+      return -8;
+    }
+  }
+
+  if (campo === 'codigo_barras') {
+    if (/ean|barras|barcode|gtin|upc/.test(headerNorm)) {
+      return 8;
+    }
+
+    if (/sku|referencia|interno/.test(headerNorm)) {
+      return -6;
+    }
+  }
+
+  if (campo === 'nome' && /descricao/.test(headerNorm)) {
+    return 5;
+  }
+
+  return 0;
+}
+
 function mapearColunas(cabecalhos) {
   const cabecalhosNorm = cabecalhos.map((cabecalho) => normalizarCabecalho(cabecalho));
   const usados = new Set();
 
-  function localizarIndice(aliases, permitirReuso = false) {
+  function localizarIndice(campo, aliases, permitirReuso = false) {
     let melhorIndice = -1;
-    let melhorScore = 0;
+    let melhorScore = -Infinity;
 
     for (let i = 0; i < cabecalhosNorm.length; i += 1) {
       if (!permitirReuso && usados.has(i)) {
@@ -371,49 +760,62 @@ function mapearColunas(cabecalhos) {
         continue;
       }
 
+      let scoreCabecalho = bonusCampoPorCabecalho(campo, header);
+
       for (const alias of aliases) {
         const aliasNorm = normalizarCabecalho(alias);
         if (!aliasNorm) {
           continue;
         }
 
-        let score = 0;
-        if (header === aliasNorm) {
-          score = 4;
-        } else if (header.startsWith(aliasNorm) || header.endsWith(aliasNorm)) {
-          score = 3;
-        } else if (header.includes(aliasNorm) || aliasNorm.includes(header)) {
-          score = 2;
-        }
+        const score = pontuarCompatibilidadeCabecalho(header, aliasNorm);
 
-        if (score > melhorScore) {
-          melhorScore = score;
-          melhorIndice = i;
+        if (score > 0) {
+          scoreCabecalho += score;
         }
+      }
+
+      if (scoreCabecalho > melhorScore) {
+        melhorScore = scoreCabecalho;
+        melhorIndice = i;
       }
     }
 
-    if (melhorIndice >= 0 && !permitirReuso) {
+    if (melhorIndice >= 0 && melhorScore > 0 && !permitirReuso) {
       usados.add(melhorIndice);
     }
 
-    return melhorIndice;
+    return melhorScore > 0 ? melhorIndice : -1;
   }
 
   const indices = {
-    codigo_interno: localizarIndice(COLUNAS_ALIAS.codigo_interno),
-    codigo_barras: localizarIndice(COLUNAS_ALIAS.codigo_barras),
-    nome: localizarIndice(COLUNAS_ALIAS.nome),
-    descricao: localizarIndice(COLUNAS_ALIAS.descricao),
-    imagem: localizarIndice(COLUNAS_ALIAS.imagem),
-    preco: localizarIndice(COLUNAS_ALIAS.preco),
-    preco_promocional: localizarIndice(COLUNAS_ALIAS.preco_promocional),
-    estoque: localizarIndice(COLUNAS_ALIAS.estoque),
-    unidade: localizarIndice(COLUNAS_ALIAS.unidade),
-    ativo: localizarIndice(COLUNAS_ALIAS.ativo),
-    categoria: localizarIndice(COLUNAS_ALIAS.categoria)
+    codigo_interno: localizarIndice('codigo_interno', COLUNAS_ALIAS.codigo_interno),
+    codigo_barras: localizarIndice('codigo_barras', COLUNAS_ALIAS.codigo_barras),
+    nome: localizarIndice('nome', COLUNAS_ALIAS.nome),
+    descricao: localizarIndice('descricao', COLUNAS_ALIAS.descricao),
+    imagem: localizarIndice('imagem', COLUNAS_ALIAS.imagem),
+    preco: localizarIndice('preco', COLUNAS_ALIAS.preco),
+    preco_promocional: localizarIndice('preco_promocional', COLUNAS_ALIAS.preco_promocional),
+    estoque: localizarIndice('estoque', COLUNAS_ALIAS.estoque),
+    unidade: localizarIndice('unidade', COLUNAS_ALIAS.unidade),
+    ativo: localizarIndice('ativo', COLUNAS_ALIAS.ativo),
+    categoria: localizarIndice('categoria', COLUNAS_ALIAS.categoria)
   };
 
+  const colunasMapeadas = {};
+  Object.entries(indices).forEach(([chave, indice]) => {
+    if (indice >= 0) {
+      colunasMapeadas[chave] = cabecalhos[indice];
+    }
+  });
+
+  return {
+    indices,
+    colunasMapeadas
+  };
+}
+
+function validarIndicesObrigatorios(indices) {
   const faltantes = [];
   if (indices.codigo_interno < 0 && indices.codigo_barras < 0) {
     faltantes.push('identificador (codigo ou codigo de barras)');
@@ -431,17 +833,68 @@ function mapearColunas(cabecalhos) {
       `Nao encontramos colunas obrigatorias na planilha: ${faltantes.join(', ')}.`
     );
   }
+}
 
-  const colunasMapeadas = {};
-  Object.entries(indices).forEach(([chave, indice]) => {
-    if (indice >= 0) {
-      colunasMapeadas[chave] = cabecalhos[indice];
+function resolverIndiceColunaManual(cabecalhos, valorMapeamento) {
+  if (typeof valorMapeamento === 'number' && Number.isFinite(valorMapeamento)) {
+    const indice = Math.trunc(valorMapeamento) - 1;
+    if (indice >= 0 && indice < cabecalhos.length) {
+      return indice;
     }
-  });
+    return -1;
+  }
+
+  const texto = normalizarTexto(valorMapeamento);
+  if (!texto) {
+    return -1;
+  }
+
+  const alvo = normalizarCabecalho(texto);
+  if (!alvo) {
+    return -1;
+  }
+
+  for (let i = 0; i < cabecalhos.length; i += 1) {
+    if (normalizarCabecalho(cabecalhos[i]) === alvo) {
+      return i;
+    }
+  }
+
+  return -1;
+}
+
+function aplicarMapeamentoColunasManual({ indices, colunasMapeadas, cabecalhos, mapeamento }) {
+  if (!mapeamento || typeof mapeamento !== 'object') {
+    return {
+      indices,
+      colunasMapeadas,
+      avisos: []
+    };
+  }
+
+  const indicesAtualizados = { ...indices };
+  const colunasMapeadasAtualizadas = { ...colunasMapeadas };
+  const avisos = [];
+
+  for (const [campo, valorMapeamento] of Object.entries(mapeamento)) {
+    if (!Object.prototype.hasOwnProperty.call(indicesAtualizados, campo)) {
+      continue;
+    }
+
+    const indiceManual = resolverIndiceColunaManual(cabecalhos, valorMapeamento);
+    if (indiceManual < 0) {
+      avisos.push(`Mapeamento manual ignorado para ${campo}: coluna ${valorMapeamento} nao encontrada.`);
+      continue;
+    }
+
+    indicesAtualizados[campo] = indiceManual;
+    colunasMapeadasAtualizadas[campo] = cabecalhos[indiceManual];
+  }
 
   return {
-    indices,
-    colunasMapeadas
+    indices: indicesAtualizados,
+    colunasMapeadas: colunasMapeadasAtualizadas,
+    avisos
   };
 }
 
@@ -635,7 +1088,7 @@ async function buscarDadosUpcItemDb(codigoBarras) {
   }
 }
 
-async function buscarDadosProdutoPorCodigoBarras(codigoBarras, cacheBarcode = new Map()) {
+async function buscarDadosProdutoPorCodigoBarras(codigoBarras, cacheBarcode = new Map(), barcodeLookupService = null) {
   const codigo = normalizarCodigoBarras(codigoBarras);
   if (!codigo) {
     return null;
@@ -643,6 +1096,20 @@ async function buscarDadosProdutoPorCodigoBarras(codigoBarras, cacheBarcode = ne
 
   if (cacheBarcode.has(codigo)) {
     return cacheBarcode.get(codigo);
+  }
+
+  if (barcodeLookupService && typeof barcodeLookupService.lookup === 'function') {
+    try {
+      const lookup = await barcodeLookupService.lookup(codigo);
+      const dadosLookup = lookup?.status === 'found' && lookup?.product
+        ? normalizarPayloadBarcode(lookup.product)
+        : null;
+
+      cacheBarcode.set(codigo, dadosLookup);
+      return dadosLookup;
+    } catch {
+      // fallback para estrategia legada desta rotina
+    }
   }
 
   const dadosOpenFoodFacts = await buscarDadosOpenFoodFacts(codigo);
@@ -676,6 +1143,44 @@ function registrarPreview(lista, item) {
   if (lista.length < LIMITE_PREVIEW_LOGS) {
     lista.push(item);
   }
+}
+
+function registrarLinhaAmostraPreview(resumo, item) {
+  if (!Array.isArray(resumo?.preview_linhas)) {
+    return;
+  }
+
+  if (resumo.preview_linhas.length >= LIMITE_PREVIEW_LINHAS_AMOSTRA) {
+    return;
+  }
+
+  resumo.preview_linhas.push(item);
+}
+
+function construirLinhaAmostraBase({
+  numeroLinha,
+  identificador,
+  nome,
+  preco,
+  motivo = '',
+  campo = '',
+  valorRecebido = '',
+  acaoSugerida = ''
+}) {
+  return {
+    linha: numeroLinha,
+    identificador: identificador || '',
+    nome: nome || '',
+    preco: Number.isFinite(Number(preco)) ? Number(preco) : null,
+    motivo,
+    campo,
+    valor_recebido: valorRecebido,
+    acao_sugerida: acaoSugerida
+  };
+}
+
+async function cederEventLoop() {
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 async function colunaExiste(pool, tabela, coluna) {
@@ -871,7 +1376,7 @@ async function listarImportacoesProdutos({ pool, page = 1, limit = 20 }) {
   };
 }
 
-async function buscarProdutoPorCampo(connection, cache, campo, valor) {
+async function buscarProdutoPorCampo(connection, cache, campo, valor, options = {}) {
   if (!valor) {
     return null;
   }
@@ -879,6 +1384,11 @@ async function buscarProdutoPorCampo(connection, cache, campo, valor) {
   const chave = String(valor);
   if (cache.has(chave)) {
     return cache.get(chave);
+  }
+
+  if (options?.usarApenasCache) {
+    cache.set(chave, null);
+    return null;
   }
 
   const [rows] = await connection.query(
@@ -891,7 +1401,7 @@ async function buscarProdutoPorCampo(connection, cache, campo, valor) {
   return produto;
 }
 
-async function buscarProdutoPorNome(connection, cache, nome) {
+async function buscarProdutoPorNome(connection, cache, nome, options = {}) {
   const nomeNormalizado = normalizarCabecalho(nome);
   if (!nomeNormalizado) {
     return null;
@@ -899,6 +1409,11 @@ async function buscarProdutoPorNome(connection, cache, nome) {
 
   if (cache.has(nomeNormalizado)) {
     return cache.get(nomeNormalizado);
+  }
+
+  if (options?.usarApenasCache) {
+    cache.set(nomeNormalizado, null);
+    return null;
   }
 
   const [rows] = await connection.query(
@@ -913,6 +1428,151 @@ async function buscarProdutoPorNome(connection, cache, nome) {
   const produto = rows[0] || null;
   cache.set(nomeNormalizado, produto);
   return produto;
+}
+
+function quebrarEmLotes(lista = [], tamanhoLote = 1000) {
+  const resultado = [];
+  const tamanho = Math.max(1, Number(tamanhoLote) || 1);
+
+  for (let i = 0; i < lista.length; i += tamanho) {
+    resultado.push(lista.slice(i, i + tamanho));
+  }
+
+  return resultado;
+}
+
+function coletarChavesBuscaPlanilha({ linhasDados = [], indices = {} } = {}) {
+  const codigosInternos = new Set();
+  const codigosBarras = new Set();
+  const nomesNormalizados = new Set();
+
+  for (const linha of linhasDados) {
+    if (linhaVazia(linha)) {
+      continue;
+    }
+
+    const codigoInterno = normalizarCodigoInterno(obterValorLinha(linha, indices.codigo_interno));
+    let codigoBarras = normalizarCodigoBarras(obterValorLinha(linha, indices.codigo_barras));
+
+    if (!codigoBarras && /^\d{8,}$/.test(codigoInterno)) {
+      codigoBarras = normalizarCodigoBarras(codigoInterno);
+    }
+
+    if (codigoInterno) {
+      codigosInternos.add(codigoInterno);
+    }
+
+    if (codigoBarras) {
+      codigosBarras.add(codigoBarras);
+    }
+
+    const nomeOuDescricao = normalizarTexto(
+      obterValorLinha(linha, indices.nome) || obterValorLinha(linha, indices.descricao)
+    );
+    if (nomeOuDescricao) {
+      nomesNormalizados.add(nomeOuDescricao.toLowerCase());
+    }
+  }
+
+  return {
+    codigosInternos: Array.from(codigosInternos),
+    codigosBarras: Array.from(codigosBarras),
+    nomesNormalizados: Array.from(nomesNormalizados)
+  };
+}
+
+async function preCarregarCacheProdutosExistentesPorChaves({
+  connection,
+  colunasProdutos,
+  cacheCodigoInterno,
+  cacheCodigoBarras,
+  cacheNome,
+  chavesBusca
+}) {
+  const codigosInternos = Array.isArray(chavesBusca?.codigosInternos) ? chavesBusca.codigosInternos : [];
+  const codigosBarras = Array.isArray(chavesBusca?.codigosBarras) ? chavesBusca.codigosBarras : [];
+  const nomesNormalizados = Array.isArray(chavesBusca?.nomesNormalizados) ? chavesBusca.nomesNormalizados : [];
+
+  if (colunasProdutos.has('codigo_interno') && codigosInternos.length) {
+    const lotes = quebrarEmLotes(codigosInternos, TAMANHO_LOTE_PRE_CARGA_CHAVES);
+
+    for (const lote of lotes) {
+      const placeholders = lote.map(() => '?').join(', ');
+      const [rows] = await connection.query(
+        `SELECT id, nome, unidade, codigo_interno
+           FROM produtos
+          WHERE codigo_interno IN (${placeholders})`,
+        lote
+      );
+
+      for (const row of rows) {
+        const codigoInterno = normalizarCodigoInterno(row.codigo_interno);
+        if (!codigoInterno) {
+          continue;
+        }
+
+        cacheCodigoInterno.set(codigoInterno, {
+          id: row.id,
+          nome: row.nome || '',
+          unidade: row.unidade || 'un'
+        });
+      }
+    }
+  }
+
+  if (colunasProdutos.has('codigo_barras') && codigosBarras.length) {
+    const lotes = quebrarEmLotes(codigosBarras, TAMANHO_LOTE_PRE_CARGA_CHAVES);
+
+    for (const lote of lotes) {
+      const placeholders = lote.map(() => '?').join(', ');
+      const [rows] = await connection.query(
+        `SELECT id, nome, unidade, codigo_barras
+           FROM produtos
+          WHERE codigo_barras IN (${placeholders})`,
+        lote
+      );
+
+      for (const row of rows) {
+        const codigoBarras = normalizarCodigoBarras(row.codigo_barras);
+        if (!codigoBarras) {
+          continue;
+        }
+
+        cacheCodigoBarras.set(codigoBarras, {
+          id: row.id,
+          nome: row.nome || '',
+          unidade: row.unidade || 'un'
+        });
+      }
+    }
+  }
+
+  if (nomesNormalizados.length) {
+    const lotes = quebrarEmLotes(nomesNormalizados, TAMANHO_LOTE_PRE_CARGA_CHAVES);
+
+    for (const lote of lotes) {
+      const placeholders = lote.map(() => '?').join(', ');
+      const [rows] = await connection.query(
+        `SELECT id, nome, unidade
+           FROM produtos
+          WHERE LOWER(TRIM(nome)) IN (${placeholders})`,
+        lote
+      );
+
+      for (const row of rows) {
+        const nomeNormalizado = normalizarCabecalho(row.nome);
+        if (!nomeNormalizado) {
+          continue;
+        }
+
+        cacheNome.set(nomeNormalizado, {
+          id: row.id,
+          nome: row.nome || '',
+          unidade: row.unidade || 'un'
+        });
+      }
+    }
+  }
 }
 
 function obterValorLinha(linha, indice) {
@@ -934,9 +1594,23 @@ async function importarProdutosPlanilha({
   createMissing = false,
   updateStock = false,
   simulate = false,
+  columnMapping = null,
+  barcodeLookupService = null,
   adminUser = 'admin',
   adminUserId = null
 }) {
+  const inicioTotalMs = Date.now();
+  const inicioLeituraMs = Date.now();
+  let etapaAtual = 'validacao_arquivo';
+  let duracaoLeituraMs = 0;
+  let duracaoPreCargaMs = 0;
+  let duracaoProcessamentoMs = 0;
+  let duracaoPersistenciaInsercaoMs = 0;
+  let duracaoPersistenciaAtualizacaoMs = 0;
+  let lotesInsercaoProcessados = 0;
+  let lotesAtualizacaoProcessados = 0;
+  let rollbackAplicado = false;
+
   if (!pool || typeof pool.getConnection !== 'function') {
     throw criarErroImportacao(500, 'Conexao com banco indisponivel para importacao.');
   }
@@ -949,6 +1623,7 @@ async function importarProdutosPlanilha({
 
   await garantirEstruturaImportacaoProdutos(pool);
 
+  etapaAtual = 'leitura_arquivo';
   const arquivo = lerArquivoTabular({
     buffer: fileBuffer,
     nomeArquivo
@@ -963,8 +1638,21 @@ async function importarProdutosPlanilha({
     throw criarErroImportacao(400, 'Nao foi possivel identificar o cabecalho da planilha.');
   }
 
+  duracaoLeituraMs = Date.now() - inicioLeituraMs;
+
   const cabecalhos = construirCabecalhosUnicos(arquivo.linhas[linhaCabecalho]);
-  const { indices, colunasMapeadas } = mapearColunas(cabecalhos);
+  let { indices, colunasMapeadas } = mapearColunas(cabecalhos);
+
+  const mappingResult = aplicarMapeamentoColunasManual({
+    indices,
+    colunasMapeadas,
+    cabecalhos,
+    mapeamento: columnMapping
+  });
+
+  indices = mappingResult.indices;
+  colunasMapeadas = mappingResult.colunasMapeadas;
+  validarIndicesObrigatorios(indices);
 
   const linhasDados = arquivo.linhas.slice(linhaCabecalho + 1);
   if (linhasDados.length > LIMITE_LINHAS_IMPORTACAO) {
@@ -984,14 +1672,41 @@ async function importarProdutosPlanilha({
     total_linhas: 0,
     total_atualizados: 0,
     total_criados: 0,
+    total_validos: 0,
     total_ignorados: 0,
     total_erros: 0,
+    preview_linhas: [],
     logs: {
       erros: [],
       ignorados: [],
       avisos: []
+    },
+    performance: {
+      inicio_iso: new Date(inicioTotalMs).toISOString(),
+      duracao_total_ms: 0,
+      duracao_leitura_ms: 0,
+      duracao_pre_carga_ms: 0,
+      duracao_processamento_ms: 0,
+      duracao_persistencia_ms: 0,
+      lotes_insercao: 0,
+      lotes_atualizacao: 0,
+      lotes_processados: 0,
+      linhas_vazias_ignoradas: 0,
+      etapa_falha: null
     }
   };
+
+  if (Array.isArray(mappingResult?.avisos) && mappingResult.avisos.length) {
+    mappingResult.avisos.forEach((aviso) => {
+      registrarPreview(resumo.logs.avisos, {
+        linha: 'cabecalho',
+        campo: 'mapeamento_colunas',
+        valor_recebido: '',
+        motivo: aviso,
+        acao_sugerida: 'Revise o mapeamento manual para colunas nao reconhecidas.'
+      });
+    });
+  }
 
   let connection;
 
@@ -1008,11 +1723,222 @@ async function importarProdutosPlanilha({
     const cacheCodigoBarras = new Map();
     const cacheNome = new Map();
     const cacheDadosBarcode = new Map();
+    const pendentesAtualizacaoPorId = new Map();
+    let usarSomenteCacheParaBusca = false;
+
+    const chavesBuscaPlanilha = coletarChavesBuscaPlanilha({
+      linhasDados,
+      indices
+    });
+
+    etapaAtual = 'pre_carga_existentes';
+    const inicioPreCargaMs = Date.now();
+
+    if (colunasProdutos.has('codigo_interno') || colunasProdutos.has('codigo_barras') || createMissing) {
+      await preCarregarCacheProdutosExistentesPorChaves({
+        connection,
+        colunasProdutos,
+        cacheCodigoInterno,
+        cacheCodigoBarras,
+        cacheNome,
+        chavesBusca: chavesBuscaPlanilha
+      });
+      usarSomenteCacheParaBusca = true;
+    }
+
+    duracaoPreCargaMs = Date.now() - inicioPreCargaMs;
+
+    const incluirPrecoPromocionalInsert = colunasProdutos.has('preco_promocional') && indices.preco_promocional >= 0;
+    const camposInsertPadrao = ['nome', 'preco'];
+
+    if (colunasProdutos.has('descricao')) {
+      camposInsertPadrao.push('descricao');
+    }
+
+    if (colunasProdutos.has('imagem_url')) {
+      camposInsertPadrao.push('imagem_url');
+    }
+
+    if (colunasProdutos.has('unidade')) {
+      camposInsertPadrao.push('unidade');
+    }
+
+    if (colunasProdutos.has('categoria')) {
+      camposInsertPadrao.push('categoria');
+    }
+
+    if (colunasProdutos.has('estoque')) {
+      camposInsertPadrao.push('estoque');
+    }
+
+    if (colunasProdutos.has('ativo')) {
+      camposInsertPadrao.push('ativo');
+    }
+
+    if (colunasProdutos.has('codigo_interno')) {
+      camposInsertPadrao.push('codigo_interno');
+    }
+
+    if (colunasProdutos.has('codigo_barras')) {
+      camposInsertPadrao.push('codigo_barras');
+    }
+
+    if (incluirPrecoPromocionalInsert) {
+      camposInsertPadrao.push('preco_promocional');
+    }
+
+    if (colunasProdutos.has('ultima_importacao_em')) {
+      camposInsertPadrao.push('ultima_importacao_em');
+    }
+
+    if (colunasProdutos.has('ultima_atualizacao_preco_em')) {
+      camposInsertPadrao.push('ultima_atualizacao_preco_em');
+    }
+
+    const pendentesCriacao = [];
+
+    async function flushAtualizacoesPendentes() {
+      if (simulate || !pendentesAtualizacaoPorId.size) {
+        return;
+      }
+
+      const inicioFlushMs = Date.now();
+      const loteAtualizacoes = Array.from(pendentesAtualizacaoPorId.values());
+      const selects = [];
+      const params = [];
+
+      for (const item of loteAtualizacoes) {
+        selects.push(`SELECT
+          ? AS id,
+          ? AS preco,
+          ? AS nome,
+          ? AS descricao,
+          ? AS imagem_url,
+          ? AS aplicar_imagem,
+          ? AS preco_promocional,
+          ? AS aplicar_preco_promocional,
+          ? AS estoque,
+          ? AS aplicar_estoque,
+          ? AS codigo_interno,
+          ? AS aplicar_codigo_interno,
+          ? AS codigo_barras,
+          ? AS aplicar_codigo_barras`);
+
+        params.push(
+          item.id,
+          item.preco,
+          item.nome,
+          item.descricao,
+          item.imagem_url,
+          item.aplicar_imagem,
+          item.preco_promocional,
+          item.aplicar_preco_promocional,
+          item.estoque,
+          item.aplicar_estoque,
+          item.codigo_interno,
+          item.aplicar_codigo_interno,
+          item.codigo_barras,
+          item.aplicar_codigo_barras
+        );
+      }
+
+      const setClauses = ['p.preco = u.preco'];
+
+      if (colunasProdutos.has('nome')) {
+        setClauses.push('p.nome = u.nome');
+      }
+
+      if (colunasProdutos.has('descricao')) {
+        setClauses.push('p.descricao = u.descricao');
+      }
+
+      if (colunasProdutos.has('imagem_url')) {
+        setClauses.push('p.imagem_url = CASE WHEN u.aplicar_imagem = 1 THEN u.imagem_url ELSE p.imagem_url END');
+      }
+
+      if (colunasProdutos.has('preco_promocional')) {
+        setClauses.push('p.preco_promocional = CASE WHEN u.aplicar_preco_promocional = 1 THEN u.preco_promocional ELSE p.preco_promocional END');
+      }
+
+      if (colunasProdutos.has('estoque')) {
+        setClauses.push('p.estoque = CASE WHEN u.aplicar_estoque = 1 THEN u.estoque ELSE p.estoque END');
+      }
+
+      if (colunasProdutos.has('codigo_interno')) {
+        setClauses.push('p.codigo_interno = CASE WHEN u.aplicar_codigo_interno = 1 THEN u.codigo_interno ELSE p.codigo_interno END');
+      }
+
+      if (colunasProdutos.has('codigo_barras')) {
+        setClauses.push('p.codigo_barras = CASE WHEN u.aplicar_codigo_barras = 1 THEN u.codigo_barras ELSE p.codigo_barras END');
+      }
+
+      if (colunasProdutos.has('ultima_importacao_em')) {
+        setClauses.push('p.ultima_importacao_em = NOW()');
+      }
+
+      if (colunasProdutos.has('ultima_atualizacao_preco_em')) {
+        setClauses.push('p.ultima_atualizacao_preco_em = NOW()');
+      }
+
+      await connection.query(
+        `UPDATE produtos p
+            INNER JOIN (
+              ${selects.join('\nUNION ALL\n')}
+            ) u ON p.id = u.id
+          SET ${setClauses.join(',\n              ')}`,
+        params
+      );
+
+      pendentesAtualizacaoPorId.clear();
+      lotesAtualizacaoProcessados += 1;
+      duracaoPersistenciaAtualizacaoMs += Date.now() - inicioFlushMs;
+    }
+
+    async function flushInsercoesPendentes() {
+      if (simulate || !pendentesCriacao.length) {
+        return;
+      }
+
+      const inicioFlushMs = Date.now();
+
+      const placeholdersLinha = `(${camposInsertPadrao.map(() => '?').join(', ')})`;
+      const placeholdersLote = pendentesCriacao.map(() => placeholdersLinha).join(', ');
+      const valoresFlat = [];
+
+      for (const item of pendentesCriacao) {
+        valoresFlat.push(...item.valores);
+      }
+
+      const [insertResult] = await connection.query(
+        `INSERT INTO produtos (${camposInsertPadrao.join(', ')}) VALUES ${placeholdersLote}`,
+        valoresFlat
+      );
+
+      const primeiroId = Number(insertResult?.insertId || 0);
+      for (let i = 0; i < pendentesCriacao.length; i += 1) {
+        const item = pendentesCriacao[i];
+        if (primeiroId > 0) {
+          item.produtoCache.id = primeiroId + i;
+        }
+      }
+
+      pendentesCriacao.length = 0;
+      lotesInsercaoProcessados += 1;
+      duracaoPersistenciaInsercaoMs += Date.now() - inicioFlushMs;
+    }
+
+    etapaAtual = 'processamento_linhas';
+    const inicioProcessamentoMs = Date.now();
 
     for (let idx = 0; idx < linhasDados.length; idx += 1) {
+      if (idx > 0 && idx % INTERVALO_CEDER_EVENT_LOOP === 0) {
+        await cederEventLoop();
+      }
+
       const linha = linhasDados[idx];
 
       if (linhaVazia(linha)) {
+        resumo.performance.linhas_vazias_ignoradas += 1;
         continue;
       }
 
@@ -1034,8 +1960,16 @@ async function importarProdutosPlanilha({
         codigoBarras = normalizarCodigoBarras(codigoInterno);
       }
 
-      if ((!nomeProduto || !descricaoProduto || !imagemProduto) && codigoBarras) {
-        const dadosBarcode = await buscarDadosProdutoPorCodigoBarras(codigoBarras, cacheDadosBarcode);
+      if (!descricaoProduto && nomeProduto) {
+        descricaoProduto = nomeProduto;
+      }
+
+      const identificadorLinha = codigoInterno || codigoBarras || '';
+      const nomeReferenciaLinha = nomeProduto || descricaoProduto || nomePlanilha || '';
+
+      // Lookup externo so e necessario quando ainda faltam dados essenciais para validar/importar.
+      if ((!nomeProduto || !descricaoProduto) && codigoBarras) {
+        const dadosBarcode = await buscarDadosProdutoPorCodigoBarras(codigoBarras, cacheDadosBarcode, barcodeLookupService);
         if (dadosBarcode) {
           if (!nomeProduto && dadosBarcode.nome) {
             nomeProduto = truncarTexto(dadosBarcode.nome, 255);
@@ -1049,13 +1983,34 @@ async function importarProdutosPlanilha({
             imagemProduto = normalizarTexto(dadosBarcode.imagem);
           }
         }
+
+        if (!descricaoProduto && nomeProduto) {
+          descricaoProduto = nomeProduto;
+        }
       }
 
       if (!codigoInterno && !codigoBarras) {
         resumo.total_erros += 1;
         registrarPreview(resumo.logs.erros, {
           linha: numeroLinha,
-          motivo: 'Linha sem identificador. Informe codigo interno ou codigo de barras.'
+          identificador: '',
+          campo: 'codigo_interno/codigo_barras',
+          valor_recebido: `${normalizarTexto(obterValorLinha(linha, indices.codigo_interno))} | ${normalizarTexto(obterValorLinha(linha, indices.codigo_barras))}`,
+          motivo: 'Linha sem identificador. Informe codigo interno ou codigo de barras.',
+          acao_sugerida: 'Preencha ao menos uma das colunas: codigo interno ou codigo de barras.'
+        });
+        registrarLinhaAmostraPreview(resumo, {
+          ...construirLinhaAmostraBase({
+            numeroLinha,
+            identificador: '',
+            nome: nomeReferenciaLinha,
+            preco: null,
+            motivo: 'Linha sem identificador. Informe codigo interno ou codigo de barras.',
+            campo: 'codigo_interno/codigo_barras',
+            valorRecebido: `${normalizarTexto(obterValorLinha(linha, indices.codigo_interno))} | ${normalizarTexto(obterValorLinha(linha, indices.codigo_barras))}`,
+            acaoSugerida: 'Preencha ao menos uma das colunas: codigo interno ou codigo de barras.'
+          }),
+          status: 'erro'
         });
         continue;
       }
@@ -1064,7 +2019,24 @@ async function importarProdutosPlanilha({
         resumo.total_erros += 1;
         registrarPreview(resumo.logs.erros, {
           linha: numeroLinha,
-          motivo: 'Linha sem descricao/nome do produto.'
+          identificador: identificadorLinha,
+          campo: 'nome/descricao',
+          valor_recebido: `${normalizarTexto(obterValorLinha(linha, indices.nome))} | ${normalizarTexto(obterValorLinha(linha, indices.descricao))}`,
+          motivo: 'Linha sem descricao/nome do produto.',
+          acao_sugerida: 'Preencha nome ou descricao para o produto.'
+        });
+        registrarLinhaAmostraPreview(resumo, {
+          ...construirLinhaAmostraBase({
+            numeroLinha,
+            identificador: identificadorLinha,
+            nome: '',
+            preco: null,
+            motivo: 'Linha sem descricao/nome do produto.',
+            campo: 'nome/descricao',
+            valorRecebido: `${normalizarTexto(obterValorLinha(linha, indices.nome))} | ${normalizarTexto(obterValorLinha(linha, indices.descricao))}`,
+            acaoSugerida: 'Preencha nome ou descricao para o produto.'
+          }),
+          status: 'erro'
         });
         continue;
       }
@@ -1078,7 +2050,24 @@ async function importarProdutosPlanilha({
         resumo.total_erros += 1;
         registrarPreview(resumo.logs.erros, {
           linha: numeroLinha,
-          motivo: 'Preco de venda invalido. O item foi ignorado.'
+          identificador: identificadorLinha,
+          campo: 'preco',
+          valor_recebido: normalizarTexto(obterValorLinha(linha, indices.preco)),
+          motivo: 'Preco de venda invalido. O item foi ignorado.',
+          acao_sugerida: 'Use preco de venda maior que zero (ex.: 14,90).' 
+        });
+        registrarLinhaAmostraPreview(resumo, {
+          ...construirLinhaAmostraBase({
+            numeroLinha,
+            identificador: identificadorLinha,
+            nome: nomeProduto,
+            preco: null,
+            motivo: 'Preco de venda invalido. O item foi ignorado.',
+            campo: 'preco',
+            valorRecebido: normalizarTexto(obterValorLinha(linha, indices.preco)),
+            acaoSugerida: 'Use preco de venda maior que zero (ex.: 14,90).'
+          }),
+          status: 'erro'
         });
         continue;
       }
@@ -1092,7 +2081,11 @@ async function importarProdutosPlanilha({
           if (!Number.isFinite(promocionalConvertido) || promocionalConvertido <= 0 || promocionalConvertido >= precoVenda) {
             registrarPreview(resumo.logs.avisos, {
               linha: numeroLinha,
-              motivo: 'Preco promocional vazio/zero/invalido. Definido como null.'
+              identificador: identificadorLinha,
+              campo: 'preco_promocional',
+              valor_recebido: normalizarTexto(valorPromocionalRaw),
+              motivo: 'Preco promocional vazio/zero/invalido. Definido como null.',
+              acao_sugerida: 'Informe promocao maior que zero e menor que o preco de venda.'
             });
             precoPromocional = null;
           } else {
@@ -1110,13 +2103,21 @@ async function importarProdutosPlanilha({
           if (!Number.isFinite(estoqueNumero)) {
             registrarPreview(resumo.logs.avisos, {
               linha: numeroLinha,
-              motivo: 'Estoque invalido na planilha. Mantida a quantidade atual no site.'
+              identificador: identificadorLinha,
+              campo: 'estoque',
+              valor_recebido: normalizarTexto(estoqueRaw),
+              motivo: 'Estoque invalido na planilha. Mantida a quantidade atual no site.',
+              acao_sugerida: 'Use quantidade inteira maior ou igual a zero para estoque.'
             });
           } else if (estoqueNumero < 0) {
             estoqueConvertido = 0;
             registrarPreview(resumo.logs.avisos, {
               linha: numeroLinha,
-              motivo: `Estoque negativo (${estoqueNumero}). Ajustado para 0 no site.`
+              identificador: identificadorLinha,
+              campo: 'estoque',
+              valor_recebido: String(estoqueNumero),
+              motivo: `Estoque negativo (${estoqueNumero}). Ajustado para 0 no site.`,
+              acao_sugerida: 'Envie estoque nao negativo para manter o valor original.'
             });
           } else {
             estoqueConvertido = Math.trunc(estoqueNumero);
@@ -1132,7 +2133,11 @@ async function importarProdutosPlanilha({
           if (ativo === null) {
             registrarPreview(resumo.logs.avisos, {
               linha: numeroLinha,
-              motivo: 'Valor de ativo/inativo invalido. Mantido status atual do produto.'
+              identificador: identificadorLinha,
+              campo: 'ativo',
+              valor_recebido: normalizarTexto(ativoRaw),
+              motivo: 'Valor de ativo/inativo invalido. Mantido status atual do produto.',
+              acao_sugerida: 'Use valores como 1, 0, sim, nao, ativo ou inativo.'
             });
           }
         }
@@ -1147,75 +2152,74 @@ async function importarProdutosPlanilha({
       let chaveMatch = '';
 
       if (codigoInterno && colunasProdutos.has('codigo_interno')) {
-        produtoExistente = await buscarProdutoPorCampo(connection, cacheCodigoInterno, 'codigo_interno', codigoInterno);
+        produtoExistente = await buscarProdutoPorCampo(
+          connection,
+          cacheCodigoInterno,
+          'codigo_interno',
+          codigoInterno,
+          { usarApenasCache: usarSomenteCacheParaBusca }
+        );
         if (produtoExistente) {
           chaveMatch = 'codigo_interno';
         }
       }
 
       if (!produtoExistente && codigoBarras && colunasProdutos.has('codigo_barras')) {
-        produtoExistente = await buscarProdutoPorCampo(connection, cacheCodigoBarras, 'codigo_barras', codigoBarras);
+        produtoExistente = await buscarProdutoPorCampo(
+          connection,
+          cacheCodigoBarras,
+          'codigo_barras',
+          codigoBarras,
+          { usarApenasCache: usarSomenteCacheParaBusca }
+        );
         if (produtoExistente) {
           chaveMatch = 'codigo_barras';
         }
       }
 
       if (produtoExistente) {
-        const updates = ['preco = ?'];
-        const params = [Number(precoVenda.toFixed(2))];
-
-        if (colunasProdutos.has('nome') && nomeProduto) {
-          updates.push('nome = ?');
-          params.push(nomeProduto);
+        if (!simulate && produtoExistente.id < 0) {
+          await flushInsercoesPendentes();
         }
 
-        if (colunasProdutos.has('descricao') && descricaoProduto) {
-          updates.push('descricao = ?');
-          params.push(descricaoProduto);
-        }
+        const payloadAtualizacao = {
+          id: Number(produtoExistente.id),
+          preco: Number(precoVenda.toFixed(2)),
+          nome: nomeProduto,
+          descricao: descricaoProduto || nomeProduto,
+          imagem_url: imagemProduto || null,
+          aplicar_imagem: colunasProdutos.has('imagem_url') && Boolean(imagemProduto) ? 1 : 0,
+          preco_promocional: precoPromocional,
+          aplicar_preco_promocional: possuiColunaPromocao && colunasProdutos.has('preco_promocional') ? 1 : 0,
+          estoque: Number.isInteger(estoqueConvertido) ? estoqueConvertido : 0,
+          aplicar_estoque: updateStock && indices.estoque >= 0 && colunasProdutos.has('estoque') && Number.isInteger(estoqueConvertido) ? 1 : 0,
+          codigo_interno: codigoInterno || null,
+          aplicar_codigo_interno: colunasProdutos.has('codigo_interno') && Boolean(codigoInterno) ? 1 : 0,
+          codigo_barras: codigoBarras || null,
+          aplicar_codigo_barras: colunasProdutos.has('codigo_barras') && Boolean(codigoBarras) ? 1 : 0
+        };
 
-        if (colunasProdutos.has('imagem_url') && imagemProduto) {
-          updates.push('imagem_url = ?');
-          params.push(imagemProduto);
-        }
-
-        if (possuiColunaPromocao && colunasProdutos.has('preco_promocional')) {
-          updates.push('preco_promocional = ?');
-          params.push(precoPromocional);
-        }
-
-        if (updateStock && indices.estoque >= 0 && colunasProdutos.has('estoque') && Number.isInteger(estoqueConvertido)) {
-          updates.push('estoque = ?');
-          params.push(estoqueConvertido);
-        }
-
-        if (colunasProdutos.has('codigo_interno') && codigoInterno) {
-          updates.push('codigo_interno = ?');
-          params.push(codigoInterno);
-        }
-
-        if (colunasProdutos.has('codigo_barras') && codigoBarras) {
-          updates.push('codigo_barras = ?');
-          params.push(codigoBarras);
-        }
-
-        if (colunasProdutos.has('ultima_importacao_em')) {
-          updates.push('ultima_importacao_em = NOW()');
-        }
-
-        if (colunasProdutos.has('ultima_atualizacao_preco_em')) {
-          updates.push('ultima_atualizacao_preco_em = NOW()');
-        }
-
-        params.push(produtoExistente.id);
         if (!simulate) {
-          await connection.query(
-            `UPDATE produtos SET ${updates.join(', ')} WHERE id = ?`,
-            params
-          );
+          pendentesAtualizacaoPorId.set(payloadAtualizacao.id, payloadAtualizacao);
+          if (pendentesAtualizacaoPorId.size >= TAMANHO_LOTE_ATUALIZACAO) {
+            await flushAtualizacoesPendentes();
+          }
         }
 
         resumo.total_atualizados += 1;
+        registrarLinhaAmostraPreview(resumo, {
+          ...construirLinhaAmostraBase({
+            numeroLinha,
+            identificador: identificadorLinha,
+            nome: nomeProduto,
+            preco: Number(precoVenda.toFixed(2)),
+            motivo: `Produto existente localizado por ${chaveMatch}.`,
+            campo: chaveMatch,
+            valorRecebido: identificadorLinha,
+            acaoSugerida: 'Atualizacao prevista para produto existente.'
+          }),
+          status: 'atualizar'
+        });
 
         if (codigoInterno && colunasProdutos.has('codigo_interno')) {
           cacheCodigoInterno.set(codigoInterno, {
@@ -1247,89 +2251,106 @@ async function importarProdutosPlanilha({
         registrarPreview(resumo.logs.ignorados, {
           linha: numeroLinha,
           motivo: 'Produto nao encontrado. Configuracao atual ignora itens novos.',
-          identificador: codigoInterno || codigoBarras
+          identificador: identificadorLinha,
+          campo: 'criar_novos',
+          valor_recebido: 'false',
+          acao_sugerida: 'Ative criar_novos para incluir produtos inexistentes.'
+        });
+        registrarLinhaAmostraPreview(resumo, {
+          ...construirLinhaAmostraBase({
+            numeroLinha,
+            identificador: identificadorLinha,
+            nome: nomeProduto,
+            preco: Number(precoVenda.toFixed(2)),
+            motivo: 'Produto nao encontrado. Configuracao atual ignora itens novos.',
+            campo: 'criar_novos',
+            valorRecebido: 'false',
+            acaoSugerida: 'Ative criar_novos para incluir produtos inexistentes.'
+          }),
+          status: 'ignorado'
         });
         continue;
       }
 
-      const duplicadoNome = await buscarProdutoPorNome(connection, cacheNome, nomeProduto);
+      const duplicadoNome = await buscarProdutoPorNome(
+        connection,
+        cacheNome,
+        nomeProduto,
+        { usarApenasCache: usarSomenteCacheParaBusca }
+      );
       if (duplicadoNome) {
         resumo.total_ignorados += 1;
         registrarPreview(resumo.logs.ignorados, {
           linha: numeroLinha,
           motivo: 'Produto com mesmo nome ja existe. Item ignorado para evitar duplicidade.',
-          identificador: codigoInterno || codigoBarras
+          identificador: identificadorLinha,
+          campo: 'nome',
+          valor_recebido: nomeProduto,
+          acao_sugerida: 'Ajuste o nome ou use identificador unico para evitar duplicidade.'
+        });
+        registrarLinhaAmostraPreview(resumo, {
+          ...construirLinhaAmostraBase({
+            numeroLinha,
+            identificador: identificadorLinha,
+            nome: nomeProduto,
+            preco: Number(precoVenda.toFixed(2)),
+            motivo: 'Produto com mesmo nome ja existe. Item ignorado para evitar duplicidade.',
+            campo: 'nome',
+            valorRecebido: nomeProduto,
+            acaoSugerida: 'Ajuste o nome ou use identificador unico para evitar duplicidade.'
+          }),
+          status: 'ignorado'
         });
         continue;
       }
 
-      const campos = ['nome', 'preco'];
-      const valores = [nomeProduto, Number(precoVenda.toFixed(2))];
+      const valoresInsert = [nomeProduto, Number(precoVenda.toFixed(2))];
 
       if (colunasProdutos.has('descricao')) {
-        campos.push('descricao');
-        valores.push(descricaoProduto || nomeProduto);
+        valoresInsert.push(descricaoProduto || nomeProduto);
       }
 
       if (colunasProdutos.has('imagem_url')) {
-        campos.push('imagem_url');
-        valores.push(imagemProduto || null);
+        valoresInsert.push(imagemProduto || null);
       }
 
       if (colunasProdutos.has('unidade')) {
-        campos.push('unidade');
-        valores.push(unidade || 'un');
+        valoresInsert.push(unidade || 'un');
       }
 
       if (colunasProdutos.has('categoria')) {
-        campos.push('categoria');
-        valores.push(categoria || inferirCategoria(nomeProduto));
+        valoresInsert.push(categoria || inferirCategoria(nomeProduto));
       }
 
       if (colunasProdutos.has('estoque')) {
-        campos.push('estoque');
-        valores.push(updateStock && Number.isInteger(estoqueConvertido) ? estoqueConvertido : 0);
+        valoresInsert.push(updateStock && Number.isInteger(estoqueConvertido) ? estoqueConvertido : 0);
       }
 
       if (colunasProdutos.has('ativo')) {
-        campos.push('ativo');
-        valores.push(ativo === null ? 1 : (ativo ? 1 : 0));
+        valoresInsert.push(ativo === null ? 1 : (ativo ? 1 : 0));
       }
 
-      if (colunasProdutos.has('codigo_interno') && codigoInterno) {
-        campos.push('codigo_interno');
-        valores.push(codigoInterno);
+      if (colunasProdutos.has('codigo_interno')) {
+        valoresInsert.push(codigoInterno || null);
       }
 
-      if (colunasProdutos.has('codigo_barras') && codigoBarras) {
-        campos.push('codigo_barras');
-        valores.push(codigoBarras);
+      if (colunasProdutos.has('codigo_barras')) {
+        valoresInsert.push(codigoBarras || null);
       }
 
-      if (colunasProdutos.has('preco_promocional') && possuiColunaPromocao) {
-        campos.push('preco_promocional');
-        valores.push(precoPromocional);
+      if (incluirPrecoPromocionalInsert) {
+        valoresInsert.push(possuiColunaPromocao ? precoPromocional : null);
       }
 
       if (colunasProdutos.has('ultima_importacao_em')) {
-        campos.push('ultima_importacao_em');
-        valores.push(new Date());
+        valoresInsert.push(new Date());
       }
 
       if (colunasProdutos.has('ultima_atualizacao_preco_em')) {
-        campos.push('ultima_atualizacao_preco_em');
-        valores.push(new Date());
+        valoresInsert.push(new Date());
       }
 
-      let novoProdutoId = -(resumo.total_criados + 1);
-      if (!simulate) {
-        const placeholders = campos.map(() => '?').join(', ');
-        const [insertResult] = await connection.query(
-          `INSERT INTO produtos (${campos.join(', ')}) VALUES (${placeholders})`,
-          valores
-        );
-        novoProdutoId = insertResult.insertId;
-      }
+      const novoProdutoId = -(resumo.total_criados + pendentesCriacao.length + 1);
 
       resumo.total_criados += 1;
 
@@ -1349,19 +2370,53 @@ async function importarProdutosPlanilha({
 
       cacheNome.set(normalizarCabecalho(nomeProduto), novoProdutoCache);
 
-      if (chaveMatch) {
-        registrarPreview(resumo.logs.avisos, {
-          linha: numeroLinha,
-          motivo: `Produto atualizado por ${chaveMatch}.`
+      if (!simulate) {
+        pendentesCriacao.push({
+          valores: valoresInsert,
+          produtoCache: novoProdutoCache
         });
+
+        if (pendentesCriacao.length >= TAMANHO_LOTE_INSERCAO) {
+          await flushInsercoesPendentes();
+        }
       }
+
+      registrarLinhaAmostraPreview(resumo, {
+        ...construirLinhaAmostraBase({
+          numeroLinha,
+          identificador: identificadorLinha,
+          nome: nomeProduto,
+          preco: Number(precoVenda.toFixed(2)),
+          motivo: 'Produto novo validado para criacao.',
+          campo: 'create',
+          valorRecebido: identificadorLinha,
+          acaoSugerida: 'Criacao prevista para item inexistente.'
+        }),
+        status: 'criar'
+      });
     }
 
     if (resumo.total_linhas === 0) {
       throw criarErroImportacao(400, 'A planilha nao possui linhas de dados para importacao.');
     }
 
+    etapaAtual = 'persistencia_final';
+    await flushAtualizacoesPendentes();
+    await flushInsercoesPendentes();
+
+    duracaoProcessamentoMs = Date.now() - inicioProcessamentoMs;
+    resumo.performance.duracao_leitura_ms = duracaoLeituraMs;
+    resumo.performance.duracao_pre_carga_ms = duracaoPreCargaMs;
+    resumo.performance.duracao_processamento_ms = duracaoProcessamentoMs;
+    resumo.performance.duracao_persistencia_ms = duracaoPersistenciaInsercaoMs + duracaoPersistenciaAtualizacaoMs;
+    resumo.performance.lotes_insercao = lotesInsercaoProcessados;
+    resumo.performance.lotes_atualizacao = lotesAtualizacaoProcessados;
+    resumo.performance.lotes_processados = lotesInsercaoProcessados + lotesAtualizacaoProcessados;
+
+    resumo.total_validos = resumo.total_atualizados + resumo.total_criados;
+
     if (simulate) {
+      resumo.performance.duracao_total_ms = Date.now() - inicioTotalMs;
       return {
         mensagem: 'Simulacao concluida com sucesso. Nenhuma alteracao foi gravada no banco.',
         ...resumo,
@@ -1370,35 +2425,60 @@ async function importarProdutosPlanilha({
       };
     }
 
+    etapaAtual = 'commit';
     await connection.commit();
+    resumo.performance.duracao_total_ms = Date.now() - inicioTotalMs;
 
     const statusImportacao = resumo.total_erros > 0 ? 'concluido_com_erros' : 'concluido';
-    await registrarHistoricoImportacao(pool, {
-      nomeArquivo,
-      totalLinhas: resumo.total_linhas,
-      totalAtualizados: resumo.total_atualizados,
-      totalCriados: resumo.total_criados,
-      totalIgnorados: resumo.total_ignorados,
-      totalErros: resumo.total_erros,
-      status: statusImportacao,
-      usuarioId: adminUserId,
-      usuarioNome: adminUser,
-      resumo
-    });
+    let avisoHistorico = '';
+    try {
+      await registrarHistoricoImportacao(pool, {
+        nomeArquivo,
+        totalLinhas: resumo.total_linhas,
+        totalAtualizados: resumo.total_atualizados,
+        totalCriados: resumo.total_criados,
+        totalIgnorados: resumo.total_ignorados,
+        totalErros: resumo.total_erros,
+        status: statusImportacao,
+        usuarioId: adminUserId,
+        usuarioNome: adminUser,
+        resumo
+      });
+    } catch (erroHistorico) {
+      console.error('Falha ao registrar historico de importacao:', erroHistorico);
+      avisoHistorico = 'Importacao concluida, mas nao foi possivel registrar no historico.';
+    }
 
-    return {
+    const payloadRetorno = {
       mensagem: 'Importacao concluida com sucesso.',
       ...resumo,
       status: statusImportacao
     };
+
+    if (avisoHistorico) {
+      payloadRetorno.aviso_historico = avisoHistorico;
+    }
+
+    return payloadRetorno;
   } catch (erro) {
     if (!simulate && connection) {
       try {
         await connection.rollback();
+        rollbackAplicado = true;
       } catch {
         // ignora falha de rollback
       }
     }
+
+    resumo.performance.duracao_leitura_ms = duracaoLeituraMs;
+    resumo.performance.duracao_pre_carga_ms = duracaoPreCargaMs;
+    resumo.performance.duracao_processamento_ms = duracaoProcessamentoMs;
+    resumo.performance.duracao_persistencia_ms = duracaoPersistenciaInsercaoMs + duracaoPersistenciaAtualizacaoMs;
+    resumo.performance.duracao_total_ms = Date.now() - inicioTotalMs;
+    resumo.performance.lotes_insercao = lotesInsercaoProcessados;
+    resumo.performance.lotes_atualizacao = lotesAtualizacaoProcessados;
+    resumo.performance.lotes_processados = lotesInsercaoProcessados + lotesAtualizacaoProcessados;
+    resumo.performance.etapa_falha = etapaAtual;
 
     const statusFalha = 'erro';
 
@@ -1416,6 +2496,8 @@ async function importarProdutosPlanilha({
           usuarioNome: adminUser,
           resumo: {
             ...resumo,
+            etapa_falha: etapaAtual,
+            rollback_aplicado: rollbackAplicado,
             erro_fatal: erro?.message || 'Erro inesperado na importacao.'
           }
         });
@@ -1424,11 +2506,29 @@ async function importarProdutosPlanilha({
       }
     }
 
+    const detalhesFalha = {
+      etapa_falha: etapaAtual,
+      rollback_aplicado: rollbackAplicado,
+      lotes_insercao: lotesInsercaoProcessados,
+      lotes_atualizacao: lotesAtualizacaoProcessados,
+      lotes_processados: lotesInsercaoProcessados + lotesAtualizacaoProcessados,
+      duracao_total_ms: Date.now() - inicioTotalMs
+    };
+
     if (erro?.httpStatus) {
+      erro.extra = {
+        ...(erro.extra && typeof erro.extra === 'object' ? erro.extra : {}),
+        ...detalhesFalha
+      };
       throw erro;
     }
 
-    throw criarErroImportacao(500, 'Nao foi possivel concluir a importacao da planilha.');
+    const causaInterna = String(erro?.message || 'Erro inesperado na importacao.');
+    console.error('Falha interna durante importarProdutosPlanilha:', erro);
+    throw criarErroImportacao(500, 'Nao foi possivel concluir a importacao da planilha.', {
+      causa: causaInterna,
+      ...detalhesFalha
+    });
   } finally {
     if (connection) {
       connection.release();
@@ -1438,6 +2538,9 @@ async function importarProdutosPlanilha({
 
 module.exports = {
   EXTENSOES_IMPORTACAO_ACEITAS,
+  MIME_IMPORTACAO_ACEITOS,
+  MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO,
+  validarArquivoImportacao,
   construirModeloImportacaoProdutosCsv,
   garantirEstruturaImportacaoProdutos,
   importarProdutosPlanilha,

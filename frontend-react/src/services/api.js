@@ -62,7 +62,7 @@ function aguardar(ms) {
   });
 }
 
-async function parseResponse(response) {
+async function parseJsonOuTexto(response) {
   const contentType = String(response?.headers?.get('content-type') || '').toLowerCase();
 
   if (contentType.includes('application/json')) {
@@ -78,6 +78,24 @@ async function parseResponse(response) {
     mensagem: text,
     raw_text: text
   };
+}
+
+async function parseResponse(response, responseType = 'json') {
+  const tipo = String(responseType || 'json').toLowerCase();
+
+  if (tipo === 'raw') {
+    return response;
+  }
+
+  if (tipo === 'blob') {
+    return response.blob();
+  }
+
+  if (tipo === 'arraybuffer') {
+    return response.arrayBuffer();
+  }
+
+  return parseJsonOuTexto(response);
 }
 
 function criarErroTimeout(timeoutMs) {
@@ -96,6 +114,7 @@ export async function apiRequest(path, options = {}) {
     credentials = 'include',
     timeoutMs = API_TIMEOUT_MS,
     signal,
+    responseType = 'json',
     retryCount,
     retryDelayMs = 1200
   } = options;
@@ -171,9 +190,8 @@ export async function apiRequest(path, options = {}) {
         signal: signalToUse
       });
 
-      const data = await parseResponse(response);
-
       if (!response.ok) {
+        const dataErro = await parseJsonOuTexto(response);
         const statusCode = Number(response.status || 0);
         const podeRetentar = tentativa < maxRetries && [502, 503, 504].includes(statusCode) && methodUpper === 'GET';
 
@@ -190,11 +208,11 @@ export async function apiRequest(path, options = {}) {
           continue;
         }
 
-        const serverMessage = data?.erro || data?.mensagem || data?.message || mapMensagemHttp(response.status);
+        const serverMessage = dataErro?.erro || dataErro?.mensagem || dataErro?.message || mapMensagemHttp(response.status);
         const erroHttp = new Error(String(serverMessage || mapMensagemHttp(response.status)));
         erroHttp.status = response.status;
         erroHttp.serverMessage = String(serverMessage || '');
-        erroHttp.payload = data;
+        erroHttp.payload = dataErro;
 
         logApi('API ERROR', {
           method: methodUpper,
@@ -207,6 +225,8 @@ export async function apiRequest(path, options = {}) {
 
         throw erroHttp;
       }
+
+      const data = await parseResponse(response, responseType);
 
       logApi('API RESPONSE', {
         method: methodUpper,
