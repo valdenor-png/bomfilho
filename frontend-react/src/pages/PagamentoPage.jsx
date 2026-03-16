@@ -2,8 +2,24 @@ import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import QRCode from 'qrcode';
-import { buscarEnderecoViaCep, criarPedido, gerarPix, getMe, getPagBankPublicKey, getPedidos, isAuthErrorMessage, pagarCartao, simularFretePorCep } from '../lib/api';
-import { criptografarCartaoPagBank } from '../lib/pagbank';
+import {
+  buscarEnderecoViaCep,
+  criarPedido,
+  criarSessao3DSPagBank,
+  gerarPix,
+  getMe,
+  getPagBankPublicKey,
+  getPedidos,
+  isAuthErrorMessage,
+  pagarCartao,
+  simularFretePorCep
+} from '../lib/api';
+import {
+  autenticar3DSPagBank,
+  configurarSessao3DSPagBank,
+  criptografarCartaoPagBank
+} from '../lib/pagbank';
+import { IS_DEVELOPMENT } from '../config/api';
 import { useCart } from '../context/CartContext';
 
 const ETAPAS = {
@@ -18,6 +34,20 @@ const CHECKOUT_STEPS = ['Carrinho', 'Entrega', 'Pagamento', 'Confirmação'];
 
 const PARCELAMENTO_MINIMO_CREDITO = 100;
 const PARCELAMENTO_MAXIMO_CREDITO = 3;
+const SESSAO_3DS_TTL_MS = 29 * 60 * 1000;
+
+const STATUS_3DS_LABELS = {
+  idle: 'Autenticacao 3DS ainda nao iniciada.',
+  iniciando: 'Iniciando autenticacao 3DS...',
+  aguardando_validacao: 'Aguardando validacao de seguranca...',
+  desafio: 'Desafio 3DS em andamento. Siga as instrucoes do emissor.',
+  concluida: 'Autenticacao 3DS concluida com sucesso.',
+  processando_pagamento: 'Autenticacao concluida. Processando pagamento...',
+  pagamento_aprovado: 'Pagamento aprovado.',
+  nao_suportado: 'Cartao nao elegivel para 3DS no debito.',
+  trocar_metodo: 'Autenticacao negada. Escolha outro meio de pagamento.',
+  erro: 'Nao foi possivel concluir a autenticacao 3DS.'
+};
 
 const CEP_MERCADO = '68740-180';
 const NUMERO_MERCADO = '70';
@@ -166,6 +196,46 @@ function formatarAnoCartao(valor) {
 
 function formatarCvvCartao(valor) {
   return String(valor || '').replace(/\D/g, '').slice(0, 4);
+}
+
+function normalizarTelefonePara3DS(telefone) {
+  const digits = String(telefone || '').replace(/\D/g, '');
+  if (!digits) {
+    return null;
+  }
+
+  const semPais = digits.startsWith('55') && digits.length >= 12
+    ? digits.slice(2)
+    : digits;
+  if (semPais.length < 10) {
+    return null;
+  }
+
+  const area = semPais.slice(0, 2);
+  const number = semPais.slice(2);
+  if (!area || !number) {
+    return null;
+  }
+
+  return {
+    country: '55',
+    area,
+    number,
+    type: 'MOBILE'
+  };
+}
+
+function construirEndereco3DS({ endereco, cepFallback } = {}) {
+  const cepDigits = normalizarCep(endereco?.cep || cepFallback || '');
+  return {
+    street: String(endereco?.logradouro || 'Endereco').trim() || 'Endereco',
+    number: String(endereco?.numero || '0').trim() || '0',
+    complement: String(endereco?.complemento || '').trim(),
+    regionCode: String(endereco?.estado || 'SP').trim().toUpperCase().slice(0, 2) || 'SP',
+    country: 'BRA',
+    city: String(endereco?.cidade || 'Sao Paulo').trim() || 'Sao Paulo',
+    postalCode: cepDigits || '01001000'
+  };
 }
 
 const STATUS_PEDIDO_LABELS = {
@@ -852,6 +922,7 @@ export default function PagamentoPage() {
   const [resultadoPedido, setResultadoPedido] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
+  const [dadosUsuarioCheckout, setDadosUsuarioCheckout] = useState(null);
   const [resultadoPix, setResultadoPix] = useState(null);
   const [qrCodePixDataUrl, setQrCodePixDataUrl] = useState('');
   const [feedbackCopiaPix, setFeedbackCopiaPix] = useState('');
@@ -885,6 +956,13 @@ export default function PagamentoPage() {
   const [cvvCartao, setCvvCartao] = useState('');
   const [parcelasCartao, setParcelasCartao] = useState('1');
   const [resultadoCartao, setResultadoCartao] = useState(null);
+  const [sessao3DS, setSessao3DS] = useState('');
+  const [sessao3DSEnv, setSessao3DSEnv] = useState('SANDBOX');
+  const [sessao3DSGeradaEm, setSessao3DSGeradaEm] = useState(0);
+  const [status3DS, setStatus3DS] = useState('idle');
+  const [resultado3DS, setResultado3DS] = useState(null);
+  const [idAutenticacao3DS, setIdAutenticacao3DS] = useState('');
+  const pagandoCartaoRef = useRef(false);
   const buscaEnderecoRef = useRef(0);
 
   const itensPedido = useMemo(
@@ -937,11 +1015,23 @@ export default function PagamentoPage() {
     return Math.min(PARCELAMENTO_MAXIMO_CREDITO, parcelasSelecionadas);
   })();
   const pagamentoCartaoSelecionado = formaPagamento === 'credito' || formaPagamento === 'debito';
+  const debitoSelecionado = formaPagamento === 'debito';
   const tituloFormaPagamento = formaPagamento === 'pix'
     ? 'PIX'
     : formaPagamento === 'debito'
       ? 'Cartão de Débito'
       : 'Cartão de Crédito';
+  const sessao3DSValida = Boolean(sessao3DS)
+    && Number(sessao3DSGeradaEm) > 0
+    && (Date.now() - Number(sessao3DSGeradaEm)) < SESSAO_3DS_TTL_MS;
+  const status3DSLabel = STATUS_3DS_LABELS[status3DS] || STATUS_3DS_LABELS.idle;
+  const status3DSTone = ['concluida', 'pagamento_aprovado'].includes(status3DS)
+    ? 'is-success'
+    : ['nao_suportado', 'trocar_metodo', 'erro'].includes(status3DS)
+      ? 'is-warning'
+      : ['iniciando', 'aguardando_validacao', 'desafio', 'processando_pagamento'].includes(status3DS)
+        ? 'is-loading'
+        : '';
   const cepEntregaNormalizado = normalizarCep(cepEntrega);
   const cepEntregaValido = cepEntregaNormalizado.length === 8;
   const cepEntregaIncompleto = cepEntregaNormalizado.length > 0 && cepEntregaNormalizado.length < 8;
@@ -1098,9 +1188,19 @@ export default function PagamentoPage() {
     setVerificandoSessao(true);
 
     getMe()
-      .then(() => {
+      .then((data) => {
         if (ativo) {
           setAutenticado(true);
+          const usuario = data?.usuario || null;
+          setDadosUsuarioCheckout(usuario);
+
+          const nomeUsuario = String(usuario?.nome || '').trim();
+          if (nomeUsuario) {
+            setNomeTitularCartao((atual) => {
+              const atualNormalizado = String(atual || '').trim();
+              return atualNormalizado || nomeUsuario;
+            });
+          }
         }
       })
       .catch((error) => {
@@ -1196,9 +1296,220 @@ export default function PagamentoPage() {
     }
   }
 
+  function limparResultadoAutenticacao3DS() {
+    setStatus3DS('idle');
+    setResultado3DS(null);
+    setIdAutenticacao3DS('');
+  }
+
   function limparTokenCartaoGerado() {
     setTokenCartao('');
     setResultadoCartao(null);
+    limparResultadoAutenticacao3DS();
+  }
+
+  function erroIndicaSessao3DSExpirada(error) {
+    const detail = error?.detail || {};
+    const statusCode = Number(detail?.httpStatus || error?.status || 0);
+    const mensagem = String(detail?.message || error?.message || '').toLowerCase();
+
+    if (statusCode === 401 || statusCode === 403) {
+      return true;
+    }
+
+    return mensagem.includes('session')
+      && (mensagem.includes('expir') || mensagem.includes('invalid') || mensagem.includes('unauthorized'));
+  }
+
+  async function obterSessao3DSComRenovacao({ forceRefresh = false, pedidoId } = {}) {
+    if (!forceRefresh && sessao3DSValida) {
+      return {
+        session: sessao3DS,
+        env: sessao3DSEnv
+      };
+    }
+
+    const referencia = pedidoId ? `pedido_${pedidoId}` : '';
+    const data = await criarSessao3DSPagBank({ referenceId: referencia });
+    const session = String(data?.session || '').trim();
+    const env = String(data?.env || 'SANDBOX').trim().toUpperCase() || 'SANDBOX';
+
+    if (!session) {
+      throw new Error('Nao foi possivel iniciar a sessao de autenticacao 3DS.');
+    }
+
+    setSessao3DS(session);
+    setSessao3DSEnv(env);
+    setSessao3DSGeradaEm(Date.now());
+
+    return {
+      session,
+      env
+    };
+  }
+
+  function montarRequestAutenticacao3DS() {
+    const numeroCartaoLimpo = normalizarNumeroCartao(numeroCartao);
+    const mes = formatarMesCartao(mesExpiracaoCartao);
+    const ano = formatarAnoCartao(anoExpiracaoCartao);
+    const nomeHolder = String(nomeTitularCartao || dadosUsuarioCheckout?.nome || 'Cliente').trim() || 'Cliente';
+    const nomeCliente = String(dadosUsuarioCheckout?.nome || nomeHolder || 'Cliente').trim() || 'Cliente';
+    const emailCliente = String(dadosUsuarioCheckout?.email || 'cliente@example.com').trim() || 'cliente@example.com';
+    const telefoneCliente = normalizarTelefonePara3DS(dadosUsuarioCheckout?.telefone) || {
+      country: '55',
+      area: '11',
+      number: '999999999',
+      type: 'MOBILE'
+    };
+    const valorCentavos = Math.max(1, Math.round(Number(resultadoPedido?.total || totalComEntregaPedido || 0) * 100));
+    const endereco3DS = construirEndereco3DS({
+      endereco: enderecoCepEntrega,
+      cepFallback: cepEntrega
+    });
+
+    return {
+      data: {
+        customer: {
+          name: nomeCliente,
+          email: emailCliente,
+          phones: [telefoneCliente]
+        },
+        paymentMethod: {
+          type: 'DEBIT_CARD',
+          installments: 1,
+          card: {
+            number: numeroCartaoLimpo,
+            expMonth: mes,
+            expYear: ano,
+            holder: {
+              name: nomeHolder
+            }
+          }
+        },
+        amount: {
+          value: valorCentavos,
+          currency: 'BRL'
+        },
+        billingAddress: endereco3DS,
+        shippingAddress: endereco3DS,
+        dataOnly: false
+      },
+      beforeChallenge: ({ open, brand, issuer } = {}) => {
+        setStatus3DS('desafio');
+
+        if (IS_DEVELOPMENT) {
+          console.info('[debit_3ds_auth.before_challenge]', {
+            brand,
+            issuer
+          });
+        }
+
+        if (typeof open === 'function') {
+          open();
+        }
+      }
+    };
+  }
+
+  async function executarAutenticacao3DSDebito({ pedidoId, documentoDigits } = {}) {
+    for (let tentativa = 0; tentativa < 2; tentativa += 1) {
+      const forceRefresh = tentativa > 0;
+
+      try {
+        setStatus3DS('iniciando');
+        const sessaoAtual = await obterSessao3DSComRenovacao({
+          forceRefresh,
+          pedidoId
+        });
+
+        await configurarSessao3DSPagBank({
+          session: sessaoAtual.session,
+          env: sessaoAtual.env
+        });
+
+        setStatus3DS('aguardando_validacao');
+        const request3DS = montarRequestAutenticacao3DS();
+        const resultado = await autenticar3DSPagBank(request3DS);
+        const status = String(resultado?.status || '').trim().toUpperCase();
+        const authId = String(resultado?.id || '').trim();
+        const traceId = String(
+          resultado?.traceId
+            || resultado?.trace_id
+            || resultado?.detail?.traceId
+            || resultado?.detail?.trace_id
+            || ''
+        ).trim() || null;
+
+        if (IS_DEVELOPMENT) {
+          console.info('[debit_3ds_auth.result]', {
+            status,
+            authId: authId || null,
+            traceId
+          });
+        }
+
+        setResultado3DS({
+          status,
+          id: authId || null,
+          trace_id: traceId
+        });
+
+        if (status === 'AUTH_FLOW_COMPLETED') {
+          if (!authId) {
+            setStatus3DS('erro');
+            throw new Error('A autenticacao 3DS foi concluida sem id valido. Tente novamente.');
+          }
+
+          setIdAutenticacao3DS(authId);
+          setStatus3DS('concluida');
+
+          return {
+            status,
+            authenticationMethod: {
+              type: 'THREEDS',
+              id: authId
+            },
+            traceId
+          };
+        }
+
+        if (status === 'AUTH_NOT_SUPPORTED') {
+          setStatus3DS('nao_suportado');
+          throw new Error('Seu cartao de debito nao e elegivel para autenticacao 3DS. Escolha outro meio de pagamento.');
+        }
+
+        if (status === 'CHANGE_PAYMENT_METHOD') {
+          setStatus3DS('trocar_metodo');
+          throw new Error('A autenticacao 3DS foi negada. Escolha outro meio de pagamento.');
+        }
+
+        if (status === 'REQUIRE_CHALLENGE') {
+          setStatus3DS('desafio');
+          throw new Error('Conclua o desafio 3DS para continuar o pagamento no debito.');
+        }
+
+        setStatus3DS('erro');
+        throw new Error('Nao foi possivel concluir a autenticacao 3DS. Tente novamente.');
+      } catch (error) {
+        if (IS_DEVELOPMENT) {
+          console.error('[debit_3ds_auth.error]', {
+            message: error?.message,
+            detail: error?.detail || null
+          });
+        }
+
+        if (tentativa === 0 && erroIndicaSessao3DSExpirada(error)) {
+          setSessao3DS('');
+          setSessao3DSGeradaEm(0);
+          continue;
+        }
+
+        throw error;
+      }
+    }
+
+    setStatus3DS('erro');
+    throw new Error('Sessao 3DS expirada. Gere uma nova autenticacao e tente novamente.');
   }
 
   async function carregarChavePublicaPagBank() {
@@ -1277,6 +1588,10 @@ export default function PagamentoPage() {
   async function handleCriarPedido() {
     setResultadoPix(null);
     setResultadoCartao(null);
+    limparResultadoAutenticacao3DS();
+    setSessao3DS('');
+    setSessao3DSEnv('SANDBOX');
+    setSessao3DSGeradaEm(0);
     setResultadoPedido(null);
     setResumoPedidoSnapshot(null);
     setQrCodePixDataUrl('');
@@ -1514,6 +1829,10 @@ export default function PagamentoPage() {
   }
 
   async function handlePagarCartao(pedidoId) {
+    if (pagandoCartaoRef.current || carregando || criptografandoCartao) {
+      return;
+    }
+
     setResultadoCartao(null);
     setErro('');
 
@@ -1524,23 +1843,47 @@ export default function PagamentoPage() {
       return;
     }
 
+    pagandoCartaoRef.current = true;
+
     let tokenNormalizado = String(tokenCartao || '').trim();
     if (!tokenNormalizado) {
       try {
         tokenNormalizado = await handleCriptografarCartao();
       } catch (error) {
         setErro(error.message || 'Não foi possível validar os dados do cartão.');
+        pagandoCartaoRef.current = false;
         return;
       }
     }
 
     setCarregando(true);
     try {
+      let authenticationMethod = null;
+      let threeDSResultPayload = null;
+
+      if (debitoSelecionado) {
+        const resultadoAutenticacao = await executarAutenticacao3DSDebito({
+          pedidoId,
+          documentoDigits
+        });
+
+        authenticationMethod = resultadoAutenticacao?.authenticationMethod || null;
+        threeDSResultPayload = {
+          flow: 'debit_3ds_auth',
+          status: resultadoAutenticacao?.status || null,
+          id: authenticationMethod?.id || null,
+          trace_id: resultadoAutenticacao?.traceId || null
+        };
+        setStatus3DS('processando_pagamento');
+      }
+
       const data = await pagarCartao(pedidoId, {
         taxId: documentoDigits,
         tokenCartao: tokenNormalizado,
         parcelas: parcelasCartaoEfetivas,
-        tipoCartao: formaPagamento
+        tipoCartao: formaPagamento,
+        authenticationMethod,
+        threeDSResult: threeDSResultPayload
       });
 
       setResultadoCartao(data);
@@ -1550,14 +1893,28 @@ export default function PagamentoPage() {
       if (statusPagBank === 'PAID' || statusInterno === 'pago' || statusInterno === 'entregue') {
         setStatusPedidoAtual(statusInterno || 'pago');
         setPagamentoConfirmado(true);
+
+        if (debitoSelecionado) {
+          setStatus3DS('pagamento_aprovado');
+        }
       }
     } catch (error) {
       if (isAuthErrorMessage(error.message)) {
         setAutenticado(false);
       }
+
+      if (debitoSelecionado) {
+        setStatus3DS((atual) => (
+          ['nao_suportado', 'trocar_metodo', 'pagamento_aprovado'].includes(atual)
+            ? atual
+            : 'erro'
+        ));
+      }
+
       setErro(error.message);
     } finally {
       setCarregando(false);
+      pagandoCartaoRef.current = false;
     }
   }
 
@@ -2181,6 +2538,19 @@ export default function PagamentoPage() {
                           ? 'Dados do cartão validados com sucesso.'
                           : 'Os dados do cartão são protegidos antes do envio para pagamento.'}
                       </p>
+
+                      {debitoSelecionado ? (
+                        <>
+                          <p className={`payment-action-feedback ${status3DSTone}`.trim()} role="status">
+                            {status3DSLabel}
+                            {idAutenticacao3DS ? ` ID: ${idAutenticacao3DS}` : ''}
+                          </p>
+
+                          {IS_DEVELOPMENT && resultado3DS?.trace_id ? (
+                            <p className="muted-text">Trace 3DS: {resultado3DS.trace_id}</p>
+                          ) : null}
+                        </>
+                      ) : null}
                     </div>
                   </section>
                 ) : null}
@@ -2300,13 +2670,23 @@ export default function PagamentoPage() {
               </>
             ) : (
               <section className="checkout-pix-payment-panel" aria-label="Pagamento com cartão">
+                {debitoSelecionado ? (
+                  <p className={`payment-action-feedback ${status3DSTone}`.trim()} role="status">
+                    {status3DSLabel}
+                  </p>
+                ) : null}
+
                 <button
                   className="btn-secondary"
                   type="button"
                   disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id}
                   onClick={() => handlePagarCartao(resultadoPedido.pedido_id)}
                 >
-                  {carregando ? `Processando ${tituloFormaPagamento.toLowerCase()}...` : `Pagar com ${tituloFormaPagamento}`}
+                  {carregando
+                    ? debitoSelecionado
+                      ? status3DSLabel
+                      : `Processando ${tituloFormaPagamento.toLowerCase()}...`
+                    : `Pagar com ${tituloFormaPagamento}`}
                 </button>
 
                 {resultadoCartao ? (

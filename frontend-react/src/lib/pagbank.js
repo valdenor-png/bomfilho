@@ -2,6 +2,15 @@ const PAGBANK_SDK_URL = 'https://assets.pagseguro.com.br/checkout-sdk-js/rc/dist
 
 let pagBankSdkPromise = null;
 
+function normalizarEnvSdkPagBank(env) {
+  const value = String(env || '').trim().toUpperCase();
+  if (['PROD', 'PRODUCTION'].includes(value)) {
+    return 'PROD';
+  }
+
+  return 'SANDBOX';
+}
+
 function getBrowserWindow() {
   if (typeof window === 'undefined') {
     throw new Error('Ambiente do navegador não disponível para tokenização do PagBank.');
@@ -24,6 +33,11 @@ export function carregarSdkPagBank() {
   pagBankSdkPromise = new Promise((resolve, reject) => {
     const existente = win.document.querySelector(`script[src="${PAGBANK_SDK_URL}"]`);
     if (existente) {
+      if (win.PagSeguro) {
+        resolve(win.PagSeguro);
+        return;
+      }
+
       existente.addEventListener('load', () => resolve(win.PagSeguro), { once: true });
       existente.addEventListener('error', () => reject(new Error('Falha ao carregar SDK do PagBank.')), { once: true });
       return;
@@ -84,4 +98,37 @@ export async function criptografarCartaoPagBank({
   }
 
   return encryptedCard;
+}
+
+export async function configurarSessao3DSPagBank({ session, env } = {}) {
+  const pagSeguro = await carregarSdkPagBank();
+
+  if (typeof pagSeguro?.setUp !== 'function') {
+    throw new Error('SDK do PagBank não disponibilizou o método setUp para 3DS.');
+  }
+
+  const sessionNormalizada = String(session || '').trim();
+  if (!sessionNormalizada) {
+    throw new Error('Sessão 3DS inválida ou ausente. Atualize a página e tente novamente.');
+  }
+
+  pagSeguro.setUp({
+    session: sessionNormalizada,
+    env: normalizarEnvSdkPagBank(env)
+  });
+
+  return {
+    session: sessionNormalizada,
+    env: normalizarEnvSdkPagBank(env)
+  };
+}
+
+export async function autenticar3DSPagBank(request = {}) {
+  const pagSeguro = await carregarSdkPagBank();
+
+  if (typeof pagSeguro?.authenticate3DS !== 'function') {
+    throw new Error('SDK do PagBank não disponibilizou o método authenticate3DS.');
+  }
+
+  return pagSeguro.authenticate3DS(request);
 }

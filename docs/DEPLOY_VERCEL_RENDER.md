@@ -62,9 +62,12 @@ Defina no painel do Render:
 Se usar pagamento/whatsapp:
 
 - `PAGBANK_ENV`, `PAGBANK_TOKEN`, `PAGBANK_WEBHOOK_TOKEN`
+- `PAGBANK_TIMEOUT_MS=15000`
 - `PAGBANK_WEBHOOK_TOKEN` é obrigatório em produção (sem ele o backend não inicializa)
 - Estrategia de webhook PagBank: o backend gera `notification_url` com `?token=...` e valida por query (ou por header `x-webhook-token` quando enviado)
 - `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE`
+
+Para checkout em débito com 3DS, permita JS/iframe de `*.cardinalcommerce.com` na CSP/regras de segurança do frontend para suportar o challenge do emissor.
 
 Diagnóstico remoto opcional (somente quando necessário):
 

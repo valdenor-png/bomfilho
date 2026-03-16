@@ -50,6 +50,7 @@ SOURCE backend/migrate_remover_favoritos_fidelidade.sql;
 Se utilizar PIX e WhatsApp:
 
 - PAGBANK_ENV, PAGBANK_TOKEN, PAGBANK_PUBLIC_KEY, PAGBANK_WEBHOOK_TOKEN
+- PAGBANK_TIMEOUT_MS=15000
 - PAGBANK_WEBHOOK_TOKEN é obrigatório em produção (o backend não inicializa sem essa variável)
 - Estratégia de webhook PagBank: o backend gera `notification_url` com `?token=...` e valida o token por query (ou por header `x-webhook-token` quando enviado)
 - PAGBANK_DEBUG_LOGS=true (recomendado em homologação)
@@ -68,6 +69,8 @@ Teste rápido:
 curl https://SEU_BACKEND.onrender.com/api
 curl https://SEU_BACKEND.onrender.com/ready
 ```
+
+Se usar débito com 3DS no checkout transparente, permita JS/iframe de `*.cardinalcommerce.com` na CSP e regras de segurança do frontend para suportar o challenge.
 
 ## 3) Deploy do frontend na Vercel
 

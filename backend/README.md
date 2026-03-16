@@ -75,6 +75,7 @@ PAGBANK_ENV=sandbox
 PAGBANK_TOKEN=SEU_TOKEN_PAGBANK
 PAGBANK_PUBLIC_KEY=SUA_CHAVE_PUBLICA_PAGBANK
 PAGBANK_DEBUG_LOGS=true
+PAGBANK_TIMEOUT_MS=15000
 ALLOW_PIX_MOCK=false
 ALLOW_DEBIT_3DS_MOCK=true
 
@@ -110,6 +111,7 @@ Para esse fluxo funcionar localmente, o webhook precisa estar acessível publica
 - `PAGBANK_TOKEN`: token do Portal PagBank
 - `PAGBANK_ENV`: `sandbox` (teste) ou `production`
 - `PAGBANK_PUBLIC_KEY`: chave pública usada para criptografar cartão no frontend
+- `PAGBANK_TIMEOUT_MS`: timeout das chamadas HTTP ao PagBank (ms)
 - `ALLOW_PIX_MOCK`: `true` apenas para desenvolvimento local com PIX simulado
 - `ALLOW_DEBIT_3DS_MOCK`: `true` apenas em sandbox para fallback 3DS mock no débito
 - `PAGBANK_WEBHOOK_TOKEN`: token compartilhado validado no webhook PagBank
@@ -120,6 +122,32 @@ Para esse fluxo funcionar localmente, o webhook precisa estar acessível publica
 - Em débito, o PagBank exige `authentication_method` com `type=THREEDS`.
 - Em produção, envie `authentication_method` real no `POST /api/pagamentos/cartao`.
 - Em sandbox, se `ALLOW_DEBIT_3DS_MOCK=true`, o backend injeta dados 3DS mock quando o campo não for enviado.
+
+### Sessão 3DS para SDK PagBank
+
+Use a rota abaixo antes de chamar `PagSeguro.setUp()` no frontend:
+
+```http
+POST /api/pagbank/3ds/session
+x-csrf-token: TOKEN_CSRF
+Content-Type: application/json
+
+{
+  "reference_id": "pedido_123"
+}
+```
+
+Resposta:
+
+```json
+{
+  "session": "SUA_SESSAO_3DS",
+  "env": "SANDBOX",
+  "expires_in_seconds": 1800
+}
+```
+
+Importante: libere execucao de JS/iframe do dominio `*.cardinalcommerce.com` na sua politica de seguranca (CSP), conforme orientacao do PagBank para challenge 3DS.
 
 ### 2) Rodar migração do PIX no MySQL
 
@@ -352,6 +380,22 @@ Content-Type: application/json
 `tipo_cartao` aceito: `credito` ou `debito`.
 
 Para `debito`, envie `parcelas=1`.
+
+Exemplo para débito com 3DS:
+
+```json
+{
+  "pedido_id": 123,
+  "tax_id": "12345678909",
+  "token_cartao": "TOKEN_OU_CARTAO_CRIPTOGRAFADO_PAGBANK",
+  "tipo_cartao": "debito",
+  "parcelas": 1,
+  "authentication_method": {
+    "type": "THREEDS",
+    "id": "3DS_15CB7893-4D23-44FA-97B7-AC1BE516D418"
+  }
+}
+```
 
 #### Webhook PagBank
 ```http

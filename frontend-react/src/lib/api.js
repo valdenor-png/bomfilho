@@ -175,6 +175,18 @@ function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
       return 'Esta forma de pagamento está temporariamente indisponível. Tente novamente em instantes.';
     }
 
+    if (normalizedMessage.includes('autenticacao de seguranca do cartao indisponivel')) {
+      return 'Não foi possível iniciar a autenticação 3DS. Tente novamente em instantes.';
+    }
+
+    if (normalizedMessage.includes('autenticação 3ds inválida') || normalizedMessage.includes('authentication_method')) {
+      return 'Não foi possível validar a autenticação 3DS do débito. Tente novamente.';
+    }
+
+    if (normalizedMessage.includes('nao foi possivel iniciar a autenticacao de seguranca')) {
+      return 'Não foi possível iniciar a autenticação 3DS. Tente novamente em instantes.';
+    }
+
     if (normalizedMessage.includes('pedido_id')) {
       return 'Não foi possível identificar o pedido para pagamento. Atualize a página e tente novamente.';
     }
@@ -733,6 +745,20 @@ export function getPagBankPublicKey() {
   return request('/api/pagbank/public-key');
 }
 
+export function criarSessao3DSPagBank({ referenceId } = {}) {
+  const body = {};
+  const referenceIdNormalizado = String(referenceId || '').trim();
+
+  if (referenceIdNormalizado) {
+    body.reference_id = referenceIdNormalizado;
+  }
+
+  return request('/api/pagbank/3ds/session', {
+    method: 'POST',
+    body
+  });
+}
+
 export function pagarCartao(
   pedidoId,
   {
@@ -740,7 +766,8 @@ export function pagarCartao(
     tokenCartao,
     parcelas = 1,
     tipoCartao = 'credito',
-    authenticationMethod
+    authenticationMethod,
+    threeDSResult
   } = {}
 ) {
   const taxIdDigits = String(taxId || '').replace(/\D/g, '');
@@ -763,6 +790,10 @@ export function pagarCartao(
 
   if (authenticationMethod && typeof authenticationMethod === 'object') {
     body.authentication_method = authenticationMethod;
+  }
+
+  if (threeDSResult && typeof threeDSResult === 'object') {
+    body.three_ds_result = threeDSResult;
   }
 
   return request('/api/pagamentos/cartao', {

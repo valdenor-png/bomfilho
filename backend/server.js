@@ -63,15 +63,25 @@ const {
   resolverDadosWebhookPagBank,
   validarTokenWebhookPagBank
 } = require('./services/pagbankWebhookService');
-const { criarRegistradorLogPagBank } = require('./services/pagbankLogService');
+const {
+  criarRegistradorLogPagBank,
+  extrairTraceIdPagBank
+} = require('./services/pagbankLogService');
 const {
   normalizarParcelasCartao,
-  normalizarTipoCartao
+  normalizarTipoCartao,
+  normalizarAuthenticationMethodPagBank,
+  validarAuthenticationMethodPagBank,
+  montarAuthenticationMethodMock3DS
 } = require('./services/pagbankPaymentHelpers');
 const {
   enviarPostPagBankOrders: enviarPostPagBankOrdersClient,
-  obterPedidoPagBank: obterPedidoPagBankClient
+  obterPedidoPagBank: obterPedidoPagBankClient,
+  criarSessaoAutenticacao3DSPagBank: criarSessaoAutenticacao3DSPagBankClient
 } = require('./services/pagbankClientService');
+const {
+  construirConfiguracaoPagBank
+} = require('./services/pagbankConfigService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -113,16 +123,22 @@ if (!DATABASE_URL) {
   throw new Error('DATABASE_URL não configurada no ambiente.');
 }
 
-const PAGBANK_ENV = String(process.env.PAGBANK_ENV || 'sandbox').trim().toLowerCase() === 'production'
-  ? 'production'
-  : 'sandbox';
-const PAGBANK_TOKEN = String(process.env.PAGBANK_TOKEN || '').trim();
-const PAGBANK_PUBLIC_KEY = String(process.env.PAGBANK_PUBLIC_KEY || '').trim();
-const PAGBANK_WEBHOOK_TOKEN = String(process.env.PAGBANK_WEBHOOK_TOKEN || '').trim();
-const PAGBANK_DEBUG_LOGS = parseBooleanEnv('PAGBANK_DEBUG_LOGS', !IS_PRODUCTION);
+const PAGBANK_CONFIG = construirConfiguracaoPagBank({
+  env: process.env,
+  isProductionApp: IS_PRODUCTION
+});
+const PAGBANK_ENV = PAGBANK_CONFIG.env;
+const PAGBANK_TOKEN = PAGBANK_CONFIG.token;
+const PAGBANK_PUBLIC_KEY = PAGBANK_CONFIG.publicKey;
+const PAGBANK_WEBHOOK_TOKEN = PAGBANK_CONFIG.webhookToken;
+const PAGBANK_DEBUG_LOGS = PAGBANK_CONFIG.debugLogs;
 const registrarLogPagBank = criarRegistradorLogPagBank({ ativo: PAGBANK_DEBUG_LOGS });
-const ALLOW_PIX_MOCK = parseBooleanEnv('ALLOW_PIX_MOCK', false);
-const ALLOW_DEBIT_3DS_MOCK = parseBooleanEnv('ALLOW_DEBIT_3DS_MOCK', false);
+const ALLOW_PIX_MOCK = PAGBANK_CONFIG.allowPixMock;
+const ALLOW_DEBIT_3DS_MOCK = PAGBANK_CONFIG.allowDebit3dsMock;
+const PAGBANK_TIMEOUT_MS = PAGBANK_CONFIG.timeoutMs;
+const PAGBANK_API_URL = PAGBANK_CONFIG.ordersApiUrl;
+const PAGBANK_SDK_API_URL = PAGBANK_CONFIG.sdkApiUrl;
+const PAGBANK_3DS_SDK_ENV = PAGBANK_CONFIG.sdkEnv;
 const TAMANHO_MAXIMO_IMPORTACAO_MB = (() => {
   const valor = Number(process.env.TAMANHO_MAXIMO_IMPORTACAO_MB || 8);
   return Number.isFinite(valor) && valor > 0 ? Math.min(valor, 100) : 8;
@@ -145,9 +161,6 @@ const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
 );
 
 // Configuração PagBank
-const PAGBANK_API_URL = PAGBANK_ENV === 'production'
-  ? 'https://api.pagseguro.com'
-  : 'https://sandbox.api.pagseguro.com';
 
 if (IS_PRODUCTION && !PAGBANK_WEBHOOK_TOKEN) {
   throw new Error('PAGBANK_WEBHOOK_TOKEN é obrigatório em produção para validação segura dos webhooks PagBank.');
@@ -1861,6 +1874,9 @@ app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
     res.json({
       pagbank_env: PAGBANK_ENV,
       pagbank_api_url: PAGBANK_API_URL,
+      pagbank_sdk_api_url: PAGBANK_SDK_API_URL,
+      pagbank_3ds_sdk_env: PAGBANK_3DS_SDK_ENV,
+      pagbank_timeout_ms: PAGBANK_TIMEOUT_MS,
       base_url: baseUrl,
       webhook_url: webhookUrl,
       token_present: !!token,
@@ -2170,12 +2186,52 @@ function formatarTelefoneWhatsapp(telefone) {
   return '55' + digits;
 }
 
+function registrarFalhaOperacaoPagBank({
+  operacao,
+  endpoint,
+  method = 'POST',
+  httpStatus,
+  requestPayload,
+  responsePayload,
+  extra
+} = {}) {
+  const traceId = String(
+    extra?.trace_id
+      || extra?.traceId
+      || extrairTraceIdPagBank(responsePayload)
+      || ''
+  ).trim();
+
+  registrarLogPagBank({
+    operacao,
+    endpoint,
+    method,
+    httpStatus,
+    requestPayload,
+    responsePayload,
+    extra: {
+      ...(extra || {}),
+      trace_id: traceId || undefined
+    }
+  });
+}
+
 async function enviarPostPagBankOrders({ headers, payload }) {
   return enviarPostPagBankOrdersClient({
     apiUrl: PAGBANK_API_URL,
     headers,
     payload,
-    registrarLogPagBank
+    registrarLogPagBank,
+    timeoutMs: PAGBANK_TIMEOUT_MS
+  });
+}
+
+async function criarSessaoAutenticacao3DSPagBank() {
+  return criarSessaoAutenticacao3DSPagBankClient({
+    sdkApiUrl: PAGBANK_SDK_API_URL,
+    token: PAGBANK_TOKEN,
+    registrarLogPagBank,
+    timeoutMs: PAGBANK_TIMEOUT_MS
   });
 }
 
@@ -2292,7 +2348,8 @@ async function obterPedidoPagBank(orderId) {
     apiUrl: PAGBANK_API_URL,
     token: PAGBANK_TOKEN,
     orderId,
-    registrarLogPagBank
+    registrarLogPagBank,
+    timeoutMs: PAGBANK_TIMEOUT_MS
   });
 }
 
@@ -2363,26 +2420,15 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
   console.log('🔔 PagBank notification URL:', payload.notification_urls?.[0]);
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-  const endpoint = `${PAGBANK_API_URL}/orders`;
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
+  const { response, responseBodyText: responseText, responsePayload, traceId, endpoint } = await enviarPostPagBankOrders({
     headers: {
-      'Authorization': `Bearer ${PAGBANK_TOKEN}`,
+      Authorization: `Bearer ${PAGBANK_TOKEN}`,
       'x-idempotency-key': idempotencyKey,
-      'accept': 'application/json',
+      accept: 'application/json',
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(payload)
+    payload
   });
-
-  const responseText = await response.text();
-  let responsePayload = {};
-  try {
-    responsePayload = responseText ? JSON.parse(responseText) : {};
-  } catch {
-    responsePayload = { raw_text: responseText };
-  }
 
   const statusInfoPix = extrairStatusPagamentoPagBank(responsePayload);
   const chargePrincipalPix = statusInfoPix.chargePrincipal || {};
@@ -2403,14 +2449,35 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
       status_pagbank: statusPagBankPix,
       status_order: statusInfoPix.orderStatus || null,
       status_charge: statusInfoPix.chargeStatus || null,
-      status_fonte: statusInfoPix.fonteStatus
+      status_fonte: statusInfoPix.fonteStatus,
+      trace_id: traceId || undefined
     }
   });
 
   if (!response.ok) {
+    registrarFalhaOperacaoPagBank({
+      operacao: 'orders.pix.error',
+      endpoint,
+      method: 'POST',
+      httpStatus: response.status,
+      requestPayload: payload,
+      responsePayload,
+      extra: {
+        idempotency_key: idempotencyKey,
+        pedido_id: pedidoId,
+        reference_id: payload.reference_id,
+        trace_id: traceId || undefined
+      }
+    });
+
     const errorText = responseText
       || (typeof responsePayload?.raw_text === 'string' ? responsePayload.raw_text : JSON.stringify(responsePayload));
-    throw new Error(`Erro PagBank: ${response.status} - ${errorText}`);
+    const error = new Error(`Erro PagBank: ${response.status} - ${errorText}`);
+    error.httpStatus = response.status;
+    error.endpoint = endpoint;
+    error.traceId = traceId || undefined;
+    error.responsePayload = responsePayload;
+    throw error;
   }
 
   return responsePayload;
@@ -2529,26 +2596,15 @@ async function criarPagamentoCartao({
   }
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-  const endpoint = `${PAGBANK_API_URL}/orders`;
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
+  const { response, responseBodyText: responseText, responsePayload, traceId, endpoint } = await enviarPostPagBankOrders({
     headers: {
-      'Authorization': `Bearer ${PAGBANK_TOKEN}`,
+      Authorization: `Bearer ${PAGBANK_TOKEN}`,
       'x-idempotency-key': idempotencyKey,
-      'accept': 'application/json',
+      accept: 'application/json',
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(payload)
+    payload
   });
-
-  const responseText = await response.text();
-  let responsePayload = {};
-  try {
-    responsePayload = responseText ? JSON.parse(responseText) : {};
-  } catch {
-    responsePayload = { raw_text: responseText };
-  }
 
   const statusInfoCartao = extrairStatusPagamentoPagBank(responsePayload);
   const chargePrincipalCartao = statusInfoCartao.chargePrincipal || {};
@@ -2566,20 +2622,48 @@ async function criarPagamentoCartao({
       pedido_id: pedidoId,
       tipo_cartao: tipoCartaoNormalizado,
       authentication_method_mode: authenticationMethodMode,
+      payment_method_type: paymentMethodType,
+      authentication_method_type: payload?.charges?.[0]?.payment_method?.authentication_method?.type || null,
+      authentication_method_id_present: Boolean(payload?.charges?.[0]?.payment_method?.authentication_method?.id),
+      capture: Boolean(payload?.charges?.[0]?.payment_method?.capture),
+      reference_id: payload.reference_id,
       has_charges_in_response: Array.isArray(responsePayload?.charges) && responsePayload.charges.length > 0,
       order_id: responsePayload?.id || null,
       charge_id: chargePrincipalCartao?.id || null,
       status_pagbank: statusPagBankCartao,
       status_order: statusInfoCartao.orderStatus || null,
       status_charge: statusInfoCartao.chargeStatus || null,
-      status_fonte: statusInfoCartao.fonteStatus
+      status_fonte: statusInfoCartao.fonteStatus,
+      trace_id: traceId || undefined
     }
   });
 
   if (!response.ok) {
+    registrarFalhaOperacaoPagBank({
+      operacao: 'orders.cartao.error',
+      endpoint,
+      method: 'POST',
+      httpStatus: response.status,
+      requestPayload: payload,
+      responsePayload,
+      extra: {
+        idempotency_key: idempotencyKey,
+        pedido_id: pedidoId,
+        tipo_cartao: tipoCartaoNormalizado,
+        reference_id: payload.reference_id,
+        trace_id: traceId || undefined
+      }
+    });
+
     const errorText = responseText
       || (typeof responsePayload?.raw_text === 'string' ? responsePayload.raw_text : JSON.stringify(responsePayload));
-    throw new Error(`Erro PagBank cartão: ${response.status} - ${errorText}`);
+    const error = new Error(`Erro PagBank cartão: ${response.status} - ${errorText}`);
+    error.httpStatus = response.status;
+    error.endpoint = endpoint;
+    error.traceId = traceId || undefined;
+    error.referenceId = payload.reference_id;
+    error.responsePayload = responsePayload;
+    throw error;
   }
 
   return responsePayload;
@@ -4103,6 +4187,97 @@ app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminTok
 // ROTAS DE PEDIDOS
 // ============================================
 
+// Cria sessao 3DS para uso no SDK PagBank no checkout
+app.post('/api/pagbank/3ds/session', autenticarToken, async (req, res) => {
+  const endpoint = '/api/pagbank/3ds/session';
+  const referenceId = String(req.body?.reference_id || req.body?.referenceId || '').trim() || null;
+
+  try {
+    if (!PAGBANK_TOKEN) {
+      registrarFalhaOperacaoPagBank({
+        operacao: 'api.pagbank.3ds.session.error',
+        endpoint,
+        method: 'POST',
+        httpStatus: 503,
+        requestPayload: req.body,
+        responsePayload: {
+          erro: 'PAGBANK_TOKEN ausente para sessao 3DS'
+        },
+        extra: {
+          fluxo: 'debit_3ds_auth',
+          reference_id: referenceId,
+          usuario_id: req.usuario?.id || null,
+          pagbank_env: PAGBANK_ENV
+        }
+      });
+
+      return res.status(503).json({
+        erro: 'Autenticacao de seguranca do cartao indisponivel no momento.'
+      });
+    }
+
+    const resultadoSessao = await criarSessaoAutenticacao3DSPagBank();
+    const payloadResposta = {
+      session: resultadoSessao.session,
+      env: PAGBANK_3DS_SDK_ENV,
+      expires_in_seconds: 1800
+    };
+
+    registrarLogPagBank({
+      operacao: 'api.pagbank.3ds.session.response',
+      endpoint,
+      method: 'POST',
+      httpStatus: 200,
+      responsePayload: payloadResposta,
+      extra: {
+        fluxo: 'debit_3ds_auth',
+        reference_id: referenceId,
+        usuario_id: req.usuario?.id || null,
+        pagbank_env: PAGBANK_ENV,
+        sdk_endpoint: resultadoSessao.endpoint,
+        trace_id: resultadoSessao.traceId || undefined
+      }
+    });
+
+    return res.status(200).json(payloadResposta);
+  } catch (erro) {
+    const statusBruto = Number(erro?.httpStatus || erro?.status || 502);
+    const statusResposta = statusBruto >= 500 || statusBruto < 400
+      ? 502
+      : statusBruto;
+    const traceId = String(
+      erro?.traceId
+        || erro?.trace_id
+        || extrairTraceIdPagBank(erro?.responsePayload)
+        || ''
+    ).trim();
+
+    registrarFalhaOperacaoPagBank({
+      operacao: 'api.pagbank.3ds.session.error',
+      endpoint,
+      method: 'POST',
+      httpStatus: statusResposta,
+      requestPayload: req.body,
+      responsePayload: erro?.responsePayload || {
+        erro: erro?.message || 'Falha ao criar sessao 3DS'
+      },
+      extra: {
+        fluxo: 'debit_3ds_auth',
+        reference_id: referenceId,
+        usuario_id: req.usuario?.id || null,
+        pagbank_env: PAGBANK_ENV,
+        sdk_endpoint: erro?.endpoint || `${PAGBANK_SDK_API_URL}/checkout-sdk/sessions`,
+        trace_id: traceId || undefined
+      }
+    });
+
+    return res.status(statusResposta).json({
+      erro: 'Nao foi possivel iniciar a autenticacao de seguranca do cartao. Tente novamente em instantes.',
+      trace_id: traceId || undefined
+    });
+  }
+});
+
 // Gerar QR Code PIX (PagBank) para um pedido existente
 app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
   try {
@@ -4194,7 +4369,9 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     const { pedido_id } = req.body || {};
     const taxIdDigits = extrairTaxIdDigits(req.body);
     const tokenCartao = String(req.body?.token_cartao || req.body?.cartao_encriptado || '').trim();
-    const authenticationMethod = req.body?.authentication_method;
+    const authenticationMethodBruto = req.body?.authentication_method;
+    const authenticationMethod = normalizarAuthenticationMethodPagBank(authenticationMethodBruto);
+    const threeDSResult = req.body?.three_ds_result;
     const tipoCartaoSolicitado = String(req.body?.tipo_cartao || req.body?.forma_pagamento || '').trim();
     const parcelas = normalizarParcelasCartao(req.body?.parcelas);
 
@@ -4205,7 +4382,12 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       requestPayload: req.body,
       extra: {
         usuario_id: req.usuario?.id || null,
-        pedido_id
+        pedido_id,
+        fluxo: 'debit_3ds_auth',
+        authentication_method_present: Boolean(authenticationMethod),
+        authentication_method_id_present: Boolean(authenticationMethod?.id),
+        three_ds_status: String(threeDSResult?.status || '').trim().toUpperCase() || null,
+        three_ds_trace_id: String(threeDSResult?.trace_id || threeDSResult?.traceId || '').trim() || null
       }
     });
 
@@ -4263,11 +4445,20 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       ? 1
       : (parcelamentoCreditoDisponivel ? parcelas : 1);
 
-    if (tipoCartao === 'debito' && PAGBANK_ENV === 'production') {
+    if (tipoCartao === 'debito') {
+      const fallback3dsMockPermitido = PAGBANK_ENV !== 'production' && ALLOW_DEBIT_3DS_MOCK;
       const validacaoAuthDebito = validarAuthenticationMethodPagBank(authenticationMethod);
-      if (!validacaoAuthDebito.ok) {
+
+      if (!validacaoAuthDebito.ok && !fallback3dsMockPermitido) {
+        let mensagemErroAuth = 'Para concluir no débito, complete a autenticação 3DS e tente novamente.';
+        if (validacaoAuthDebito.motivo === 'missing_id') {
+          mensagemErroAuth = 'Autenticação 3DS inválida: id da autenticação não foi informado.';
+        } else if (validacaoAuthDebito.motivo === 'invalid_type') {
+          mensagemErroAuth = 'Autenticação 3DS inválida: authentication_method.type deve ser THREEDS.';
+        }
+
         return res.status(400).json({
-          erro: 'Não foi possível validar a autenticação de segurança do cartão.'
+          erro: mensagemErroAuth
         });
       }
     }
@@ -4310,6 +4501,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
     const statusInterno = mapearStatusPedido(statusPagBank);
     const pagbankChargeId = chargePrincipal?.id || null;
+    const traceId = String(extrairTraceIdPagBank(pagamento) || '').trim() || null;
 
     try {
       await pool.query(
@@ -4333,7 +4525,8 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       tipo_cartao: tipoCartao,
       parcelas: tipoCartao === 'debito' ? 1 : parcelasAplicadas,
       authorization_code: paymentResponse?.code || null,
-      message: paymentResponse?.message || null
+      message: paymentResponse?.message || null,
+      trace_id: traceId || undefined
     };
 
     if (PAGBANK_DEBUG_LOGS && !IS_PRODUCTION) {
@@ -4350,28 +4543,57 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
         usuario_id: req.usuario?.id || null,
         pedido_id: pedido.id,
         pagbank_order_id: pagbankOrderId,
-        pagbank_charge_id: pagbankChargeId
+        pagbank_charge_id: pagbankChargeId,
+        payment_method_type: tipoCartao === 'debito' ? 'DEBIT_CARD' : 'CREDIT_CARD',
+        authentication_method_type: authenticationMethod?.type || null,
+        authentication_method_id_present: Boolean(authenticationMethod?.id),
+        capture: true,
+        trace_id: traceId || undefined
       }
     });
 
     return res.json(payloadResposta);
   } catch (erro) {
-    registrarLogPagBank({
+    const statusBruto = Number(erro?.httpStatus || erro?.status || 500);
+    const statusResposta = statusBruto >= 500 || statusBruto < 400
+      ? 502
+      : statusBruto;
+    const traceId = String(
+      erro?.traceId
+        || erro?.trace_id
+        || extrairTraceIdPagBank(erro?.responsePayload)
+        || ''
+    ).trim();
+    const mensagemErro = String(erro?.message || '').toLowerCase();
+    const erroAuth3ds = mensagemErro.includes('authentication_method')
+      || mensagemErro.includes('threeds')
+      || mensagemErro.includes('3ds');
+    const mensagemUsuario = erroAuth3ds
+      ? 'Nao foi possivel validar a autenticacao 3DS do cartao de debito. Tente novamente ou escolha outro meio de pagamento.'
+      : 'Nao foi possivel processar o pagamento com cartao.';
+
+    registrarFalhaOperacaoPagBank({
       operacao: 'api.pagamentos.cartao.error',
       endpoint: '/api/pagamentos/cartao',
       method: 'POST',
-      httpStatus: 500,
+      httpStatus: statusResposta,
       requestPayload: req.body,
-      responsePayload: {
-        erro: erro?.message || 'Não foi possível processar o pagamento com cartão'
+      responsePayload: erro?.responsePayload || {
+        erro: erro?.message || 'Nao foi possivel processar o pagamento com cartao'
       },
       extra: {
-        usuario_id: req.usuario?.id || null
+        usuario_id: req.usuario?.id || null,
+        pedido_id: req.body?.pedido_id || null,
+        reference_id: req.body?.pedido_id ? `pedido_${req.body.pedido_id}` : null,
+        trace_id: traceId || undefined
       }
     });
 
     console.error('Erro ao processar pagamento com cartão:', erro);
-    return res.status(500).json({ erro: erro?.message || 'Não foi possível processar o pagamento com cartão.' });
+    return res.status(statusResposta).json({
+      erro: mensagemUsuario,
+      trace_id: traceId || undefined
+    });
   }
 });
 

@@ -13,6 +13,44 @@ function mascararTextoSensivel(valor, { prefixo = 6, sufixo = 4 } = {}) {
   return `${texto.slice(0, prefixo)}***${texto.slice(-sufixo)}`;
 }
 
+function mascararEmail(valor) {
+  const email = String(valor || '').trim();
+  const [usuario, dominio] = email.split('@');
+
+  if (!usuario || !dominio) {
+    return mascararTextoSensivel(email, { prefixo: 2, sufixo: 2 });
+  }
+
+  const inicioUsuario = usuario.slice(0, 2);
+  const dominioPartes = dominio.split('.');
+  const dominioPrincipal = dominioPartes[0] || '';
+  const sufixo = dominioPartes.length > 1 ? `.${dominioPartes.slice(1).join('.')}` : '';
+
+  return `${inicioUsuario}***@${dominioPrincipal.slice(0, 1)}***${sufixo}`;
+}
+
+function mascararCpfCnpj(valor) {
+  const digits = String(valor || '').replace(/\D/g, '');
+  if (!digits) {
+    return '';
+  }
+
+  return `${digits.slice(0, 3)}***${digits.slice(-2)}`;
+}
+
+function mascararNumeroCartao(valor) {
+  const digits = String(valor || '').replace(/\D/g, '');
+  if (!digits) {
+    return '';
+  }
+
+  if (digits.length <= 6) {
+    return `${digits.slice(0, 2)}***`;
+  }
+
+  return `${digits.slice(0, 6)}***${digits.slice(-4)}`;
+}
+
 function deveMascararCampoLog({ chave, caminho }) {
   const key = String(chave || '').toLowerCase();
   const pathKey = `${String(caminho || '').toLowerCase()}.${key}`;
@@ -29,11 +67,19 @@ function deveMascararCampoLog({ chave, caminho }) {
     return true;
   }
 
+  if (['authorization', 'session', 'session_id', 'checkout_session'].includes(key)) {
+    return true;
+  }
+
   if (['cvv', 'securitycode', 'security_code'].includes(key)) {
     return true;
   }
 
-  if (key === 'number' && pathKey.includes('.card')) {
+  if (key === 'number' && (pathKey.includes('.card') || pathKey.includes('.paymentmethod.card'))) {
+    return true;
+  }
+
+  if (['email', 'email_address'].includes(key)) {
     return true;
   }
 
@@ -41,9 +87,19 @@ function deveMascararCampoLog({ chave, caminho }) {
 }
 
 function mascararTokensEmTexto(texto) {
-  return String(texto || '').replace(
+  return String(texto || '')
+    .replace(/(authorization\s*[:=]\s*bearer\s+)([^\s"']+)/gi, '$1***')
+    .replace(/(bearer\s+)([^\s"']+)/gi, '$1***')
+    .replace(
     /([?&](?:token|access_token|signature|webhook_token)=)([^&]+)/gi,
     '$1***'
+    );
+}
+
+function mascararEmailsEmTexto(texto) {
+  return String(texto || '').replace(
+    /([A-Z0-9._%+-]{1,64})@([A-Z0-9.-]+\.[A-Z]{2,})/gi,
+    (match) => mascararEmail(match)
   );
 }
 
@@ -53,7 +109,8 @@ function sanitizarPayloadPagBankParaLog(valor, caminho = 'root') {
   }
 
   if (typeof valor === 'string') {
-    return mascararTokensEmTexto(valor);
+    const textoComTokensOcultos = mascararTokensEmTexto(valor);
+    return mascararEmailsEmTexto(textoComTokensOcultos);
   }
 
   if (!valor || typeof valor !== 'object') {
@@ -64,7 +121,18 @@ function sanitizarPayloadPagBankParaLog(valor, caminho = 'root') {
 
   for (const [chave, conteudo] of Object.entries(valor)) {
     if (deveMascararCampoLog({ chave, caminho })) {
-      saida[chave] = mascararTextoSensivel(conteudo);
+      const key = String(chave || '').toLowerCase();
+
+      if (['tax_id', 'cpf', 'cnpj'].includes(key)) {
+        saida[chave] = mascararCpfCnpj(conteudo);
+      } else if (['email', 'email_address'].includes(key)) {
+        saida[chave] = mascararEmail(conteudo);
+      } else if (key === 'number' && String(caminho || '').toLowerCase().includes('card')) {
+        saida[chave] = mascararNumeroCartao(conteudo);
+      } else {
+        saida[chave] = mascararTextoSensivel(conteudo);
+      }
+
       continue;
     }
 
@@ -72,6 +140,39 @@ function sanitizarPayloadPagBankParaLog(valor, caminho = 'root') {
   }
 
   return saida;
+}
+
+function extrairTraceIdPagBank(payload = {}) {
+  const candidatosDiretos = [
+    payload?.trace_id,
+    payload?.traceId,
+    payload?.request_id,
+    payload?.requestId,
+    payload?.error?.trace_id,
+    payload?.error?.traceId
+  ];
+
+  for (const candidato of candidatosDiretos) {
+    const valor = String(candidato || '').trim();
+    if (valor) {
+      return valor;
+    }
+  }
+
+  const errorMessages = Array.isArray(payload?.error_messages)
+    ? payload.error_messages
+    : Array.isArray(payload?.errors)
+      ? payload.errors
+      : [];
+
+  for (const erro of errorMessages) {
+    const valor = String(erro?.trace_id || erro?.traceId || erro?.request_id || erro?.requestId || '').trim();
+    if (valor) {
+      return valor;
+    }
+  }
+
+  return '';
 }
 
 function criarRegistradorLogPagBank({ ativo = false, logger = console.log } = {}) {
@@ -88,11 +189,13 @@ function criarRegistradorLogPagBank({ ativo = false, logger = console.log } = {}
       return;
     }
 
+    const traceId = String(extra?.trace_id || extra?.traceId || extrairTraceIdPagBank(responsePayload) || '').trim();
     const logSeguro = {
       operacao: String(operacao || 'pagbank'),
       method: String(method || 'POST').toUpperCase(),
       endpoint: String(endpoint || ''),
       http_status: Number.isFinite(Number(httpStatus)) ? Number(httpStatus) : null,
+      trace_id: traceId || undefined,
       request: requestPayload !== undefined ? sanitizarPayloadPagBankParaLog(requestPayload) : undefined,
       response: responsePayload !== undefined ? sanitizarPayloadPagBankParaLog(responsePayload) : undefined,
       extra: extra !== undefined ? sanitizarPayloadPagBankParaLog(extra) : undefined,
@@ -105,5 +208,6 @@ function criarRegistradorLogPagBank({ ativo = false, logger = console.log } = {}
 
 module.exports = {
   criarRegistradorLogPagBank,
-  sanitizarPayloadPagBankParaLog
+  sanitizarPayloadPagBankParaLog,
+  extrairTraceIdPagBank
 };
