@@ -108,6 +108,7 @@ backend/scripts/*
 !backend/scripts/enrichment-barcode-invalid-length-report.js
 !backend/scripts/enrichment-barcode-pad-left-zero-report.js
 !backend/scripts/enrichment-barcode-pad-left-zero-apply.js
+!backend/scripts/enrichment-backlog-drain.js
 
 # Backup local
 backup/

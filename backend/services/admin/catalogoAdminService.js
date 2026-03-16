@@ -19,6 +19,13 @@ function toLowerTrim(value) {
   return normalizarTexto(value).toLowerCase();
 }
 
+function toLowerFold(value) {
+  return normalizarTexto(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 function parsePositiveInt(value, fallback, { min = 1, max = 1000 } = {}) {
   const parsed = Number.parseInt(String(value || ''), 10);
   if (!Number.isFinite(parsed)) {
@@ -264,7 +271,7 @@ function obterResumoJobsEnrichment() {
 
 function classificarErroEnrichment(row = {}) {
   const status = toLowerTrim(row.enrichment_status || row.status);
-  const mensagem = toLowerTrim(row.enrichment_last_error || row.mensagem);
+  const mensagem = toLowerFold(row.enrichment_last_error || row.mensagem);
   const barcode = normalizarBarcode(row.codigo_barras || row.barcode || '');
 
   if (!barcode || mensagem.includes('sem codigo de barras') || mensagem.includes('sem codigo')) {
@@ -285,7 +292,7 @@ function classificarErroEnrichment(row = {}) {
     return 'rate_limit';
   }
 
-  if (status === 'nao_encontrado' || mensagem.includes('nao encontrado') || mensagem.includes('n\u00e3o encontrado')) {
+  if (status === 'nao_encontrado' || mensagem.includes('nao encontrado')) {
     return 'nao_encontrado';
   }
 
@@ -296,8 +303,7 @@ function classificarErroEnrichment(row = {}) {
       || mensagem.includes('habilitado')
       || mensagem.includes('provider indisponivel')
       || mensagem.includes('provider_unavailable')
-      || mensagem.includes('nao configurado')
-      || mensagem.includes('n\u00e3o configurado'))) {
+      || mensagem.includes('nao configurado'))) {
     return 'config_provider';
   }
 
