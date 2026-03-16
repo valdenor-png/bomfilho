@@ -149,8 +149,8 @@ export default function HomePage() {
 
         <aside className="home-hero-panel" aria-label="Informacoes principais da loja">
           <p className="home-hero-panel-title">Atendimento Bomfilho</p>
-          <p>Seg a Sab: 07:00-19:00</p>
-          <p>Dom: 07:00-12:00</p>
+          <p>Segunda a sabado: 7h30 as 13h e 15h as 19h30</p>
+          <p>Domingos e feriados: 8h as 12h30</p>
           <p>Entrega rapida para pedidos online.</p>
           <a className="home-hero-panel-link" href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener noreferrer">
             Falar no WhatsApp
@@ -238,8 +238,9 @@ export default function HomePage() {
           <BrandLogo compact titleTag="h2" subtitle="Supermercado de confianca" />
         </div>
         <div className="footer-info-simple" aria-label="Informações da loja">
-          <div className="footer-info-line"><strong>Bom Filho — Supermercado</strong></div>
-          <div className="footer-info-line">Endereço: Travessa 07 de setembro | Nº 70</div>
+          <div className="footer-info-line"><strong>BomFilho</strong></div>
+          <div className="footer-info-line">CNPJ: 09.175.211/0001-30</div>
+          <div className="footer-info-line">Endereco: Travessa 07 de Setembro, CEP 68740-180</div>
           <div className="footer-info-line">
             Mapa:{' '}
             <a className="footer-link" href="https://share.google/0Ss9eHp9dv9AC4h1t" target="_blank" rel="noopener noreferrer">
@@ -247,14 +248,18 @@ export default function HomePage() {
             </a>
           </div>
           <div className="footer-info-line">
-            WhatsApp:{' '}
+            WhatsApp e telefone:{' '}
             <a className="footer-link" href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener noreferrer">
               (91) 99965-2790
             </a>
           </div>
-          <div className="footer-info-line">Horário: Seg a Sáb 07:00–19:00 | Dom 07:00–12:00</div>
+          <div className="footer-info-line">
+            Telefone fixo:{' '}
+            <a className="footer-link" href="tel:+559137219780">(91) 3721-9780</a>
+          </div>
+          <div className="footer-info-line">Horario: segunda a sabado, 7h30 as 13h e 15h as 19h30 | domingos e feriados, 8h as 12h30</div>
         </div>
-        <small>© 2026 Bom Filho Supermercado. Todos os direitos reservados.</small>
+        <small>© 2026 BomFilho. Todos os direitos reservados.</small>
       </footer>
     </section>
   );

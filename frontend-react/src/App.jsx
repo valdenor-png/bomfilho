@@ -16,6 +16,7 @@ import { useCart } from './context/CartContext';
 
 const BOTTOM_NAV_SAFE_AREA = 90;
 const WHATSAPP_ATENDIMENTO_URL = 'https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido.';
+const TELEFONE_FIXO_URL = 'tel:+559137219780';
 
 const links = [
   { to: '/', icon: '🏠', label: 'Início' },
@@ -82,11 +83,15 @@ export default function App() {
 
       <section className="site-trust-bar" aria-label="Canais de atendimento e links legais">
         <p className="site-trust-contact">
-          Atendimento via WhatsApp:{' '}
+          BomFilho | CNPJ 09.175.211/0001-30 | Endereco: Travessa 07 de Setembro, CEP 68740-180
+        </p>
+        <p className="site-trust-contact">
+          WhatsApp e telefone:{' '}
           <a href={WHATSAPP_ATENDIMENTO_URL} target="_blank" rel="noopener noreferrer">
             (91) 99965-2790
           </a>
-          {' '}| Horario: Seg a Sab 07:00-19:00 | Dom 07:00-12:00
+          {' '}| Telefone fixo: <a href={TELEFONE_FIXO_URL}>(91) 3721-9780</a>
+          {' '}| Segunda a sabado: 7h30 as 13h e 15h as 19h30 | Domingos e feriados: 8h as 12h30
         </p>
         <div className="site-legal-links">
           <Link className="site-legal-link" to="/politica-de-privacidade">Politica de Privacidade</Link>

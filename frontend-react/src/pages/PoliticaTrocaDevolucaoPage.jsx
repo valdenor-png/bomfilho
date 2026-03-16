@@ -7,47 +7,41 @@ export default function PoliticaTrocaDevolucaoPage() {
       <p className="legal-meta">Ultima atualizacao: 16/03/2026</p>
 
       <p>
-        Esta politica define os criterios de troca, devolucao e reembolso para compras realizadas na plataforma
-        digital do Bom Filho Supermercado.
+        Esta e uma versao provisoria da politica de troca e devolucao para compras realizadas na plataforma
+        digital da loja BomFilho.
       </p>
 
-      <h2>1. Quando solicitar troca ou devolucao</h2>
+      <h2>1. Conferencia no recebimento</h2>
+      <p>O cliente deve conferir os produtos no recebimento.</p>
+
+      <h2>2. Quando acionar a loja</h2>
       <ul>
-        <li>produto com avaria, violacao de embalagem ou defeito aparente no recebimento;</li>
-        <li>item divergente do pedido confirmado;</li>
-        <li>item perecivel com condicao inadequada, observado no ato da entrega.</li>
+        <li>em caso de produto avariado, item trocado, item faltante ou divergencia evidente no pedido, o cliente deve entrar em contato pelos canais oficiais o quanto antes apos o recebimento;</li>
+        <li>produtos pereciveis, sensiveis ou que dependam de conservacao adequada devem ser comunicados imediatamente em caso de problema.</li>
       </ul>
 
-      <h2>2. Prazo para abertura da solicitacao</h2>
+      <h2>3. Analise das solicitacoes</h2>
       <p>
-        Recomendamos abertura imediata apos o recebimento. Quando aplicavel, o prazo maximo e de
-        [INSERIR_PRAZO_EM_HORAS_OU_DIAS], respeitadas regras de produtos pereciveis.
+        As solicitacoes serao analisadas conforme o caso concreto, a natureza do produto e as condicoes de conservacao.
       </p>
 
-      <h2>3. Condicoes para analise</h2>
+      <h2>4. Possiveis formas de resolucao</h2>
       <ul>
-        <li>informar numero do pedido e item envolvido;</li>
-        <li>descrever o motivo e, quando possivel, anexar foto;</li>
-        <li>manter o produto nas condicoes recebidas ate orientacao da loja.</li>
+        <li>conforme analise, a loja podera oferecer substituicao, credito, ajuste ou estorno, quando cabivel;</li>
+        <li>a forma de resolucao considera o historico do pedido e a viabilidade operacional.</li>
       </ul>
 
-      <h2>4. Formas de resolucao</h2>
-      <ul>
-        <li>troca por item equivalente;</li>
-        <li>credito para compra futura;</li>
-        <li>estorno no meio de pagamento, conforme politica do provedor e prazo bancario.</li>
-      </ul>
-
-      <h2>5. Itens sem possibilidade de devolucao</h2>
+      <h2>5. Situacoes que podem nao ser aceitas</h2>
       <p>
-        Podem existir restricoes legais ou sanitarias para certos itens, especialmente pereciveis,
-        manipulados e produtos de higiene pessoal, salvo em caso de erro operacional ou inconformidade.
+        Itens com indicios de uso indevido, armazenamento inadequado apos a entrega ou reclamacao fora de
+        prazo razoavel poderao nao ser aceitos.
       </p>
 
       <h2>6. Canal de atendimento</h2>
       <ul>
-        <li>WhatsApp: [INSERIR_WHATSAPP_OFICIAL]</li>
-        <li>Horario: [INSERIR_HORARIO_DE_ATENDIMENTO]</li>
+        <li>WhatsApp e telefone: <a href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener noreferrer">(91) 99965-2790</a></li>
+        <li>Telefone fixo: <a href="tel:+559137219780">(91) 3721-9780</a></li>
+        <li>Horario de atendimento: segunda a sabado, 7h30 as 13h e 15h as 19h30; domingos e feriados, 8h as 12h30</li>
       </ul>
     </section>
   );

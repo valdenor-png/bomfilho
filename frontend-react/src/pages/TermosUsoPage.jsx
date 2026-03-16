@@ -7,7 +7,7 @@ export default function TermosUsoPage() {
       <p className="legal-meta">Ultima atualizacao: 16/03/2026</p>
 
       <p>
-        Estes Termos de Uso regulam o acesso e a utilizacao da plataforma digital do Bom Filho Supermercado.
+        Estes Termos de Uso regulam o acesso e a utilizacao da plataforma digital da loja BomFilho.
         Ao utilizar o servico, voce declara que leu e concorda com estas condicoes.
       </p>
 
@@ -53,8 +53,10 @@ export default function TermosUsoPage() {
 
       <h2>7. Contato</h2>
       <ul>
-        <li>WhatsApp: [INSERIR_WHATSAPP_OFICIAL]</li>
-        <li>E-mail: [INSERIR_EMAIL_DE_ATENDIMENTO]</li>
+        <li>WhatsApp e telefone: <a href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener noreferrer">(91) 99965-2790</a></li>
+        <li>Telefone fixo: <a href="tel:+559137219780">(91) 3721-9780</a></li>
+        <li>Endereco: Travessa 07 de Setembro, CEP 68740-180</li>
+        <li>Horario de atendimento: segunda a sabado, 7h30 as 13h e 15h as 19h30; domingos e feriados, 8h as 12h30</li>
       </ul>
     </section>
   );

@@ -7,7 +7,7 @@ export default function PoliticaPrivacidadePage() {
       <p className="legal-meta">Ultima atualizacao: 16/03/2026</p>
 
       <p>
-        Esta politica explica como o Bom Filho Supermercado ("Loja") coleta, utiliza e protege dados pessoais
+        Esta politica explica como a loja BomFilho ("Loja") coleta, utiliza e protege dados pessoais
         no uso do site e do aplicativo web de compras.
       </p>
 
@@ -51,16 +51,17 @@ export default function PoliticaPrivacidadePage() {
         Para solicitacoes relacionadas a dados pessoais, utilize os canais oficiais da loja:
       </p>
       <ul>
-        <li>WhatsApp: [INSERIR_WHATSAPP_OFICIAL]</li>
-        <li>E-mail: [INSERIR_EMAIL_DE_PRIVACIDADE]</li>
-        <li>Responsavel: [INSERIR_NOME_DO_RESPONSAVEL_DADOS]</li>
+        <li>WhatsApp e telefone: <a href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener noreferrer">(91) 99965-2790</a></li>
+        <li>Telefone fixo: <a href="tel:+559137219780">(91) 3721-9780</a></li>
+        <li>Endereco de atendimento: Travessa 07 de Setembro, CEP 68740-180</li>
       </ul>
 
       <h2>7. Dados da empresa</h2>
       <ul>
-        <li>Razao social: [INSERIR_RAZAO_SOCIAL]</li>
-        <li>CNPJ: [INSERIR_CNPJ]</li>
-        <li>Endereco comercial: [INSERIR_ENDERECO_COMERCIAL]</li>
+        <li>Nome/Razao exibida: BomFilho</li>
+        <li>CNPJ: 09.175.211/0001-30</li>
+        <li>Endereco comercial: Travessa 07 de Setembro, CEP 68740-180</li>
+        <li>Horario de atendimento: segunda a sabado, 7h30 as 13h e 15h as 19h30; domingos e feriados, 8h as 12h30</li>
       </ul>
     </section>
   );
