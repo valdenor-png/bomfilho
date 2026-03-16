@@ -1,9 +1,13 @@
 'use strict';
 
+const crypto = require('crypto');
 const XLSX = require('xlsx');
+const { normalizarBarcode, validarBarcode } = require('../barcode/utils/barcodeUtils');
 
 const TABELA_IMPORT_LOGS = 'product_import_logs';
 const TABELA_ENRICHMENT_LOGS = 'product_enrichment_logs';
+const ENRICHMENT_JOB_TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
+const enrichmentJobsEmMemoria = new Map();
 
 let schemaReady = false;
 
@@ -101,6 +105,265 @@ function toJsonStringSafe(value, fallback = '{}') {
   } catch {
     return fallback;
   }
+}
+
+function toNumberSafe(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function gerarEnrichmentJobId() {
+  return `enrich_${crypto.randomUUID().replace(/-/g, '')}`;
+}
+
+function normalizarJobEnrichment(job = {}) {
+  const criadoEm = normalizarTexto(job.criado_em) || null;
+  const iniciadoEm = normalizarTexto(job.iniciado_em) || null;
+  const finalizadoEm = normalizarTexto(job.finalizado_em) || null;
+
+  return {
+    job_id: normalizarTexto(job.job_id),
+    status: toLowerTrim(job.status),
+    escopo: toLowerTrim(job.escopo),
+    total_previsto: toNumberSafe(job.total_previsto, 0),
+    processados: toNumberSafe(job.processados, 0),
+    encontrados: toNumberSafe(job.encontrados, 0),
+    falhas: toNumberSafe(job.falhas, 0),
+    nao_encontrados: toNumberSafe(job.nao_encontrados, 0),
+    ignorados: toNumberSafe(job.ignorados, 0),
+    cancelados: toNumberSafe(job.cancelados, 0),
+    percentual_concluido: toNumberSafe(job.percentual_concluido, 0),
+    tempo_decorrido_s: toNumberSafe(job.tempo_decorrido_s, 0),
+    itens_por_segundo: toNumberSafe(job.itens_por_segundo, 0),
+    itens_por_minuto: toNumberSafe(job.itens_por_minuto, 0),
+    estimativa_termino_em: normalizarTexto(job.estimativa_termino_em) || null,
+    mensagem_atual: normalizarTexto(job.mensagem_atual),
+    erro_geral: normalizarTexto(job.erro_geral),
+    criado_em: criadoEm,
+    iniciado_em: iniciadoEm,
+    finalizado_em: finalizadoEm,
+    started_at: iniciadoEm,
+    finished_at: finalizadoEm
+  };
+}
+
+function statusJobTerminal(status) {
+  return ENRICHMENT_JOB_TERMINAL_STATUS.has(toLowerTrim(status));
+}
+
+function atualizarIndicadoresJob(job, inicioMs) {
+  const inicio = Number.isFinite(Number(inicioMs)) ? Number(inicioMs) : Date.now();
+  const duracaoSegundos = Math.max(0, (Date.now() - inicio) / 1000);
+
+  job.tempo_decorrido_s = Number(duracaoSegundos.toFixed(3));
+
+  if (toNumberSafe(job.processados, 0) > 0 && duracaoSegundos > 0) {
+    job.itens_por_segundo = Number((toNumberSafe(job.processados, 0) / duracaoSegundos).toFixed(3));
+    job.itens_por_minuto = Number((job.itens_por_segundo * 60).toFixed(3));
+  } else {
+    job.itens_por_segundo = 0;
+    job.itens_por_minuto = 0;
+  }
+
+  if (toNumberSafe(job.total_previsto, 0) > 0) {
+    const percentual = (toNumberSafe(job.processados, 0) / toNumberSafe(job.total_previsto, 1)) * 100;
+    job.percentual_concluido = Number(Math.min(100, Math.max(0, percentual)).toFixed(2));
+  } else {
+    job.percentual_concluido = statusJobTerminal(job.status) ? 100 : 0;
+  }
+
+  job.estimativa_termino_em = null;
+}
+
+function logRunnerEnrichment(level, evento, payload = {}) {
+  const logger = level === 'error' ? console.error : console.info;
+  logger('[admin-enrichment-runner]', {
+    evento,
+    ...payload
+  });
+}
+
+function finalizarJobComFalha(job, inicioMs, mensagem, { etapa = 'runner', error = null } = {}) {
+  if (!job) {
+    return;
+  }
+
+  const mensagemErro = normalizarTexto(mensagem || error?.message || 'Falha inesperada no runner de enriquecimento pendente.');
+
+  job.status = 'failed';
+  job.erro_geral = mensagemErro;
+  job.mensagem_atual = mensagemErro;
+  job.etapa_falha = etapa;
+  job.finalizado_em = nowIso();
+  atualizarIndicadoresJob(job, inicioMs);
+}
+
+async function executarComTimeout(fn, timeoutMs, mensagemTimeout) {
+  const timeoutSeguro = Math.max(500, Number.parseInt(timeoutMs, 10) || 0);
+
+  if (!timeoutSeguro) {
+    return fn();
+  }
+
+  let timer = null;
+
+  try {
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const erro = new Error(mensagemTimeout || `Operacao excedeu timeout de ${timeoutSeguro}ms.`);
+        erro.code = 'RUNNER_TIMEOUT';
+        reject(erro);
+      }, timeoutSeguro);
+    });
+
+    return await Promise.race([fn(), timeoutPromise]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+function obterJobsEnrichmentOrdenados() {
+  return Array.from(enrichmentJobsEmMemoria.values())
+    .sort((a, b) => toNumberSafe(b.criado_ms, 0) - toNumberSafe(a.criado_ms, 0));
+}
+
+function obterResumoJobsEnrichment() {
+  const jobs = obterJobsEnrichmentOrdenados();
+  const contadores = {
+    queued: 0,
+    running: 0,
+    completed: 0,
+    failed: 0,
+    cancelled: 0
+  };
+
+  for (const job of jobs) {
+    const status = toLowerTrim(job.status);
+    if (Object.prototype.hasOwnProperty.call(contadores, status)) {
+      contadores[status] += 1;
+    }
+  }
+
+  return {
+    tabela_detectada: true,
+    total_jobs: jobs.length,
+    queued: contadores.queued,
+    running: contadores.running,
+    completed: contadores.completed,
+    failed: contadores.failed,
+    cancelled: contadores.cancelled,
+    ativos: contadores.queued + contadores.running
+  };
+}
+
+function classificarErroEnrichment(row = {}) {
+  const status = toLowerTrim(row.enrichment_status || row.status);
+  const mensagem = toLowerTrim(row.enrichment_last_error || row.mensagem);
+  const barcode = normalizarBarcode(row.codigo_barras || row.barcode || '');
+
+  if (!barcode || mensagem.includes('sem codigo de barras') || mensagem.includes('sem codigo')) {
+    return 'sem_barcode';
+  }
+
+  if (mensagem.includes('digito verificador')
+    || mensagem.includes('codigo de barras invalido')
+    || mensagem.includes('barcode invalido')
+    || mensagem.includes('tamanho nao suportado')) {
+    return 'barcode_invalido';
+  }
+
+  if (mensagem.includes('rate limit')
+    || mensagem.includes('too many requests')
+    || mensagem.includes('http 429')
+    || mensagem.includes('429')) {
+    return 'rate_limit';
+  }
+
+  if (status === 'nao_encontrado' || mensagem.includes('nao encontrado') || mensagem.includes('n\u00e3o encontrado')) {
+    return 'nao_encontrado';
+  }
+
+  if (mensagem.includes('provider')
+    && (mensagem.includes('url ausente')
+      || mensagem.includes('ausente')
+      || mensagem.includes('credencial')
+      || mensagem.includes('habilitado')
+      || mensagem.includes('provider indisponivel')
+      || mensagem.includes('provider_unavailable')
+      || mensagem.includes('nao configurado')
+      || mensagem.includes('n\u00e3o configurado'))) {
+    return 'config_provider';
+  }
+
+  if (mensagem.includes('timeout')) {
+    return 'timeout';
+  }
+
+  if (status === 'erro') {
+    return 'erro_provider';
+  }
+
+  return 'outros';
+}
+
+function ordenarContadoresComoLista(contadores = {}, itemKey = 'chave') {
+  return Object.entries(contadores)
+    .map(([chave, total]) => ({ [itemKey]: chave, total: toNumberSafe(total, 0) }))
+    .sort((a, b) => {
+      if (b.total !== a.total) {
+        return b.total - a.total;
+      }
+      return String(a[itemKey]).localeCompare(String(b[itemKey]));
+    });
+}
+
+function construirResumoErrosEnrichment(rows = [], { includeNaoEncontrado = false, limitMensagens = 30 } = {}) {
+  const porClasse = {};
+  const porMensagem = {};
+
+  let totalErro = 0;
+  let totalNaoEncontrado = 0;
+
+  for (const row of rows) {
+    const status = toLowerTrim(row.enrichment_status || row.status);
+    const classe = classificarErroEnrichment(row);
+    const mensagem = normalizarTexto(row.enrichment_last_error || row.mensagem)
+      || (status === 'nao_encontrado'
+        ? 'Produto nao encontrado nas APIs externas configuradas.'
+        : 'Falha nao detalhada no enriquecimento.');
+
+    porClasse[classe] = toNumberSafe(porClasse[classe], 0) + 1;
+    porMensagem[mensagem] = toNumberSafe(porMensagem[mensagem], 0) + 1;
+
+    if (status === 'erro') {
+      totalErro += 1;
+    }
+
+    if (status === 'nao_encontrado') {
+      totalNaoEncontrado += 1;
+    }
+  }
+
+  return {
+    filtros: {
+      include_nao_encontrado: Boolean(includeNaoEncontrado),
+      statuses: includeNaoEncontrado ? ['erro', 'nao_encontrado'] : ['erro'],
+      limit_mensagens: limitMensagens
+    },
+    totais: {
+      total_itens: rows.length,
+      total_erro: totalErro,
+      total_nao_encontrado: totalNaoEncontrado
+    },
+    por_classe: ordenarContadoresComoLista(porClasse, 'classe'),
+    por_mensagem: ordenarContadoresComoLista(porMensagem, 'mensagem').slice(0, limitMensagens)
+  };
 }
 
 async function colunaExiste(pool, tabela, coluna) {
@@ -864,6 +1127,49 @@ function construirResumoBatchEnriquecimento(resultados = []) {
   };
 }
 
+function criarProgressoParcialBatch() {
+  return {
+    processados: 0,
+    encontrados: 0,
+    falhas: 0,
+    nao_encontrados: 0,
+    ignorados: 0,
+    cancelados: 0,
+    atualizados: 0,
+    imagem_atualizada: 0,
+    imagem_preservada: 0
+  };
+}
+
+function acumularResultadoNoProgressoBatch(progresso, item = {}) {
+  progresso.processados += 1;
+
+  const status = toLowerTrim(item.status);
+  if (status === 'enriquecido') {
+    progresso.encontrados += 1;
+  } else if (status === 'erro') {
+    progresso.falhas += 1;
+  } else if (status === 'nao_encontrado') {
+    progresso.nao_encontrados += 1;
+  } else if (status === 'cancelled') {
+    progresso.cancelados += 1;
+  } else {
+    progresso.ignorados += 1;
+  }
+
+  if (item.atualizado) {
+    progresso.atualizados += 1;
+  }
+
+  if (item.imagem_atualizada) {
+    progresso.imagem_atualizada += 1;
+  }
+
+  if (item.imagem_preservada) {
+    progresso.imagem_preservada += 1;
+  }
+}
+
 async function processarBatchEnriquecimentoPorIds(pool, barcodeLookupService, produtoIds = [], options = {}) {
   const fila = Array.isArray(produtoIds)
     ? produtoIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
@@ -876,8 +1182,26 @@ async function processarBatchEnriquecimentoPorIds(pool, barcodeLookupService, pr
     };
   }
 
-  const concurrency = parsePositiveInt(options.concurrency, 3, { min: 1, max: 10 });
+  const concurrency = parsePositiveInt(options.concurrency, 3, { min: 1, max: 12 });
   const resultados = [];
+  const progressoParcial = criarProgressoParcialBatch();
+
+  async function registrarProgressoItem(item) {
+    if (typeof options.onItemProcessed !== 'function') {
+      return;
+    }
+
+    try {
+      await options.onItemProcessed({
+        item,
+        progresso: {
+          ...progressoParcial
+        }
+      });
+    } catch (error) {
+      console.error('Falha ao reportar progresso do batch de enrichment:', error);
+    }
+  }
 
   async function worker() {
     while (fila.length > 0) {
@@ -893,8 +1217,10 @@ async function processarBatchEnriquecimentoPorIds(pool, barcodeLookupService, pr
           overwriteImageMode: options.overwriteImageMode
         });
         resultados.push(resultado);
+        acumularResultadoNoProgressoBatch(progressoParcial, resultado);
+        await registrarProgressoItem(resultado);
       } catch (error) {
-        resultados.push({
+        const resultadoErro = {
           produto_id: id,
           status: 'erro',
           status_operacional: 'erro_execucao',
@@ -902,7 +1228,10 @@ async function processarBatchEnriquecimentoPorIds(pool, barcodeLookupService, pr
           atualizado: false,
           imagem_atualizada: false,
           imagem_preservada: false
-        });
+        };
+        resultados.push(resultadoErro);
+        acumularResultadoNoProgressoBatch(progressoParcial, resultadoErro);
+        await registrarProgressoItem(resultadoErro);
       }
     }
   }
@@ -1044,6 +1373,472 @@ async function enriquecerProdutosImportacaoRecente(pool, barcodeLookupService, o
   };
 }
 
+async function selecionarIdsPendentesEnriquecimento(pool, options = {}) {
+  await ensureAdminCatalogSchema(pool);
+
+  const limit = parsePositiveInt(options.limit, 100, { min: 1, max: 5000 });
+
+  const [rows] = await pool.query(
+    `SELECT id
+       FROM produtos
+      WHERE ativo = TRUE
+        AND COALESCE(enrichment_status, 'pendente') = 'pendente'
+        AND COALESCE(TRIM(imagem_url), '') = ''
+        AND COALESCE(codigo_barras, '') <> ''
+      ORDER BY COALESCE(enrichment_last_attempt_at, '1970-01-01 00:00:00') ASC, id ASC
+      LIMIT ?`,
+    [limit]
+  );
+
+  return rows
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+}
+
+async function enriquecerProdutosPendentes(pool, barcodeLookupService, options = {}) {
+  await ensureAdminCatalogSchema(pool);
+
+  const concurrency = parsePositiveInt(options.concurrency, 3, { min: 1, max: 12 });
+
+  const ids = Array.isArray(options.selectedIds)
+    ? options.selectedIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+    : await selecionarIdsPendentesEnriquecimento(pool, { limit: options.limit });
+
+  if (typeof options.onIdsSelecionados === 'function') {
+    try {
+      await options.onIdsSelecionados(ids);
+    } catch (error) {
+      console.error('Falha ao notificar ids selecionados para enrichment pendente:', error);
+    }
+  }
+
+  const resultadoLote = await processarBatchEnriquecimentoPorIds(pool, barcodeLookupService, ids, {
+    force: Boolean(options.force),
+    preferSpreadsheet: options.preferSpreadsheet !== false,
+    overwriteImageMode: parseOverwriteImageMode(options.overwriteImageMode, 'if_empty'),
+    concurrency,
+    onItemProcessed: options.onItemProcessed
+  });
+
+  return {
+    resumo: {
+      ...resultadoLote.resumo,
+      total_selecionados: ids.length,
+      escopo: 'pendentes'
+    },
+    itens: resultadoLote.itens
+  };
+}
+
+async function obterMetricasEnriquecimento(pool, options = {}) {
+  await ensureAdminCatalogSchema(pool);
+
+  const includeNaoEncontrado = parseBooleanFilter(options.includeNaoEncontrado ?? options.include_nao_encontrado) === true;
+  const limitMensagens = parsePositiveInt(options.limitMensagens ?? options.limit_mensagens, 30, {
+    min: 1,
+    max: 200
+  });
+
+  const [[rowStatus]] = await pool.query(
+    `SELECT
+      COUNT(*) AS total_ativos,
+      SUM(CASE WHEN COALESCE(enrichment_status, 'pendente') = 'pendente' THEN 1 ELSE 0 END) AS pendente,
+      SUM(CASE WHEN COALESCE(enrichment_status, 'pendente') = 'running' THEN 1 ELSE 0 END) AS running,
+      SUM(CASE WHEN COALESCE(enrichment_status, 'pendente') = 'enriquecido' THEN 1 ELSE 0 END) AS enriquecido,
+      SUM(CASE WHEN COALESCE(enrichment_status, 'pendente') = 'erro' THEN 1 ELSE 0 END) AS erro,
+      SUM(CASE WHEN COALESCE(enrichment_status, 'pendente') = 'nao_encontrado' THEN 1 ELSE 0 END) AS nao_encontrado,
+      SUM(CASE WHEN COALESCE(TRIM(imagem_url), '') <> '' THEN 1 ELSE 0 END) AS com_imagem,
+      SUM(CASE WHEN COALESCE(TRIM(imagem_url), '') = '' THEN 1 ELSE 0 END) AS sem_imagem
+     FROM produtos
+     WHERE ativo = TRUE`
+  );
+
+  const [rowsPendentes] = await pool.query(
+    `SELECT COALESCE(codigo_barras, '') AS codigo_barras
+       FROM produtos
+      WHERE ativo = TRUE
+        AND COALESCE(enrichment_status, 'pendente') = 'pendente'
+        AND COALESCE(TRIM(imagem_url), '') = ''`
+  );
+
+  let semBarcode = 0;
+  let elegiveis = 0;
+  let barcodeFormatoValido = 0;
+
+  for (const row of rowsPendentes) {
+    const barcode = normalizarBarcode(row.codigo_barras || '');
+    if (!barcode) {
+      semBarcode += 1;
+      continue;
+    }
+
+    elegiveis += 1;
+    if (validarBarcode(barcode).ok) {
+      barcodeFormatoValido += 1;
+    }
+  }
+
+  const whereErros = includeNaoEncontrado
+    ? `COALESCE(enrichment_status, 'pendente') IN ('erro', 'nao_encontrado')`
+    : `COALESCE(enrichment_status, 'pendente') = 'erro'`;
+
+  const [rowsErros] = await pool.query(
+    `SELECT
+      COALESCE(enrichment_status, 'pendente') AS enrichment_status,
+      COALESCE(enrichment_last_error, '') AS enrichment_last_error,
+      COALESCE(enrichment_provider, '') AS enrichment_provider,
+      COALESCE(codigo_barras, '') AS codigo_barras
+     FROM produtos
+     WHERE ativo = TRUE
+       AND ${whereErros}`
+  );
+
+  const errosResumo = construirResumoErrosEnrichment(rowsErros, {
+    includeNaoEncontrado,
+    limitMensagens
+  });
+
+  const jobsResumo = obterResumoJobsEnrichment();
+
+  const totalSemImagem = rowsPendentes.length;
+  const percentualElegiveis = totalSemImagem > 0
+    ? Number(((elegiveis / totalSemImagem) * 100).toFixed(2))
+    : 0;
+  const percentualBarcodeValido = elegiveis > 0
+    ? Number(((barcodeFormatoValido / elegiveis) * 100).toFixed(2))
+    : 0;
+
+  return {
+    coletado_em: nowIso(),
+    produtos: {
+      total_ativos: toNumberSafe(rowStatus?.total_ativos, 0),
+      status: {
+        pendente: toNumberSafe(rowStatus?.pendente, 0),
+        running: toNumberSafe(rowStatus?.running, 0),
+        enriquecido: toNumberSafe(rowStatus?.enriquecido, 0),
+        erro: toNumberSafe(rowStatus?.erro, 0),
+        nao_encontrado: toNumberSafe(rowStatus?.nao_encontrado, 0)
+      },
+      imagem: {
+        com_imagem: toNumberSafe(rowStatus?.com_imagem, 0),
+        sem_imagem: toNumberSafe(rowStatus?.sem_imagem, 0)
+      }
+    },
+    pendentes: {
+      total_sem_imagem: totalSemImagem,
+      elegiveis,
+      sem_barcode: semBarcode,
+      barcode_formato_valido: barcodeFormatoValido,
+      percentual_elegiveis: percentualElegiveis,
+      percentual_barcode_formato_valido_entre_elegiveis: percentualBarcodeValido
+    },
+    jobs: jobsResumo,
+    erros_resumo: errosResumo
+  };
+}
+
+async function executarJobEnriquecimentoPendentes(pool, barcodeLookupService, jobId) {
+  const job = enrichmentJobsEmMemoria.get(jobId);
+  if (!job) {
+    return;
+  }
+
+  const inicioMs = Date.now();
+  const timeoutMs = parsePositiveInt(
+    job.config?.jobTimeoutMs ?? process.env.ENRICHMENT_JOB_TIMEOUT_MS,
+    10 * 60 * 1000,
+    { min: 1, max: 24 * 60 * 60 * 1000 }
+  );
+
+  job.status = 'running';
+  job.iniciado_em = nowIso();
+  job.mensagem_atual = 'Runner iniciado. Preparando selecao de pendentes.';
+  job.started_at = job.iniciado_em;
+  atualizarIndicadoresJob(job, inicioMs);
+
+  logRunnerEnrichment('info', 'runner_iniciado', {
+    job_id: jobId,
+    limit: toNumberSafe(job.config?.limit, 0),
+    concurrency: toNumberSafe(job.config?.concurrency, 0),
+    timeout_ms: timeoutMs
+  });
+
+  try {
+    await executarComTimeout(async () => {
+      logRunnerEnrichment('info', 'buscando_pendentes', {
+        job_id: jobId,
+        limit: toNumberSafe(job.config?.limit, 0)
+      });
+
+      const idsSelecionados = await selecionarIdsPendentesEnriquecimento(pool, {
+        limit: job.config?.limit
+      });
+
+      job.total_previsto = idsSelecionados.length;
+      job.processados = 0;
+      job.encontrados = 0;
+      job.falhas = 0;
+      job.nao_encontrados = 0;
+      job.ignorados = 0;
+      job.cancelados = 0;
+      job.erro_geral = '';
+      atualizarIndicadoresJob(job, inicioMs);
+
+      logRunnerEnrichment('info', 'pendentes_selecionados', {
+        job_id: jobId,
+        total_selecionados: idsSelecionados.length
+      });
+
+      if (!idsSelecionados.length) {
+        job.status = 'completed';
+        job.mensagem_atual = 'Nenhum pendente elegivel para processar.';
+        job.finalizado_em = nowIso();
+        job.finished_at = job.finalizado_em;
+        atualizarIndicadoresJob(job, inicioMs);
+
+        logRunnerEnrichment('info', 'runner_concluido', {
+          job_id: jobId,
+          total_previsto: job.total_previsto,
+          processados: job.processados,
+          encontrados: job.encontrados,
+          falhas: job.falhas,
+          nao_encontrados: job.nao_encontrados,
+          ignorados: job.ignorados,
+          motivo: 'sem_itens'
+        });
+        return;
+      }
+
+      job.mensagem_atual = 'Iniciando processamento batch de pendentes.';
+      logRunnerEnrichment('info', 'iniciando_processamento_batch', {
+        job_id: jobId,
+        total_previsto: idsSelecionados.length,
+        concurrency: toNumberSafe(job.config?.concurrency, 0)
+      });
+
+      const resultado = await enriquecerProdutosPendentes(pool, barcodeLookupService, {
+        ...job.config,
+        selectedIds: idsSelecionados,
+        onItemProcessed: async ({ progresso }) => {
+          if (toLowerTrim(job.status) !== 'running') {
+            return;
+          }
+
+          job.processados = toNumberSafe(progresso?.processados, 0);
+          job.encontrados = toNumberSafe(progresso?.encontrados, 0);
+          job.falhas = toNumberSafe(progresso?.falhas, 0);
+          job.nao_encontrados = toNumberSafe(progresso?.nao_encontrados, 0);
+          job.ignorados = toNumberSafe(progresso?.ignorados, 0);
+          job.cancelados = toNumberSafe(progresso?.cancelados, 0);
+
+          job.mensagem_atual = `Processando pendentes (${job.processados}/${job.total_previsto}).`;
+          atualizarIndicadoresJob(job, inicioMs);
+
+          const deveLogarProgresso = job.processados === 1
+            || job.processados === job.total_previsto
+            || (job.processados % 25 === 0);
+
+          if (deveLogarProgresso) {
+            logRunnerEnrichment('info', 'progresso_atualizado', {
+              job_id: jobId,
+              processados: job.processados,
+              total_previsto: job.total_previsto,
+              encontrados: job.encontrados,
+              falhas: job.falhas,
+              nao_encontrados: job.nao_encontrados,
+              ignorados: job.ignorados
+            });
+          }
+        }
+      });
+
+      if (toLowerTrim(job.status) !== 'running') {
+        logRunnerEnrichment('info', 'runner_interrompido_apos_timeout', {
+          job_id: jobId,
+          status_atual: job.status
+        });
+        return;
+      }
+
+      const resumo = resultado?.resumo || {};
+      const processados = Math.max(job.processados, toNumberSafe(resumo.total_processados, 0));
+      const encontrados = Math.max(job.encontrados, toNumberSafe(resumo.total_enriquecidos, 0));
+      const falhas = Math.max(job.falhas, toNumberSafe(resumo.total_erros, 0));
+      const naoEncontrados = Math.max(job.nao_encontrados, toNumberSafe(resumo.total_nao_encontrados, 0));
+      const ignoradosCalculados = Math.max(0, processados - (encontrados + falhas + naoEncontrados));
+
+      job.processados = processados;
+      job.encontrados = encontrados;
+      job.falhas = falhas;
+      job.nao_encontrados = naoEncontrados;
+      job.ignorados = Math.max(job.ignorados, toNumberSafe(resumo.total_ignorados, 0), ignoradosCalculados);
+      job.cancelados = Math.max(job.cancelados, toNumberSafe(resumo.total_cancelados, 0));
+      job.erro_geral = '';
+      job.status = 'completed';
+      job.mensagem_atual = 'Processamento concluido.';
+      job.resultado_resumo = resumo;
+      job.finalizado_em = nowIso();
+      job.finished_at = job.finalizado_em;
+      atualizarIndicadoresJob(job, inicioMs);
+
+      logRunnerEnrichment('info', 'runner_concluido', {
+        job_id: jobId,
+        total_previsto: job.total_previsto,
+        processados: job.processados,
+        encontrados: job.encontrados,
+        falhas: job.falhas,
+        nao_encontrados: job.nao_encontrados,
+        ignorados: job.ignorados,
+        cancelados: job.cancelados,
+        duracao_s: job.tempo_decorrido_s,
+        itens_por_segundo: job.itens_por_segundo
+      });
+    }, timeoutMs, `Runner do job ${jobId} excedeu timeout de ${timeoutMs}ms.`);
+  } catch (error) {
+    job.falhas = Math.max(toNumberSafe(job.falhas, 0), 1);
+    finalizarJobComFalha(job, inicioMs, error?.message || 'Falha ao processar job de enrichment pendentes.', {
+      etapa: 'runner_execucao',
+      error
+    });
+
+    logRunnerEnrichment('error', 'runner_falhou', {
+      job_id: jobId,
+      erro: job.erro_geral,
+      etapa: job.etapa_falha || 'runner_execucao'
+    });
+  }
+}
+
+async function dispararEnriquecimentoPendentesJob(pool, barcodeLookupService, options = {}) {
+  await ensureAdminCatalogSchema(pool);
+
+  const limit = parsePositiveInt(options.limit, 100, { min: 1, max: 5000 });
+  const concurrency = parsePositiveInt(options.concurrency, 3, { min: 1, max: 12 });
+  const allowDuplicate = Boolean(options.allowDuplicate);
+  const dedupeWindowMinutes = parsePositiveInt(options.dedupeWindowMinutes, 240, { min: 1, max: 1440 });
+  const itemMaxRetries = parsePositiveInt(options.itemMaxRetries, 1, { min: 0, max: 5 });
+  const jobTimeoutMs = parsePositiveInt(
+    options.jobTimeoutMs ?? process.env.ENRICHMENT_JOB_TIMEOUT_MS,
+    10 * 60 * 1000,
+    { min: 1, max: 24 * 60 * 60 * 1000 }
+  );
+  const force = Boolean(options.force);
+  const preferSpreadsheet = options.preferSpreadsheet !== false;
+  const overwriteImageMode = parseOverwriteImageMode(options.overwriteImageMode, 'if_empty');
+
+  if (!allowDuplicate) {
+    const agoraMs = Date.now();
+    const janelaMs = dedupeWindowMinutes * 60 * 1000;
+
+    const jobAtivo = obterJobsEnrichmentOrdenados().find((job) => {
+      const status = toLowerTrim(job.status);
+      if (job.escopo !== 'pendentes' || !['queued', 'running'].includes(status)) {
+        return false;
+      }
+      if (janelaMs <= 0) {
+        return true;
+      }
+      return (agoraMs - toNumberSafe(job.criado_ms, 0)) <= janelaMs;
+    });
+
+    if (jobAtivo) {
+      return {
+        reutilizado: true,
+        mensagem: 'Job de pendentes reutilizado para evitar duplicidade.',
+        job: normalizarJobEnrichment(jobAtivo)
+      };
+    }
+  }
+
+  const jobId = gerarEnrichmentJobId();
+  const criadoEm = nowIso();
+
+  const job = {
+    job_id: jobId,
+    status: 'queued',
+    escopo: 'pendentes',
+    total_previsto: 0,
+    processados: 0,
+    encontrados: 0,
+    falhas: 0,
+    nao_encontrados: 0,
+    ignorados: 0,
+    cancelados: 0,
+    percentual_concluido: 0,
+    tempo_decorrido_s: 0,
+    itens_por_segundo: 0,
+    itens_por_minuto: 0,
+    estimativa_termino_em: null,
+    mensagem_atual: 'Job enfileirado.',
+    erro_geral: '',
+    criado_em: criadoEm,
+    iniciado_em: null,
+    finalizado_em: null,
+    criado_ms: Date.now(),
+    config: {
+      limit,
+      concurrency,
+      allowDuplicate,
+      dedupeWindowMinutes,
+      itemMaxRetries,
+      jobTimeoutMs,
+      force,
+      preferSpreadsheet,
+      overwriteImageMode
+    },
+    resultado_resumo: null
+  };
+
+  enrichmentJobsEmMemoria.set(jobId, job);
+
+  setImmediate(() => {
+    logRunnerEnrichment('info', 'runner_disparado', {
+      job_id: jobId,
+      timeout_ms: jobTimeoutMs
+    });
+
+    executarJobEnriquecimentoPendentes(pool, barcodeLookupService, jobId)
+      .catch((error) => {
+        const jobAtual = enrichmentJobsEmMemoria.get(jobId);
+        if (jobAtual && !statusJobTerminal(jobAtual.status)) {
+          const inicioSnapshotMs = Date.parse(jobAtual.iniciado_em || '') || Date.now();
+          finalizarJobComFalha(jobAtual, inicioSnapshotMs, error?.message || 'Falha inesperada ao disparar runner de pendentes.', {
+            etapa: 'runner_disparo',
+            error
+          });
+        }
+
+        logRunnerEnrichment('error', 'runner_falhou', {
+          job_id: jobId,
+          erro: normalizarTexto(error?.message || 'Falha inesperada ao disparar runner de pendentes.'),
+          etapa: 'runner_disparo'
+        });
+      });
+  });
+
+  return {
+    reutilizado: false,
+    mensagem: 'Job de pendentes criado e enfileirado com sucesso.',
+    job: normalizarJobEnrichment(job)
+  };
+}
+
+function obterJobEnriquecimentoPorId(jobId) {
+  const id = normalizarTexto(jobId);
+  if (!id) {
+    return null;
+  }
+
+  const job = enrichmentJobsEmMemoria.get(id);
+  if (!job) {
+    return null;
+  }
+
+  return {
+    job: normalizarJobEnrichment(job)
+  };
+}
+
 async function exportarProdutosParaExcel(pool, filtros = {}) {
   await ensureAdminCatalogSchema(pool);
 
@@ -1105,7 +1900,11 @@ module.exports = {
   enriquecerProdutoPorId,
   reprocessarFalhasEnriquecimento,
   enriquecerProdutosSemImagem,
+  enriquecerProdutosPendentes,
   enriquecerProdutosImportacaoRecente,
+  obterMetricasEnriquecimento,
+  dispararEnriquecimentoPendentesJob,
+  obterJobEnriquecimentoPorId,
   registrarEnrichmentLog,
   listarEnrichmentLogs,
   registrarProductImportLog,

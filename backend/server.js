@@ -38,6 +38,9 @@ const {
   reprocessarFalhasEnriquecimento,
   enriquecerProdutosSemImagem,
   enriquecerProdutosImportacaoRecente,
+  obterMetricasEnriquecimento,
+  dispararEnriquecimentoPendentesJob,
+  obterJobEnriquecimentoPorId,
   listarEnrichmentLogs,
   registrarProductImportLog,
   listarImportLogs,
@@ -3659,6 +3662,118 @@ app.post('/api/admin/catalogo/produtos/:id/enriquecer', exigirAcessoLocalAdmin, 
       console.error('Erro ao enriquecer produto por id:', erro);
     }
     return res.status(status).json({ erro: mensagem });
+  }
+});
+
+app.get('/api/admin/catalogo/enriquecimento/metricas', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const includeNaoEncontrado = parseBooleanInput(
+      req.query?.include_nao_encontrado || req.query?.includeNaoEncontrado,
+      false
+    );
+    const limitMensagens = parsePositiveInt(
+      req.query?.limit_mensagens || req.query?.limitMensagens,
+      30,
+      { min: 1, max: 200 }
+    );
+
+    console.info('[admin-enrichment] coletando metricas operacionais', {
+      include_nao_encontrado: includeNaoEncontrado,
+      limit_mensagens: limitMensagens
+    });
+
+    const resultado = await obterMetricasEnriquecimento(pool, {
+      includeNaoEncontrado,
+      limitMensagens
+    });
+
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao coletar metricas de enriquecimento:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel coletar metricas de enriquecimento.' });
+  }
+});
+
+app.post('/api/admin/catalogo/produtos/enriquecer-pendentes', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const limit = parsePositiveInt(req.body?.limit || req.query?.limit, 100, { min: 1, max: 5000 });
+    const concurrency = parsePositiveInt(req.body?.concurrency || req.query?.concurrency, 3, { min: 1, max: 12 });
+    const allowDuplicate = parseBooleanInput(req.body?.allow_duplicate || req.query?.allow_duplicate, false);
+    const dedupeWindowMinutes = parsePositiveInt(
+      req.body?.dedupe_window_minutes || req.query?.dedupe_window_minutes,
+      240,
+      { min: 1, max: 1440 }
+    );
+    const itemMaxRetries = parsePositiveInt(
+      req.body?.item_max_retries || req.query?.item_max_retries,
+      1,
+      { min: 0, max: 5 }
+    );
+    const jobTimeoutMs = parsePositiveInt(
+      req.body?.job_timeout_ms || req.query?.job_timeout_ms || process.env.ENRICHMENT_JOB_TIMEOUT_MS,
+      10 * 60 * 1000,
+      { min: 1, max: 24 * 60 * 60 * 1000 }
+    );
+    const force = parseBooleanInput(req.body?.force || req.query?.force, false);
+    const preferSpreadsheet = parseBooleanInput(req.body?.prefer_spreadsheet || req.query?.prefer_spreadsheet, true);
+    const overwriteImageMode = parseOverwriteImageModeInput(
+      req.body?.overwrite_image_mode || req.query?.overwrite_image_mode,
+      'if_empty'
+    );
+
+    console.info('[admin-enrichment] solicitacao de job pendentes recebida', {
+      limit,
+      concurrency,
+      allow_duplicate: allowDuplicate,
+      dedupe_window_minutes: dedupeWindowMinutes,
+      item_max_retries: itemMaxRetries,
+      job_timeout_ms: jobTimeoutMs,
+      force,
+      prefer_spreadsheet: preferSpreadsheet,
+      overwrite_image_mode: overwriteImageMode
+    });
+
+    const resultado = await dispararEnriquecimentoPendentesJob(pool, barcodeLookupService, {
+      limit,
+      concurrency,
+      allowDuplicate,
+      dedupeWindowMinutes,
+      itemMaxRetries,
+      jobTimeoutMs,
+      force,
+      preferSpreadsheet,
+      overwriteImageMode
+    });
+
+    console.info('[admin-enrichment] job pendentes aceito', {
+      job_id: resultado?.job?.job_id || null,
+      status: resultado?.job?.status || null,
+      reutilizado: Boolean(resultado?.reutilizado)
+    });
+
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao disparar job de enriquecimento pendente:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel iniciar o job de enriquecimento pendente.' });
+  }
+});
+
+app.get('/api/admin/catalogo/produtos/enriquecimento-jobs/:jobId', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const jobId = String(req.params?.jobId || '').trim();
+    if (!jobId) {
+      return res.status(400).json({ erro: 'Informe um jobId valido.' });
+    }
+
+    const resultado = obterJobEnriquecimentoPorId(jobId);
+    if (!resultado) {
+      return res.status(404).json({ erro: 'Job de enriquecimento nao encontrado.' });
+    }
+
+    return res.json(resultado);
+  } catch (erro) {
+    console.error('Erro ao consultar job de enriquecimento:', erro);
+    return res.status(500).json({ erro: 'Nao foi possivel consultar o job de enriquecimento.' });
   }
 });
 
