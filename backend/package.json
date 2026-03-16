@@ -10,7 +10,23 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "tunnel": "npx --yes localtunnel --port 3000 --local-host localhost --host https://loca.lt"
+    "tunnel": "npx --yes localtunnel --port 3000 --local-host localhost --host https://loca.lt",
+    "enrichment:barcode:report": "node scripts/enrichment-barcode-saneamento.js --mode report",
+    "enrichment:barcode:dry-run": "node scripts/enrichment-barcode-saneamento.js --mode apply",
+    "enrichment:barcode:apply": "node scripts/enrichment-barcode-saneamento.js --mode apply --apply",
+    "enrichment:barcode:reprocess": "node scripts/enrichment-barcode-saneamento.js --mode reprocess",
+    "enrichment:barcode:manual-queue": "node scripts/enrichment-barcode-revisao-manual.js --mode export-queue",
+    "enrichment:barcode:manual-import": "node scripts/enrichment-barcode-revisao-manual.js --mode import-corrections",
+    "enrichment:barcode:manual-reprocess": "node scripts/enrichment-barcode-revisao-manual.js --mode reprocess-approved",
+    "enrichment:barcode:dv:dry-run": "node scripts/enrichment-barcode-autoaprovar-dv.js --mode dry-run",
+    "enrichment:barcode:dv:apply": "node scripts/enrichment-barcode-autoaprovar-dv.js --mode apply --apply",
+    "enrichment:barcode:dv:reprocess": "node scripts/enrichment-barcode-autoaprovar-dv.js --mode reprocess",
+    "enrichment:barcode:invalid-length:report": "node scripts/enrichment-barcode-invalid-length-report.js --mode report",
+    "enrichment:barcode:invalid-length:dry-run": "node scripts/enrichment-barcode-invalid-length-report.js --mode report",
+    "enrichment:barcode:pad-left-zero:report": "node scripts/enrichment-barcode-pad-left-zero-report.js --mode report",
+    "enrichment:barcode:pad-left-zero:dry-run": "node scripts/enrichment-barcode-pad-left-zero-report.js --mode report",
+    "enrichment:barcode:pad-left-zero:apply:dry-run": "node scripts/enrichment-barcode-pad-left-zero-apply.js --mode dry-run",
+    "enrichment:barcode:pad-left-zero:apply:execute": "node scripts/enrichment-barcode-pad-left-zero-apply.js --mode execute"
   },
   "keywords": [
     "supermercado",
