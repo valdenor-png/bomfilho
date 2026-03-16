@@ -26,7 +26,8 @@
     "enrichment:barcode:pad-left-zero:report": "node scripts/enrichment-barcode-pad-left-zero-report.js --mode report",
     "enrichment:barcode:pad-left-zero:dry-run": "node scripts/enrichment-barcode-pad-left-zero-report.js --mode report",
     "enrichment:barcode:pad-left-zero:apply:dry-run": "node scripts/enrichment-barcode-pad-left-zero-apply.js --mode dry-run",
-    "enrichment:barcode:pad-left-zero:apply:execute": "node scripts/enrichment-barcode-pad-left-zero-apply.js --mode execute"
+    "enrichment:barcode:pad-left-zero:apply:execute": "node scripts/enrichment-barcode-pad-left-zero-apply.js --mode execute",
+    "enrichment:barcode:stage-closeout": "node tools/generate-enrichment-stage-closeout.js"
   },
   "keywords": [
     "supermercado",
