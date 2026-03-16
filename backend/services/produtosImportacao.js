@@ -19,7 +19,7 @@ const MIME_IMPORTACAO_ACEITOS = Object.freeze(new Set([
   'text/plain',
   'application/octet-stream'
 ]));
-const MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO = 'Formato de arquivo nao suportado. Envie .xls, .xlsx ou .csv.';
+const MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO = 'Formato de arquivo n\u00e3o suportado. Envie .xls, .xlsx ou .csv.';
 const LIMITE_PREVIEW_LOGS = 120;
 const LIMITE_PREVIEW_LINHAS_AMOSTRA = 200;
 const LIMITE_LINHAS_IMPORTACAO = 50000;
@@ -398,7 +398,7 @@ function lerArquivoTabular({ buffer, nomeArquivo }) {
   }
 }
 
-const PALAVRAS_METADADOS_RELATORIO = /cnpj|pagina|grupo|empresa|relatorio|emissao|emitido|filial|telefone|endereco|total\s+de\s+registros|sistema|data\s+de\s+emissao/i;
+const PALAVRAS_METADADOS_RELATORIO = /cnpj|pagina|p\u00e1gina|grupo|empresa|relatorio|emissao|emitido|filial|telefone|endereco|endere\u00e7o|total\s+de\s+registros|sistema|data\s+de\s+emissao/i;
 
 const ALIASES_CABECALHO_DETECCAO = Object.freeze({
   identificador: [
