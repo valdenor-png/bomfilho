@@ -66,6 +66,8 @@ tmp/
 docs/**
 !docs/
 !docs/CONTEXTO_PROJETO.md
+!docs/GO_LIVE_TECNICO_CHECKLIST.md
+!docs/OPERACAO_ADMIN_PEDIDOS_PAGAMENTOS.md
 
 # Uploads e arquivos temporários
 uploads/

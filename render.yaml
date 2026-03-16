@@ -31,6 +31,10 @@ services:
         sync: false
       - key: RECAPTCHA_MIN_SCORE
         sync: false
+      - key: RECAPTCHA_CHECKOUT_ENABLED
+        value: "false"
+      - key: RECAPTCHA_PAYMENT_ENABLED
+        value: "false"
       - key: DATABASE_URL
         sync: false
       - key: ADMIN_USER
@@ -51,10 +55,16 @@ services:
         sync: false
       - key: PAGBANK_DEBUG_LOGS
         sync: false
+      - key: PAGBANK_TIMEOUT_MS
+        sync: false
       - key: ALLOW_PIX_MOCK
         value: "false"
       - key: ALLOW_DEBIT_3DS_MOCK
         value: "false"
+      - key: METRICS_ENABLED
+        value: "false"
+      - key: METRICS_TOKEN
+        sync: false
       - key: DIAGNOSTIC_TOKEN
         sync: false
       - key: ALLOW_REMOTE_DIAGNOSTIC

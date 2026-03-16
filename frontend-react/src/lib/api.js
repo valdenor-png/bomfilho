@@ -153,6 +153,10 @@ function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
     return 'Sua sessão expirou por segurança. Atualize a página e tente novamente.';
   }
 
+  if (normalizedMessage.includes('recaptcha')) {
+    return 'Confirme o reCAPTCHA para continuar.';
+  }
+
   if (/token não fornecido|token inválido|não autenticado|credenciais|acesso negado/.test(normalizedMessage)) {
     if (isAdminPath) {
       return 'Sua sessão administrativa expirou. Faça login novamente.';
@@ -171,6 +175,10 @@ function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
 
   const isPagamentoPath = normalizedPath.startsWith('/api/pagamentos/') || normalizedPath.startsWith('/api/pagbank/');
   if (isPagamentoPath) {
+    if (normalizedMessage.includes('nao aceita novo pagamento') || normalizedMessage.includes('já esta pago')) {
+      return 'Este pedido já foi finalizado e não aceita novo pagamento.';
+    }
+
     if (normalizedMessage.includes('pagbank não configurado')) {
       return 'Esta forma de pagamento está temporariamente indisponível. Tente novamente em instantes.';
     }
@@ -706,7 +714,7 @@ export function simularFretePorCep({ cep, veiculo = 'moto' }) {
   return request(`/api/frete/simular?cep=${cepNormalizado}&veiculo=${encodeURIComponent(veiculoNormalizado)}`);
 }
 
-export function criarPedido({ itens, formaPagamento = 'pix', entrega, taxId }) {
+export function criarPedido({ itens, formaPagamento = 'pix', entrega, taxId, recaptchaToken }) {
   const body = {
     itens,
     forma_pagamento: formaPagamento
@@ -721,18 +729,28 @@ export function criarPedido({ itens, formaPagamento = 'pix', entrega, taxId }) {
     body.tax_id = taxIdDigits;
   }
 
+  const recaptchaTokenNormalizado = String(recaptchaToken || '').trim();
+  if (recaptchaTokenNormalizado) {
+    body.recaptcha_token = recaptchaTokenNormalizado;
+  }
+
   return request('/api/pedidos', {
     method: 'POST',
     body
   });
 }
 
-export function gerarPix(pedidoId, taxId) {
+export function gerarPix(pedidoId, taxId, recaptchaToken = '') {
   const taxIdDigits = String(taxId || '').replace(/\D/g, '');
   const body = { pedido_id: pedidoId };
 
   if (taxIdDigits) {
     body.tax_id = taxIdDigits;
+  }
+
+  const recaptchaTokenNormalizado = String(recaptchaToken || '').trim();
+  if (recaptchaTokenNormalizado) {
+    body.recaptcha_token = recaptchaTokenNormalizado;
   }
 
   return request('/api/pagamentos/pix', {
@@ -767,7 +785,8 @@ export function pagarCartao(
     parcelas = 1,
     tipoCartao = 'credito',
     authenticationMethod,
-    threeDSResult
+    threeDSResult,
+    recaptchaToken
   } = {}
 ) {
   const taxIdDigits = String(taxId || '').replace(/\D/g, '');
@@ -794,6 +813,11 @@ export function pagarCartao(
 
   if (threeDSResult && typeof threeDSResult === 'object') {
     body.three_ds_result = threeDSResult;
+  }
+
+  const recaptchaTokenNormalizado = String(recaptchaToken || '').trim();
+  if (recaptchaTokenNormalizado) {
+    body.recaptcha_token = recaptchaTokenNormalizado;
   }
 
   return request('/api/pagamentos/cartao', {

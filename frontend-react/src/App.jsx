@@ -8,9 +8,14 @@ import SobrePage from './pages/SobrePage';
 import ContaPage from './pages/ContaPage';
 import AdminPage from './pages/AdminPage';
 import AdminGerenciaPage from './pages/AdminGerenciaPage';
+import PoliticaPrivacidadePage from './pages/PoliticaPrivacidadePage';
+import TermosUsoPage from './pages/TermosUsoPage';
+import PoliticaTrocaDevolucaoPage from './pages/PoliticaTrocaDevolucaoPage';
+import PoliticaEntregaPage from './pages/PoliticaEntregaPage';
 import { useCart } from './context/CartContext';
 
 const BOTTOM_NAV_SAFE_AREA = 90;
+const WHATSAPP_ATENDIMENTO_URL = 'https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido.';
 
 const links = [
   { to: '/', icon: '🏠', label: 'Início' },
@@ -52,6 +57,10 @@ export default function App() {
           <Route path="/admin" element={<Navigate to="/admin/gerencia" replace />} />
           <Route path="/sobre" element={<SobrePage />} />
           <Route path="/conta" element={<ContaPage />} />
+          <Route path="/politica-de-privacidade" element={<PoliticaPrivacidadePage />} />
+          <Route path="/termos-de-uso" element={<TermosUsoPage />} />
+          <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
+          <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
         </Routes>
       </main>
 
@@ -70,6 +79,22 @@ export default function App() {
           </Link>
         </div>
       ) : null}
+
+      <section className="site-trust-bar" aria-label="Canais de atendimento e links legais">
+        <p className="site-trust-contact">
+          Atendimento via WhatsApp:{' '}
+          <a href={WHATSAPP_ATENDIMENTO_URL} target="_blank" rel="noopener noreferrer">
+            (91) 99965-2790
+          </a>
+          {' '}| Horario: Seg a Sab 07:00-19:00 | Dom 07:00-12:00
+        </p>
+        <div className="site-legal-links">
+          <Link className="site-legal-link" to="/politica-de-privacidade">Politica de Privacidade</Link>
+          <Link className="site-legal-link" to="/termos-de-uso">Termos de Uso</Link>
+          <Link className="site-legal-link" to="/politica-de-troca-e-devolucao">Troca e Devolucao</Link>
+          <Link className="site-legal-link" to="/politica-de-entrega">Politica de Entrega</Link>
+        </div>
+      </section>
 
       <nav className="bottom-nav" aria-label="Navegação principal">
         {links.map((item) => (

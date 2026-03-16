@@ -45,15 +45,31 @@ const RUNTIME_ENV = detectarAmbienteRuntime();
 const ENV_API_BASE_URL = normalizarBaseUrl(import.meta.env.VITE_API_URL);
 const API_BASE_URL = ENV_API_BASE_URL || (RUNTIME_ENV === 'development' ? DEFAULT_DEV_API_BASE_URL : DEFAULT_API_BASE_URL);
 const API_TIMEOUT_MS = parseTimeoutMs(import.meta.env.VITE_API_TIMEOUT_MS, DEFAULT_API_TIMEOUT_MS);
+const RECAPTCHA_SITE_KEY = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
+const CHECKOUT_RECAPTCHA_ENABLED = String(import.meta.env.VITE_RECAPTCHA_CHECKOUT_ENABLED || 'false').trim().toLowerCase() === 'true';
 const IS_DEVELOPMENT = RUNTIME_ENV === 'development';
 const IS_PREVIEW = RUNTIME_ENV === 'vercel-preview';
 const IS_PRODUCTION = RUNTIME_ENV === 'production';
 const IS_NGROK_API = /ngrok(-free)?\.dev|ngrok\.io/i.test(API_BASE_URL);
 const API_URL_IS_REQUIRED = !ENV_API_BASE_URL && !IS_DEVELOPMENT;
 const API_CONFIG_ERROR_MESSAGE = 'Configuracao obrigatoria ausente: defina VITE_API_URL para apontar o backend publicado.';
+const RECAPTCHA_CHECKOUT_CONFIG_ERROR = CHECKOUT_RECAPTCHA_ENABLED && !RECAPTCHA_SITE_KEY;
+const RECAPTCHA_CHECKOUT_ERROR_MESSAGE = 'Configuracao obrigatoria ausente: defina VITE_RECAPTCHA_SITE_KEY para usar VITE_RECAPTCHA_CHECKOUT_ENABLED=true.';
 
 if (API_URL_IS_REQUIRED && typeof console !== 'undefined') {
   console.error(API_CONFIG_ERROR_MESSAGE);
+}
+
+if (RECAPTCHA_CHECKOUT_CONFIG_ERROR && typeof console !== 'undefined') {
+  console.error(RECAPTCHA_CHECKOUT_ERROR_MESSAGE);
+}
+
+if (API_URL_IS_REQUIRED && typeof window !== 'undefined') {
+  throw new Error(API_CONFIG_ERROR_MESSAGE);
+}
+
+if (RECAPTCHA_CHECKOUT_CONFIG_ERROR && typeof window !== 'undefined') {
+  throw new Error(RECAPTCHA_CHECKOUT_ERROR_MESSAGE);
 }
 
 export {
@@ -64,6 +80,10 @@ export {
   API_TIMEOUT_MS,
   API_URL_IS_REQUIRED,
   API_CONFIG_ERROR_MESSAGE,
+  RECAPTCHA_SITE_KEY,
+  CHECKOUT_RECAPTCHA_ENABLED,
+  RECAPTCHA_CHECKOUT_CONFIG_ERROR,
+  RECAPTCHA_CHECKOUT_ERROR_MESSAGE,
   RUNTIME_ENV,
   IS_DEVELOPMENT,
   IS_PREVIEW,

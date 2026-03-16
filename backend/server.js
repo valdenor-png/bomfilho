@@ -65,7 +65,8 @@ const {
 } = require('./services/pagbankWebhookService');
 const {
   criarRegistradorLogPagBank,
-  extrairTraceIdPagBank
+  extrairTraceIdPagBank,
+  sanitizarPayloadPagBankParaLog
 } = require('./services/pagbankLogService');
 const {
   normalizarParcelasCartao,
@@ -178,10 +179,48 @@ const RECAPTCHA_MIN_SCORE = (() => {
   }
   return Math.min(1, Math.max(0, valor));
 })();
+const RECAPTCHA_CHECKOUT_ENABLED = parseBooleanEnv('RECAPTCHA_CHECKOUT_ENABLED', false);
+const RECAPTCHA_PAYMENT_ENABLED = parseBooleanEnv('RECAPTCHA_PAYMENT_ENABLED', false);
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '');
 const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
 const ALLOW_REMOTE_DIAGNOSTIC = parseBooleanEnv('ALLOW_REMOTE_DIAGNOSTIC', false);
+const BASE_URL_ENV = String(process.env.BASE_URL || '').trim();
+const METRICS_ENABLED = parseBooleanEnv('METRICS_ENABLED', !IS_PRODUCTION);
+const METRICS_TOKEN = String(process.env.METRICS_TOKEN || '').trim();
+
+const RECAPTCHA_CHECKOUT_PROTECTION_ENABLED = RECAPTCHA_CHECKOUT_ENABLED && Boolean(RECAPTCHA_SECRET_KEY);
+const RECAPTCHA_PAYMENT_PROTECTION_ENABLED = RECAPTCHA_PAYMENT_ENABLED && Boolean(RECAPTCHA_SECRET_KEY);
+
+if ((RECAPTCHA_CHECKOUT_ENABLED || RECAPTCHA_PAYMENT_ENABLED) && !RECAPTCHA_SECRET_KEY) {
+  const avisoRecaptcha = 'RECAPTCHA_CHECKOUT_ENABLED/RECAPTCHA_PAYMENT_ENABLED ativos sem RECAPTCHA_SECRET_KEY. A protecao antiabuso do checkout ficara desabilitada.';
+  if (IS_PRODUCTION) {
+    throw new Error(avisoRecaptcha);
+  }
+  console.warn(`⚠️ ${avisoRecaptcha}`);
+}
+
+if (IS_PRODUCTION) {
+  if (!BASE_URL_ENV) {
+    throw new Error('BASE_URL obrigatoria em producao para notificacoes e webhooks.');
+  }
+
+  if (!/^https:\/\//i.test(BASE_URL_ENV)) {
+    throw new Error('BASE_URL deve usar HTTPS em producao.');
+  }
+
+  if (FRONTEND_APP_URL && !/^https:\/\//i.test(FRONTEND_APP_URL)) {
+    throw new Error('FRONTEND_APP_URL deve usar HTTPS em producao.');
+  }
+
+  if (!PAGBANK_TOKEN) {
+    throw new Error('PAGBANK_TOKEN e obrigatorio em producao para habilitar pagamentos.');
+  }
+
+  if (METRICS_ENABLED && !METRICS_TOKEN) {
+    throw new Error('METRICS_TOKEN e obrigatorio quando METRICS_ENABLED=true em producao.');
+  }
+}
 
 if (ALLOW_REMOTE_DIAGNOSTIC && !DIAGNOSTIC_TOKEN) {
   console.warn('⚠️ ALLOW_REMOTE_DIAGNOSTIC=true sem DIAGNOSTIC_TOKEN. O acesso remoto de diagnóstico ficará indisponível.');
@@ -1057,7 +1096,7 @@ function isOriginPermitida(origin) {
 }
 
 function montarWebhookPagBankUrl({ incluirToken = true } = {}) {
-  const baseUrl = String(process.env.BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  const baseUrl = String(BASE_URL_ENV || 'http://localhost:3000').replace(/\/+$/, '');
   const webhookBase = `${baseUrl}/api/webhooks/pagbank`;
 
   if (incluirToken && PAGBANK_WEBHOOK_TOKEN) {
@@ -1253,6 +1292,37 @@ function compararTextoSegura(valorA, valorB) {
   }
 
   return crypto.timingSafeEqual(bufferA, bufferB);
+}
+
+function extrairTokenMetrics(req) {
+  const headerToken = req.headers['x-metrics-token'];
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : '';
+
+  return String(headerToken || bearerToken || '').trim();
+}
+
+function protegerMetrics(req, res, next) {
+  if (!METRICS_ENABLED) {
+    return res.status(404).json({ erro: 'Not Found' });
+  }
+
+  if (!IS_PRODUCTION) {
+    return next();
+  }
+
+  if (!METRICS_TOKEN) {
+    return res.status(503).json({ erro: 'Metricas indisponiveis no momento.' });
+  }
+
+  const token = extrairTokenMetrics(req);
+  if (!token || !compararTextoSegura(token, METRICS_TOKEN)) {
+    return res.status(401).json({ erro: 'Token de metricas invalido.' });
+  }
+
+  return next();
 }
 
 function criarErroHttp(status, mensagem) {
@@ -1858,7 +1928,7 @@ app.get('/api/pagbank/public-key', (req, res) => {
 // Diagnóstico PagBank: valida token e mostra URLs configuradas
 app.get('/api/pagbank/status', protegerDiagnostico, async (req, res) => {
   try {
-    const baseUrl = String(process.env.BASE_URL || 'http://localhost:3000');
+    const baseUrl = String(BASE_URL_ENV || 'http://localhost:3000');
     const webhookUrl = montarWebhookPagBankUrl({ incluirToken: false });
     const token = process.env.PAGBANK_TOKEN || '';
     const chaveInfo = analisarChavePublicaPagBank();
@@ -2417,7 +2487,10 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
     ]
   };
 
-  console.log('🔔 PagBank notification URL:', payload.notification_urls?.[0]);
+  const notificationUrlSeguro = sanitizarPayloadPagBankParaLog({
+    notification_url: payload.notification_urls?.[0]
+  })?.notification_url;
+  console.log('🔔 PagBank notification URL:', notificationUrlSeguro || '');
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   const { response, responseBodyText: responseText, responsePayload, traceId, endpoint } = await enviarPostPagBankOrders({
@@ -4281,15 +4354,24 @@ app.post('/api/pagbank/3ds/session', autenticarToken, async (req, res) => {
 // Gerar QR Code PIX (PagBank) para um pedido existente
 app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
   try {
-    const { pedido_id } = req.body;
-    const taxIdDigits = extrairTaxIdDigits(req.body);
+    const payloadRequest = req.body || {};
+    const pedidoIdNumerico = Number.parseInt(String(payloadRequest?.pedido_id || ''), 10);
+    const taxIdDigits = extrairTaxIdDigits(payloadRequest);
     const taxId = taxIdDigits || (PAGBANK_ENV === 'production' ? null : '12345678909');
+
+    if (RECAPTCHA_PAYMENT_PROTECTION_ENABLED) {
+      await validarRecaptcha({
+        token: payloadRequest?.recaptcha_token,
+        req,
+        action: 'checkout_pagamento_pix'
+      });
+    }
 
     if (!PAGBANK_TOKEN) {
       return res.status(503).json({ erro: 'Esta forma de pagamento está temporariamente indisponível.' });
     }
 
-    if (!pedido_id) {
+    if (!Number.isInteger(pedidoIdNumerico) || pedidoIdNumerico <= 0) {
       return res.status(400).json({ erro: 'Não foi possível identificar o pedido para pagamento.' });
     }
 
@@ -4303,12 +4385,17 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
 
     const pedido = await buscarPedidoDoUsuarioPorId({
       connection: pool,
-      pedidoId: pedido_id,
+      pedidoId: pedidoIdNumerico,
       usuarioId: req.usuario.id
     });
 
     if (!pedido) {
       return res.status(404).json({ erro: 'Pedido não encontrado para esta conta.' });
+    }
+
+    const statusPedidoAtual = String(pedido.status || '').trim().toLowerCase();
+    if (['pago', 'entregue', 'cancelado'].includes(statusPedidoAtual)) {
+      return res.status(409).json({ erro: `Este pedido ja esta ${statusPedidoAtual} e nao aceita novo pagamento.` });
     }
 
     const pagamento = await criarPagamentoPix({
@@ -4358,6 +4445,10 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
       pix_qrcode: pixQrCode
     });
   } catch (erro) {
+    if (erro?.httpStatus) {
+      return res.status(erro.httpStatus).json({ erro: erro.message });
+    }
+
     console.error('Erro ao gerar PIX:', erro);
     res.status(500).json({ erro: 'Não foi possível gerar o PIX. Tente novamente.' });
   }
@@ -4366,23 +4457,32 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
 // Processar pagamento com cartão (PagBank API Orders) para um pedido existente
 app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
   try {
-    const { pedido_id } = req.body || {};
-    const taxIdDigits = extrairTaxIdDigits(req.body);
-    const tokenCartao = String(req.body?.token_cartao || req.body?.cartao_encriptado || '').trim();
-    const authenticationMethodBruto = req.body?.authentication_method;
+    const payloadRequest = req.body || {};
+    const pedidoIdNumerico = Number.parseInt(String(payloadRequest?.pedido_id || ''), 10);
+    const taxIdDigits = extrairTaxIdDigits(payloadRequest);
+    const tokenCartao = String(payloadRequest?.token_cartao || payloadRequest?.cartao_encriptado || '').trim();
+    const authenticationMethodBruto = payloadRequest?.authentication_method;
     const authenticationMethod = normalizarAuthenticationMethodPagBank(authenticationMethodBruto);
-    const threeDSResult = req.body?.three_ds_result;
-    const tipoCartaoSolicitado = String(req.body?.tipo_cartao || req.body?.forma_pagamento || '').trim();
-    const parcelas = normalizarParcelasCartao(req.body?.parcelas);
+    const threeDSResult = payloadRequest?.three_ds_result;
+    const tipoCartaoSolicitado = String(payloadRequest?.tipo_cartao || payloadRequest?.forma_pagamento || '').trim();
+    const parcelas = normalizarParcelasCartao(payloadRequest?.parcelas);
+
+    if (RECAPTCHA_PAYMENT_PROTECTION_ENABLED) {
+      await validarRecaptcha({
+        token: payloadRequest?.recaptcha_token,
+        req,
+        action: 'checkout_pagamento_cartao'
+      });
+    }
 
     registrarLogPagBank({
       operacao: 'api.pagamentos.cartao.request',
       endpoint: '/api/pagamentos/cartao',
       method: 'POST',
-      requestPayload: req.body,
+      requestPayload: payloadRequest,
       extra: {
         usuario_id: req.usuario?.id || null,
-        pedido_id,
+        pedido_id: pedidoIdNumerico || null,
         fluxo: 'debit_3ds_auth',
         authentication_method_present: Boolean(authenticationMethod),
         authentication_method_id_present: Boolean(authenticationMethod?.id),
@@ -4395,7 +4495,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       return res.status(503).json({ erro: 'Esta forma de pagamento está temporariamente indisponível.' });
     }
 
-    if (!pedido_id) {
+    if (!Number.isInteger(pedidoIdNumerico) || pedidoIdNumerico <= 0) {
       return res.status(400).json({ erro: 'Não foi possível identificar o pedido para pagamento.' });
     }
 
@@ -4409,13 +4509,19 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
 
     const pedido = await buscarPedidoDoUsuarioPorId({
       connection: pool,
-      pedidoId: pedido_id,
+      pedidoId: pedidoIdNumerico,
       usuarioId: req.usuario.id
     });
 
     if (!pedido) {
       return res.status(404).json({ erro: 'Pedido não encontrado para esta conta.' });
     }
+
+    const statusPedidoAtual = String(pedido.status || '').trim().toLowerCase();
+    if (['pago', 'entregue', 'cancelado'].includes(statusPedidoAtual)) {
+      return res.status(409).json({ erro: `Este pedido ja esta ${statusPedidoAtual} e nao aceita novo pagamento.` });
+    }
+
     const formaPagamentoPedido = String(pedido.forma_pagamento || '').toLowerCase();
     const tipoEsperadoPedido = normalizarTipoCartao(formaPagamentoPedido);
     const tipoCartao = tipoCartaoSolicitado
@@ -4631,6 +4737,14 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
   let transacaoAberta = false;
   
   try {
+    if (RECAPTCHA_CHECKOUT_PROTECTION_ENABLED) {
+      await validarRecaptcha({
+        token: req.body?.recaptcha_token,
+        req,
+        action: 'checkout_pedido'
+      });
+    }
+
     const { itens, forma_pagamento, cupom_id, entrega } = req.body || {};
     let usuarioPedido = null;
 
@@ -5593,7 +5707,7 @@ app.get('/ready', async (req, res) => {
   }
 });
 
-app.get('/metrics', (req, res) => {
+app.get('/metrics', protegerMetrics, (req, res) => {
   try {
     const memory = process.memoryUsage();
 

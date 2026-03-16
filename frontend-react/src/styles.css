@@ -152,6 +152,36 @@ body {
   margin-top: 0.5rem;
 }
 
+.legal-page {
+  max-width: 960px;
+  margin: 0 auto;
+  display: grid;
+  gap: 0.8rem;
+}
+
+.legal-page h2 {
+  margin-top: 0.4rem;
+  color: #2f855a;
+  font-size: 1.02rem;
+}
+
+.legal-page ul {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 0.36rem;
+}
+
+.legal-page li {
+  color: #334155;
+}
+
+.legal-meta {
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .home-page {
   border-color: #d4e8da;
   background: linear-gradient(180deg, #ffffff 0%, #f8fdf9 100%);
@@ -5461,6 +5491,54 @@ body {
   transform: translateY(-1px);
 }
 
+.site-trust-bar {
+  margin: 0 0.92rem 5.2rem;
+  border: 1px solid #d9e7df;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fbfefc 0%, #f4faf7 100%);
+  padding: 0.72rem 0.82rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.site-trust-contact {
+  margin: 0;
+  color: #425365;
+  font-size: 0.9rem;
+}
+
+.site-trust-contact a {
+  color: #1f5fa9;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.site-trust-contact a:hover {
+  text-decoration: underline;
+}
+
+.site-legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.site-legal-link {
+  color: #155a8a;
+  text-decoration: none;
+  border: 1px solid #d9e5ef;
+  border-radius: 999px;
+  padding: 0.28rem 0.62rem;
+  background: #ffffff;
+  font-size: 0.83rem;
+  font-weight: 700;
+}
+
+.site-legal-link:hover {
+  border-color: #bfcede;
+  background: #f8fbff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * ,
   *::before,
@@ -5476,6 +5554,10 @@ body {
   .content {
     padding: 0.85rem;
     padding-bottom: 6.2rem;
+  }
+
+  .site-trust-bar {
+    margin: 0 0 5.1rem;
   }
 
   .page {
@@ -5890,6 +5972,21 @@ body {
 }
 
 @media (max-width: 520px) {
+  .site-trust-bar {
+    margin-bottom: 5rem;
+    padding: 0.65rem 0.7rem;
+  }
+
+  .site-trust-contact {
+    font-size: 0.84rem;
+    line-height: 1.35;
+  }
+
+  .site-legal-link {
+    font-size: 0.79rem;
+    padding: 0.26rem 0.56rem;
+  }
+
   .content {
     padding: 0.65rem;
     padding-bottom: 5.9rem;
@@ -6382,6 +6479,38 @@ body {
 .checkout-page {
   display: grid;
   gap: 0.95rem;
+}
+
+.checkout-recaptcha-banner {
+  border: 1px solid #d8e7dd;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #fbfefc 0%, #f4fbf7 100%);
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.checkout-recaptcha-title {
+  margin: 0;
+  color: #1a5f3f;
+  font-weight: 800;
+  font-size: 0.95rem;
+}
+
+.checkout-recaptcha-description {
+  margin: 0;
+  color: #4a5f72;
+  font-size: 0.9rem;
+}
+
+.checkout-recaptcha-banner .g-recaptcha {
+  transform-origin: left top;
+}
+
+@media (max-width: 380px) {
+  .checkout-recaptcha-banner .g-recaptcha {
+    transform: scale(0.92);
+  }
 }
 
 .checkout-steps {

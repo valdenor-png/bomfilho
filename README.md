@@ -36,6 +36,10 @@ Essa arquitetura centraliza o desenvolvimento em JavaScript e preserva as rotas 
 - `/#/conta` autenticação e perfil
 - `/#/sobre` informações do negócio
 - `/#/admin` painel administrativo (pedidos e produtos)
+- `/#/politica-de-privacidade` política de privacidade
+- `/#/termos-de-uso` termos de uso
+- `/#/politica-de-troca-e-devolucao` política de troca e devolução
+- `/#/politica-de-entrega` política de entrega
 
 ## Objetivo do projeto
 
@@ -249,6 +253,11 @@ Com a build gerada, o backend serve o frontend React no mesmo host/porta da API.
 ## Qualidade e validação
 
 O projeto inclui documentação e scripts de apoio para testes e manutenção em `docs/` e `scripts/`.
+
+Documentos operacionais importantes:
+
+- `docs/GO_LIVE_TECNICO_CHECKLIST.md`
+- `docs/OPERACAO_ADMIN_PEDIDOS_PAGAMENTOS.md`
 
 ## Roadmap (resumo)
 

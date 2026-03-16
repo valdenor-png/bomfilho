@@ -2,6 +2,7 @@ import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import QRCode from 'qrcode';
+import ReCAPTCHA from 'react-google-recaptcha';
 import {
   buscarEnderecoViaCep,
   criarPedido,
@@ -19,7 +20,11 @@ import {
   configurarSessao3DSPagBank,
   criptografarCartaoPagBank
 } from '../lib/pagbank';
-import { IS_DEVELOPMENT } from '../config/api';
+import {
+  CHECKOUT_RECAPTCHA_ENABLED,
+  IS_DEVELOPMENT,
+  RECAPTCHA_SITE_KEY
+} from '../config/api';
 import { useCart } from '../context/CartContext';
 
 const ETAPAS = {
@@ -962,6 +967,9 @@ export default function PagamentoPage() {
   const [status3DS, setStatus3DS] = useState('idle');
   const [resultado3DS, setResultado3DS] = useState(null);
   const [idAutenticacao3DS, setIdAutenticacao3DS] = useState('');
+  const [recaptchaCheckoutToken, setRecaptchaCheckoutToken] = useState('');
+  const [recaptchaCheckoutErroCarregamento, setRecaptchaCheckoutErroCarregamento] = useState('');
+  const recaptchaCheckoutRef = useRef(null);
   const pagandoCartaoRef = useRef(false);
   const buscaEnderecoRef = useRef(0);
 
@@ -1016,6 +1024,10 @@ export default function PagamentoPage() {
   })();
   const pagamentoCartaoSelecionado = formaPagamento === 'credito' || formaPagamento === 'debito';
   const debitoSelecionado = formaPagamento === 'debito';
+  const recaptchaCheckoutEnabled = CHECKOUT_RECAPTCHA_ENABLED && Boolean(RECAPTCHA_SITE_KEY);
+  const exibirRecaptchaCheckout = recaptchaCheckoutEnabled
+    && autenticado === true
+    && (etapaAtual === ETAPAS.PAGAMENTO || etapaAtual === ETAPAS.PIX);
   const tituloFormaPagamento = formaPagamento === 'pix'
     ? 'PIX'
     : formaPagamento === 'debito'
@@ -1306,6 +1318,31 @@ export default function PagamentoPage() {
     setTokenCartao('');
     setResultadoCartao(null);
     limparResultadoAutenticacao3DS();
+  }
+
+  function resetRecaptchaCheckout() {
+    setRecaptchaCheckoutToken('');
+    setRecaptchaCheckoutErroCarregamento('');
+
+    if (recaptchaCheckoutRef.current && typeof recaptchaCheckoutRef.current.reset === 'function') {
+      recaptchaCheckoutRef.current.reset();
+    }
+  }
+
+  function obterRecaptchaCheckoutTokenObrigatorio() {
+    if (!recaptchaCheckoutEnabled) {
+      return '';
+    }
+
+    const token = String(recaptchaCheckoutToken || '').trim();
+    if (token) {
+      return token;
+    }
+
+    throw new Error(
+      recaptchaCheckoutErroCarregamento
+      || 'Confirme o reCAPTCHA de segurança antes de continuar.'
+    );
   }
 
   function erroIndicaSessao3DSExpirada(error) {
@@ -1647,12 +1684,21 @@ export default function PagamentoPage() {
       }
     }
 
+    let recaptchaTokenAcao = '';
+    try {
+      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
+    } catch (error) {
+      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar.');
+      return;
+    }
+
     setCarregando(true);
     try {
       const data = await criarPedido({
         itens: itensPedido,
         formaPagamento,
         taxId: documentoDigits,
+        recaptchaToken: recaptchaTokenAcao,
         entrega: {
           veiculo: veiculoEntrega,
           cep_destino: formatarCep(cepNormalizado),
@@ -1700,6 +1746,9 @@ export default function PagamentoPage() {
       setErro(error.message);
     } finally {
       setCarregando(false);
+      if (recaptchaCheckoutEnabled) {
+        resetRecaptchaCheckout();
+      }
     }
   }
 
@@ -1729,6 +1778,14 @@ export default function PagamentoPage() {
     setFeedbackCopiaPix('');
     setErro('');
 
+    let recaptchaTokenAcao = '';
+    try {
+      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
+    } catch (error) {
+      setErro(error.message || 'Confirme o reCAPTCHA de segurança para gerar o PIX.');
+      return;
+    }
+
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
@@ -1738,7 +1795,7 @@ export default function PagamentoPage() {
 
     setCarregando(true);
     try {
-      const data = await gerarPix(pedidoId, documentoDigits);
+      const data = await gerarPix(pedidoId, documentoDigits, recaptchaTokenAcao);
       setResultadoPix({
         ...data,
         status: String(data?.status || 'WAITING').toUpperCase(),
@@ -1753,6 +1810,9 @@ export default function PagamentoPage() {
       setErro(error.message);
     } finally {
       setCarregando(false);
+      if (recaptchaCheckoutEnabled) {
+        resetRecaptchaCheckout();
+      }
     }
   }
 
@@ -1843,6 +1903,14 @@ export default function PagamentoPage() {
       return;
     }
 
+    let recaptchaTokenAcao = '';
+    try {
+      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
+    } catch (error) {
+      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar no cartão.');
+      return;
+    }
+
     pagandoCartaoRef.current = true;
 
     let tokenNormalizado = String(tokenCartao || '').trim();
@@ -1883,7 +1951,8 @@ export default function PagamentoPage() {
         parcelas: parcelasCartaoEfetivas,
         tipoCartao: formaPagamento,
         authenticationMethod,
-        threeDSResult: threeDSResultPayload
+        threeDSResult: threeDSResultPayload,
+        recaptchaToken: recaptchaTokenAcao
       });
 
       setResultadoCartao(data);
@@ -1915,6 +1984,9 @@ export default function PagamentoPage() {
     } finally {
       setCarregando(false);
       pagandoCartaoRef.current = false;
+      if (recaptchaCheckoutEnabled) {
+        resetRecaptchaCheckout();
+      }
     }
   }
 
@@ -1939,6 +2011,7 @@ export default function PagamentoPage() {
   const documentoObrigatorioNaoPreenchido = documentoTocado && documentoDigits.length === 0;
   const documentoInvalidoPagamento = documentoTocado && documentoDigits.length > 0 && !documentoValidoPagamento;
   const documentoValidoFeedback = documentoTocado && documentoValidoPagamento;
+  const recaptchaCheckoutPronto = !recaptchaCheckoutEnabled || Boolean(String(recaptchaCheckoutToken || '').trim());
   const nomeTitularCartaoValido = String(nomeTitularCartao || '').trim().length >= 3;
   const numeroCartaoValido = normalizarNumeroCartao(numeroCartao).length >= 13;
   const mesCartaoNumero = Number.parseInt(formatarMesCartao(mesExpiracaoCartao), 10);
@@ -1965,6 +2038,7 @@ export default function PagamentoPage() {
     || simulandoFrete
     || buscandoChavePublica
     || !documentoValidoPagamento
+    || !recaptchaCheckoutPronto
     || (pagamentoCartaoSelecionado && !cartaoProntoParaContinuar);
   const mensagemBloqueioPagamento = pagamentoSemItens
     ? 'Seu carrinho está vazio. Adicione produtos para seguir com o pagamento.'
@@ -1974,6 +2048,8 @@ export default function PagamentoPage() {
         ? 'Informe CPF/CNPJ para habilitar a continuação.'
         : !documentoValidoPagamento
           ? 'Documento inválido. Use CPF com 11 dígitos ou CNPJ com 14 dígitos.'
+          : !recaptchaCheckoutPronto
+            ? 'Confirme o reCAPTCHA de seguranca para habilitar a continuacao.'
           : pagamentoCartaoSelecionado && !cartaoProntoParaContinuar
             ? 'Complete os dados do cartão para habilitar a continuação.'
         : '';
@@ -2010,6 +2086,11 @@ export default function PagamentoPage() {
       label: 'CPF/CNPJ válido',
       ok: documentoValidoPagamento
     },
+    {
+      id: 'recaptcha',
+      label: 'Validacao reCAPTCHA concluida',
+      ok: recaptchaCheckoutPronto
+    },
     pagamentoCartaoSelecionado
       ? {
         id: 'cartao',
@@ -2025,7 +2106,7 @@ export default function PagamentoPage() {
       ? resumoItensPagamento
       : '—';
   const podeContinuarConfirmacaoPix = pixPagamentoAprovado || pagamentoConfirmado;
-  const bloqueioGeracaoPix = carregando || verificandoStatusPix || !resultadoPedido?.pedido_id;
+  const bloqueioGeracaoPix = carregando || verificandoStatusPix || !resultadoPedido?.pedido_id || !recaptchaCheckoutPronto;
   const bloqueioVerificacaoPix = verificandoStatusPix || carregando || !resultadoPedido?.pedido_id;
   const pixDisponivelParaPagar = Boolean(codigoPixAtual || qrCodePixSrc);
 
@@ -2089,6 +2170,40 @@ export default function PagamentoPage() {
       <CheckoutStepper currentIndex={etapaIndex} />
 
       {erro ? <p className="error-text">{erro}</p> : null}
+
+      {exibirRecaptchaCheckout ? (
+        <section className="checkout-recaptcha-banner" aria-label="Validacao antiabuso">
+          <p className="checkout-recaptcha-title">Validacao de seguranca</p>
+          <p className="checkout-recaptcha-description">
+            Confirme o reCAPTCHA antes de concluir pedido, gerar PIX ou pagar com cartao.
+          </p>
+
+          <ReCAPTCHA
+            ref={recaptchaCheckoutRef}
+            sitekey={RECAPTCHA_SITE_KEY}
+            hl="pt-BR"
+            onChange={(token) => {
+              setRecaptchaCheckoutToken(String(token || '').trim());
+              if (token) {
+                setRecaptchaCheckoutErroCarregamento('');
+              }
+            }}
+            onExpired={() => setRecaptchaCheckoutToken('')}
+            onErrored={() => {
+              setRecaptchaCheckoutToken('');
+              setRecaptchaCheckoutErroCarregamento(
+                'Nao foi possivel validar o reCAPTCHA neste dominio. Confira os dominios permitidos na chave do Google.'
+              );
+            }}
+          />
+
+          {recaptchaCheckoutErroCarregamento ? (
+            <p className="error-text">{recaptchaCheckoutErroCarregamento}</p>
+          ) : (
+            <p className="muted-text">A validacao pode expirar; refaca o reCAPTCHA se necessario.</p>
+          )}
+        </section>
+      ) : null}
 
       {etapaAtual === ETAPAS.CARRINHO ? (
         <div className="checkout-cart-layout">
@@ -2679,7 +2794,7 @@ export default function PagamentoPage() {
                 <button
                   className="btn-secondary"
                   type="button"
-                  disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id}
+                  disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id || !recaptchaCheckoutPronto}
                   onClick={() => handlePagarCartao(resultadoPedido.pedido_id)}
                 >
                   {carregando
