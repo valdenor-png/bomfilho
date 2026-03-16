@@ -19,7 +19,7 @@ const MIME_IMPORTACAO_ACEITOS = Object.freeze(new Set([
   'text/plain',
   'application/octet-stream'
 ]));
-const MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO = 'Formato de arquivo não suportado. Envie .xls, .xlsx ou .csv.';
+const MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO = 'Formato de arquivo nao suportado. Envie .xls, .xlsx ou .csv.';
 const LIMITE_PREVIEW_LOGS = 120;
 const LIMITE_PREVIEW_LINHAS_AMOSTRA = 200;
 const LIMITE_LINHAS_IMPORTACAO = 50000;
@@ -207,7 +207,7 @@ function validarArquivoImportacao({ nomeArquivo, mimeType } = {}) {
     };
   }
 
-  // Alguns navegadores/ERPs enviam MIME não padronizado para planilhas; aceita variantes que indiquem Excel/CSV.
+  // Alguns navegadores/ERPs enviam MIME nao padronizado para planilhas; aceita variantes que indiquem Excel/CSV.
   const mimeCompativelPlanilha = /(excel|spreadsheet|csv|comma-separated|ms-office|octet-stream|plain)/i.test(mimeNormalizado);
   if (!mimeCompativelPlanilha) {
     throw criarErroImportacao(400, MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO);
@@ -245,8 +245,8 @@ function decodificarCsvBuffer(buffer) {
   }
 
   const utf8 = buffer.toString('utf8');
-  const sinaisMojibake = (utf8.match(/Ã.|Â./g) || []).length;
-  if (utf8.includes('�') || sinaisMojibake > 2) {
+  const sinaisMojibake = (utf8.match(/\u00C3.|\u00C2./g) || []).length;
+  if (utf8.includes('\uFFFD') || sinaisMojibake > 2) {
     return buffer.toString('latin1');
   }
 
@@ -398,7 +398,7 @@ function lerArquivoTabular({ buffer, nomeArquivo }) {
   }
 }
 
-const PALAVRAS_METADADOS_RELATORIO = /cnpj|pagina|página|grupo|empresa|relatorio|emissao|emitido|filial|telefone|endereco|endereço|total\s+de\s+registros|sistema|data\s+de\s+emissao/i;
+const PALAVRAS_METADADOS_RELATORIO = /cnpj|pagina|grupo|empresa|relatorio|emissao|emitido|filial|telefone|endereco|total\s+de\s+registros|sistema|data\s+de\s+emissao/i;
 
 const ALIASES_CABECALHO_DETECCAO = Object.freeze({
   identificador: [
@@ -1000,7 +1000,7 @@ function truncarTexto(valor, max = 1200) {
     return texto;
   }
 
-  return `${texto.slice(0, Math.max(0, max - 1)).trim()}…`;
+  return `${texto.slice(0, Math.max(0, max - 3)).trim()}...`;
 }
 
 async function fetchComTimeout(url, { timeoutMs = 4500, ...options } = {}) {
