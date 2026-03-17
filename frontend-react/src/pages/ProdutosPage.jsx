@@ -147,6 +147,46 @@ const FILTROS_RECORRENCIA = [
   { id: 'recompra', label: 'Comprar novamente' }
 ];
 
+const FILTROS_COMERCIAIS_RAPIDOS = [
+  {
+    id: 'atalho-ofertas',
+    label: 'Ofertas reais',
+    descricao: 'Somente itens em promocao',
+    onSelect: ({ setCategoria, setOrdenacao, setFiltroRecorrencia, setBusca, setBebidaSubcategoria }) => {
+      setCategoria(CATEGORIA_PROMOCOES);
+      setOrdenacao('promocoes');
+      setFiltroRecorrencia('todos');
+      setBusca('');
+      setBebidaSubcategoria('todas');
+    }
+  },
+  {
+    id: 'atalho-mais-procurados',
+    label: 'Mais procurados',
+    descricao: 'Itens de maior interesse',
+    onSelect: ({ setOrdenacao, setFiltroRecorrencia }) => {
+      setOrdenacao('mais-vendidos');
+      setFiltroRecorrencia('todos');
+    }
+  },
+  {
+    id: 'atalho-favoritos',
+    label: 'Meus favoritos',
+    descricao: 'Acesso rapido aos salvos',
+    onSelect: ({ setFiltroRecorrencia }) => {
+      setFiltroRecorrencia('favoritos');
+    }
+  },
+  {
+    id: 'atalho-recompra',
+    label: 'Recompra inteligente',
+    descricao: 'Compre de novo com menos esforco',
+    onSelect: ({ setFiltroRecorrencia }) => {
+      setFiltroRecorrencia('recompra');
+    }
+  }
+];
+
 const CATEGORIA_ICONE_FALLBACK = {
   hortifruti: '🥦',
   bebidas: '🥤',
@@ -464,7 +504,11 @@ function getProdutoBadges(
   produtoIndexado,
   {
     destaqueMaisVendido = false,
-    destaqueNovo = false
+    destaqueNovo = false,
+    favorito = false,
+    recorrente = false,
+    recente = false,
+    recomendado = false
   } = {}
 ) {
   const badges = [];
@@ -480,7 +524,23 @@ function getProdutoBadges(
   }
 
   if (destaqueMaisVendido) {
-    badges.push({ tone: 'mais-vendido', label: 'Mais vendido' });
+    badges.push({ tone: 'mais-vendido', label: 'Destaque' });
+  }
+
+  if (favorito) {
+    badges.push({ tone: 'favorito', label: 'Favorito' });
+  }
+
+  if (recorrente) {
+    badges.push({ tone: 'recorrente', label: 'Compra recorrente' });
+  }
+
+  if (recente) {
+    badges.push({ tone: 'visto', label: 'Mais visto' });
+  }
+
+  if (recomendado) {
+    badges.push({ tone: 'recomendado', label: 'Recomendado' });
   }
 
   if (destaqueNovo) {
@@ -498,7 +558,18 @@ function getProdutoBadges(
     badges.push({ tone: 'desconto', label: 'Desconto' });
   }
 
-  return badges.slice(0, 2);
+  const badgesUnicos = [];
+  const labels = new Set();
+
+  badges.forEach((badge) => {
+    if (labels.has(badge.label)) {
+      return;
+    }
+    labels.add(badge.label);
+    badgesUnicos.push(badge);
+  });
+
+  return badgesUnicos.slice(0, 3);
 }
 
 function getPlaceholderIconePorCategoria(produto) {
@@ -772,6 +843,9 @@ const ProdutoCard = React.memo(function ProdutoCard({
   destaqueMaisVendido,
   destaqueNovo,
   favorito = false,
+  sinalRecorrente = false,
+  sinalRecente = false,
+  sinalRecomendado = false,
   foiAdicionadoRecente = false,
   onAddItem,
   onIncreaseItem,
@@ -790,12 +864,24 @@ const ProdutoCard = React.memo(function ProdutoCard({
   const nomeProduto = produtoIndexado.nomeProduto;
   const categoriaLabel = produtoIndexado.categoriaLabel;
   const detalhesProduto = produtoIndexado.detalhesComerciais;
+  const medidaProduto = produtoIndexado.medidaProduto;
   const precoInfo = produtoIndexado.precoInfo;
   const badges = useMemo(() => getProdutoBadges(produtoIndexado, {
     destaqueMaisVendido,
-    destaqueNovo
-  }), [destaqueMaisVendido, destaqueNovo, produtoIndexado]);
+    destaqueNovo,
+    favorito,
+    recorrente: sinalRecorrente,
+    recente: sinalRecente,
+    recomendado: sinalRecomendado
+  }), [destaqueMaisVendido, destaqueNovo, favorito, sinalRecorrente, sinalRecente, sinalRecomendado, produtoIndexado]);
   const podeComprar = produtoIndexado.carrinhoId !== null;
+  const ctaPrimaria = !podeComprar
+    ? 'Indisponivel'
+    : (foiAdicionadoRecente
+      ? 'Adicionado'
+      : (quantidadeNoCarrinho > 0
+        ? 'Adicionar +'
+        : (precoInfo.precoAnterior ? 'Aproveitar oferta' : 'Adicionar')));
 
   return (
     <article className={`produto-card ${foiAdicionadoRecente ? 'is-added' : ''}`}>
@@ -859,11 +945,20 @@ const ProdutoCard = React.memo(function ProdutoCard({
           {precoInfo.precoAnterior ? (
             <p className="produto-price-old">de {formatCurrency(precoInfo.precoAnterior)}</p>
           ) : null}
+
+          {medidaProduto ? (
+            <p className="produto-price-unit">Unidade: {medidaProduto}</p>
+          ) : null}
+
           {precoInfo.economia > 0 ? (
             <p className="produto-price-saving">Economize {formatCurrency(precoInfo.economia)}</p>
           ) : null}
           {precoInfo.precoPix ? (
             <p className="produto-price-pix">{formatCurrency(precoInfo.precoPix)} no Pix</p>
+          ) : null}
+
+          {precoInfo.precoAnterior ? (
+            <p className="produto-value-note">Oportunidade com economia real</p>
           ) : null}
         </div>
       </div>
@@ -898,9 +993,7 @@ const ProdutoCard = React.memo(function ProdutoCard({
             onClick={() => onAddItem(produto)}
             disabled={!podeComprar}
           >
-            {podeComprar
-              ? (foiAdicionadoRecente ? 'Adicionado' : (quantidadeNoCarrinho > 0 ? 'Adicionar +' : 'Adicionar'))
-              : 'Indisponivel'}
+            {ctaPrimaria}
           </button>
 
           <button
@@ -935,6 +1028,8 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
   chavesMaisVendidos,
   idsNovidades,
   favoritosIdsSet,
+  recompraIdsSet,
+  recentesIdsSet,
   produtoAdicionadoRecenteId,
   gridClassName = 'produto-grid',
   listId
@@ -983,6 +1078,8 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     chavesMaisVendidos,
     idsNovidades,
     favoritosIdsSet,
+    recompraIdsSet,
+    recentesIdsSet,
     produtoAdicionadoRecenteId,
     columnCount
   }), [
@@ -997,6 +1094,8 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     onToggleFavorito,
     onOpenDetail,
     favoritosIdsSet,
+    recompraIdsSet,
+    recentesIdsSet,
     produtoAdicionadoRecenteId
   ]);
   const shellClassName = gridClassName.includes('brand-produto-grid')
@@ -1018,6 +1117,8 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     chavesMaisVendidos: maisVendidos,
     idsNovidades: novidades,
     favoritosIdsSet: favoritosSet,
+    recompraIdsSet: recompraSet,
+    recentesIdsSet: recentesSet,
     produtoAdicionadoRecenteId: adicionadoRecenteId,
     columnCount: columns
   }) => {
@@ -1053,6 +1154,15 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
             produtoIndexado.carrinhoId !== null
             && favoritosSet.has(produtoIndexado.carrinhoId)
           }
+          sinalRecorrente={
+            produtoIndexado.carrinhoId !== null
+            && recompraSet.has(produtoIndexado.carrinhoId)
+          }
+          sinalRecente={
+            produtoIndexado.carrinhoId !== null
+            && recentesSet.has(produtoIndexado.carrinhoId)
+          }
+          sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
           foiAdicionadoRecente={
             produtoIndexado.carrinhoId !== null
             && produtoIndexado.carrinhoId === adicionadoRecenteId
@@ -1084,6 +1194,15 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
               produtoIndexado.carrinhoId !== null
               && favoritosIdsSet.has(produtoIndexado.carrinhoId)
             }
+            sinalRecorrente={
+              produtoIndexado.carrinhoId !== null
+              && recompraIdsSet.has(produtoIndexado.carrinhoId)
+            }
+            sinalRecente={
+              produtoIndexado.carrinhoId !== null
+              && recentesIdsSet.has(produtoIndexado.carrinhoId)
+            }
+            sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
             foiAdicionadoRecente={
               produtoIndexado.carrinhoId !== null
               && produtoIndexado.carrinhoId === produtoAdicionadoRecenteId
@@ -1134,6 +1253,15 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
                 produtoIndexado.carrinhoId !== null
                 && favoritosIdsSet.has(produtoIndexado.carrinhoId)
               }
+              sinalRecorrente={
+                produtoIndexado.carrinhoId !== null
+                && recompraIdsSet.has(produtoIndexado.carrinhoId)
+              }
+              sinalRecente={
+                produtoIndexado.carrinhoId !== null
+                && recentesIdsSet.has(produtoIndexado.carrinhoId)
+              }
+              sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
               foiAdicionadoRecente={
                 produtoIndexado.carrinhoId !== null
                 && produtoIndexado.carrinhoId === produtoAdicionadoRecenteId
@@ -1491,6 +1619,21 @@ export default function ProdutosPage() {
     setFiltroRecorrencia('todos');
   }, []);
 
+  const handleAtalhoComercial = useCallback((atalhoId) => {
+    const atalho = FILTROS_COMERCIAIS_RAPIDOS.find((item) => item.id === atalhoId);
+    if (!atalho || typeof atalho.onSelect !== 'function') {
+      return;
+    }
+
+    atalho.onSelect({
+      setCategoria,
+      setOrdenacao,
+      setFiltroRecorrencia,
+      setBusca,
+      setBebidaSubcategoria
+    });
+  }, []);
+
   const handleAplicarSugestaoBusca = useCallback(({ termo = '', categoria: categoriaSugestao = CATEGORIA_TODAS } = {}) => {
     setCategoria(String(categoriaSugestao || CATEGORIA_TODAS).toLowerCase());
     setBusca(String(termo || ''));
@@ -1571,6 +1714,7 @@ export default function ProdutosPage() {
       const nomeProduto = getProdutoNome(produto);
       const categoriaLabel = getProdutoCategoriaLabel(produto);
       const detalhesComerciais = getProdutoDetalheComercial(produto);
+      const medidaProduto = getProdutoMedida(produto);
       const textoBusca = getTextoProduto(produto);
       const categoriaOriginal = String(produto?.categoria || '').toLowerCase();
       const categoriaNormalizada = normalizeText(categoriaOriginal);
@@ -1583,6 +1727,7 @@ export default function ProdutosPage() {
         nomeProduto,
         categoriaLabel,
         detalhesComerciais,
+        medidaProduto,
         textoBusca,
         categoriaOriginal,
         categoriaNormalizada,
@@ -2022,6 +2167,22 @@ export default function ProdutosPage() {
     return new Set(favoritosIds);
   }, [favoritosIds]);
 
+  const recompraIdsSet = useMemo(() => {
+    return new Set(
+      recompraRecorrencia
+        .map((item) => getProdutoIdNormalizado(item?.id || item))
+        .filter((id) => id !== null)
+    );
+  }, [recompraRecorrencia]);
+
+  const recentesIdsSet = useMemo(() => {
+    return new Set(
+      recentesRecorrencia
+        .map((item) => getProdutoIdNormalizado(item?.id || item))
+        .filter((id) => id !== null)
+    );
+  }, [recentesRecorrencia]);
+
   const getQuantidadeProduto = useCallback((produto) => {
     const id = getProdutoCarrinhoId(produto);
     if (id === null) {
@@ -2083,6 +2244,8 @@ export default function ProdutosPage() {
         chavesMaisVendidos={chavesMaisVendidos}
         idsNovidades={idsNovidades}
         favoritosIdsSet={favoritosIdsSet}
+        recompraIdsSet={recompraIdsSet}
+        recentesIdsSet={recentesIdsSet}
         produtoAdicionadoRecenteId={produtoAdicionadoRecenteId}
         listId={listId}
         gridClassName={gridClassName}
@@ -2097,6 +2260,8 @@ export default function ProdutosPage() {
     handleToggleFavorito,
     abrirDetalheProduto,
     favoritosIdsSet,
+    recompraIdsSet,
+    recentesIdsSet,
     idsNovidades,
     produtoAdicionadoRecenteId
   ]);
@@ -2248,7 +2413,7 @@ export default function ProdutosPage() {
             <p className="products-hero-kicker">Vitrine Bomfilho</p>
             <h1>Produtos</h1>
             <p className="products-hero-subtitle">
-              Compare preços rapidamente, encontre ofertas do dia e adicione ao carrinho em poucos cliques.
+              Compare valor com rapidez, identifique oportunidades reais e monte seu carrinho com mais confiança.
             </p>
           </div>
 
@@ -2386,13 +2551,34 @@ export default function ProdutosPage() {
           ))}
         </div>
 
+        <section className="products-commerce-shortcuts" aria-label="Atalhos comerciais">
+          <div className="products-commerce-shortcuts-head">
+            <h2>Atalhos comerciais</h2>
+            <p>Encontre oportunidades e itens de alto interesse com menos cliques.</p>
+          </div>
+
+          <div className="products-commerce-shortcuts-list">
+            {FILTROS_COMERCIAIS_RAPIDOS.map((atalho) => (
+              <button
+                key={atalho.id}
+                type="button"
+                className="products-commerce-shortcut-btn"
+                onClick={() => handleAtalhoComercial(atalho.id)}
+              >
+                <strong>{atalho.label}</strong>
+                <span>{atalho.descricao}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
         <section className="products-recorrencia" aria-label="Atalhos de recorrencia e recompra">
           <div className="products-recorrencia-head">
             <div>
               <p className="products-recorrencia-kicker">Recorrencia</p>
               <h2>Volte ao que voce gosta</h2>
               <p>
-                Favoritos, vistos recentemente e sugestoes de recompra para reduzir esforco na proxima compra.
+                Favoritos, vistos recentemente e recompra para acelerar sua compra sem perder boas oportunidades.
               </p>
             </div>
 
@@ -2620,6 +2806,9 @@ export default function ProdutosPage() {
               <span className="products-results-term">Busca ativa: "{termoBuscaEfetivo}"</span>
             ) : null}
             <span>{totalOfertasDisponiveis} em oferta</span>
+            {filtroRecorrencia !== 'todos' ? (
+              <span className="products-results-pill">Atalho ativo: {filtroRecorrenciaAtivoLabel}</span>
+            ) : null}
             {(carregando && produtos.length > 0) || buscaEmAtualizacao ? (
               <span className="products-results-pill">Atualizando vitrine...</span>
             ) : null}

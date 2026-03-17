@@ -34,6 +34,377 @@ const STATUS_IMPORTACAO_LABELS = {
   simulado: 'Simulação',
   erro: 'Falha'
 };
+const BRL_CURRENCY = new Intl.NumberFormat('pt-BR', {
+  style: 'currency',
+  currency: 'BRL'
+});
+const FORMAS_PAGAMENTO_LABELS = {
+  pix: 'PIX',
+  credito: 'Cartão de crédito',
+  debito: 'Cartão de débito',
+  cartao: 'Cartão',
+  dinheiro: 'Dinheiro'
+};
+const STATUS_OPERACAO_META = {
+  pendente: {
+    label: 'Aguardando confirmação',
+    icon: '⏳',
+    tone: 'waiting',
+    timelineStep: 1
+  },
+  pago: {
+    label: 'Pago',
+    icon: '💳',
+    tone: 'processing',
+    timelineStep: 2
+  },
+  preparando: {
+    label: 'Em preparação',
+    icon: '📦',
+    tone: 'preparing',
+    timelineStep: 3
+  },
+  enviado: {
+    label: 'Saiu para entrega',
+    icon: '🛵',
+    tone: 'delivery',
+    timelineStep: 4
+  },
+  entregue: {
+    label: 'Entregue',
+    icon: '✅',
+    tone: 'delivered',
+    timelineStep: 5
+  },
+  cancelado: {
+    label: 'Cancelado',
+    icon: '⛔',
+    tone: 'canceled',
+    timelineStep: -1
+  }
+};
+const STATUS_CHIPS_OPERACIONAIS = ['todos', 'criticos', 'pendente', 'pago', 'preparando', 'enviado', 'entregue', 'cancelado'];
+const TIMELINE_ETAPAS_ADMIN = ['Recebido', 'Pagamento', 'Separação', 'Saída', 'Concluído'];
+const ORDENACAO_PEDIDOS_OPTIONS = [
+  { id: 'prioridade', label: 'Prioridade operacional' },
+  { id: 'mais-recentes', label: 'Mais recentes' },
+  { id: 'mais-antigos', label: 'Mais antigos' },
+  { id: 'maior-valor', label: 'Maior valor' },
+  { id: 'menor-valor', label: 'Menor valor' }
+];
+const FILTRO_PAGAMENTO_OPTIONS = [
+  { id: 'todos', label: 'Pagamento: todos' },
+  { id: 'confirmado', label: 'Pagamento confirmado' },
+  { id: 'pendente', label: 'Pagamento pendente' },
+  { id: 'falhou', label: 'Falha de pagamento' },
+  { id: 'pix', label: 'Somente PIX' },
+  { id: 'cartao', label: 'Somente cartão' },
+  { id: 'dinheiro', label: 'Somente dinheiro' }
+];
+
+function formatarMoeda(valor) {
+  return BRL_CURRENCY.format(Number(valor || 0));
+}
+
+function normalizarTextoBusca(texto) {
+  return String(texto || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function formatarFormaPagamentoPedido(formaRaw) {
+  const forma = String(formaRaw || '').trim().toLowerCase();
+  return FORMAS_PAGAMENTO_LABELS[forma] || 'Não informado';
+}
+
+function obterMetaStatusOperacional(statusRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+  return STATUS_OPERACAO_META[status] || {
+    label: 'Em análise',
+    icon: '🧾',
+    tone: 'neutral',
+    timelineStep: 1
+  };
+}
+
+function formatarDataHoraOperacional(dataRaw) {
+  if (!dataRaw) {
+    return '-';
+  }
+
+  const data = new Date(dataRaw);
+  if (Number.isNaN(data.getTime())) {
+    return '-';
+  }
+
+  return data.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function formatarTempoRelativo(dataRaw) {
+  if (!dataRaw) {
+    return 'Data não informada';
+  }
+
+  const data = new Date(dataRaw);
+  if (Number.isNaN(data.getTime())) {
+    return 'Data inválida';
+  }
+
+  const diffMs = Date.now() - data.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) {
+    return 'Agora';
+  }
+
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) {
+    return 'Agora';
+  }
+
+  if (diffMin < 60) {
+    return `${diffMin} min atrás`;
+  }
+
+  const diffHoras = Math.floor(diffMin / 60);
+  if (diffHoras < 24) {
+    return `${diffHoras}h atrás`;
+  }
+
+  const diffDias = Math.floor(diffHoras / 24);
+  return `${diffDias}d atrás`;
+}
+
+function obterProximoStatusPedido(statusRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+
+  if (status === 'pendente' || status === 'pago') {
+    return 'preparando';
+  }
+
+  if (status === 'preparando') {
+    return 'enviado';
+  }
+
+  if (status === 'enviado') {
+    return 'entregue';
+  }
+
+  return null;
+}
+
+function obterLabelAcaoRapida(statusRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+
+  if (status === 'pendente' || status === 'pago') {
+    return 'Iniciar separação';
+  }
+
+  if (status === 'preparando') {
+    return 'Marcar saída';
+  }
+
+  if (status === 'enviado') {
+    return 'Marcar entregue';
+  }
+
+  return '';
+}
+
+function formatarEnderecoOperacional(endereco) {
+  if (!endereco || typeof endereco !== 'object') {
+    return 'Endereço não cadastrado para este pedido.';
+  }
+
+  const rua = String(endereco.rua || '').trim();
+  const numero = String(endereco.numero || '').trim();
+  const bairro = String(endereco.bairro || '').trim();
+  const cidade = String(endereco.cidade || '').trim();
+  const estado = String(endereco.estado || '').trim();
+  const cep = String(endereco.cep || '').trim();
+
+  const linha1 = [rua, numero].filter(Boolean).join(', ');
+  const linha2 = [bairro, cidade, estado].filter(Boolean).join(' - ');
+  const texto = [linha1, linha2, cep].filter(Boolean).join(' | ');
+
+  return texto || 'Endereço não cadastrado para este pedido.';
+}
+
+function montarResumoItensOperacional(itensRaw) {
+  const itens = Array.isArray(itensRaw) ? itensRaw : [];
+
+  if (itens.length === 0) {
+    return {
+      totalItens: 0,
+      resumoTexto: 'Itens não detalhados neste pedido.'
+    };
+  }
+
+  const totalItens = itens.reduce((acc, item) => {
+    const quantidade = Number(item?.quantidade || 0);
+    return acc + (Number.isFinite(quantidade) && quantidade > 0 ? quantidade : 1);
+  }, 0);
+
+  const nomes = itens
+    .map((item) => String(item?.nome_produto || item?.nome || '').trim())
+    .filter(Boolean);
+
+  const nomesUnicos = [...new Set(nomes)];
+  const preview = nomesUnicos.slice(0, 3);
+  const extras = Math.max(0, nomesUnicos.length - preview.length);
+  const resumoTexto = preview.length
+    ? `${preview.join(', ')}${extras > 0 ? ` +${extras} item(ns)` : ''}`
+    : 'Itens disponíveis ao abrir detalhes.';
+
+  return {
+    totalItens,
+    resumoTexto
+  };
+}
+
+function inferirPagamentoMeta(pedido) {
+  const statusPedido = String(pedido?.status || '').trim().toLowerCase();
+  const forma = String(pedido?.forma_pagamento || '').trim().toLowerCase();
+  const pixStatus = String(pedido?.pix_status || '').trim().toUpperCase();
+  const formaLabel = formatarFormaPagamentoPedido(forma);
+
+  if (statusPedido === 'cancelado') {
+    return {
+      tone: 'neutral',
+      label: 'Pedido cancelado',
+      detalhe: formaLabel
+    };
+  }
+
+  if (forma === 'pix') {
+    if (pixStatus === 'PAID' || ['pago', 'preparando', 'enviado', 'entregue'].includes(statusPedido)) {
+      return {
+        tone: 'ok',
+        label: 'Pagamento confirmado',
+        detalhe: pixStatus ? `PIX ${pixStatus}` : 'PIX'
+      };
+    }
+
+    if (['DECLINED', 'CANCELED', 'EXPIRED', 'FAILED'].includes(pixStatus)) {
+      return {
+        tone: 'error',
+        label: 'Falha no pagamento',
+        detalhe: `PIX ${pixStatus}`
+      };
+    }
+
+    if (pixStatus === 'IN_ANALYSIS') {
+      return {
+        tone: 'attention',
+        label: 'Pagamento em análise',
+        detalhe: 'PIX'
+      };
+    }
+
+    return {
+      tone: 'waiting',
+      label: 'Aguardando pagamento',
+      detalhe: 'PIX pendente'
+    };
+  }
+
+  if (forma === 'dinheiro') {
+    if (statusPedido === 'entregue') {
+      return {
+        tone: 'ok',
+        label: 'Pagamento concluído',
+        detalhe: formaLabel
+      };
+    }
+
+    return {
+      tone: 'waiting',
+      label: 'Pagamento na entrega',
+      detalhe: formaLabel
+    };
+  }
+
+  if (['credito', 'debito', 'cartao'].includes(forma)) {
+    if (['pago', 'preparando', 'enviado', 'entregue'].includes(statusPedido)) {
+      return {
+        tone: 'ok',
+        label: 'Pagamento confirmado',
+        detalhe: formaLabel
+      };
+    }
+
+    return {
+      tone: 'attention',
+      label: 'Pagamento a confirmar',
+      detalhe: formaLabel
+    };
+  }
+
+  return {
+    tone: 'neutral',
+    label: 'Pagamento não informado',
+    detalhe: '-'
+  };
+}
+
+function normalizarTelefoneWhatsapp(telefoneRaw) {
+  const digits = String(telefoneRaw || '').replace(/\D/g, '');
+
+  if (digits.length < 10) {
+    return '';
+  }
+
+  if (digits.startsWith('55')) {
+    return digits;
+  }
+
+  if (digits.length === 10 || digits.length === 11) {
+    return `55${digits}`;
+  }
+
+  return digits;
+}
+
+function montarLinkWhatsappPedido(pedido) {
+  const telefone = normalizarTelefoneWhatsapp(pedido?.cliente_telefone);
+  if (!telefone) {
+    return '';
+  }
+
+  const mensagem = encodeURIComponent(
+    `Olá! Estamos acompanhando seu pedido #${pedido?.id || ''} na BomFilho.`
+  );
+
+  return `https://wa.me/${telefone}?text=${mensagem}`;
+}
+
+async function copiarTextoNavegador(texto) {
+  const valor = String(texto || '');
+  if (!valor) {
+    throw new Error('Valor vazio para cópia.');
+  }
+
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(valor);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = valor;
+  textarea.setAttribute('readonly', 'true');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+}
 
 function formatarStatusImportacao(statusRaw) {
   const status = String(statusRaw || '').trim().toLowerCase();
@@ -126,6 +497,13 @@ export default function AdminPage() {
   const [paginacaoPedidos, setPaginacaoPedidos] = useState(() => criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
   const [paginacaoProdutos, setPaginacaoProdutos] = useState(() => criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
   const [statusDraft, setStatusDraft] = useState({});
+  const [filtroPedidoStatus, setFiltroPedidoStatus] = useState('todos');
+  const [filtroPedidoPagamento, setFiltroPedidoPagamento] = useState('todos');
+  const [ordenacaoPedidos, setOrdenacaoPedidos] = useState('prioridade');
+  const [buscaPedidosOperacional, setBuscaPedidosOperacional] = useState('');
+  const [pedidoExpandidoId, setPedidoExpandidoId] = useState(null);
+  const [atualizandoStatusPedidoId, setAtualizandoStatusPedidoId] = useState(null);
+  const [feedbackPedidos, setFeedbackPedidos] = useState({ tipo: '', mensagem: '' });
   const [produtoForm, setProdutoForm] = useState(initialProduto);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -484,6 +862,13 @@ export default function AdminPage() {
     setPedidos([]);
     setProdutos([]);
     setStatusDraft({});
+    setFiltroPedidoStatus('todos');
+    setFiltroPedidoPagamento('todos');
+    setOrdenacaoPedidos('prioridade');
+    setBuscaPedidosOperacional('');
+    setPedidoExpandidoId(null);
+    setAtualizandoStatusPedidoId(null);
+    setFeedbackPedidos({ tipo: '', mensagem: '' });
     setPaginacaoPedidos(criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
     setPaginacaoProdutos(criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
     setArquivoImportacao(null);
@@ -503,6 +888,282 @@ export default function AdminPage() {
 
     return { total, pendentes, emEntrega, faturamento };
   }, [pedidos]);
+
+  const pedidosOperacionais = useMemo(() => {
+    return pedidos.map((pedido) => {
+      const statusNormalizado = String(pedido?.status || '').trim().toLowerCase();
+      const statusMeta = obterMetaStatusOperacional(statusNormalizado);
+      const pagamentoMeta = inferirPagamentoMeta(pedido);
+      const dataRaw = pedido?.criado_em || pedido?.data_pedido || null;
+      const data = dataRaw ? new Date(dataRaw) : null;
+      const dataMs = data && !Number.isNaN(data.getTime()) ? data.getTime() : 0;
+      const tempoMinutos = dataMs > 0 ? Math.floor((Date.now() - dataMs) / 60000) : 0;
+      const resumoItens = montarResumoItensOperacional(pedido?.itens);
+      const formaPagamento = String(pedido?.forma_pagamento || '').trim().toLowerCase();
+      const enderecoDisponivel = Boolean(pedido?.endereco && typeof pedido?.endereco === 'object' && pedido?.endereco?.rua);
+      const telefoneCliente = String(pedido?.cliente_telefone || '').trim();
+      const clienteNome = String(pedido?.cliente_nome || '').trim() || 'Cliente não identificado';
+      const totalNumero = Number(pedido?.total || 0);
+      const itensLista = Array.isArray(pedido?.itens)
+        ? pedido.itens.map((item, index) => {
+          const quantidade = Math.max(1, Number(item?.quantidade || 1));
+          const preco = Number(item?.preco || 0);
+          const subtotal = Number(item?.subtotal || (quantidade * preco));
+
+          return {
+            id: Number(item?.id || 0) || `item-${pedido?.id}-${index}`,
+            nome: String(item?.nome_produto || item?.nome || `Item ${index + 1}`).trim(),
+            quantidade,
+            preco,
+            subtotal
+          };
+        })
+        : [];
+
+      const requerAcao = ['pendente', 'pago', 'preparando', 'enviado'].includes(statusNormalizado);
+      const urgente = statusNormalizado === 'pendente' && tempoMinutos >= 30;
+      const critico = urgente || statusNormalizado === 'pendente' || pagamentoMeta.tone === 'error';
+
+      return {
+        ...pedido,
+        statusNormalizado,
+        statusMeta,
+        pagamentoMeta,
+        dataLabel: formatarDataHoraOperacional(dataRaw),
+        tempoRelativo: formatarTempoRelativo(dataRaw),
+        dataMs,
+        totalNumero,
+        formaPagamento,
+        formaPagamentoLabel: formatarFormaPagamentoPedido(formaPagamento),
+        pixStatus: String(pedido?.pix_status || '').trim().toUpperCase(),
+        clienteNome,
+        clienteTelefone: telefoneCliente,
+        resumoItensTexto: resumoItens.resumoTexto,
+        totalItens: resumoItens.totalItens,
+        itensLista,
+        enderecoTexto: formatarEnderecoOperacional(pedido?.endereco),
+        tipoAtendimento: enderecoDisponivel ? 'Entrega' : 'Retirada/indefinido',
+        whatsappLink: montarLinkWhatsappPedido(pedido),
+        proximoStatus: obterProximoStatusPedido(statusNormalizado),
+        acaoRapidaLabel: obterLabelAcaoRapida(statusNormalizado),
+        requerAcao,
+        urgente,
+        critico,
+        indiceBusca: normalizarTextoBusca([
+          pedido?.id,
+          clienteNome,
+          telefoneCliente,
+          formaPagamento,
+          statusNormalizado,
+          resumoItens.resumoTexto
+        ].join(' '))
+      };
+    });
+  }, [pedidos]);
+
+  const resumoPedidosOperacionais = useMemo(() => {
+    const agora = new Date();
+    const inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+
+    const contagemPorStatus = {
+      pendente: 0,
+      pago: 0,
+      preparando: 0,
+      enviado: 0,
+      entregue: 0,
+      cancelado: 0
+    };
+
+    let criticos = 0;
+    let aguardandoAcao = 0;
+    let emAndamento = 0;
+    let concluidosHoje = 0;
+    let pendentesPagamento = 0;
+
+    pedidosOperacionais.forEach((pedido) => {
+      if (Object.prototype.hasOwnProperty.call(contagemPorStatus, pedido.statusNormalizado)) {
+        contagemPorStatus[pedido.statusNormalizado] += 1;
+      }
+
+      if (pedido.critico) {
+        criticos += 1;
+      }
+
+      if (pedido.requerAcao) {
+        aguardandoAcao += 1;
+      }
+
+      if (['pago', 'preparando', 'enviado'].includes(pedido.statusNormalizado)) {
+        emAndamento += 1;
+      }
+
+      if (pedido.statusNormalizado === 'entregue' && pedido.dataMs > 0 && pedido.dataMs >= inicioHoje.getTime()) {
+        concluidosHoje += 1;
+      }
+
+      if (['waiting', 'attention', 'error'].includes(pedido.pagamentoMeta.tone)) {
+        pendentesPagamento += 1;
+      }
+    });
+
+    return {
+      total: pedidosOperacionais.length,
+      criticos,
+      aguardandoAcao,
+      emAndamento,
+      concluidosHoje,
+      pendentesPagamento,
+      contagemPorStatus
+    };
+  }, [pedidosOperacionais]);
+
+  const statusChipsOperacionais = useMemo(() => {
+    return STATUS_CHIPS_OPERACIONAIS.map((id) => {
+      if (id === 'todos') {
+        return {
+          id,
+          label: 'Todos',
+          count: resumoPedidosOperacionais.total
+        };
+      }
+
+      if (id === 'criticos') {
+        return {
+          id,
+          label: 'Críticos',
+          count: resumoPedidosOperacionais.criticos
+        };
+      }
+
+      return {
+        id,
+        label: formatarStatusPedido(id),
+        count: resumoPedidosOperacionais.contagemPorStatus[id] || 0
+      };
+    });
+  }, [resumoPedidosOperacionais]);
+
+  const filtrosPedidosAplicados = useMemo(() => {
+    const ativos = [];
+
+    if (filtroPedidoStatus !== 'todos') {
+      ativos.push(`Status: ${filtroPedidoStatus === 'criticos' ? 'Críticos' : formatarStatusPedido(filtroPedidoStatus)}`);
+    }
+
+    if (filtroPedidoPagamento !== 'todos') {
+      const opcao = FILTRO_PAGAMENTO_OPTIONS.find((item) => item.id === filtroPedidoPagamento);
+      if (opcao) {
+        ativos.push(opcao.label);
+      }
+    }
+
+    const busca = String(buscaPedidosOperacional || '').trim();
+    if (busca) {
+      ativos.push(`Busca: ${busca}`);
+    }
+
+    if (ordenacaoPedidos !== 'prioridade') {
+      const opcao = ORDENACAO_PEDIDOS_OPTIONS.find((item) => item.id === ordenacaoPedidos);
+      if (opcao) {
+        ativos.push(`Ordenação: ${opcao.label}`);
+      }
+    }
+
+    return ativos;
+  }, [buscaPedidosOperacional, filtroPedidoPagamento, filtroPedidoStatus, ordenacaoPedidos]);
+
+  const pedidosFiltradosOperacionais = useMemo(() => {
+    const termoBusca = normalizarTextoBusca(buscaPedidosOperacional);
+
+    const filtrados = pedidosOperacionais.filter((pedido) => {
+      if (filtroPedidoStatus === 'criticos' && !pedido.critico) {
+        return false;
+      }
+
+      if (filtroPedidoStatus !== 'todos' && filtroPedidoStatus !== 'criticos' && pedido.statusNormalizado !== filtroPedidoStatus) {
+        return false;
+      }
+
+      if (filtroPedidoPagamento === 'confirmado' && pedido.pagamentoMeta.tone !== 'ok') {
+        return false;
+      }
+
+      if (filtroPedidoPagamento === 'pendente' && !['waiting', 'attention'].includes(pedido.pagamentoMeta.tone)) {
+        return false;
+      }
+
+      if (filtroPedidoPagamento === 'falhou' && pedido.pagamentoMeta.tone !== 'error') {
+        return false;
+      }
+
+      if (filtroPedidoPagamento === 'pix' && pedido.formaPagamento !== 'pix') {
+        return false;
+      }
+
+      if (filtroPedidoPagamento === 'cartao' && !['credito', 'debito', 'cartao'].includes(pedido.formaPagamento)) {
+        return false;
+      }
+
+      if (filtroPedidoPagamento === 'dinheiro' && pedido.formaPagamento !== 'dinheiro') {
+        return false;
+      }
+
+      if (termoBusca && !pedido.indiceBusca.includes(termoBusca)) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return filtrados.sort((a, b) => {
+      if (ordenacaoPedidos === 'mais-recentes') {
+        return b.dataMs - a.dataMs;
+      }
+
+      if (ordenacaoPedidos === 'mais-antigos') {
+        return a.dataMs - b.dataMs;
+      }
+
+      if (ordenacaoPedidos === 'maior-valor') {
+        return b.totalNumero - a.totalNumero;
+      }
+
+      if (ordenacaoPedidos === 'menor-valor') {
+        return a.totalNumero - b.totalNumero;
+      }
+
+      const prioridadeA = a.statusNormalizado === 'cancelado'
+        ? 4
+        : (a.statusNormalizado === 'entregue' ? 3 : (a.critico ? 0 : 1));
+      const prioridadeB = b.statusNormalizado === 'cancelado'
+        ? 4
+        : (b.statusNormalizado === 'entregue' ? 3 : (b.critico ? 0 : 1));
+
+      if (prioridadeA !== prioridadeB) {
+        return prioridadeA - prioridadeB;
+      }
+
+      if (a.requerAcao !== b.requerAcao) {
+        return Number(b.requerAcao) - Number(a.requerAcao);
+      }
+
+      return b.dataMs - a.dataMs;
+    });
+  }, [
+    buscaPedidosOperacional,
+    filtroPedidoPagamento,
+    filtroPedidoStatus,
+    ordenacaoPedidos,
+    pedidosOperacionais
+  ]);
+
+  const contadorPedidosOperacionaisTexto = useMemo(() => {
+    if (paginacaoPedidos.total > 0) {
+      return `${pedidosFiltradosOperacionais.length} de ${paginacaoPedidos.total} pedido(s)`;
+    }
+
+    return `${pedidosFiltradosOperacionais.length} pedido(s)`;
+  }, [pedidosFiltradosOperacionais.length, paginacaoPedidos.total]);
 
   const financeiro = useMemo(() => {
     const agora = new Date();
@@ -625,17 +1286,84 @@ export default function AdminPage() {
     };
   }, [linhasFinanceiro]);
 
-  async function salvarStatusPedido(pedidoId) {
-    const status = statusDraft[pedidoId];
-    if (!status) {
+  async function salvarStatusPedido(pedidoId, statusForcado = '') {
+    const statusSelecionado = String(statusForcado || statusDraft[pedidoId] || '').trim().toLowerCase();
+
+    if (!STATUS_OPTIONS.includes(statusSelecionado)) {
+      setFeedbackPedidos({
+        tipo: 'error',
+        mensagem: 'Selecione um status válido para salvar.'
+      });
+      return;
+    }
+
+    setErro('');
+    setAtualizandoStatusPedidoId(pedidoId);
+    setFeedbackPedidos({ tipo: '', mensagem: '' });
+
+    try {
+      await adminAtualizarStatusPedido(pedidoId, statusSelecionado);
+
+      setStatusDraft((atual) => ({
+        ...atual,
+        [pedidoId]: statusSelecionado
+      }));
+
+      setFeedbackPedidos({
+        tipo: 'success',
+        mensagem: `Pedido #${pedidoId} atualizado para ${formatarStatusPedido(statusSelecionado)}.`
+      });
+
+      await carregarPedidosPagina(paginacaoPedidos.pagina);
+    } catch (error) {
+      setErro(error.message);
+      setFeedbackPedidos({
+        tipo: 'error',
+        mensagem: error.message || 'Não foi possível atualizar o status do pedido.'
+      });
+    } finally {
+      setAtualizandoStatusPedidoId(null);
+    }
+  }
+
+  async function handleAcaoRapidaPedido(pedido) {
+    const statusAtual = String(pedido?.statusNormalizado || pedido?.status || '').trim().toLowerCase();
+    const proximoStatus = obterProximoStatusPedido(statusAtual);
+
+    if (!proximoStatus) {
+      return;
+    }
+
+    await salvarStatusPedido(Number(pedido?.id), proximoStatus);
+  }
+
+  function limparFiltrosPedidosOperacionais() {
+    setFiltroPedidoStatus('todos');
+    setFiltroPedidoPagamento('todos');
+    setOrdenacaoPedidos('prioridade');
+    setBuscaPedidosOperacional('');
+  }
+
+  async function handleCopiarCampoPedido(valor, label) {
+    if (!valor) {
+      setFeedbackPedidos({
+        tipo: 'error',
+        mensagem: `${label} indisponível para cópia.`
+      });
       return;
     }
 
     try {
-      await adminAtualizarStatusPedido(pedidoId, status);
-      await carregarPedidosPagina(paginacaoPedidos.pagina);
-    } catch (error) {
-      setErro(error.message);
+      await copiarTextoNavegador(valor);
+      setFeedbackPedidos({
+        tipo: 'success',
+        mensagem: `${label} copiado com sucesso.`
+      });
+    } catch {
+      setFeedbackPedidos({
+        tipo: 'error',
+        mensagem: `Não foi possível copiar ${label.toLowerCase()}.`
+      });
     }
   }
 
@@ -856,85 +1584,388 @@ export default function AdminPage() {
 
       {tab === 'pedidos' ? (
         <>
-          <div className="table-wrap" style={{ marginTop: '1rem' }}>
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Cliente</th>
-                  <th>Total</th>
-                  <th>Status</th>
-                  <th>Data</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pedidos.length === 0 ? (
-                  <tr>
-                    <td colSpan={6}>Nenhum pedido encontrado nesta página.</td>
-                  </tr>
-                ) : (
-                  pedidos.map((pedido) => (
-                    <tr key={pedido.id}>
-                      <td>#{pedido.id}</td>
-                      <td>{pedido.cliente_nome || '-'}</td>
-                      <td>R$ {Number(pedido.total || 0).toFixed(2)}</td>
-                      <td>
+          <section className="admin-orders-panel">
+            <div className="admin-orders-head">
+              <div>
+                <h2>Operação de pedidos</h2>
+                <p>Leia, priorize e avance pedidos com clareza operacional.</p>
+              </div>
+
+              <p className="admin-orders-head-meta">
+                Página {paginacaoPedidos.pagina} de {paginacaoPedidos.total_paginas} • {paginacaoPedidos.total} pedido(s)
+              </p>
+            </div>
+
+            <div className="admin-orders-summary-grid" aria-label="Resumo operacional dos pedidos">
+              <article className="admin-orders-summary-card">
+                <span>Total na página</span>
+                <strong>{resumoPedidosOperacionais.total}</strong>
+                <small>{contadorPedidosOperacionaisTexto}</small>
+              </article>
+
+              <article className="admin-orders-summary-card is-critical">
+                <span>Pendências críticas</span>
+                <strong>{resumoPedidosOperacionais.criticos}</strong>
+                <small>Pedidos com atenção imediata</small>
+              </article>
+
+              <article className="admin-orders-summary-card">
+                <span>Aguardando ação</span>
+                <strong>{resumoPedidosOperacionais.aguardandoAcao}</strong>
+                <small>Status que exigem operação</small>
+              </article>
+
+              <article className="admin-orders-summary-card">
+                <span>Em andamento</span>
+                <strong>{resumoPedidosOperacionais.emAndamento}</strong>
+                <small>Pedidos em fluxo de preparação/entrega</small>
+              </article>
+
+              <article className="admin-orders-summary-card">
+                <span>Concluídos hoje</span>
+                <strong>{resumoPedidosOperacionais.concluidosHoje}</strong>
+                <small>Entregues no dia atual</small>
+              </article>
+
+              <article className="admin-orders-summary-card">
+                <span>Pagamento pendente</span>
+                <strong>{resumoPedidosOperacionais.pendentesPagamento}</strong>
+                <small>Com necessidade de conferência</small>
+              </article>
+            </div>
+
+            <div className="admin-orders-filter-wrap" aria-label="Filtros operacionais">
+              <div className="admin-orders-status-chips" role="tablist" aria-label="Filtrar pedidos por status">
+                {statusChipsOperacionais.map((chip) => (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    className={`admin-orders-status-chip ${filtroPedidoStatus === chip.id ? 'active' : ''}`}
+                    onClick={() => setFiltroPedidoStatus(chip.id)}
+                    aria-pressed={filtroPedidoStatus === chip.id}
+                  >
+                    <span>{chip.label}</span>
+                    <strong>{chip.count}</strong>
+                  </button>
+                ))}
+              </div>
+
+              <div className="admin-orders-filters-grid">
+                <label className="admin-orders-search-field" htmlFor="admin-orders-search">
+                  <span>Busca operacional</span>
+                  <input
+                    id="admin-orders-search"
+                    className="field-input"
+                    placeholder="Número, cliente ou telefone"
+                    value={buscaPedidosOperacional}
+                    onChange={(event) => setBuscaPedidosOperacional(event.target.value)}
+                  />
+                </label>
+
+                <label className="admin-orders-select-field" htmlFor="admin-orders-payment-filter">
+                  <span>Pagamento</span>
+                  <select
+                    id="admin-orders-payment-filter"
+                    className="field-input"
+                    value={filtroPedidoPagamento}
+                    onChange={(event) => setFiltroPedidoPagamento(event.target.value)}
+                  >
+                    {FILTRO_PAGAMENTO_OPTIONS.map((opcao) => (
+                      <option key={opcao.id} value={opcao.id}>{opcao.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="admin-orders-select-field" htmlFor="admin-orders-orderby">
+                  <span>Ordenação</span>
+                  <select
+                    id="admin-orders-orderby"
+                    className="field-input"
+                    value={ordenacaoPedidos}
+                    onChange={(event) => setOrdenacaoPedidos(event.target.value)}
+                  >
+                    {ORDENACAO_PEDIDOS_OPTIONS.map((opcao) => (
+                      <option key={opcao.id} value={opcao.id}>{opcao.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <button
+                  className="btn-secondary admin-orders-clear-btn"
+                  type="button"
+                  onClick={limparFiltrosPedidosOperacionais}
+                  disabled={filtrosPedidosAplicados.length === 0}
+                >
+                  Limpar filtros
+                </button>
+              </div>
+
+              {filtrosPedidosAplicados.length > 0 ? (
+                <div className="admin-orders-active-filters" aria-label="Filtros ativos">
+                  {filtrosPedidosAplicados.map((item) => (
+                    <span key={item} className="admin-orders-active-filter">{item}</span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            {feedbackPedidos.mensagem ? (
+              <div className={`admin-orders-feedback is-${feedbackPedidos.tipo || 'info'}`} role="status" aria-live="polite">
+                {feedbackPedidos.mensagem}
+              </div>
+            ) : null}
+
+            {pedidosFiltradosOperacionais.length === 0 ? (
+              <div className="orders-state-card is-filter-empty" role="status" aria-live="polite">
+                <div className="orders-empty-icon" aria-hidden="true">🗂️</div>
+                <p><strong>Nenhum pedido encontrado com os filtros aplicados.</strong></p>
+                <p>Ajuste os filtros para visualizar pedidos de outros status, clientes ou pagamentos.</p>
+              </div>
+            ) : (
+              <div className="admin-orders-list">
+                {pedidosFiltradosOperacionais.map((pedido) => {
+                  const pedidoId = Number(pedido?.id || 0);
+                  const statusSelecionado = String(statusDraft[pedidoId] || pedido.statusNormalizado || '').trim().toLowerCase() || 'pendente';
+                  const opcoesStatus = STATUS_OPTIONS.includes(statusSelecionado)
+                    ? STATUS_OPTIONS
+                    : [statusSelecionado, ...STATUS_OPTIONS.filter((status) => status !== statusSelecionado)];
+                  const detalheAberto = pedidoExpandidoId === pedidoId;
+                  const emAtualizacao = atualizandoStatusPedidoId === pedidoId;
+                  const podeSalvarStatus = STATUS_OPTIONS.includes(statusSelecionado);
+
+                  return (
+                    <article
+                      key={pedidoId}
+                      className={`admin-order-card ${pedido.critico ? 'is-critical' : ''} ${pedido.urgente ? 'is-urgent' : ''}`}
+                    >
+                      <div className="admin-order-card-head">
+                        <div>
+                          <p className="admin-order-id">Pedido #{pedidoId}</p>
+                          <p className="admin-order-date">{pedido.dataLabel} • {pedido.tempoRelativo}</p>
+                        </div>
+
+                        <div className="admin-order-badges">
+                          {pedido.urgente ? (
+                            <span className="admin-order-urgency">Atenção imediata</span>
+                          ) : null}
+
+                          <span className={`admin-payment-badge tone-${pedido.pagamentoMeta.tone}`}>
+                            {pedido.pagamentoMeta.label}
+                          </span>
+
+                          <span className={`orders-status-badge tone-${pedido.statusMeta.tone}`}>
+                            <span className="orders-status-icon" aria-hidden="true">{pedido.statusMeta.icon}</span>
+                            <span>{pedido.statusMeta.label}</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="admin-order-grid">
+                        <div>
+                          <span>Cliente</span>
+                          <strong>{pedido.clienteNome}</strong>
+                          <small>{pedido.clienteTelefone || 'Telefone não informado'}</small>
+                        </div>
+
+                        <div>
+                          <span>Total</span>
+                          <strong>{formatarMoeda(pedido.totalNumero)}</strong>
+                          <small>{pedido.totalItens} item(ns)</small>
+                        </div>
+
+                        <div>
+                          <span>Atendimento</span>
+                          <strong>{pedido.tipoAtendimento}</strong>
+                          <small>{pedido.formaPagamentoLabel}</small>
+                        </div>
+                      </div>
+
+                      <p className="admin-order-summary">{pedido.resumoItensTexto}</p>
+
+                      <div className="admin-order-actions-row">
                         <select
                           className="field-input"
-                          value={statusDraft[pedido.id] || pedido.status}
+                          value={statusSelecionado}
                           onChange={(event) =>
                             setStatusDraft((atual) => ({
                               ...atual,
-                              [pedido.id]: event.target.value
+                              [pedidoId]: event.target.value
                             }))
                           }
+                          disabled={emAtualizacao}
                         >
-                          {STATUS_OPTIONS.map((status) => (
-                            <option key={status} value={status}>{formatarStatusPedido(status)}</option>
+                          {opcoesStatus.map((status) => (
+                            <option key={`${pedidoId}-${status}`} value={status}>
+                              {formatarStatusPedido(status)}
+                              {!STATUS_OPTIONS.includes(status) ? ' (somente leitura)' : ''}
+                            </option>
                           ))}
                         </select>
-                      </td>
-                      <td>{new Date(pedido.criado_em || pedido.data_pedido).toLocaleString('pt-BR')}</td>
-                      <td>
-                        <button className="btn-secondary" type="button" onClick={() => salvarStatusPedido(pedido.id)}>
-                          Salvar status
+
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          onClick={() => {
+                            void salvarStatusPedido(pedidoId);
+                          }}
+                          disabled={!podeSalvarStatus || emAtualizacao}
+                        >
+                          {emAtualizacao ? 'Salvando...' : 'Salvar status'}
                         </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
 
-          <div className="toolbar-box" style={{ marginTop: '0.8rem', alignItems: 'center' }}>
-            <p className="muted-text" style={{ margin: 0 }}>
-              Página {paginacaoPedidos.pagina} de {paginacaoPedidos.total_paginas} • {paginacaoPedidos.total} pedido(s)
-            </p>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={carregandoPedidos || paginacaoPedidos.pagina <= 1}
-              onClick={() => {
-                void carregarPedidosPagina(paginacaoPedidos.pagina - 1);
-              }}
-            >
-              Página anterior
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={carregandoPedidos || !paginacaoPedidos.tem_mais}
-              onClick={() => {
-                void carregarPedidosPagina(paginacaoPedidos.pagina + 1);
-              }}
-            >
-              Próxima página
-            </button>
-          </div>
+                        {pedido.proximoStatus ? (
+                          <button
+                            className="btn-primary"
+                            type="button"
+                            onClick={() => {
+                              void handleAcaoRapidaPedido(pedido);
+                            }}
+                            disabled={emAtualizacao}
+                          >
+                            {pedido.acaoRapidaLabel}
+                          </button>
+                        ) : null}
 
-          {carregandoPedidos ? <p className="muted-text" style={{ marginTop: '0.5rem' }}>Carregando pedidos...</p> : null}
+                        <button
+                          className="btn-secondary"
+                          type="button"
+                          onClick={() => setPedidoExpandidoId(detalheAberto ? null : pedidoId)}
+                        >
+                          {detalheAberto ? 'Ocultar detalhe' : 'Ver detalhe'}
+                        </button>
+                      </div>
+
+                      {detalheAberto ? (
+                        <div className="admin-order-details">
+                          <div className="admin-order-details-grid">
+                            <article className="admin-order-detail-card">
+                              <h4>Pagamento</h4>
+                              <p>{pedido.pagamentoMeta.label}</p>
+                              <small>{pedido.pagamentoMeta.detalhe}</small>
+                              {pedido.pixStatus ? <small>PIX status: {pedido.pixStatus}</small> : null}
+                            </article>
+
+                            <article className="admin-order-detail-card">
+                              <h4>Contato</h4>
+                              <p>{pedido.clienteNome}</p>
+                              <small>{pedido.clienteTelefone || 'Telefone não informado'}</small>
+                              <div className="admin-order-detail-actions">
+                                <button
+                                  className="btn-secondary"
+                                  type="button"
+                                  onClick={() => {
+                                    void handleCopiarCampoPedido(pedido.clienteTelefone, 'Telefone do cliente');
+                                  }}
+                                >
+                                  Copiar telefone
+                                </button>
+                                {pedido.whatsappLink ? (
+                                  <a className="btn-secondary" href={pedido.whatsappLink} target="_blank" rel="noopener noreferrer">
+                                    Abrir WhatsApp
+                                  </a>
+                                ) : null}
+                              </div>
+                            </article>
+
+                            <article className="admin-order-detail-card">
+                              <h4>Endereço</h4>
+                              <p>{pedido.enderecoTexto}</p>
+                              <div className="admin-order-detail-actions">
+                                <button
+                                  className="btn-secondary"
+                                  type="button"
+                                  onClick={() => {
+                                    void handleCopiarCampoPedido(pedido.enderecoTexto, 'Endereço');
+                                  }}
+                                >
+                                  Copiar endereço
+                                </button>
+                              </div>
+                            </article>
+                          </div>
+
+                          {pedido.statusNormalizado === 'cancelado' ? (
+                            <div className="orders-timeline is-canceled is-compact">
+                              <span className="orders-timeline-canceled-text">Pedido cancelado.</span>
+                            </div>
+                          ) : (
+                            <div className="orders-timeline is-compact" aria-label="Andamento operacional do pedido">
+                              {TIMELINE_ETAPAS_ADMIN.map((etapa, index) => {
+                                const numeroEtapa = index + 1;
+                                const done = numeroEtapa < pedido.statusMeta.timelineStep;
+                                const current = numeroEtapa === pedido.statusMeta.timelineStep;
+
+                                return (
+                                  <div
+                                    className={`orders-timeline-step ${done ? 'is-done' : ''} ${current ? 'is-current' : ''}`}
+                                    key={`${pedidoId}-timeline-${etapa}`}
+                                  >
+                                    <span className="orders-timeline-dot" aria-hidden="true" />
+                                    <span className="orders-timeline-label">{etapa}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          <div className="admin-order-items-box">
+                            <div className="admin-order-items-head">
+                              <strong>Itens do pedido</strong>
+                              <span>{pedido.totalItens} item(ns)</span>
+                            </div>
+
+                            {pedido.itensLista.length === 0 ? (
+                              <p className="muted-text">Itens não detalhados neste pedido.</p>
+                            ) : (
+                              <ul className="admin-order-items-list">
+                                {pedido.itensLista.map((item) => (
+                                  <li key={`${pedidoId}-${item.id}`}>
+                                    <div>
+                                      <p>{item.nome}</p>
+                                      <small>{item.quantidade} x {formatarMoeda(item.preco)}</small>
+                                    </div>
+                                    <strong>{formatarMoeda(item.subtotal)}</strong>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="toolbar-box admin-orders-pagination" style={{ alignItems: 'center' }}>
+              <p className="muted-text" style={{ margin: 0 }}>
+                {contadorPedidosOperacionaisTexto}
+              </p>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={carregandoPedidos || paginacaoPedidos.pagina <= 1}
+                onClick={() => {
+                  void carregarPedidosPagina(paginacaoPedidos.pagina - 1);
+                }}
+              >
+                Página anterior
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={carregandoPedidos || !paginacaoPedidos.tem_mais}
+                onClick={() => {
+                  void carregarPedidosPagina(paginacaoPedidos.pagina + 1);
+                }}
+              >
+                Próxima página
+              </button>
+            </div>
+
+            {carregandoPedidos ? <p className="muted-text" style={{ marginTop: '0.2rem' }}>Atualizando pedidos...</p> : null}
+          </section>
         </>
       ) : tab === 'produtos' ? (
         <>

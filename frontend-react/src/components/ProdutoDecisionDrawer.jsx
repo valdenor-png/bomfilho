@@ -136,6 +136,31 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
     }
     return getProdutoBadges(produtoIndexado);
   }, [getProdutoBadges, produtoIndexado]);
+  const chipsValorComercial = useMemo(() => {
+    const chips = [];
+
+    if (precoInfo.precoAnterior && precoInfo.economia > 0) {
+      chips.push(`Economia real de ${formatarMoeda(precoInfo.economia)}`);
+    }
+
+    if (precoInfo.precoPix) {
+      chips.push(`${formatarMoeda(precoInfo.precoPix)} no Pix`);
+    }
+
+    if (marcaProduto) {
+      chips.push(`Marca: ${marcaProduto}`);
+    }
+
+    if (medidaProduto) {
+      chips.push(`Unidade: ${medidaProduto}`);
+    }
+
+    if (favorito) {
+      chips.push('Item salvo nos seus favoritos');
+    }
+
+    return chips.slice(0, 4);
+  }, [favorito, formatarMoeda, marcaProduto, medidaProduto, precoInfo.economia, precoInfo.precoAnterior, precoInfo.precoPix]);
   const [imagemIndisponivel, setImagemIndisponivel] = useState(() => !imagem.src);
 
   useEffect(() => {
@@ -183,7 +208,7 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
       >
         <header className="product-detail-header">
           <div>
-            <p className="product-detail-kicker">Decisao de compra</p>
+            <p className="product-detail-kicker">Decisao de compra inteligente</p>
             <h2>{nomeProduto}</h2>
           </div>
 
@@ -253,6 +278,14 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
                 {podeComprar ? 'Disponivel para adicionar agora' : 'Indisponivel no momento'}
               </p>
 
+              {chipsValorComercial.length > 0 ? (
+                <div className="product-detail-value-chips" aria-label="Vantagens comerciais do item">
+                  {chipsValorComercial.map((chip) => (
+                    <span key={chip}>{chip}</span>
+                  ))}
+                </div>
+              ) : null}
+
               {favorito ? (
                 <p className="product-detail-favorite-copy">Este item esta salvo nos seus favoritos.</p>
               ) : null}
@@ -321,7 +354,9 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
                 disabled={!podeComprar}
               >
                 {podeComprar
-                  ? (quantidadeNoCarrinho > 0 ? 'Adicionar mais ao carrinho' : 'Adicionar ao carrinho')
+                  ? (quantidadeNoCarrinho > 0
+                    ? 'Adicionar mais ao carrinho'
+                    : (precoInfo.precoAnterior ? 'Aproveitar oferta' : 'Adicionar ao carrinho'))
                   : 'Indisponivel no momento'}
               </button>
 
@@ -338,8 +373,8 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
           {recomendacoes.length > 0 ? (
             <section className="product-detail-recommendations" aria-label="Produtos relacionados">
               <div className="product-detail-recommendations-head">
-                <h3>Voce tambem pode precisar</h3>
-                <p>Selecionamos opcoes relacionadas para facilitar sua decisao.</p>
+                <h3>Combine com este item</h3>
+                <p>Produtos relacionados para completar sua compra com praticidade.</p>
               </div>
 
               <div className="product-reco-grid">

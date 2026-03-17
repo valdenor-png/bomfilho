@@ -90,6 +90,26 @@ function isProdutoEmPromocao(produto) {
   );
 }
 
+function getProdutoId(produto) {
+  const id = Number(produto?.id || 0);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function getOfertaComercialLabel(produto) {
+  const percentual = Number(produto?.percentual_desconto || 0);
+  const descontoValor = Number(produto?.desconto || 0);
+
+  if (percentual >= 5) {
+    return `${Math.round(percentual)}% OFF`;
+  }
+
+  if (descontoValor >= 1) {
+    return `Economize R$ ${descontoValor.toFixed(2)}`;
+  }
+
+  return 'Oferta real';
+}
+
 function HomeShelfSkeleton({ quantidade = 4 }) {
   return (
     <div className="home-shelf-skeleton-grid" aria-hidden="true">
@@ -233,6 +253,54 @@ export default function HomePage() {
   const recompraHome = useMemo(() => recomprasProdutos.slice(0, 4), [recomprasProdutos]);
   const temDadosRecorrencia = recorrenciaStats.favoritos > 0 || recorrenciaStats.recentes > 0 || recorrenciaStats.recompra > 0;
 
+  const idsRecorrenciaHome = useMemo(() => {
+    const ids = [
+      ...favoritosProdutos,
+      ...recentesProdutos,
+      ...recomprasProdutos
+    ]
+      .map((produto) => getProdutoId(produto))
+      .filter((id) => id !== null);
+
+    return new Set(ids);
+  }, [favoritosProdutos, recentesProdutos, recomprasProdutos]);
+
+  const oportunidadesComerciais = useMemo(() => {
+    return produtos
+      .map((produto) => {
+        const id = getProdutoId(produto);
+        let score = 0;
+
+        if (isProdutoEmPromocao(produto)) {
+          score += 6;
+        }
+
+        if (id !== null && idsRecorrenciaHome.has(id)) {
+          score += 4;
+        }
+
+        if (Number(produto?.preco_pix || 0) > 0) {
+          score += 1;
+        }
+
+        return {
+          produto,
+          id,
+          score
+        };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => {
+        const scoreDiff = b.score - a.score;
+        if (scoreDiff !== 0) {
+          return scoreDiff;
+        }
+
+        return String(a.produto?.nome || '').localeCompare(String(b.produto?.nome || ''), 'pt-BR');
+      })
+      .slice(0, 4);
+  }, [idsRecorrenciaHome, produtos]);
+
   function abrirProdutos(params = {}) {
     const query = new URLSearchParams();
     if (params.categoria) {
@@ -337,8 +405,8 @@ export default function HomePage() {
 
       <section className="home-quick-buy" aria-label="Atalhos de compra rapida">
         <div className="home-quick-buy-head">
-          <h2>Compra rapida</h2>
-          <p>Use atalhos para montar seu carrinho em menos tempo.</p>
+          <h2>Atalhos para comprar melhor</h2>
+          <p>Acesse setores e promoções com menos passos.</p>
         </div>
         <div className="home-quick-buy-actions">
           {HOME_ATALHOS_COMPRA.map((atalho) => (
@@ -352,6 +420,55 @@ export default function HomePage() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="home-opportunities" aria-label="Oportunidades comerciais da semana">
+        <div className="home-opportunities-head">
+          <h2>Oportunidades da semana</h2>
+          <p>Seleção equilibrada com ofertas reais e itens com alto interesse de compra.</p>
+        </div>
+
+        {carregando ? (
+          <HomeShelfSkeleton quantidade={4} />
+        ) : oportunidadesComerciais.length > 0 ? (
+          <div className="home-opportunities-grid">
+            {oportunidadesComerciais.map(({ produto, id }) => {
+              const temOferta = isProdutoEmPromocao(produto);
+              const emRecorrencia = id !== null && idsRecorrenciaHome.has(id);
+
+              return (
+                <article className="home-opportunity-card" key={`home-opportunity-${id || produto.nome}`}>
+                  {temOferta ? (
+                    <span className="home-opportunity-badge">{getOfertaComercialLabel(produto)}</span>
+                  ) : null}
+
+                  {emRecorrencia ? (
+                    <span className="home-opportunity-flag">Interesse seu</span>
+                  ) : null}
+
+                  <img
+                    className="home-opportunity-image"
+                    src={getProdutoImagem(produto)}
+                    alt={produto.nome}
+                    loading="lazy"
+                    onError={(event) => {
+                      event.currentTarget.src = '/img/logo-oficial.png';
+                    }}
+                  />
+
+                  <p className="home-opportunity-name">{produto.emoji || '🛒'} {produto.nome}</p>
+                  <p className="home-opportunity-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
+
+                  <button className="btn-secondary" type="button" onClick={() => abrirProdutos({ busca: produto.nome })}>
+                    Ver oportunidade
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="muted-text">Assim que houver oportunidades com melhor custo-benefício, elas aparecem aqui.</p>
+        )}
       </section>
 
       <section className="home-recorrencia" aria-label="Atalhos de recorrencia e recompra">
@@ -469,7 +586,7 @@ export default function HomePage() {
       <section className="home-offers" aria-label="Ofertas em destaque">
         <div className="home-offers-head">
           <h2>Ofertas em destaque</h2>
-          <p>Produtos com condicoes especiais para facilitar sua compra da semana.</p>
+          <p>Condições comerciais reais para você economizar sem perder qualidade.</p>
         </div>
 
         {carregando ? (
@@ -478,7 +595,7 @@ export default function HomePage() {
           <div className="home-offers-grid">
             {ofertasEmDestaque.map((produto) => (
               <article className="home-offer-card" key={`offer-${produto.id}`}>
-                <span className="home-offer-badge">Oferta</span>
+                <span className="home-offer-badge">{getOfertaComercialLabel(produto)}</span>
                 <img
                   className="home-offer-image"
                   src={getProdutoImagem(produto)}
@@ -490,8 +607,9 @@ export default function HomePage() {
                 />
                 <p className="home-offer-name">{produto.emoji || '🛒'} {produto.nome}</p>
                 <p className="home-offer-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
+                <p className="home-offer-copy">Preço atualizado com condição promocional vigente.</p>
                 <button className="btn-secondary" type="button" onClick={() => abrirProdutos({ busca: produto.nome })}>
-                  Ver produto
+                  Aproveitar oferta
                 </button>
               </article>
             ))}
@@ -544,8 +662,8 @@ export default function HomePage() {
 
       <section className="best-sellers">
         <div className="best-sellers-head">
-          <h2>Mais pedidos da semana</h2>
-          <p>Selecao de produtos que os clientes Bomfilho levam primeiro.</p>
+          <h2>Mais procurados</h2>
+          <p>Itens com maior saída recente para acelerar sua decisão de compra.</p>
         </div>
         {carregando ? (
           <HomeShelfSkeleton quantidade={4} />
@@ -553,6 +671,7 @@ export default function HomePage() {
           <div className="best-sellers-list">
             {maisVendidos.map((produto) => (
               <article key={`best-${produto.id}`} className="best-item">
+                <span className="best-item-badge">Mais procurado</span>
                 <img
                   className="best-item-img"
                   src={getProdutoImagem(produto)}
@@ -565,7 +684,7 @@ export default function HomePage() {
                 <p className="best-item-name">{produto.emoji || '📦'} {produto.nome}</p>
                 <p className="best-item-price">R$ {Number(produto.preco || 0).toFixed(2)}</p>
                 <button className="btn-secondary" type="button" onClick={() => abrirProdutos({ busca: produto.nome })}>
-                  Ver produto
+                  Ver destaque
                 </button>
               </article>
             ))}
