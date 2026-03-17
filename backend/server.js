@@ -4609,15 +4609,19 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     const pagbankChargeId = chargePrincipal?.id || null;
     const traceId = String(extrairTraceIdPagBank(pagamento) || '').trim() || null;
 
+    await pool.query(
+      'UPDATE pedidos SET status = ? WHERE id = ?',
+      [statusInterno, pedido.id]
+    );
+
+    // Tentar persistir dados extras do pagamento (ignora erro se colunas não existirem)
     try {
       await pool.query(
-        `UPDATE pedidos
-         SET status = ?, pix_status = ?, pix_id = ?
-         WHERE id = ?`,
-        [statusInterno, statusPagBank, pagbankOrderId, pedido.id]
+        'UPDATE pedidos SET pix_status = ?, pix_id = ? WHERE id = ?',
+        [statusPagBank, pagbankOrderId, pedido.id]
       );
     } catch (err) {
-      console.warn('Não foi possível salvar dados do pagamento cartão (faltam colunas?):', err.message);
+      console.warn('Não foi possível salvar pix_status/pix_id do pedido (colunas auxiliares ausentes - execute migrate_pix.sql):', err.message);
     }
 
     const payloadResposta = {
