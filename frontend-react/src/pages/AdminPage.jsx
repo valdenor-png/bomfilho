@@ -87,6 +87,7 @@ const STATUS_CHIPS_OPERACIONAIS = ['todos', 'criticos', 'pendente', 'pago', 'pre
 const TIMELINE_ETAPAS_ADMIN = ['Recebido', 'Pagamento', 'Separação', 'Saída', 'Concluído'];
 const ORDENACAO_PEDIDOS_OPTIONS = [
   { id: 'prioridade', label: 'Prioridade operacional' },
+  { id: 'urgencia', label: 'Urgência operacional' },
   { id: 'mais-recentes', label: 'Mais recentes' },
   { id: 'mais-antigos', label: 'Mais antigos' },
   { id: 'maior-valor', label: 'Maior valor' },
@@ -101,6 +102,22 @@ const FILTRO_PAGAMENTO_OPTIONS = [
   { id: 'cartao', label: 'Somente cartão' },
   { id: 'dinheiro', label: 'Somente dinheiro' }
 ];
+const OPERACAO_PEDIDOS_LIMITES = Object.freeze({
+  pendenteAtencaoMinutos: 20,
+  envelhecimentoAtencaoMinutos: 45,
+  envelhecimentoUrgenciaMinutos: 90,
+  envelhecimentoCriticoMinutos: 180,
+  autoRefreshMs: 90000,
+  maxPendenciasVisiveisFilaAlta: 2,
+  historicoSessaoMaxItens: 30
+});
+const CONTEXTO_PEDIDOS_LOCAL_STORAGE_KEY = 'bf_admin_pedidos_context_v1';
+const AUTO_REFRESH_PEDIDOS_INTERVALO_MS = OPERACAO_PEDIDOS_LIMITES.autoRefreshMs;
+const AUTO_REFRESH_PEDIDOS_LABEL = `${Math.round(AUTO_REFRESH_PEDIDOS_INTERVALO_MS / 1000)}s`;
+const CAMPOS_DATA_STATUS_PEDIDO = ['status_atualizado_em', 'status_alterado_em', 'status_updated_at', 'status_updated_em'];
+const STATUS_CHIPS_OPERACIONAIS_SET = new Set(STATUS_CHIPS_OPERACIONAIS);
+const ORDENACAO_PEDIDOS_SET = new Set(ORDENACAO_PEDIDOS_OPTIONS.map((item) => item.id));
+const FILTRO_PAGAMENTO_SET = new Set(FILTRO_PAGAMENTO_OPTIONS.map((item) => item.id));
 
 function formatarMoeda(valor) {
   return BRL_CURRENCY.format(Number(valor || 0));
@@ -179,6 +196,239 @@ function formatarTempoRelativo(dataRaw) {
 
   const diffDias = Math.floor(diffHoras / 24);
   return `${diffDias}d atrás`;
+}
+
+function obterDataStatusAtualPedido(pedido) {
+  if (!pedido || typeof pedido !== 'object') {
+    return null;
+  }
+
+  for (const campo of CAMPOS_DATA_STATUS_PEDIDO) {
+    const valor = pedido?.[campo];
+    if (!valor) {
+      continue;
+    }
+
+    const data = new Date(valor);
+    if (!Number.isNaN(data.getTime())) {
+      return valor;
+    }
+  }
+
+  return null;
+}
+
+function obterMetaEnvelhecimentoPedido(statusRaw, tempoMinutosRaw, pagamentoToneRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+  const pagamentoTone = String(pagamentoToneRaw || '').trim().toLowerCase();
+  const tempoMinutos = Number(tempoMinutosRaw || 0);
+  const minutos = Number.isFinite(tempoMinutos) && tempoMinutos > 0 ? tempoMinutos : 0;
+
+  if (['entregue', 'cancelado'].includes(status)) {
+    return {
+      nivel: 0,
+      tone: 'normal',
+      label: ''
+    };
+  }
+
+  if (pagamentoTone === 'error') {
+    return {
+      nivel: 3,
+      tone: 'critical',
+      label: 'Falha no pagamento'
+    };
+  }
+
+  if (minutos >= OPERACAO_PEDIDOS_LIMITES.envelhecimentoCriticoMinutos) {
+    return {
+      nivel: 3,
+      tone: 'critical',
+      label: 'Pedido envelhecido'
+    };
+  }
+
+  if (minutos >= OPERACAO_PEDIDOS_LIMITES.envelhecimentoUrgenciaMinutos) {
+    return {
+      nivel: 2,
+      tone: 'urgent',
+      label: 'Prioridade alta'
+    };
+  }
+
+  if (minutos >= OPERACAO_PEDIDOS_LIMITES.envelhecimentoAtencaoMinutos) {
+    return {
+      nivel: 1,
+      tone: 'attention',
+      label: 'Monitorar tempo'
+    };
+  }
+
+  if (status === 'pendente' && minutos >= OPERACAO_PEDIDOS_LIMITES.pendenteAtencaoMinutos) {
+    return {
+      nivel: 1,
+      tone: 'attention',
+      label: 'Aguardando confirmação'
+    };
+  }
+
+  return {
+    nivel: 0,
+    tone: 'normal',
+    label: ''
+  };
+}
+
+function obterContextoPedidosOperacionaisInicial() {
+  const contextoPadrao = {
+    filtroStatus: 'todos',
+    filtroPagamento: 'todos',
+    ordenacao: 'prioridade',
+    busca: '',
+    pedidoExpandidoId: null,
+    autoRefresh: false,
+    modoFilaAlta: false
+  };
+
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return contextoPadrao;
+  }
+
+  try {
+    const salvoRaw = window.localStorage.getItem(CONTEXTO_PEDIDOS_LOCAL_STORAGE_KEY);
+    if (!salvoRaw) {
+      return contextoPadrao;
+    }
+
+    const salvo = JSON.parse(salvoRaw);
+    const filtroStatus = STATUS_CHIPS_OPERACIONAIS_SET.has(String(salvo?.filtroStatus || ''))
+      ? String(salvo.filtroStatus)
+      : contextoPadrao.filtroStatus;
+    const filtroPagamento = FILTRO_PAGAMENTO_SET.has(String(salvo?.filtroPagamento || ''))
+      ? String(salvo.filtroPagamento)
+      : contextoPadrao.filtroPagamento;
+    const ordenacao = ORDENACAO_PEDIDOS_SET.has(String(salvo?.ordenacao || ''))
+      ? String(salvo.ordenacao)
+      : contextoPadrao.ordenacao;
+    const busca = String(salvo?.busca || '').trim();
+    const pedidoExpandidoRaw = Number(salvo?.pedidoExpandidoId || 0);
+    const pedidoExpandidoId = Number.isInteger(pedidoExpandidoRaw) && pedidoExpandidoRaw > 0
+      ? pedidoExpandidoRaw
+      : null;
+
+    return {
+      filtroStatus,
+      filtroPagamento,
+      ordenacao,
+      busca,
+      pedidoExpandidoId,
+      autoRefresh: Boolean(salvo?.autoRefresh),
+      modoFilaAlta: Boolean(salvo?.modoFilaAlta)
+    };
+  } catch {
+    return contextoPadrao;
+  }
+}
+
+function salvarContextoPedidosOperacionais(contexto) {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(CONTEXTO_PEDIDOS_LOCAL_STORAGE_KEY, JSON.stringify(contexto));
+  } catch {
+    // Ignore falhas de persistência local para não afetar operação.
+  }
+}
+
+function montarResumoOperacionalPedido(pedido) {
+  const itensPrincipais = Array.isArray(pedido?.itensLista) && pedido.itensLista.length > 0
+    ? pedido.itensLista.slice(0, 4).map((item) => `${item.quantidade}x ${item.nome}`).join(', ')
+    : String(pedido?.resumoItensTexto || 'Itens não detalhados neste pedido.');
+  const pagamentoDetalhe = pedido?.pagamentoMeta?.detalhe
+    ? ` (${pedido.pagamentoMeta.detalhe})`
+    : '';
+
+  return [
+    `Pedido #${pedido?.id || '-'}`,
+    `Cliente: ${pedido?.clienteNome || '-'}`,
+    `Telefone: ${pedido?.clienteTelefone || 'não informado'}`,
+    `Total: ${formatarMoeda(pedido?.totalNumero || pedido?.total || 0)}`,
+    `Status: ${pedido?.statusMeta?.label || formatarStatusPedido(pedido?.status || '')}`,
+    `Pagamento: ${pedido?.pagamentoMeta?.label || '-'}${pagamentoDetalhe}`,
+    `Endereço: ${pedido?.enderecoTexto || 'não cadastrado'}`,
+    `Itens principais: ${itensPrincipais}`
+  ].join('\n');
+}
+
+function obterObservacaoOperacionalPedido(pedido) {
+  const candidatos = [
+    pedido?.observacao,
+    pedido?.observacoes,
+    pedido?.observacao_cliente,
+    pedido?.comentario,
+    pedido?.nota
+  ];
+
+  for (const item of candidatos) {
+    const texto = String(item || '').trim();
+    if (texto) {
+      return texto;
+    }
+  }
+
+  return '';
+}
+
+function montarPendenciasOperacionaisPedido({
+  pagamentoMeta,
+  envelhecimentoMeta,
+  requerAcao,
+  proximoStatus,
+  observacaoOperacional
+}) {
+  const pendencias = [];
+
+  if (pagamentoMeta?.tone === 'error') {
+    pendencias.push({
+      id: 'pagamento-falhou',
+      tone: 'error',
+      label: 'Revisar pagamento com falha'
+    });
+  } else if (pagamentoMeta?.tone === 'waiting' || pagamentoMeta?.tone === 'attention') {
+    pendencias.push({
+      id: 'pagamento-pendente',
+      tone: 'attention',
+      label: 'Confirmar pagamento'
+    });
+  }
+
+  if (envelhecimentoMeta?.nivel >= 1 && envelhecimentoMeta?.label) {
+    pendencias.push({
+      id: 'tempo-operacao',
+      tone: envelhecimentoMeta.tone === 'critical' ? 'error' : 'attention',
+      label: envelhecimentoMeta.label
+    });
+  }
+
+  if (requerAcao && proximoStatus) {
+    pendencias.push({
+      id: 'aguardando-proximo-passo',
+      tone: 'action',
+      label: `Próxima etapa: ${formatarStatusPedido(proximoStatus)}`
+    });
+  }
+
+  if (observacaoOperacional) {
+    pendencias.push({
+      id: 'observacao-importante',
+      tone: 'note',
+      label: 'Ler observação do cliente'
+    });
+  }
+
+  return pendencias.slice(0, 4);
 }
 
 function obterProximoStatusPedido(statusRaw) {
@@ -488,6 +738,7 @@ const initialProduto = {
 };
 
 export default function AdminPage() {
+  const contextoPedidosInicial = useMemo(() => obterContextoPedidosOperacionaisInicial(), []);
   const [adminUsuario, setAdminUsuario] = useState('admin');
   const [adminSenha, setAdminSenha] = useState('');
   const [adminAutenticado, setAdminAutenticado] = useState(null);
@@ -497,13 +748,19 @@ export default function AdminPage() {
   const [paginacaoPedidos, setPaginacaoPedidos] = useState(() => criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
   const [paginacaoProdutos, setPaginacaoProdutos] = useState(() => criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
   const [statusDraft, setStatusDraft] = useState({});
-  const [filtroPedidoStatus, setFiltroPedidoStatus] = useState('todos');
-  const [filtroPedidoPagamento, setFiltroPedidoPagamento] = useState('todos');
-  const [ordenacaoPedidos, setOrdenacaoPedidos] = useState('prioridade');
-  const [buscaPedidosOperacional, setBuscaPedidosOperacional] = useState('');
-  const [pedidoExpandidoId, setPedidoExpandidoId] = useState(null);
+  const [filtroPedidoStatus, setFiltroPedidoStatus] = useState(() => contextoPedidosInicial.filtroStatus);
+  const [filtroPedidoPagamento, setFiltroPedidoPagamento] = useState(() => contextoPedidosInicial.filtroPagamento);
+  const [ordenacaoPedidos, setOrdenacaoPedidos] = useState(() => contextoPedidosInicial.ordenacao);
+  const [buscaPedidosOperacional, setBuscaPedidosOperacional] = useState(() => contextoPedidosInicial.busca);
+  const [pedidoExpandidoId, setPedidoExpandidoId] = useState(() => contextoPedidosInicial.pedidoExpandidoId);
+  const [autoRefreshPedidosAtivo, setAutoRefreshPedidosAtivo] = useState(() => contextoPedidosInicial.autoRefresh);
+  const [modoFilaAltaAtivo, setModoFilaAltaAtivo] = useState(() => contextoPedidosInicial.modoFilaAlta);
   const [atualizandoStatusPedidoId, setAtualizandoStatusPedidoId] = useState(null);
   const [feedbackPedidos, setFeedbackPedidos] = useState({ tipo: '', mensagem: '' });
+  const [ultimasAcoesPedidos, setUltimasAcoesPedidos] = useState({});
+  const [historicoAcoesSessao, setHistoricoAcoesSessao] = useState([]);
+  const [ultimaAtualizacaoPedidosEm, setUltimaAtualizacaoPedidosEm] = useState(null);
+  const [novosPedidosDetectados, setNovosPedidosDetectados] = useState(0);
   const [produtoForm, setProdutoForm] = useState(initialProduto);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -585,8 +842,77 @@ export default function AdminPage() {
     }
   }, [adminAutenticado, isLocalHost, tab]);
 
-  function aplicarDadosPedidos(pedidosData, paginaSolicitada) {
+  useEffect(() => {
+    salvarContextoPedidosOperacionais({
+      filtroStatus: filtroPedidoStatus,
+      filtroPagamento: filtroPedidoPagamento,
+      ordenacao: ordenacaoPedidos,
+      busca: buscaPedidosOperacional,
+      pedidoExpandidoId,
+      autoRefresh: autoRefreshPedidosAtivo,
+      modoFilaAlta: modoFilaAltaAtivo
+    });
+  }, [
+    autoRefreshPedidosAtivo,
+    buscaPedidosOperacional,
+    filtroPedidoPagamento,
+    filtroPedidoStatus,
+    modoFilaAltaAtivo,
+    ordenacaoPedidos,
+    pedidoExpandidoId
+  ]);
+
+  useEffect(() => {
+    if (!pedidoExpandidoId) {
+      return;
+    }
+
+    const existeNaLista = pedidos.some((pedido) => Number(pedido?.id || 0) === Number(pedidoExpandidoId));
+    if (!existeNaLista) {
+      setPedidoExpandidoId(null);
+    }
+  }, [pedidoExpandidoId, pedidos]);
+
+  useEffect(() => {
+    if (adminAutenticado !== true || tab !== 'pedidos' || !autoRefreshPedidosAtivo) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      if (!carregandoPedidos) {
+        void carregarPedidosPagina(paginacaoPedidos.pagina, { detectarNovos: true });
+      }
+    }, AUTO_REFRESH_PEDIDOS_INTERVALO_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [adminAutenticado, autoRefreshPedidosAtivo, carregandoPedidos, paginacaoPedidos.pagina, tab]);
+
+  function aplicarDadosPedidos(pedidosData, paginaSolicitada, { detectarNovos = false } = {}) {
     const pedidosList = Array.isArray(pedidosData?.pedidos) ? pedidosData.pedidos : [];
+
+    if (detectarNovos && Number(paginaSolicitada || 1) === 1) {
+      const idsAtuais = new Set(
+        pedidos
+          .map((pedido) => Number(pedido?.id || 0))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      );
+
+      if (idsAtuais.size > 0) {
+        const idsNovos = pedidosList
+          .map((pedido) => Number(pedido?.id || 0))
+          .filter((id) => Number.isInteger(id) && id > 0)
+          .filter((id) => !idsAtuais.has(id));
+        setNovosPedidosDetectados(idsNovos.length);
+      } else {
+        setNovosPedidosDetectados(0);
+      }
+    } else if (detectarNovos) {
+      setNovosPedidosDetectados(0);
+    }
+
+    setUltimaAtualizacaoPedidosEm(Date.now());
     setPedidos(pedidosList);
     setPaginacaoPedidos(normalizarPaginacao(pedidosData?.paginacao, paginaSolicitada, ADMIN_PEDIDOS_POR_PAGINA));
 
@@ -605,9 +931,9 @@ export default function AdminPage() {
     setPaginacaoProdutos(normalizarPaginacao(produtosData?.paginacao, paginaSolicitada, ADMIN_PRODUTOS_POR_PAGINA));
   }
 
-  async function carregarPedidosPagina(paginaDestino) {
+  async function carregarPedidosPagina(paginaDestino, { detectarNovos = true } = {}) {
     if (adminAutenticado !== true) {
-      return;
+      return false;
     }
 
     const paginaNormalizada = Math.max(1, Number(paginaDestino || 1));
@@ -619,15 +945,18 @@ export default function AdminPage() {
         page: paginaNormalizada,
         limit: ADMIN_PEDIDOS_POR_PAGINA
       });
-      aplicarDadosPedidos(pedidosData, paginaNormalizada);
+      aplicarDadosPedidos(pedidosData, paginaNormalizada, { detectarNovos });
+      return true;
     } catch (error) {
       if (isAuthErrorMessage(error.message)) {
         setAdminAutenticado(false);
         setPedidos([]);
         setStatusDraft({});
+        setUltimasAcoesPedidos({});
         setPaginacaoPedidos(criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
       }
       setErro(error.message);
+      return false;
     } finally {
       setCarregandoPedidos(false);
     }
@@ -806,7 +1135,7 @@ export default function AdminPage() {
         })
       ]);
 
-      aplicarDadosPedidos(pedidosData, paginaPedidosDestino);
+      aplicarDadosPedidos(pedidosData, paginaPedidosDestino, { detectarNovos: !resetPagina });
       aplicarDadosProdutos(produtosData, paginaProdutosDestino);
     } catch (error) {
       if (isAuthErrorMessage(error.message)) {
@@ -814,6 +1143,7 @@ export default function AdminPage() {
         setPedidos([]);
         setProdutos([]);
         setStatusDraft({});
+        setUltimasAcoesPedidos({});
         setPaginacaoPedidos(criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
         setPaginacaoProdutos(criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
       }
@@ -867,8 +1197,14 @@ export default function AdminPage() {
     setOrdenacaoPedidos('prioridade');
     setBuscaPedidosOperacional('');
     setPedidoExpandidoId(null);
+    setAutoRefreshPedidosAtivo(false);
+    setModoFilaAltaAtivo(false);
     setAtualizandoStatusPedidoId(null);
     setFeedbackPedidos({ tipo: '', mensagem: '' });
+    setUltimasAcoesPedidos({});
+    setHistoricoAcoesSessao([]);
+    setUltimaAtualizacaoPedidosEm(null);
+    setNovosPedidosDetectados(0);
     setPaginacaoPedidos(criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
     setPaginacaoProdutos(criarPaginacaoInicial(ADMIN_PRODUTOS_POR_PAGINA));
     setArquivoImportacao(null);
@@ -898,9 +1234,14 @@ export default function AdminPage() {
       const data = dataRaw ? new Date(dataRaw) : null;
       const dataMs = data && !Number.isNaN(data.getTime()) ? data.getTime() : 0;
       const tempoMinutos = dataMs > 0 ? Math.floor((Date.now() - dataMs) / 60000) : 0;
+      const dataStatusRaw = obterDataStatusAtualPedido(pedido);
+      const dataStatus = dataStatusRaw ? new Date(dataStatusRaw) : null;
+      const dataStatusMs = dataStatus && !Number.isNaN(dataStatus.getTime()) ? dataStatus.getTime() : 0;
+      const tempoNoStatusMinutos = dataStatusMs > 0 ? Math.floor((Date.now() - dataStatusMs) / 60000) : null;
       const resumoItens = montarResumoItensOperacional(pedido?.itens);
       const formaPagamento = String(pedido?.forma_pagamento || '').trim().toLowerCase();
       const enderecoDisponivel = Boolean(pedido?.endereco && typeof pedido?.endereco === 'object' && pedido?.endereco?.rua);
+      const observacaoOperacional = obterObservacaoOperacionalPedido(pedido);
       const telefoneCliente = String(pedido?.cliente_telefone || '').trim();
       const clienteNome = String(pedido?.cliente_nome || '').trim() || 'Cliente não identificado';
       const totalNumero = Number(pedido?.total || 0);
@@ -921,8 +1262,18 @@ export default function AdminPage() {
         : [];
 
       const requerAcao = ['pendente', 'pago', 'preparando', 'enviado'].includes(statusNormalizado);
-      const urgente = statusNormalizado === 'pendente' && tempoMinutos >= 30;
-      const critico = urgente || statusNormalizado === 'pendente' || pagamentoMeta.tone === 'error';
+      const envelhecimentoMeta = obterMetaEnvelhecimentoPedido(statusNormalizado, tempoMinutos, pagamentoMeta.tone);
+      const proximoStatus = obterProximoStatusPedido(statusNormalizado);
+      const urgente = envelhecimentoMeta.nivel >= 2;
+      const critico = envelhecimentoMeta.nivel >= 3 || statusNormalizado === 'pendente' || pagamentoMeta.tone === 'error';
+      const tempoNoStatusDisponivel = Number.isFinite(tempoNoStatusMinutos) && tempoNoStatusMinutos >= 0;
+      const pendenciasOperacionais = montarPendenciasOperacionaisPedido({
+        pagamentoMeta,
+        envelhecimentoMeta,
+        requerAcao,
+        proximoStatus,
+        observacaoOperacional
+      });
 
       return {
         ...pedido,
@@ -931,6 +1282,14 @@ export default function AdminPage() {
         pagamentoMeta,
         dataLabel: formatarDataHoraOperacional(dataRaw),
         tempoRelativo: formatarTempoRelativo(dataRaw),
+        tempoDesdeCriacaoLabel: formatarTempoRelativo(dataRaw),
+        tempoDesdeCriacaoMinutos: tempoMinutos,
+        tempoNoStatusDisponivel,
+        tempoNoStatusLabel: tempoNoStatusDisponivel ? formatarTempoRelativo(dataStatusRaw) : '',
+        tempoNoStatusDataLabel: tempoNoStatusDisponivel ? formatarDataHoraOperacional(dataStatusRaw) : '',
+        envelhecimentoNivel: envelhecimentoMeta.nivel,
+        envelhecimentoTone: envelhecimentoMeta.tone,
+        envelhecimentoLabel: envelhecimentoMeta.label,
         dataMs,
         totalNumero,
         formaPagamento,
@@ -938,13 +1297,16 @@ export default function AdminPage() {
         pixStatus: String(pedido?.pix_status || '').trim().toUpperCase(),
         clienteNome,
         clienteTelefone: telefoneCliente,
+        observacaoOperacional,
+        pendenciasOperacionais,
         resumoItensTexto: resumoItens.resumoTexto,
         totalItens: resumoItens.totalItens,
         itensLista,
+        enderecoDisponivel,
         enderecoTexto: formatarEnderecoOperacional(pedido?.endereco),
         tipoAtendimento: enderecoDisponivel ? 'Entrega' : 'Retirada/indefinido',
         whatsappLink: montarLinkWhatsappPedido(pedido),
-        proximoStatus: obterProximoStatusPedido(statusNormalizado),
+        proximoStatus,
         acaoRapidaLabel: obterLabelAcaoRapida(statusNormalizado),
         requerAcao,
         urgente,
@@ -955,7 +1317,9 @@ export default function AdminPage() {
           telefoneCliente,
           formaPagamento,
           statusNormalizado,
-          resumoItens.resumoTexto
+          resumoItens.resumoTexto,
+          observacaoOperacional,
+          pendenciasOperacionais.map((item) => item.label).join(' ')
         ].join(' '))
       };
     });
@@ -1116,6 +1480,22 @@ export default function AdminPage() {
     });
 
     return filtrados.sort((a, b) => {
+      if (ordenacaoPedidos === 'urgencia') {
+        if (a.envelhecimentoNivel !== b.envelhecimentoNivel) {
+          return b.envelhecimentoNivel - a.envelhecimentoNivel;
+        }
+
+        if (a.tempoDesdeCriacaoMinutos !== b.tempoDesdeCriacaoMinutos) {
+          return b.tempoDesdeCriacaoMinutos - a.tempoDesdeCriacaoMinutos;
+        }
+
+        if (a.requerAcao !== b.requerAcao) {
+          return Number(b.requerAcao) - Number(a.requerAcao);
+        }
+
+        return b.dataMs - a.dataMs;
+      }
+
       if (ordenacaoPedidos === 'mais-recentes') {
         return b.dataMs - a.dataMs;
       }
@@ -1164,6 +1544,59 @@ export default function AdminPage() {
 
     return `${pedidosFiltradosOperacionais.length} pedido(s)`;
   }, [pedidosFiltradosOperacionais.length, paginacaoPedidos.total]);
+
+  const ultimaAtualizacaoPedidosTexto = useMemo(() => {
+    if (!ultimaAtualizacaoPedidosEm) {
+      return 'Ainda sem atualização concluída nesta sessão.';
+    }
+
+    return `${formatarDataHoraOperacional(ultimaAtualizacaoPedidosEm)} (${formatarTempoRelativo(ultimaAtualizacaoPedidosEm)})`;
+  }, [ultimaAtualizacaoPedidosEm]);
+
+  const semPedidosOperacionais = pedidosOperacionais.length === 0;
+  const semResultadosPedidosOperacionais = !semPedidosOperacionais && pedidosFiltradosOperacionais.length === 0;
+
+  const navegacaoPedidosDetalhe = useMemo(() => {
+    const ids = pedidosFiltradosOperacionais
+      .map((pedido) => Number(pedido?.id || 0))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    const atualId = Number(pedidoExpandidoId || 0);
+    const indiceAtual = atualId > 0 ? ids.indexOf(atualId) : -1;
+
+    return {
+      total: ids.length,
+      indiceAtual,
+      anteriorId: indiceAtual > 0 ? ids[indiceAtual - 1] : null,
+      proximoId: indiceAtual >= 0 && indiceAtual < ids.length - 1 ? ids[indiceAtual + 1] : null
+    };
+  }, [pedidoExpandidoId, pedidosFiltradosOperacionais]);
+
+  const resumoAuditoriaSessao = useMemo(() => {
+    const resumo = {
+      total: historicoAcoesSessao.length,
+      success: 0,
+      error: 0,
+      info: 0,
+      ultimaAcao: historicoAcoesSessao[0] || null
+    };
+
+    historicoAcoesSessao.forEach((item) => {
+      const tipo = String(item?.tipo || 'info');
+      if (tipo === 'success') {
+        resumo.success += 1;
+      } else if (tipo === 'error') {
+        resumo.error += 1;
+      } else {
+        resumo.info += 1;
+      }
+    });
+
+    return resumo;
+  }, [historicoAcoesSessao]);
+
+  const ultimasAcoesSessaoVisiveis = useMemo(() => {
+    return historicoAcoesSessao.slice(0, 3);
+  }, [historicoAcoesSessao]);
 
   const financeiro = useMemo(() => {
     const agora = new Date();
@@ -1286,13 +1719,38 @@ export default function AdminPage() {
     };
   }, [linhasFinanceiro]);
 
-  async function salvarStatusPedido(pedidoId, statusForcado = '') {
+  function registrarAcaoSessao({ tipo = 'info', mensagem = '', pedidoId = null }) {
+    const mensagemLimpa = String(mensagem || '').trim();
+    if (!mensagemLimpa) {
+      return;
+    }
+
+    const tipoNormalizado = ['success', 'error', 'info'].includes(tipo) ? tipo : 'info';
+    const pedidoIdNumero = Number(pedidoId || 0);
+
+    setHistoricoAcoesSessao((atual) => [
+      {
+        tipo: tipoNormalizado,
+        mensagem: mensagemLimpa,
+        pedidoId: Number.isInteger(pedidoIdNumero) && pedidoIdNumero > 0 ? pedidoIdNumero : null,
+        em: Date.now()
+      },
+      ...atual
+    ].slice(0, OPERACAO_PEDIDOS_LIMITES.historicoSessaoMaxItens));
+  }
+
+  async function salvarStatusPedido(pedidoId, statusForcado = '', origemAcao = 'manual') {
     const statusSelecionado = String(statusForcado || statusDraft[pedidoId] || '').trim().toLowerCase();
 
     if (!STATUS_OPTIONS.includes(statusSelecionado)) {
       setFeedbackPedidos({
         tipo: 'error',
         mensagem: 'Selecione um status válido para salvar.'
+      });
+      registrarAcaoSessao({
+        tipo: 'error',
+        mensagem: `Pedido #${pedidoId}: tentativa de salvar status inválido.`,
+        pedidoId
       });
       return;
     }
@@ -1309,10 +1767,29 @@ export default function AdminPage() {
         [pedidoId]: statusSelecionado
       }));
 
+      const mensagemAcao = origemAcao === 'proximo'
+        ? `Fluxo avançado para ${formatarStatusPedido(statusSelecionado)}`
+        : `Status atualizado para ${formatarStatusPedido(statusSelecionado)}`;
+
       setFeedbackPedidos({
         tipo: 'success',
-        mensagem: `Pedido #${pedidoId} atualizado para ${formatarStatusPedido(statusSelecionado)}.`
+        mensagem: `Pedido #${pedidoId}: ${mensagemAcao}.`
       });
+
+      registrarAcaoSessao({
+        tipo: 'success',
+        mensagem: `Pedido #${pedidoId}: ${mensagemAcao}.`,
+        pedidoId
+      });
+
+      setUltimasAcoesPedidos((atual) => ({
+        ...atual,
+        [pedidoId]: {
+          tipo: 'success',
+          mensagem: mensagemAcao,
+          em: Date.now()
+        }
+      }));
 
       await carregarPedidosPagina(paginacaoPedidos.pagina);
     } catch (error) {
@@ -1320,6 +1797,11 @@ export default function AdminPage() {
       setFeedbackPedidos({
         tipo: 'error',
         mensagem: error.message || 'Não foi possível atualizar o status do pedido.'
+      });
+      registrarAcaoSessao({
+        tipo: 'error',
+        mensagem: `Pedido #${pedidoId}: ${error.message || 'falha ao atualizar status'}.`,
+        pedidoId
       });
     } finally {
       setAtualizandoStatusPedidoId(null);
@@ -1334,7 +1816,55 @@ export default function AdminPage() {
       return;
     }
 
-    await salvarStatusPedido(Number(pedido?.id), proximoStatus);
+    await salvarStatusPedido(Number(pedido?.id), proximoStatus, 'proximo');
+  }
+
+  function toggleDetalhePedidoOperacional(pedidoId) {
+    setPedidoExpandidoId((atual) => {
+      const atualId = Number(atual || 0);
+      const proximoId = Number(pedidoId || 0);
+      if (!proximoId) {
+        return null;
+      }
+      return atualId === proximoId ? null : proximoId;
+    });
+  }
+
+  function abrirPrimeiroPedidoPrioritario() {
+    const alvo = pedidosFiltradosOperacionais.find((pedido) =>
+      pedido.critico || pedido.pendenciasOperacionais.length > 0 || pedido.requerAcao
+    );
+
+    if (!alvo) {
+      setFeedbackPedidos({
+        tipo: 'info',
+        mensagem: 'Nenhum pedido prioritário disponível com os filtros atuais.'
+      });
+      registrarAcaoSessao({
+        tipo: 'info',
+        mensagem: 'Busca por pedido prioritário sem resultado com os filtros atuais.'
+      });
+      return;
+    }
+
+    setPedidoExpandidoId(Number(alvo.id));
+    registrarAcaoSessao({
+      tipo: 'info',
+      mensagem: `Pedido #${alvo.id} aberto para prioridade operacional.`,
+      pedidoId: alvo.id
+    });
+  }
+
+  function navegarDetalhePedidoOperacional(direcao) {
+    const proximoId = direcao < 0
+      ? navegacaoPedidosDetalhe.anteriorId
+      : navegacaoPedidosDetalhe.proximoId;
+
+    if (!proximoId) {
+      return;
+    }
+
+    setPedidoExpandidoId(proximoId);
   }
 
   function limparFiltrosPedidosOperacionais() {
@@ -1342,11 +1872,61 @@ export default function AdminPage() {
     setFiltroPedidoPagamento('todos');
     setOrdenacaoPedidos('prioridade');
     setBuscaPedidosOperacional('');
+    setFeedbackPedidos({
+      tipo: 'info',
+      mensagem: 'Filtros operacionais foram redefinidos para o padrão.'
+    });
+    registrarAcaoSessao({
+      tipo: 'info',
+      mensagem: 'Filtros operacionais redefinidos para o padrão.'
+    });
+  }
+
+  async function atualizarPedidosOperacionaisAgora() {
+    const sucesso = await carregarPedidosPagina(paginacaoPedidos.pagina, { detectarNovos: true });
+
+    if (sucesso) {
+      setFeedbackPedidos({
+        tipo: 'info',
+        mensagem: 'Fila sincronizada manualmente com sucesso.'
+      });
+      registrarAcaoSessao({
+        tipo: 'info',
+        mensagem: 'Fila sincronizada manualmente.'
+      });
+    }
+  }
+
+  function limparAvisoNovosPedidos() {
+    setNovosPedidosDetectados(0);
+  }
+
+  function handleToggleModoFilaAlta(ativo) {
+    setModoFilaAltaAtivo(ativo);
+
+    const mensagem = ativo
+      ? 'Modo fila alta ativado: cards compactos e foco nas pendências principais.'
+      : 'Modo fila alta desativado: visão completa dos cartões restaurada.';
+
+    setFeedbackPedidos({ tipo: 'info', mensagem });
+    registrarAcaoSessao({ tipo: 'info', mensagem });
+  }
+
+  function limparHistoricoAuditoriaSessao() {
+    setHistoricoAcoesSessao([]);
+    setFeedbackPedidos({
+      tipo: 'info',
+      mensagem: 'Auditoria da sessão limpa.'
+    });
   }
 
   async function handleCopiarCampoPedido(valor, label) {
     if (!valor) {
       setFeedbackPedidos({
+        tipo: 'error',
+        mensagem: `${label} indisponível para cópia.`
+      });
+      registrarAcaoSessao({
         tipo: 'error',
         mensagem: `${label} indisponível para cópia.`
       });
@@ -1359,12 +1939,27 @@ export default function AdminPage() {
         tipo: 'success',
         mensagem: `${label} copiado com sucesso.`
       });
+      registrarAcaoSessao({
+        tipo: 'success',
+        mensagem: `${label} copiado com sucesso.`
+      });
     } catch {
       setFeedbackPedidos({
         tipo: 'error',
         mensagem: `Não foi possível copiar ${label.toLowerCase()}.`
       });
+      registrarAcaoSessao({
+        tipo: 'error',
+        mensagem: `Não foi possível copiar ${label.toLowerCase()}.`
+      });
     }
+  }
+
+  async function handleCopiarResumoPedido(pedido) {
+    await handleCopiarCampoPedido(
+      montarResumoOperacionalPedido(pedido),
+      `Resumo operacional do pedido #${pedido?.id || ''}`
+    );
   }
 
   async function handleCadastrarProduto(event) {
@@ -1584,11 +2179,11 @@ export default function AdminPage() {
 
       {tab === 'pedidos' ? (
         <>
-          <section className="admin-orders-panel">
+          <section className={`admin-orders-panel ${modoFilaAltaAtivo ? 'is-fila-alta' : ''}`}>
             <div className="admin-orders-head">
               <div>
                 <h2>Operação de pedidos</h2>
-                <p>Leia, priorize e avance pedidos com clareza operacional.</p>
+                <p>Triagem operacional para priorizar, executar e acompanhar a fila.</p>
               </div>
 
               <p className="admin-orders-head-meta">
@@ -1632,6 +2227,133 @@ export default function AdminPage() {
                 <strong>{resumoPedidosOperacionais.pendentesPagamento}</strong>
                 <small>Com necessidade de conferência</small>
               </article>
+            </div>
+
+            <div className="admin-orders-refresh-strip" aria-label="Estado de atualização operacional">
+              <div className="admin-orders-refresh-info">
+                <p>
+                  <strong>Última atualização:</strong> {ultimaAtualizacaoPedidosTexto}
+                </p>
+                {novosPedidosDetectados > 0 ? (
+                  <div className="admin-orders-new-warning" role="status" aria-live="polite">
+                    <span>{novosPedidosDetectados} novo(s) pedido(s) detectado(s) na atualização.</span>
+                    <button className="btn-secondary" type="button" onClick={limparAvisoNovosPedidos}>
+                      Dispensar aviso
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="admin-orders-refresh-actions">
+                <label className="admin-orders-autorefresh-toggle" htmlFor="admin-orders-auto-refresh">
+                  <input
+                    id="admin-orders-auto-refresh"
+                    type="checkbox"
+                    checked={autoRefreshPedidosAtivo}
+                    onChange={(event) => setAutoRefreshPedidosAtivo(event.target.checked)}
+                  />
+                  Autoatualizar a cada {AUTO_REFRESH_PEDIDOS_LABEL}
+                </label>
+
+                <label className="admin-orders-autorefresh-toggle" htmlFor="admin-orders-high-queue-mode">
+                  <input
+                    id="admin-orders-high-queue-mode"
+                    type="checkbox"
+                    checked={modoFilaAltaAtivo}
+                    onChange={(event) => handleToggleModoFilaAlta(event.target.checked)}
+                  />
+                  Modo fila alta (compacto)
+                </label>
+
+                <button
+                  className="btn-primary"
+                  type="button"
+                  onClick={() => {
+                    void atualizarPedidosOperacionaisAgora();
+                  }}
+                  disabled={carregandoPedidos}
+                >
+                  {carregandoPedidos ? 'Atualizando...' : 'Sincronizar fila agora'}
+                </button>
+              </div>
+            </div>
+
+            <div className="admin-orders-quick-nav" aria-label="Navegação rápida entre pedidos">
+              <p>
+                {pedidoExpandidoId && navegacaoPedidosDetalhe.indiceAtual >= 0
+                  ? `Detalhe aberto ${navegacaoPedidosDetalhe.indiceAtual + 1} de ${navegacaoPedidosDetalhe.total}`
+                  : 'Nenhum detalhe aberto na fila'}
+              </p>
+
+              <div className="admin-orders-quick-nav-actions">
+                <button className="btn-secondary" type="button" onClick={abrirPrimeiroPedidoPrioritario}>
+                  Abrir próximo crítico
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => navegarDetalhePedidoOperacional(-1)}
+                  disabled={!navegacaoPedidosDetalhe.anteriorId}
+                >
+                  Pedido anterior
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => navegarDetalhePedidoOperacional(1)}
+                  disabled={!navegacaoPedidosDetalhe.proximoId}
+                >
+                  Próximo pedido
+                </button>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => setPedidoExpandidoId(null)}
+                  disabled={!pedidoExpandidoId}
+                >
+                  Fechar detalhe
+                </button>
+              </div>
+            </div>
+
+            <div className="admin-orders-session-audit" aria-label="Auditoria da sessão operacional">
+              <div className="admin-orders-session-audit-head">
+                <p>
+                  <strong>Auditoria da sessão:</strong> {resumoAuditoriaSessao.total} ação(ões)
+                </p>
+                <small>
+                  {resumoAuditoriaSessao.ultimaAcao
+                    ? `Última: ${resumoAuditoriaSessao.ultimaAcao.mensagem} (${formatarTempoRelativo(resumoAuditoriaSessao.ultimaAcao.em)})`
+                    : 'Sem ações registradas nesta sessão.'}
+                </small>
+              </div>
+
+              <div className="admin-orders-session-audit-chips">
+                <span className="admin-orders-session-audit-chip tone-success">Sucesso: {resumoAuditoriaSessao.success}</span>
+                <span className="admin-orders-session-audit-chip tone-info">Informativo: {resumoAuditoriaSessao.info}</span>
+                <span className="admin-orders-session-audit-chip tone-error">Falha: {resumoAuditoriaSessao.error}</span>
+              </div>
+
+              {ultimasAcoesSessaoVisiveis.length > 0 ? (
+                <ul className="admin-orders-session-audit-list" aria-label="Últimas ações da sessão">
+                  {ultimasAcoesSessaoVisiveis.map((acao, index) => (
+                    <li key={`sessao-acao-${acao.em}-${index}`}>
+                      <span className={`admin-orders-session-audit-dot tone-${acao.tipo || 'info'}`} aria-hidden="true" />
+                      <span>{acao.mensagem}</span>
+                      <small>{formatarTempoRelativo(acao.em)}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <button
+                className="btn-secondary admin-orders-session-audit-clear"
+                type="button"
+                onClick={limparHistoricoAuditoriaSessao}
+                disabled={resumoAuditoriaSessao.total === 0}
+              >
+                Limpar auditoria da sessão
+              </button>
             </div>
 
             <div className="admin-orders-filter-wrap" aria-label="Filtros operacionais">
@@ -1696,7 +2418,7 @@ export default function AdminPage() {
                   onClick={limparFiltrosPedidosOperacionais}
                   disabled={filtrosPedidosAplicados.length === 0}
                 >
-                  Limpar filtros
+                  Limpar filtros da fila
                 </button>
               </div>
 
@@ -1715,14 +2437,41 @@ export default function AdminPage() {
               </div>
             ) : null}
 
-            {pedidosFiltradosOperacionais.length === 0 ? (
+            {carregandoPedidos && semPedidosOperacionais ? (
+              <div className="orders-state-card" role="status" aria-live="polite">
+                <div className="orders-empty-icon" aria-hidden="true">⏳</div>
+                <p><strong>Atualizando pedidos operacionais...</strong></p>
+                <p>Estamos carregando os pedidos mais recentes desta página.</p>
+              </div>
+            ) : erro && semPedidosOperacionais ? (
+              <div className="orders-state-card is-filter-empty" role="alert">
+                <div className="orders-empty-icon" aria-hidden="true">⚠️</div>
+                <p><strong>Não foi possível carregar os pedidos agora.</strong></p>
+                <p>Confira sua conexão e tente atualizar novamente.</p>
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  onClick={() => {
+                    void atualizarPedidosOperacionaisAgora();
+                  }}
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            ) : semPedidosOperacionais ? (
+              <div className="orders-state-card is-filter-empty" role="status" aria-live="polite">
+                <div className="orders-empty-icon" aria-hidden="true">📭</div>
+                <p><strong>Sem pedidos nesta página no momento.</strong></p>
+                <p>Assim que houver novas vendas, elas aparecerão aqui para acompanhamento operacional.</p>
+              </div>
+            ) : semResultadosPedidosOperacionais ? (
               <div className="orders-state-card is-filter-empty" role="status" aria-live="polite">
                 <div className="orders-empty-icon" aria-hidden="true">🗂️</div>
                 <p><strong>Nenhum pedido encontrado com os filtros aplicados.</strong></p>
                 <p>Ajuste os filtros para visualizar pedidos de outros status, clientes ou pagamentos.</p>
               </div>
             ) : (
-              <div className="admin-orders-list">
+              <div className={`admin-orders-list ${modoFilaAltaAtivo ? 'is-fila-alta' : ''}`}>
                 {pedidosFiltradosOperacionais.map((pedido) => {
                   const pedidoId = Number(pedido?.id || 0);
                   const statusSelecionado = String(statusDraft[pedidoId] || pedido.statusNormalizado || '').trim().toLowerCase() || 'pendente';
@@ -1732,21 +2481,46 @@ export default function AdminPage() {
                   const detalheAberto = pedidoExpandidoId === pedidoId;
                   const emAtualizacao = atualizandoStatusPedidoId === pedidoId;
                   const podeSalvarStatus = STATUS_OPTIONS.includes(statusSelecionado);
+                  const resumoOperacionalTexto = montarResumoOperacionalPedido(pedido);
+                  const proximoStatusLabel = pedido.proximoStatus ? formatarStatusPedido(pedido.proximoStatus) : '';
+                  const classeEnvelhecimento = pedido.envelhecimentoTone !== 'normal'
+                    ? `is-aged-${pedido.envelhecimentoTone}`
+                    : '';
+                  const pedidoTemPendencias = pedido.pendenciasOperacionais.length > 0;
+                  const pendenciasVisiveis = modoFilaAltaAtivo
+                    ? pedido.pendenciasOperacionais.slice(0, OPERACAO_PEDIDOS_LIMITES.maxPendenciasVisiveisFilaAlta)
+                    : pedido.pendenciasOperacionais;
+                  const pendenciasOcultas = Math.max(0, pedido.pendenciasOperacionais.length - pendenciasVisiveis.length);
+                  const ultimaAcaoPedido = ultimasAcoesPedidos[pedidoId] || null;
 
                   return (
                     <article
                       key={pedidoId}
-                      className={`admin-order-card ${pedido.critico ? 'is-critical' : ''} ${pedido.urgente ? 'is-urgent' : ''}`}
+                      className={`admin-order-card ${pedido.critico ? 'is-critical' : ''} ${pedido.urgente ? 'is-urgent' : ''} ${classeEnvelhecimento} ${modoFilaAltaAtivo ? 'is-fila-alta' : ''}`}
                     >
-                      <div className="admin-order-card-head">
+                      <div
+                        className="admin-order-card-head"
+                        onDoubleClick={() => toggleDetalhePedidoOperacional(pedidoId)}
+                        title="Duplo clique para abrir ou recolher detalhe"
+                      >
                         <div>
                           <p className="admin-order-id">Pedido #{pedidoId}</p>
-                          <p className="admin-order-date">{pedido.dataLabel} • {pedido.tempoRelativo}</p>
+                          <p className="admin-order-date">{pedido.dataLabel}</p>
+                          <div className="admin-order-time-meta">
+                            <span className={`admin-order-time-chip tone-${pedido.envelhecimentoTone}`}>
+                              Criado: {pedido.tempoDesdeCriacaoLabel}
+                            </span>
+                            {!modoFilaAltaAtivo && pedido.tempoNoStatusDisponivel ? (
+                              <span className="admin-order-time-chip">No status: {pedido.tempoNoStatusLabel}</span>
+                            ) : !modoFilaAltaAtivo ? (
+                              <span className="admin-order-time-chip is-muted">No status: sem histórico dedicado</span>
+                            ) : null}
+                          </div>
                         </div>
 
                         <div className="admin-order-badges">
-                          {pedido.urgente ? (
-                            <span className="admin-order-urgency">Atenção imediata</span>
+                          {pedido.envelhecimentoLabel ? (
+                            <span className={`admin-order-urgency tone-${pedido.envelhecimentoTone}`}>{pedido.envelhecimentoLabel}</span>
                           ) : null}
 
                           <span className={`admin-payment-badge tone-${pedido.pagamentoMeta.tone}`}>
@@ -1759,6 +2533,22 @@ export default function AdminPage() {
                           </span>
                         </div>
                       </div>
+
+                      {pedidoTemPendencias ? (
+                        <div className="admin-order-pendencias" aria-label="Pendências operacionais">
+                          {pendenciasVisiveis.map((pendencia) => (
+                            <span
+                              key={`${pedidoId}-${pendencia.id}`}
+                              className={`admin-order-pendencia-chip tone-${pendencia.tone}`}
+                            >
+                              {pendencia.label}
+                            </span>
+                          ))}
+                          {pendenciasOcultas > 0 ? (
+                            <span className="admin-order-pendencia-chip tone-muted">+{pendenciasOcultas} pendência(s)</span>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       <div className="admin-order-grid">
                         <div>
@@ -1780,9 +2570,71 @@ export default function AdminPage() {
                         </div>
                       </div>
 
-                      <p className="admin-order-summary">{pedido.resumoItensTexto}</p>
+                      <div className="admin-order-mid-row">
+                        <p className="admin-order-summary">{pedido.resumoItensTexto}</p>
+
+                        <div className="admin-order-tools-row">
+                          <button
+                            className="btn-secondary admin-order-util-btn"
+                            type="button"
+                            onClick={() => {
+                              void handleCopiarCampoPedido(pedido.clienteTelefone, 'Telefone do cliente');
+                            }}
+                            disabled={!pedido.clienteTelefone}
+                          >
+                            Copiar telefone
+                          </button>
+
+                          {pedido.whatsappLink ? (
+                            <a className="btn-secondary admin-order-util-btn" href={pedido.whatsappLink} target="_blank" rel="noopener noreferrer">
+                              Abrir WhatsApp
+                            </a>
+                          ) : null}
+
+                          <button
+                            className="btn-secondary admin-order-util-btn"
+                            type="button"
+                            onClick={() => {
+                              void handleCopiarCampoPedido(pedido.enderecoTexto, 'Endereço completo');
+                            }}
+                            disabled={!pedido.enderecoDisponivel}
+                          >
+                            Copiar endereço
+                          </button>
+
+                          <button
+                            className="btn-secondary admin-order-util-btn"
+                            type="button"
+                            onClick={() => {
+                              void handleCopiarResumoPedido(pedido);
+                            }}
+                            disabled={!resumoOperacionalTexto}
+                          >
+                            Copiar resumo rápido
+                          </button>
+                        </div>
+                      </div>
+
+                      {ultimaAcaoPedido ? (
+                        <p className={`admin-order-last-action tone-${ultimaAcaoPedido.tipo || 'info'}`}>
+                          Última ação: {ultimaAcaoPedido.mensagem} ({formatarTempoRelativo(ultimaAcaoPedido.em)})
+                        </p>
+                      ) : null}
 
                       <div className="admin-order-actions-row">
+                        {pedido.proximoStatus ? (
+                          <button
+                            className="btn-primary admin-order-next-step-btn"
+                            type="button"
+                            onClick={() => {
+                              void handleAcaoRapidaPedido(pedido);
+                            }}
+                            disabled={emAtualizacao}
+                          >
+                            {pedido.acaoRapidaLabel || 'Próximo passo'}: {proximoStatusLabel}
+                          </button>
+                        ) : null}
+
                         <select
                           className="field-input"
                           value={statusSelecionado}
@@ -1803,132 +2655,139 @@ export default function AdminPage() {
                         </select>
 
                         <button
-                          className="btn-secondary"
+                          className="btn-secondary admin-order-secondary-btn"
                           type="button"
                           onClick={() => {
                             void salvarStatusPedido(pedidoId);
                           }}
                           disabled={!podeSalvarStatus || emAtualizacao}
                         >
-                          {emAtualizacao ? 'Salvando...' : 'Salvar status'}
+                          {emAtualizacao ? 'Salvando...' : 'Confirmar status'}
                         </button>
 
-                        {pedido.proximoStatus ? (
-                          <button
-                            className="btn-primary"
-                            type="button"
-                            onClick={() => {
-                              void handleAcaoRapidaPedido(pedido);
-                            }}
-                            disabled={emAtualizacao}
-                          >
-                            {pedido.acaoRapidaLabel}
-                          </button>
-                        ) : null}
-
                         <button
-                          className="btn-secondary"
+                          className="btn-secondary admin-order-secondary-btn"
                           type="button"
-                          onClick={() => setPedidoExpandidoId(detalheAberto ? null : pedidoId)}
+                          onClick={() => toggleDetalhePedidoOperacional(pedidoId)}
                         >
-                          {detalheAberto ? 'Ocultar detalhe' : 'Ver detalhe'}
+                          {detalheAberto ? 'Fechar detalhe' : 'Abrir detalhe'}
                         </button>
                       </div>
 
                       {detalheAberto ? (
                         <div className="admin-order-details">
-                          <div className="admin-order-details-grid">
-                            <article className="admin-order-detail-card">
-                              <h4>Pagamento</h4>
-                              <p>{pedido.pagamentoMeta.label}</p>
-                              <small>{pedido.pagamentoMeta.detalhe}</small>
-                              {pedido.pixStatus ? <small>PIX status: {pedido.pixStatus}</small> : null}
-                            </article>
+                          <div className="admin-order-details-layout">
+                            <div className="admin-order-details-main">
+                              <div className="admin-order-details-grid">
+                                <article className="admin-order-detail-card">
+                                  <h4>Pagamento</h4>
+                                  <p>{pedido.pagamentoMeta.label}</p>
+                                  <small>{pedido.pagamentoMeta.detalhe}</small>
+                                  <small>Criado: {pedido.tempoDesdeCriacaoLabel}</small>
+                                  <small>
+                                    {pedido.tempoNoStatusDisponivel
+                                      ? `No status atual: ${pedido.tempoNoStatusLabel}`
+                                      : 'No status atual: sem histórico dedicado.'}
+                                  </small>
+                                  {pedido.pixStatus ? <small>PIX status: {pedido.pixStatus}</small> : null}
+                                </article>
 
-                            <article className="admin-order-detail-card">
-                              <h4>Contato</h4>
-                              <p>{pedido.clienteNome}</p>
-                              <small>{pedido.clienteTelefone || 'Telefone não informado'}</small>
-                              <div className="admin-order-detail-actions">
-                                <button
-                                  className="btn-secondary"
-                                  type="button"
-                                  onClick={() => {
-                                    void handleCopiarCampoPedido(pedido.clienteTelefone, 'Telefone do cliente');
-                                  }}
-                                >
-                                  Copiar telefone
-                                </button>
-                                {pedido.whatsappLink ? (
-                                  <a className="btn-secondary" href={pedido.whatsappLink} target="_blank" rel="noopener noreferrer">
-                                    Abrir WhatsApp
-                                  </a>
+                                <article className="admin-order-detail-card">
+                                  <h4>Contato</h4>
+                                  <p>{pedido.clienteNome}</p>
+                                  <small>{pedido.clienteTelefone || 'Telefone não informado'}</small>
+                                  <div className="admin-order-detail-actions">
+                                    <button
+                                      className="btn-secondary"
+                                      type="button"
+                                      onClick={() => {
+                                        void handleCopiarCampoPedido(pedido.clienteTelefone, 'Telefone do cliente');
+                                      }}
+                                    >
+                                      Copiar telefone
+                                    </button>
+                                    {pedido.whatsappLink ? (
+                                      <a className="btn-secondary" href={pedido.whatsappLink} target="_blank" rel="noopener noreferrer">
+                                        Abrir WhatsApp
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                </article>
+
+                                <article className="admin-order-detail-card">
+                                  <h4>Endereço</h4>
+                                  <p>{pedido.enderecoTexto}</p>
+                                  <div className="admin-order-detail-actions">
+                                    <button
+                                      className="btn-secondary"
+                                      type="button"
+                                      onClick={() => {
+                                        void handleCopiarCampoPedido(pedido.enderecoTexto, 'Endereço');
+                                      }}
+                                      disabled={!pedido.enderecoDisponivel}
+                                    >
+                                      Copiar endereço
+                                    </button>
+                                  </div>
+                                </article>
+
+                                {pedido.observacaoOperacional ? (
+                                  <article className="admin-order-detail-card is-highlight">
+                                    <h4>Observação</h4>
+                                    <p>{pedido.observacaoOperacional}</p>
+                                  </article>
                                 ) : null}
                               </div>
-                            </article>
 
-                            <article className="admin-order-detail-card">
-                              <h4>Endereço</h4>
-                              <p>{pedido.enderecoTexto}</p>
-                              <div className="admin-order-detail-actions">
-                                <button
-                                  className="btn-secondary"
-                                  type="button"
-                                  onClick={() => {
-                                    void handleCopiarCampoPedido(pedido.enderecoTexto, 'Endereço');
-                                  }}
-                                >
-                                  Copiar endereço
-                                </button>
+                              {pedido.statusNormalizado === 'cancelado' ? (
+                                <div className="orders-timeline is-canceled is-compact">
+                                  <span className="orders-timeline-canceled-text">Pedido cancelado.</span>
+                                </div>
+                              ) : (
+                                <div className="orders-timeline is-compact" aria-label="Andamento operacional do pedido">
+                                  {TIMELINE_ETAPAS_ADMIN.map((etapa, index) => {
+                                    const numeroEtapa = index + 1;
+                                    const done = numeroEtapa < pedido.statusMeta.timelineStep;
+                                    const current = numeroEtapa === pedido.statusMeta.timelineStep;
+
+                                    return (
+                                      <div
+                                        className={`orders-timeline-step ${done ? 'is-done' : ''} ${current ? 'is-current' : ''}`}
+                                        key={`${pedidoId}-timeline-${etapa}`}
+                                      >
+                                        <span className="orders-timeline-dot" aria-hidden="true" />
+                                        <span className="orders-timeline-label">{etapa}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="admin-order-details-side">
+                              <div className="admin-order-items-box">
+                                <div className="admin-order-items-head">
+                                  <strong>Itens do pedido</strong>
+                                  <span>{pedido.totalItens} item(ns)</span>
+                                </div>
+
+                                {pedido.itensLista.length === 0 ? (
+                                  <p className="muted-text">Itens não detalhados neste pedido.</p>
+                                ) : (
+                                  <ul className="admin-order-items-list">
+                                    {pedido.itensLista.map((item) => (
+                                      <li key={`${pedidoId}-${item.id}`}>
+                                        <div>
+                                          <p>{item.nome}</p>
+                                          <small>{item.quantidade} x {formatarMoeda(item.preco)}</small>
+                                        </div>
+                                        <strong>{formatarMoeda(item.subtotal)}</strong>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
                               </div>
-                            </article>
-                          </div>
-
-                          {pedido.statusNormalizado === 'cancelado' ? (
-                            <div className="orders-timeline is-canceled is-compact">
-                              <span className="orders-timeline-canceled-text">Pedido cancelado.</span>
                             </div>
-                          ) : (
-                            <div className="orders-timeline is-compact" aria-label="Andamento operacional do pedido">
-                              {TIMELINE_ETAPAS_ADMIN.map((etapa, index) => {
-                                const numeroEtapa = index + 1;
-                                const done = numeroEtapa < pedido.statusMeta.timelineStep;
-                                const current = numeroEtapa === pedido.statusMeta.timelineStep;
-
-                                return (
-                                  <div
-                                    className={`orders-timeline-step ${done ? 'is-done' : ''} ${current ? 'is-current' : ''}`}
-                                    key={`${pedidoId}-timeline-${etapa}`}
-                                  >
-                                    <span className="orders-timeline-dot" aria-hidden="true" />
-                                    <span className="orders-timeline-label">{etapa}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          <div className="admin-order-items-box">
-                            <div className="admin-order-items-head">
-                              <strong>Itens do pedido</strong>
-                              <span>{pedido.totalItens} item(ns)</span>
-                            </div>
-
-                            {pedido.itensLista.length === 0 ? (
-                              <p className="muted-text">Itens não detalhados neste pedido.</p>
-                            ) : (
-                              <ul className="admin-order-items-list">
-                                {pedido.itensLista.map((item) => (
-                                  <li key={`${pedidoId}-${item.id}`}>
-                                    <div>
-                                      <p>{item.nome}</p>
-                                      <small>{item.quantidade} x {formatarMoeda(item.preco)}</small>
-                                    </div>
-                                    <strong>{formatarMoeda(item.subtotal)}</strong>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
                           </div>
                         </div>
                       ) : null}
