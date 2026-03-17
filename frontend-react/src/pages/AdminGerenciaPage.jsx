@@ -19,16 +19,6 @@ import {
   isAuthErrorMessage
 } from '../lib/api';
 import useDebouncedValue from '../hooks/useDebouncedValue';
-import {
-  CAMPOS_IMPORTACAO_LABEL,
-  EXTENSOES_IMPORTACAO_ACEITAS,
-  construirPreviewImportacao,
-  extrairMapeamentoNormalizado,
-  formatarTamanhoArquivo,
-  gerarCsvRelatorioImportacao,
-  lerEValidarArquivoImportacao,
-  validarMapeamentoObrigatorio
-} from '../lib/importacaoPlanilha';
 
 const PRODUTOS_POR_PAGINA = 60;
 
@@ -64,7 +54,17 @@ const CAMPOS_MAPEAMENTO_ORDEM = [
   'ativo'
 ];
 
-const TEXTO_EXTENSOES_IMPORTACAO = EXTENSOES_IMPORTACAO_ACEITAS.join(', ');
+const EXTENSOES_IMPORTACAO_ACEITAS_PADRAO = Object.freeze(['.xls', '.xlsx', '.csv']);
+let importacaoPlanilhaModulePromise = null;
+
+async function carregarModuloImportacaoPlanilha() {
+  if (!importacaoPlanilhaModulePromise) {
+    importacaoPlanilhaModulePromise = import('../lib/importacaoPlanilha');
+  }
+
+  const modulo = await importacaoPlanilhaModulePromise;
+  return modulo?.default || modulo;
+}
 
 const ESTADOS_FLUXO_IMPORTACAO = Object.freeze({
   IDLE: 'idle',
@@ -158,6 +158,23 @@ function formatarPercentual(valor) {
   return Math.max(0, Math.min(100, Math.round(numero)));
 }
 
+function formatarTamanhoArquivoFallback(bytesRaw) {
+  const bytes = Number(bytesRaw || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 KB';
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 function gerarNomeRelatorioImportacao() {
   const data = new Date();
   const stamp = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}_${String(data.getHours()).padStart(2, '0')}${String(data.getMinutes()).padStart(2, '0')}`;
@@ -173,8 +190,44 @@ function normalizarNomeArquivoExibicao(nomeArquivo) {
   return nome.replace(/(\.xlsx|\.xls|\.csv)(?:\s*\1)+$/i, '$1');
 }
 
-function construirMapeamentoPayload(mapeamento = {}) {
-  const normalizado = extrairMapeamentoNormalizado(mapeamento);
+function temValorMapeamento(valor) {
+  return String(valor ?? '').trim() !== '';
+}
+
+function validarMapeamentoObrigatorioFallback(mapeamento = {}) {
+  const temIdentificador = temValorMapeamento(mapeamento.codigo_interno) || temValorMapeamento(mapeamento.codigo_barras);
+  const temNomeOuDescricao = temValorMapeamento(mapeamento.nome) || temValorMapeamento(mapeamento.descricao);
+  const temPreco = temValorMapeamento(mapeamento.preco);
+
+  const pendencias = [];
+
+  if (!temIdentificador) {
+    pendencias.push('Selecione ao menos Codigo interno ou Codigo de barras.');
+  }
+
+  if (!temNomeOuDescricao) {
+    pendencias.push('Selecione Nome do produto ou Descricao.');
+  }
+
+  if (!temPreco) {
+    pendencias.push('Selecione a coluna de Preco.');
+  }
+
+  return {
+    ok: pendencias.length === 0,
+    pendencias
+  };
+}
+
+function construirMapeamentoPayload(mapeamento = {}, extrairMapeamentoNormalizadoFn) {
+  const extrator = typeof extrairMapeamentoNormalizadoFn === 'function'
+    ? extrairMapeamentoNormalizadoFn
+    : (dados) => ({ ...(dados || {}) });
+
+  const normalizadoRaw = extrator(mapeamento);
+  const normalizado = normalizadoRaw && typeof normalizadoRaw === 'object'
+    ? { ...normalizadoRaw }
+    : {};
 
   if (!normalizado.nome && normalizado.descricao) {
     normalizado.nome = normalizado.descricao;
@@ -373,15 +426,43 @@ export default function AdminGerenciaPage() {
   const [importLogs, setImportLogs] = useState([]);
   const [enrichmentLogs, setEnrichmentLogs] = useState([]);
   const [carregandoLogs, setCarregandoLogs] = useState(false);
+  const [importacaoUtils, setImportacaoUtils] = useState(null);
+  const [carregandoImportacaoUtils, setCarregandoImportacaoUtils] = useState(false);
+  const [falhaCarregamentoImportacaoUtils, setFalhaCarregamentoImportacaoUtils] = useState(false);
+
+  const extensoesImportacaoAceitas = useMemo(() => {
+    const extensoesDoModulo = importacaoUtils?.EXTENSOES_IMPORTACAO_ACEITAS;
+    if (Array.isArray(extensoesDoModulo) && extensoesDoModulo.length > 0) {
+      return extensoesDoModulo;
+    }
+
+    return EXTENSOES_IMPORTACAO_ACEITAS_PADRAO;
+  }, [importacaoUtils]);
+
+  const textoExtensoesImportacao = useMemo(
+    () => extensoesImportacaoAceitas.join(', '),
+    [extensoesImportacaoAceitas]
+  );
+
+  const camposImportacaoLabel = importacaoUtils?.CAMPOS_IMPORTACAO_LABEL || {};
+  const formatarTamanhoArquivoImportacao = importacaoUtils?.formatarTamanhoArquivo || formatarTamanhoArquivoFallback;
+  const extrairMapeamentoNormalizadoFn = importacaoUtils?.extrairMapeamentoNormalizado;
+  const validarMapeamentoObrigatorioFn = importacaoUtils?.validarMapeamentoObrigatorio;
 
   const mapeamentoPayload = useMemo(
-    () => construirMapeamentoPayload(mapeamentoColunas),
-    [mapeamentoColunas]
+    () => construirMapeamentoPayload(mapeamentoColunas, extrairMapeamentoNormalizadoFn),
+    [mapeamentoColunas, extrairMapeamentoNormalizadoFn]
   );
 
   const validacaoMapeamento = useMemo(
-    () => validarMapeamentoObrigatorio(mapeamentoPayload),
-    [mapeamentoPayload]
+    () => {
+      const validar = typeof validarMapeamentoObrigatorioFn === 'function'
+        ? validarMapeamentoObrigatorioFn
+        : validarMapeamentoObrigatorioFallback;
+
+      return validar(mapeamentoPayload);
+    },
+    [mapeamentoPayload, validarMapeamentoObrigatorioFn]
   );
 
   const assinaturaImportacaoAtual = useMemo(
@@ -457,6 +538,26 @@ export default function AdminGerenciaPage() {
         return 1;
     }
   }, [estadoFluxoImportacao]);
+
+  async function garantirImportacaoUtils() {
+    if (importacaoUtils) {
+      return importacaoUtils;
+    }
+
+    setCarregandoImportacaoUtils(true);
+    setFalhaCarregamentoImportacaoUtils(false);
+    try {
+      const modulo = await carregarModuloImportacaoPlanilha();
+      setImportacaoUtils(modulo);
+      return modulo;
+    } catch {
+      importacaoPlanilhaModulePromise = null;
+      setFalhaCarregamentoImportacaoUtils(true);
+      throw new Error('Nao foi possivel carregar os recursos de importacao de planilha.');
+    } finally {
+      setCarregandoImportacaoUtils(false);
+    }
+  }
 
   function tratarErroApi(error) {
     if (isAuthApiError(error)) {
@@ -610,7 +711,14 @@ export default function AdminGerenciaPage() {
 
     try {
       setEstadoFluxoImportacao(ESTADOS_FLUXO_IMPORTACAO.READING);
-      const leitura = await lerEValidarArquivoImportacao(file);
+      const utils = await garantirImportacaoUtils();
+      const lerEValidarArquivoImportacaoFn = utils?.lerEValidarArquivoImportacao;
+
+      if (typeof lerEValidarArquivoImportacaoFn !== 'function') {
+        throw new Error('Nao foi possivel carregar o leitor de planilha.');
+      }
+
+      const leitura = await lerEValidarArquivoImportacaoFn(file);
       setLeituraPlanilha(leitura);
 
       const mapeamentoInicial = {
@@ -686,21 +794,32 @@ export default function AdminGerenciaPage() {
     });
   }
 
-  function handleBaixarRelatorioImportacao() {
+  async function handleBaixarRelatorioImportacao() {
     if (!resultadoImportacao) {
       setErro('Nao ha resultado de importacao para gerar relatorio.');
       return;
     }
 
-    const relatorio = gerarCsvRelatorioImportacao(resultadoImportacao, gerarNomeRelatorioImportacao());
-    dispararDownloadBrowser(relatorio.blob, relatorio.fileName);
-    setMensagem('Relatorio de importacao baixado com sucesso.');
+    try {
+      const utils = await garantirImportacaoUtils();
+      const gerarCsvRelatorioImportacaoFn = utils?.gerarCsvRelatorioImportacao;
+
+      if (typeof gerarCsvRelatorioImportacaoFn !== 'function') {
+        throw new Error('Nao foi possivel gerar o relatorio da importacao.');
+      }
+
+      const relatorio = gerarCsvRelatorioImportacaoFn(resultadoImportacao, gerarNomeRelatorioImportacao());
+      dispararDownloadBrowser(relatorio.blob, relatorio.fileName);
+      setMensagem('Relatorio de importacao baixado com sucesso.');
+    } catch (error) {
+      setErro(extrairMensagemErro(error));
+    }
   }
 
   function avancarPassoImportacao() {
     if (passoImportacaoAtivo === 1) {
       if (!arquivoPlanilha) {
-        setErro(`Selecione um arquivo (${TEXTO_EXTENSOES_IMPORTACAO}) para continuar.`);
+        setErro(`Selecione um arquivo (${textoExtensoesImportacao}) para continuar.`);
         return;
       }
 
@@ -783,7 +902,7 @@ export default function AdminGerenciaPage() {
     setMensagem('');
 
     if (!arquivoPlanilha) {
-      setErro(`Selecione um arquivo (${TEXTO_EXTENSOES_IMPORTACAO}) para importar.`);
+      setErro(`Selecione um arquivo (${textoExtensoesImportacao}) para importar.`);
       return;
     }
 
@@ -913,8 +1032,23 @@ export default function AdminGerenciaPage() {
 
     if (tab === 'importar') {
       void carregarHistoricoImportacaoRecente();
+
+      if (!importacaoUtils && !carregandoImportacaoUtils && !falhaCarregamentoImportacaoUtils) {
+        setCarregandoImportacaoUtils(true);
+        void carregarModuloImportacaoPlanilha()
+          .then((modulo) => {
+            setImportacaoUtils(modulo);
+          })
+          .catch(() => {
+            importacaoPlanilhaModulePromise = null;
+            setFalhaCarregamentoImportacaoUtils(true);
+          })
+          .finally(() => {
+            setCarregandoImportacaoUtils(false);
+          });
+      }
     }
-  }, [adminAutenticado, tab]);
+  }, [adminAutenticado, tab, importacaoUtils, carregandoImportacaoUtils, falhaCarregamentoImportacaoUtils]);
 
   useEffect(() => {
     if (!leituraPlanilha) {
@@ -922,7 +1056,12 @@ export default function AdminGerenciaPage() {
       return;
     }
 
-    const preview = construirPreviewImportacao({
+    if (!importacaoUtils || typeof importacaoUtils.construirPreviewImportacao !== 'function') {
+      setPreviewImportacao(null);
+      return;
+    }
+
+    const preview = importacaoUtils.construirPreviewImportacao({
       cabecalhos: leituraPlanilha.cabecalhos,
       linhasDados: leituraPlanilha.linhasDados,
       mapeamento: mapeamentoPayload,
@@ -948,6 +1087,7 @@ export default function AdminGerenciaPage() {
     setEstadoFluxoImportacao(ESTADOS_FLUXO_IMPORTACAO.MAPPING_READY);
   }, [
     leituraPlanilha,
+    importacaoUtils,
     mapeamentoPayload,
     importandoPlanilha,
     estadoFluxoImportacao,
@@ -1272,7 +1412,7 @@ export default function AdminGerenciaPage() {
           <h1>Admin / Gerencia</h1>
           <p>Painel de qualidade de base para importacao, mapeamento e enriquecimento do catalogo.</p>
           <div className="admin-gerencia-hero-pills">
-            <span className="admin-gerencia-pill">Formatos aceitos: {TEXTO_EXTENSOES_IMPORTACAO}</span>
+            <span className="admin-gerencia-pill">Formatos aceitos: {textoExtensoesImportacao}</span>
             <span className="admin-gerencia-pill">Fluxo guiado com preview e simulacao</span>
             <span className="admin-gerencia-pill">Sessao administrativa ativa</span>
           </div>
@@ -1568,17 +1708,18 @@ export default function AdminGerenciaPage() {
                 }}
               >
                 <strong>Arraste e solte aqui</strong>
-                <span>Formatos aceitos: {TEXTO_EXTENSOES_IMPORTACAO}</span>
+                <span>Formatos aceitos: {textoExtensoesImportacao}</span>
                 <input
                   id="admin-import-file-input"
                   className="importacao-file-input"
                   type="file"
-                  accept={EXTENSOES_IMPORTACAO_ACEITAS.join(',')}
+                  accept={extensoesImportacaoAceitas.join(',')}
                   onChange={handleArquivoSelecionadoInput}
                 />
                 <button
                   className="btn-secondary importacao-select-btn"
                   type="button"
+                  disabled={carregandoImportacaoUtils}
                   onClick={() => {
                     const input = document.getElementById('admin-import-file-input');
                     if (input) {
@@ -1592,11 +1733,17 @@ export default function AdminGerenciaPage() {
 
               {processandoLeituraPlanilha ? (
                 <p className="muted-text">Lendo arquivo e validando estrutura da planilha...</p>
+              ) : carregandoImportacaoUtils ? (
+                <p className="muted-text">Preparando leitor de planilha...</p>
+              ) : null}
+
+              {falhaCarregamentoImportacaoUtils ? (
+                <p className="error-text">Nao foi possivel preparar o leitor de planilha. Tente selecionar o arquivo novamente.</p>
               ) : null}
 
               {arquivoPlanilha ? (
                 <p className="admin-import-file-meta">
-                  Arquivo carregado: <strong>{nomeArquivoExibicao || arquivoPlanilha.name}</strong> ({formatarTamanhoArquivo(arquivoPlanilha.size)})
+                  Arquivo carregado: <strong>{nomeArquivoExibicao || arquivoPlanilha.name}</strong> ({formatarTamanhoArquivoImportacao(arquivoPlanilha.size)})
                 </p>
               ) : (
                 <p className="muted-text">Nenhum arquivo selecionado no momento.</p>
@@ -1639,7 +1786,7 @@ export default function AdminGerenciaPage() {
                   <div className="admin-import-map-grid">
                     {CAMPOS_MAPEAMENTO_ORDEM.map((campo) => (
                       <label key={campo} className="admin-import-map-field">
-                        <span>{CAMPOS_IMPORTACAO_LABEL[campo] || campo}</span>
+                        <span>{camposImportacaoLabel[campo] || campo}</span>
                         <select
                           className="field-input"
                           value={mapeamentoColunas[campo] || ''}

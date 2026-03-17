@@ -2,6 +2,7 @@ import React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
+import { useRecorrencia } from '../context/RecorrenciaContext';
 import { getPedidoById, getPedidos, isAuthErrorMessage } from '../lib/api';
 
 const PEDIDOS_POR_PAGINA = 20;
@@ -208,6 +209,7 @@ function OrdersSkeletonList() {
 export default function PedidosPage() {
   const navigate = useNavigate();
   const { addItem } = useCart();
+  const { registrarRecompraItens, registrarAcaoCarrinho } = useRecorrencia();
   const [pedidos, setPedidos] = useState([]);
   const [pedidoAbertoId, setPedidoAbertoId] = useState(null);
   const [detalhesPorPedido, setDetalhesPorPedido] = useState({});
@@ -414,32 +416,48 @@ export default function PedidosPage() {
       }
 
       let itensAdicionados = 0;
+      let itensIgnorados = 0;
 
       detalhes.itens.forEach((item) => {
         const produtoId = Number(item?.produto_id || 0);
         if (!Number.isInteger(produtoId) || produtoId <= 0) {
+          itensIgnorados += 1;
           return;
         }
 
         const quantidade = Math.max(1, Number(item?.quantidade || 1));
+        const produtoRecompra = {
+          id: produtoId,
+          nome: String(item?.nome_produto || item?.nome || 'Item'),
+          preco: Number(item?.preco || 0),
+          emoji: String(item?.emoji || '📦'),
+          categoria: String(item?.categoria || ''),
+          imagem: String(item?.imagem || ''),
+          unidade: String(item?.unidade || ''),
+          marca: String(item?.marca || ''),
+          descricao: String(item?.descricao || '')
+        };
+
         addItem(
-          {
-            id: produtoId,
-            nome: String(item?.nome_produto || item?.nome || 'Item'),
-            preco: Number(item?.preco || 0),
-            emoji: String(item?.emoji || '📦')
-          },
+          produtoRecompra,
           quantidade
         );
+        registrarAcaoCarrinho(produtoRecompra, { quantidade });
         itensAdicionados += quantidade;
       });
+
+      registrarRecompraItens(detalhes.itens);
 
       if (itensAdicionados <= 0) {
         setErro('Não foi possível repetir este pedido porque os produtos não foram encontrados.');
         return;
       }
 
-      setMensagemSucesso(`Pedido #${pedidoId} adicionado ao carrinho com ${itensAdicionados} item(ns).`);
+      if (itensIgnorados > 0) {
+        setMensagemSucesso(`Pedido #${pedidoId} repetido com ${itensAdicionados} item(ns). ${itensIgnorados} item(ns) indisponível(is) não foi(ram) adicionado(s).`);
+      } else {
+        setMensagemSucesso(`Pedido #${pedidoId} adicionado ao carrinho com ${itensAdicionados} item(ns).`);
+      }
     } finally {
       setPedidoRepetindoId(null);
     }

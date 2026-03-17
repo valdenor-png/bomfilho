@@ -13,6 +13,7 @@ import {
   logout,
   salvarEndereco
 } from '../lib/api';
+import { useRecorrencia } from '../context/RecorrenciaContext';
 import {
   FONT_SCALE_OPTIONS,
   getStoredFontScale,
@@ -330,6 +331,7 @@ function ShortcutCard({ to, title, description, disabled = false, onClick }) {
 }
 
 export default function ContaPage() {
+  const { stats: recorrenciaStats } = useRecorrencia();
   const recaptchaSiteKey = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
   const recaptchaEnabled = recaptchaSiteKey.length > 0;
   const recaptchaRef = useRef(null);
@@ -1208,13 +1210,19 @@ export default function ContaPage() {
                 <span className="conta-section-icon"><IconShortcut /></span>
                 <div>
                   <h3>Atalhos úteis</h3>
-                  <p>Acesse rapidamente áreas importantes da sua conta.</p>
+                  <p>Acesse rapidamente áreas importantes da sua conta e dos seus hábitos de compra.</p>
                 </div>
               </div>
 
+              <p className="muted-text" style={{ marginTop: '-0.1rem' }}>
+                Favoritos: {recorrenciaStats.favoritos} • Vistos: {recorrenciaStats.recentes} • Recompra: {recorrenciaStats.recompra}
+              </p>
+
               <div className="conta-shortcuts-grid">
                 <ShortcutCard to="/pedidos" title="Meus pedidos" description="Acompanhar status e histórico." />
-                <ShortcutCard disabled title="Favoritos" description="Lista de produtos salvos (em breve)." />
+                <ShortcutCard to="/produtos?recorrencia=favoritos" title="Favoritos" description="Abrir seus produtos salvos." />
+                <ShortcutCard to="/produtos?recorrencia=recentes" title="Vistos recentemente" description="Retomar produtos visualizados." />
+                <ShortcutCard to="/produtos?recorrencia=recompra" title="Comprar novamente" description="Atalho para recompra rapida." />
                 <ShortcutCard disabled title="Cupons" description="Ver cupons disponíveis (em breve)." />
                 <ShortcutCard
                   title="Ajuda / suporte"

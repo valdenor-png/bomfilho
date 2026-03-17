@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './styles.css';
 import { CartProvider } from './context/CartContext';
+import { RecorrenciaProvider } from './context/RecorrenciaContext';
 import {
   applyFontScale,
   applyHighContrast,
@@ -20,9 +21,11 @@ applyReducedMotion(getStoredReducedMotion());
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <CartProvider>
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <App />
-      </BrowserRouter>
+      <RecorrenciaProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <App />
+        </BrowserRouter>
+      </RecorrenciaProvider>
     </CartProvider>
   </React.StrictMode>
 );

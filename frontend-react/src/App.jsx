@@ -1,22 +1,79 @@
-import React from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import HomePage from './pages/HomePage';
-import ProdutosPage from './pages/ProdutosPage';
-import PagamentoPage from './pages/PagamentoPage';
-import PedidosPage from './pages/PedidosPage';
-import SobrePage from './pages/SobrePage';
-import ContaPage from './pages/ContaPage';
-import AdminPage from './pages/AdminPage';
-import AdminGerenciaPage from './pages/AdminGerenciaPage';
-import PoliticaPrivacidadePage from './pages/PoliticaPrivacidadePage';
-import TermosUsoPage from './pages/TermosUsoPage';
-import PoliticaTrocaDevolucaoPage from './pages/PoliticaTrocaDevolucaoPage';
-import PoliticaEntregaPage from './pages/PoliticaEntregaPage';
 import { useCart } from './context/CartContext';
 
 const BOTTOM_NAV_SAFE_AREA = 90;
 const WHATSAPP_ATENDIMENTO_URL = 'https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido.';
 const TELEFONE_FIXO_URL = 'tel:+559137219780';
+
+const loadProdutosPage = () => import('./pages/ProdutosPage');
+const loadPagamentoPage = () => import('./pages/PagamentoPage');
+const loadPedidosPage = () => import('./pages/PedidosPage');
+const loadSobrePage = () => import('./pages/SobrePage');
+const loadContaPage = () => import('./pages/ContaPage');
+const loadAdminPage = () => import('./pages/AdminPage');
+const loadAdminGerenciaPage = () => import('./pages/AdminGerenciaPage');
+const loadPoliticaPrivacidadePage = () => import('./pages/PoliticaPrivacidadePage');
+const loadTermosUsoPage = () => import('./pages/TermosUsoPage');
+const loadPoliticaTrocaDevolucaoPage = () => import('./pages/PoliticaTrocaDevolucaoPage');
+const loadPoliticaEntregaPage = () => import('./pages/PoliticaEntregaPage');
+
+const ProdutosPage = lazy(loadProdutosPage);
+const PagamentoPage = lazy(loadPagamentoPage);
+const PedidosPage = lazy(loadPedidosPage);
+const SobrePage = lazy(loadSobrePage);
+const ContaPage = lazy(loadContaPage);
+const AdminPage = lazy(loadAdminPage);
+const AdminGerenciaPage = lazy(loadAdminGerenciaPage);
+const PoliticaPrivacidadePage = lazy(loadPoliticaPrivacidadePage);
+const TermosUsoPage = lazy(loadTermosUsoPage);
+const PoliticaTrocaDevolucaoPage = lazy(loadPoliticaTrocaDevolucaoPage);
+const PoliticaEntregaPage = lazy(loadPoliticaEntregaPage);
+
+function podePrefetchNavegacao() {
+  if (typeof navigator === 'undefined') {
+    return true;
+  }
+
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (!connection) {
+    return true;
+  }
+
+  if (connection.saveData) {
+    return false;
+  }
+
+  const effectiveType = String(connection.effectiveType || '').toLowerCase();
+  return !effectiveType.includes('2g');
+}
+
+function agendarEmIdle(callback, timeout = 1200) {
+  if (typeof window === 'undefined') {
+    callback();
+    return () => {};
+  }
+
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(callback, { timeout });
+    return () => window.cancelIdleCallback(id);
+  }
+
+  const timer = window.setTimeout(callback, 280);
+  return () => window.clearTimeout(timer);
+}
+
+function RouteLoadingFallback({ message = 'Carregando pagina...' }) {
+  return (
+    <section className="route-loading-fallback" role="status" aria-live="polite">
+      <div className="route-loading-card">
+        <p className="route-loading-title">Aguarde um instante</p>
+        <p className="route-loading-copy">{message}</p>
+      </div>
+    </section>
+  );
+}
 
 const links = [
   { to: '/', icon: '🏠', label: 'Início' },
@@ -33,15 +90,37 @@ export default function App() {
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isPedidosRoute = location.pathname.startsWith('/pedidos');
 
+  useEffect(() => {
+    if (!podePrefetchNavegacao()) {
+      return undefined;
+    }
+
+    return agendarEmIdle(() => {
+      void loadProdutosPage();
+    }, 1700);
+  }, []);
+
+  useEffect(() => {
+    if (resumo.itens <= 0 || !podePrefetchNavegacao()) {
+      return undefined;
+    }
+
+    return agendarEmIdle(() => {
+      void loadPagamentoPage();
+    }, 1200);
+  }, [resumo.itens]);
+
   if (isAdminRoute) {
     return (
       <div className="app-shell admin-shell">
         <main className="content admin-content">
-          <Routes>
-            <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/admin/gerencia" replace />} />
-            <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
-            <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
-          </Routes>
+          <Suspense fallback={<RouteLoadingFallback message="Carregando area administrativa..." />}>
+            <Routes>
+              <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/admin/gerencia" replace />} />
+              <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
+              <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
     );
@@ -50,19 +129,21 @@ export default function App() {
   return (
     <div className="app-shell">
       <main className="content">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/produtos" element={<ProdutosPage />} />
-          <Route path="/pagamento" element={<PagamentoPage />} />
-          <Route path="/pedidos" element={<PedidosPage />} />
-          <Route path="/admin" element={<Navigate to="/admin/gerencia" replace />} />
-          <Route path="/sobre" element={<SobrePage />} />
-          <Route path="/conta" element={<ContaPage />} />
-          <Route path="/politica-de-privacidade" element={<PoliticaPrivacidadePage />} />
-          <Route path="/termos-de-uso" element={<TermosUsoPage />} />
-          <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
-          <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
-        </Routes>
+        <Suspense fallback={<RouteLoadingFallback />}>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/produtos" element={<ProdutosPage />} />
+            <Route path="/pagamento" element={<PagamentoPage />} />
+            <Route path="/pedidos" element={<PedidosPage />} />
+            <Route path="/admin" element={<Navigate to="/admin/gerencia" replace />} />
+            <Route path="/sobre" element={<SobrePage />} />
+            <Route path="/conta" element={<ContaPage />} />
+            <Route path="/politica-de-privacidade" element={<PoliticaPrivacidadePage />} />
+            <Route path="/termos-de-uso" element={<TermosUsoPage />} />
+            <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
+            <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
+          </Routes>
+        </Suspense>
       </main>
 
       {resumo.itens > 0 && !isPedidosRoute ? (
@@ -73,10 +154,14 @@ export default function App() {
           <Link
             to="/pagamento"
             className="floating-cart"
-            aria-label="Ir para o checkout"
+            aria-label={`Ir para o checkout com ${resumo.itens} ${resumo.itens === 1 ? 'item' : 'itens'} no carrinho`}
           >
             <span className="floating-cart-icon">🛒</span>
-            <span className="floating-cart-total">R$ {resumo.total.toFixed(2)}</span>
+            <span className="floating-cart-copy">
+              <span className="floating-cart-items">{resumo.itens} {resumo.itens === 1 ? 'item' : 'itens'}</span>
+              <span className="floating-cart-total">R$ {resumo.total.toFixed(2)}</span>
+            </span>
+            <span className="floating-cart-cta">Finalizar</span>
           </Link>
         </div>
       ) : null}

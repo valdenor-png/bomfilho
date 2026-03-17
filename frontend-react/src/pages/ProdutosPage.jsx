@@ -4,6 +4,10 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Grid } from 'react-window';
 import { getProdutos } from '../lib/api';
 import { useCart } from '../context/CartContext';
+import { useRecorrencia } from '../context/RecorrenciaContext';
+import useDebouncedValue from '../hooks/useDebouncedValue';
+
+const ProdutoDecisionDrawer = React.lazy(() => import('../components/ProdutoDecisionDrawer'));
 
 const CATEGORIA_TODAS = 'todas';
 const CATEGORIA_PROMOCOES = 'promocoes';
@@ -127,6 +131,22 @@ const ORDENACOES_PRODUTOS = [
   { id: 'promocoes', label: 'Promoções' }
 ];
 
+const BUSCA_SUGESTOES_RAPIDAS = [
+  { id: 'sug-arroz', label: 'Arroz', termo: 'arroz', categoria: CATEGORIA_TODAS },
+  { id: 'sug-leite', label: 'Leite', termo: 'leite', categoria: CATEGORIA_TODAS },
+  { id: 'sug-cafe', label: 'Cafe', termo: 'cafe', categoria: CATEGORIA_TODAS },
+  { id: 'sug-bebidas', label: 'Bebidas', termo: 'bebida', categoria: CATEGORIA_BEBIDAS },
+  { id: 'sug-limpeza', label: 'Limpeza', termo: 'limpeza', categoria: 'limpeza' },
+  { id: 'sug-promocoes', label: 'Promocoes', termo: '', categoria: CATEGORIA_PROMOCOES }
+];
+
+const FILTROS_RECORRENCIA = [
+  { id: 'todos', label: 'Tudo' },
+  { id: 'favoritos', label: 'Favoritos' },
+  { id: 'recentes', label: 'Vistos recentemente' },
+  { id: 'recompra', label: 'Comprar novamente' }
+];
+
 const CATEGORIA_ICONE_FALLBACK = {
   hortifruti: '🥦',
   bebidas: '🥤',
@@ -247,6 +267,20 @@ function formatCurrency(value) {
 function getProdutoCarrinhoId(produto) {
   const id = Number(produto?.id);
   return Number.isFinite(id) ? id : null;
+}
+
+function getProdutoIdNormalizado(produtoOuId) {
+  if (produtoOuId === null || produtoOuId === undefined) {
+    return null;
+  }
+
+  if (typeof produtoOuId === 'number' || typeof produtoOuId === 'string') {
+    const idDireto = Number(produtoOuId);
+    return Number.isFinite(idDireto) && idDireto > 0 ? idDireto : null;
+  }
+
+  const id = Number(produtoOuId?.id || produtoOuId?.produto_id || 0);
+  return Number.isFinite(id) && id > 0 ? id : null;
 }
 
 function getProdutoNome(produto) {
@@ -630,8 +664,8 @@ const VIRTUALIZATION_THRESHOLD = 64;
 const VIRTUAL_GRID_GAP = 14;
 const VIRTUAL_CARD_MIN_WIDTH_DESKTOP = 236;
 const VIRTUAL_CARD_MIN_WIDTH_MOBILE = 174;
-const VIRTUAL_CARD_HEIGHT_DESKTOP = 436;
-const VIRTUAL_CARD_HEIGHT_MOBILE = 412;
+const VIRTUAL_CARD_HEIGHT_DESKTOP = 476;
+const VIRTUAL_CARD_HEIGHT_MOBILE = 452;
 const VIRTUAL_GRID_MIN_HEIGHT = 300;
 
 function useViewportHeight() {
@@ -737,9 +771,13 @@ const ProdutoCard = React.memo(function ProdutoCard({
   quantidadeNoCarrinho,
   destaqueMaisVendido,
   destaqueNovo,
+  favorito = false,
+  foiAdicionadoRecente = false,
   onAddItem,
   onIncreaseItem,
-  onDecreaseItem
+  onDecreaseItem,
+  onToggleFavorito,
+  onOpenDetail
 }) {
   const produto = produtoIndexado.produto;
   const imagem = produtoIndexado.imagemResponsiva;
@@ -760,8 +798,17 @@ const ProdutoCard = React.memo(function ProdutoCard({
   const podeComprar = produtoIndexado.carrinhoId !== null;
 
   return (
-    <article className="produto-card">
+    <article className={`produto-card ${foiAdicionadoRecente ? 'is-added' : ''}`}>
       <div className="produto-card-media">
+        <button
+          type="button"
+          className={`produto-favorite-btn ${favorito ? 'is-active' : ''}`}
+          onClick={() => onToggleFavorito(produto)}
+          aria-label={favorito ? `Remover ${nomeProduto} dos favoritos` : `Salvar ${nomeProduto} nos favoritos`}
+        >
+          {favorito ? '♥' : '♡'}
+        </button>
+
         {badges.length > 0 ? (
           <div className="produto-badges" aria-label="Selos do produto">
             {badges.map((badge) => (
@@ -770,23 +817,30 @@ const ProdutoCard = React.memo(function ProdutoCard({
           </div>
         ) : null}
 
-        {imagemIndisponivel ? (
-          <ProdutoImageFallback produto={produto} />
-        ) : (
-          <img
-            className="produto-image"
-            src={imagem.src}
-            srcSet={imagem.srcSet}
-            sizes={imagem.sizes}
-            alt={nomeProduto}
-            loading="lazy"
-            decoding="async"
-            fetchPriority="low"
-            onError={() => {
-              setImagemIndisponivel(true);
-            }}
-          />
-        )}
+        <button
+          type="button"
+          className="produto-media-button"
+          onClick={() => onOpenDetail(produtoIndexado.chaveReact)}
+          aria-label={`Ver detalhes de ${nomeProduto}`}
+        >
+          {imagemIndisponivel ? (
+            <ProdutoImageFallback produto={produto} />
+          ) : (
+            <img
+              className="produto-image"
+              src={imagem.src}
+              srcSet={imagem.srcSet}
+              sizes={imagem.sizes}
+              alt={nomeProduto}
+              loading="lazy"
+              decoding="async"
+              fetchPriority="low"
+              onError={() => {
+                setImagemIndisponivel(true);
+              }}
+            />
+          )}
+        </button>
       </div>
 
       <div className="produto-card-body">
@@ -796,6 +850,9 @@ const ProdutoCard = React.memo(function ProdutoCard({
         </p>
         <h3 className="produto-title" title={nomeProduto}>{nomeProduto}</h3>
         <p className="produto-details">{detalhesProduto}</p>
+        <p className={`produto-availability ${podeComprar ? 'is-available' : 'is-unavailable'}`}>
+          {podeComprar ? 'Disponivel para adicionar' : 'Indisponivel no momento'}
+        </p>
 
         <div className="produto-price-area">
           <p className="produto-price">{formatCurrency(precoInfo.precoAtual)}</p>
@@ -834,14 +891,32 @@ const ProdutoCard = React.memo(function ProdutoCard({
           </div>
         ) : null}
 
-        <button
-          className="btn-primary produto-add-btn"
-          type="button"
-          onClick={() => onAddItem(produto)}
-          disabled={!podeComprar}
-        >
-          {podeComprar ? (quantidadeNoCarrinho > 0 ? 'Adicionar mais' : 'Adicionar') : 'Indisponível'}
-        </button>
+        <div className="produto-card-actions-row">
+          <button
+            className="btn-primary produto-add-btn"
+            type="button"
+            onClick={() => onAddItem(produto)}
+            disabled={!podeComprar}
+          >
+            {podeComprar
+              ? (foiAdicionadoRecente ? 'Adicionado' : (quantidadeNoCarrinho > 0 ? 'Adicionar +' : 'Adicionar'))
+              : 'Indisponivel'}
+          </button>
+
+          <button
+            className="btn-secondary produto-detail-btn"
+            type="button"
+            onClick={() => onOpenDetail(produtoIndexado.chaveReact)}
+          >
+            Ver detalhes
+          </button>
+        </div>
+
+        {foiAdicionadoRecente ? (
+          <p className="produto-card-feedback" role="status" aria-live="polite">
+            Adicionado ao carrinho
+          </p>
+        ) : null}
       </div>
     </article>
   );
@@ -854,9 +929,13 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
   onAddItem,
   onIncreaseItem,
   onDecreaseItem,
+  onToggleFavorito,
+  onOpenDetail,
   getQuantidadeProduto,
   chavesMaisVendidos,
   idsNovidades,
+  favoritosIdsSet,
+  produtoAdicionadoRecenteId,
   gridClassName = 'produto-grid',
   listId
 }) {
@@ -898,9 +977,13 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     onAddItem,
     onIncreaseItem,
     onDecreaseItem,
+    onToggleFavorito,
+    onOpenDetail,
     getQuantidadeProduto,
     chavesMaisVendidos,
     idsNovidades,
+    favoritosIdsSet,
+    produtoAdicionadoRecenteId,
     columnCount
   }), [
     chavesMaisVendidos,
@@ -910,7 +993,11 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     itensIndexados,
     onAddItem,
     onDecreaseItem,
-    onIncreaseItem
+    onIncreaseItem,
+    onToggleFavorito,
+    onOpenDetail,
+    favoritosIdsSet,
+    produtoAdicionadoRecenteId
   ]);
   const shellClassName = gridClassName.includes('brand-produto-grid')
     ? 'produto-grid-virtualized-shell brand-produto-grid-virtualized'
@@ -925,9 +1012,13 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     onAddItem: onAdd,
     onIncreaseItem: onIncrease,
     onDecreaseItem: onDecrease,
+    onToggleFavorito: onToggleFav,
+    onOpenDetail: onDetail,
     getQuantidadeProduto: getQtd,
     chavesMaisVendidos: maisVendidos,
     idsNovidades: novidades,
+    favoritosIdsSet: favoritosSet,
+    produtoAdicionadoRecenteId: adicionadoRecenteId,
     columnCount: columns
   }) => {
     const index = rowIndex * columns + columnIndex;
@@ -958,9 +1049,19 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
           quantidadeNoCarrinho={getQtd(produtoIndexado.produto)}
           destaqueMaisVendido={destaqueMaisVendido}
           destaqueNovo={destaqueNovo}
+          favorito={
+            produtoIndexado.carrinhoId !== null
+            && favoritosSet.has(produtoIndexado.carrinhoId)
+          }
+          foiAdicionadoRecente={
+            produtoIndexado.carrinhoId !== null
+            && produtoIndexado.carrinhoId === adicionadoRecenteId
+          }
           onAddItem={onAdd}
           onIncreaseItem={onIncrease}
           onDecreaseItem={onDecrease}
+          onToggleFavorito={onToggleFav}
+          onOpenDetail={onDetail}
         />
       </div>
     );
@@ -979,9 +1080,19 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
               produtoIndexado.carrinhoId !== null
               && idsNovidades.has(produtoIndexado.carrinhoId)
             }
+            favorito={
+              produtoIndexado.carrinhoId !== null
+              && favoritosIdsSet.has(produtoIndexado.carrinhoId)
+            }
+            foiAdicionadoRecente={
+              produtoIndexado.carrinhoId !== null
+              && produtoIndexado.carrinhoId === produtoAdicionadoRecenteId
+            }
             onAddItem={onAddItem}
             onIncreaseItem={onIncreaseItem}
             onDecreaseItem={onDecreaseItem}
+            onToggleFavorito={onToggleFavorito}
+            onOpenDetail={onOpenDetail}
           />
         ))}
       </div>
@@ -1019,9 +1130,19 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
                 produtoIndexado.carrinhoId !== null
                 && idsNovidades.has(produtoIndexado.carrinhoId)
               }
+              favorito={
+                produtoIndexado.carrinhoId !== null
+                && favoritosIdsSet.has(produtoIndexado.carrinhoId)
+              }
+              foiAdicionadoRecente={
+                produtoIndexado.carrinhoId !== null
+                && produtoIndexado.carrinhoId === produtoAdicionadoRecenteId
+              }
               onAddItem={onAddItem}
               onIncreaseItem={onIncreaseItem}
               onDecreaseItem={onDecreaseItem}
+              onToggleFavorito={onToggleFavorito}
+              onOpenDetail={onOpenDetail}
             />
           ))}
         </div>
@@ -1034,9 +1155,27 @@ VirtualizedProdutoGrid.displayName = 'VirtualizedProdutoGrid';
 
 export default function ProdutosPage() {
   const { itens, addItem, updateItemQuantity, removeItem, resumo } = useCart();
+  const {
+    favoritosIds,
+    favoritosProdutos,
+    recentesProdutos,
+    recomprasProdutos,
+    stats: recorrenciaStats,
+    isFavorito,
+    alternarFavorito,
+    registrarVisualizacao,
+    registrarAcaoCarrinho
+  } = useRecorrencia();
   const [searchParams] = useSearchParams();
   const categoriaInicial = String(searchParams.get('categoria') || CATEGORIA_TODAS).toLowerCase();
   const buscaInicial = String(searchParams.get('busca') || '');
+  const filtroRecorrenciaInicial = String(
+    searchParams.get('recorrencia')
+    || (searchParams.get('favoritos') === '1' ? 'favoritos' : '')
+    || (searchParams.get('recentes') === '1' ? 'recentes' : '')
+    || (searchParams.get('recompra') === '1' ? 'recompra' : '')
+    || 'todos'
+  ).toLowerCase();
 
   const [produtos, setProdutos] = useState([]);
   const [busca, setBusca] = useState(buscaInicial);
@@ -1049,23 +1188,52 @@ export default function ProdutosPage() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [temMaisProdutos, setTemMaisProdutos] = useState(false);
   const [totalProdutosBackend, setTotalProdutosBackend] = useState(0);
+  const [produtoAdicionadoRecenteId, setProdutoAdicionadoRecenteId] = useState(null);
+  const [produtoAdicionadoRecenteNome, setProdutoAdicionadoRecenteNome] = useState('');
+  const [produtoDetalheAbertoChave, setProdutoDetalheAbertoChave] = useState('');
+  const [filtroRecorrencia, setFiltroRecorrencia] = useState(
+    FILTROS_RECORRENCIA.some((item) => item.id === filtroRecorrenciaInicial)
+      ? filtroRecorrenciaInicial
+      : 'todos'
+  );
+  const [feedbackRecorrencia, setFeedbackRecorrencia] = useState('');
   const requisicaoProdutosIdRef = useRef(0);
+  const limparFeedbackAdicaoRef = useRef(null);
+  const limparFeedbackRecorrenciaRef = useRef(null);
   const prefetchProdutosCacheRef = useRef(new Map());
   const prefetchEmAndamentoRef = useRef(new Set());
+  const buscaDebounced = useDebouncedValue(busca, 280);
+  const termoBuscaDigitado = String(busca || '').trim();
+  const termoBuscaEfetivo = String(buscaDebounced || '').trim();
+  const buscaEmAtualizacao = normalizeText(termoBuscaDigitado) !== normalizeText(termoBuscaEfetivo);
   const categoriaEhBebidas = useMemo(() => isBebidasCategoria(categoria), [categoria]);
   const assinaturaConsultaAtual = useMemo(
     () => JSON.stringify(buildProdutosQueryKey({
       categoria,
-      busca,
+      busca: buscaDebounced,
       page: 1,
       limit: PRODUTOS_POR_PAGINA
     })),
-    [busca, categoria]
+    [buscaDebounced, categoria]
   );
 
   useEffect(() => {
     setBusca(String(searchParams.get('busca') || ''));
     setCategoria(String(searchParams.get('categoria') || CATEGORIA_TODAS).toLowerCase());
+
+    const proximoFiltroRecorrencia = String(
+      searchParams.get('recorrencia')
+      || (searchParams.get('favoritos') === '1' ? 'favoritos' : '')
+      || (searchParams.get('recentes') === '1' ? 'recentes' : '')
+      || (searchParams.get('recompra') === '1' ? 'recompra' : '')
+      || 'todos'
+    ).toLowerCase();
+
+    if (FILTROS_RECORRENCIA.some((item) => item.id === proximoFiltroRecorrencia)) {
+      setFiltroRecorrencia(proximoFiltroRecorrencia);
+    } else {
+      setFiltroRecorrencia('todos');
+    }
   }, [searchParams]);
 
   useEffect(() => {
@@ -1078,6 +1246,30 @@ export default function ProdutosPage() {
     prefetchProdutosCacheRef.current.clear();
     prefetchEmAndamentoRef.current.clear();
   }, [assinaturaConsultaAtual]);
+
+  useEffect(() => {
+    return () => {
+      if (limparFeedbackAdicaoRef.current) {
+        clearTimeout(limparFeedbackAdicaoRef.current);
+      }
+
+      if (limparFeedbackRecorrenciaRef.current) {
+        clearTimeout(limparFeedbackRecorrenciaRef.current);
+      }
+    };
+  }, []);
+
+  const fecharDetalheProduto = useCallback(() => {
+    setProdutoDetalheAbertoChave('');
+  }, []);
+
+  const abrirDetalheProduto = useCallback((chaveReact) => {
+    const chave = String(chaveReact || '').trim();
+    if (!chave) {
+      return;
+    }
+    setProdutoDetalheAbertoChave(chave);
+  }, []);
 
   const prefetchProximaPagina = useCallback(async ({
     categoriaAlvo,
@@ -1141,7 +1333,7 @@ export default function ProdutosPage() {
 
     try {
       const categoriaEfetiva = String(categoriaAlvo ?? categoria);
-      const buscaEfetiva = String(buscaAlvo ?? busca);
+      const buscaEfetiva = String(buscaAlvo ?? buscaDebounced);
       const { lista, paginacao } = await fetchProdutosPage({
         categoria: categoriaEfetiva,
         busca: buscaEfetiva,
@@ -1188,20 +1380,16 @@ export default function ProdutosPage() {
         setCarregando(false);
       }
     }
-  }, [busca, categoria, prefetchProximaPagina]);
+  }, [buscaDebounced, categoria, prefetchProximaPagina]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      void carregarProdutos({
-        append: false,
-        pagina: 1,
-        categoriaAlvo: categoria,
-        buscaAlvo: busca
-      });
-    }, 250);
-
-    return () => clearTimeout(timer);
-  }, [busca, carregarProdutos, categoria]);
+    void carregarProdutos({
+      append: false,
+      pagina: 1,
+      categoriaAlvo: categoria,
+      buscaAlvo: buscaDebounced
+    });
+  }, [buscaDebounced, carregarProdutos, categoria]);
 
   const handleCarregarMais = useCallback(async () => {
     if (carregando || carregandoMais || !temMaisProdutos) {
@@ -1211,7 +1399,7 @@ export default function ProdutosPage() {
     const proximaPagina = paginaAtual + 1;
     const chaveCache = buildProdutosPageCacheKey({
       categoria,
-      busca,
+      busca: buscaDebounced,
       page: proximaPagina,
       limit: PRODUTOS_POR_PAGINA
     });
@@ -1235,7 +1423,7 @@ export default function ProdutosPage() {
 
         void prefetchProximaPagina({
           categoriaAlvo: categoria,
-          buscaAlvo: busca,
+          buscaAlvo: buscaDebounced,
           paginaAtualAlvo: proximaPagina,
           paginacao
         });
@@ -1250,10 +1438,10 @@ export default function ProdutosPage() {
       append: true,
       pagina: proximaPagina,
       categoriaAlvo: categoria,
-      buscaAlvo: busca
+      buscaAlvo: buscaDebounced
     });
   }, [
-    busca,
+    buscaDebounced,
     carregarProdutos,
     carregando,
     carregandoMais,
@@ -1268,12 +1456,16 @@ export default function ProdutosPage() {
       append: false,
       pagina: 1,
       categoriaAlvo: categoria,
-      buscaAlvo: busca
+      buscaAlvo: buscaDebounced
     });
-  }, [busca, carregarProdutos, categoria]);
+  }, [buscaDebounced, carregarProdutos, categoria]);
 
   const handleBuscaChange = useCallback((event) => {
     setBusca(event.target.value);
+  }, []);
+
+  const handleLimparBusca = useCallback(() => {
+    setBusca('');
   }, []);
 
   const handleCategoriaSelectChange = useCallback((event) => {
@@ -1296,6 +1488,81 @@ export default function ProdutosPage() {
     setCategoria(CATEGORIA_TODAS);
     setOrdenacao(ORDENACOES_PRODUTOS[0].id);
     setBebidaSubcategoria('todas');
+    setFiltroRecorrencia('todos');
+  }, []);
+
+  const handleAplicarSugestaoBusca = useCallback(({ termo = '', categoria: categoriaSugestao = CATEGORIA_TODAS } = {}) => {
+    setCategoria(String(categoriaSugestao || CATEGORIA_TODAS).toLowerCase());
+    setBusca(String(termo || ''));
+    if (categoriaSugestao !== CATEGORIA_BEBIDAS) {
+      setBebidaSubcategoria('todas');
+    }
+  }, []);
+
+  const aplicarFeedbackRecorrencia = useCallback((mensagem) => {
+    const texto = String(mensagem || '').trim();
+    if (!texto) {
+      return;
+    }
+
+    if (limparFeedbackRecorrenciaRef.current) {
+      clearTimeout(limparFeedbackRecorrenciaRef.current);
+    }
+
+    setFeedbackRecorrencia(texto);
+    limparFeedbackRecorrenciaRef.current = setTimeout(() => {
+      setFeedbackRecorrencia('');
+      limparFeedbackRecorrenciaRef.current = null;
+    }, 2400);
+  }, []);
+
+  const handleToggleFavorito = useCallback((produto) => {
+    const id = getProdutoCarrinhoId(produto);
+    const nome = getProdutoNome(produto);
+    const favoritadoAntes = id !== null ? isFavorito(id) : false;
+
+    alternarFavorito(produto);
+    aplicarFeedbackRecorrencia(
+      favoritadoAntes
+        ? `${nome} removido dos favoritos.`
+        : `${nome} salvo nos favoritos.`
+    );
+  }, [alternarFavorito, aplicarFeedbackRecorrencia, isFavorito]);
+
+  const handleSelecionarFiltroRecorrencia = useCallback((filtroId) => {
+    if (!FILTROS_RECORRENCIA.some((item) => item.id === filtroId)) {
+      return;
+    }
+
+    setFiltroRecorrencia(filtroId);
+
+    if (filtroId === 'todos') {
+      aplicarFeedbackRecorrencia('Exibindo todos os produtos da vitrine novamente.');
+      return;
+    }
+
+    const label = FILTROS_RECORRENCIA.find((item) => item.id === filtroId)?.label || 'recorrencia';
+    aplicarFeedbackRecorrencia(`Vitrine focada em ${label.toLowerCase()}.`);
+  }, [aplicarFeedbackRecorrencia]);
+
+  const registrarFeedbackAdicao = useCallback((produto) => {
+    const carrinhoId = getProdutoCarrinhoId(produto);
+    if (carrinhoId === null) {
+      return;
+    }
+
+    if (limparFeedbackAdicaoRef.current) {
+      clearTimeout(limparFeedbackAdicaoRef.current);
+    }
+
+    setProdutoAdicionadoRecenteId(carrinhoId);
+    setProdutoAdicionadoRecenteNome(getProdutoNome(produto));
+
+    limparFeedbackAdicaoRef.current = setTimeout(() => {
+      setProdutoAdicionadoRecenteId(null);
+      setProdutoAdicionadoRecenteNome('');
+      limparFeedbackAdicaoRef.current = null;
+    }, 1400);
   }, []);
 
   // Índice local com campos normalizados para evitar recomputações em cada filtro/render.
@@ -1334,6 +1601,117 @@ export default function ProdutosPage() {
     });
   }, [produtos]);
 
+  const produtosIndexadosPorId = useMemo(() => {
+    const mapa = new Map();
+
+    produtosIndexados.forEach((item) => {
+      if (item.carrinhoId !== null) {
+        mapa.set(item.carrinhoId, item);
+      }
+    });
+
+    return mapa;
+  }, [produtosIndexados]);
+
+  const favoritosRecorrencia = useMemo(() => {
+    return favoritosProdutos.slice(0, 12);
+  }, [favoritosProdutos]);
+
+  const recentesRecorrencia = useMemo(() => {
+    return recentesProdutos.slice(0, 12);
+  }, [recentesProdutos]);
+
+  const recompraRecorrencia = useMemo(() => {
+    return recomprasProdutos.slice(0, 12);
+  }, [recomprasProdutos]);
+
+  const listaRecorrenciaAtiva = useMemo(() => {
+    switch (filtroRecorrencia) {
+      case 'favoritos':
+        return favoritosRecorrencia;
+      case 'recentes':
+        return recentesRecorrencia;
+      case 'recompra':
+        return recompraRecorrencia;
+      default:
+        return [];
+    }
+  }, [filtroRecorrencia, favoritosRecorrencia, recentesRecorrencia, recompraRecorrencia]);
+
+  const idsFiltroRecorrenciaAtivos = useMemo(() => {
+    return new Set(
+      listaRecorrenciaAtiva
+        .map((item) => getProdutoIdNormalizado(item?.id || item))
+        .filter((id) => id !== null)
+    );
+  }, [listaRecorrenciaAtiva]);
+
+  const abrirProdutoRecorrente = useCallback((produtoRecorrente) => {
+    const id = getProdutoIdNormalizado(produtoRecorrente);
+    if (id !== null) {
+      const produtoIndexado = produtosIndexadosPorId.get(id);
+      if (produtoIndexado) {
+        abrirDetalheProduto(produtoIndexado.chaveReact);
+        return;
+      }
+    }
+
+    const nome = getProdutoNome(produtoRecorrente);
+    setBusca(nome);
+    setFiltroRecorrencia('todos');
+    aplicarFeedbackRecorrencia(`Mostrando resultados para "${nome}" na vitrine.`);
+  }, [aplicarFeedbackRecorrencia, abrirDetalheProduto, produtosIndexadosPorId]);
+
+  const adicionarRecorrenteAoCarrinho = useCallback((produtoRecorrente) => {
+    const nome = getProdutoNome(produtoRecorrente);
+    addItem(produtoRecorrente, 1);
+    registrarFeedbackAdicao(produtoRecorrente);
+    registrarAcaoCarrinho(produtoRecorrente, { quantidade: 1 });
+    aplicarFeedbackRecorrencia(`${nome} adicionado para recompra rapida.`);
+  }, [addItem, aplicarFeedbackRecorrencia, registrarAcaoCarrinho, registrarFeedbackAdicao]);
+
+  const produtoDetalheSelecionado = useMemo(() => {
+    if (!produtoDetalheAbertoChave) {
+      return null;
+    }
+
+    return produtosIndexados.find((item) => item.chaveReact === produtoDetalheAbertoChave) || null;
+  }, [produtoDetalheAbertoChave, produtosIndexados]);
+
+  useEffect(() => {
+    if (!produtoDetalheAbertoChave) {
+      return;
+    }
+
+    if (!produtoDetalheSelecionado) {
+      setProdutoDetalheAbertoChave('');
+    }
+  }, [produtoDetalheAbertoChave, produtoDetalheSelecionado]);
+
+  useEffect(() => {
+    if (!produtoDetalheSelecionado) {
+      return undefined;
+    }
+
+    registrarVisualizacao(produtoDetalheSelecionado.produto);
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        fecharDetalheProduto();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [fecharDetalheProduto, produtoDetalheSelecionado, registrarVisualizacao]);
+
   const categorias = useMemo(() => {
     const values = new Map();
 
@@ -1371,6 +1749,13 @@ export default function ProdutosPage() {
     const filtrados = [];
 
     for (const item of produtosIndexados) {
+      if (filtroRecorrencia !== 'todos') {
+        const idProduto = item.carrinhoId;
+        if (idProduto === null || !idsFiltroRecorrenciaAtivos.has(idProduto)) {
+          continue;
+        }
+      }
+
       if (termoBusca && !item.textoBusca.includes(termoBusca)) {
         continue;
       }
@@ -1393,7 +1778,15 @@ export default function ProdutosPage() {
     }
 
     return filtrados;
-  }, [categoria, filtroCategoriaAtivo, filtroPromocaoAtivo, produtosIndexados, termoBusca]);
+  }, [
+    categoria,
+    filtroCategoriaAtivo,
+    filtroPromocaoAtivo,
+    filtroRecorrencia,
+    idsFiltroRecorrenciaAtivos,
+    produtosIndexados,
+    termoBusca
+  ]);
 
   const produtosOrdenadosIndexados = useMemo(() => {
     return sortProdutosIndexados(produtosFiltradosBase, ordenacao);
@@ -1429,6 +1822,96 @@ export default function ProdutosPage() {
 
   // Lista linear consumida tanto pelo grid tradicional quanto pelo virtualizado.
   const produtosFiltradosIndexados = produtosOrdenadosIndexados;
+
+  const produtosRelacionadosDetalhe = useMemo(() => {
+    if (!produtoDetalheSelecionado) {
+      return [];
+    }
+
+    const base = produtoDetalheSelecionado;
+    const baseMarca = normalizeText(base.produto?.marca);
+    const baseCategoria = String(base.categoriaOriginal || '');
+    const baseTokens = normalizeText(base.nomeProduto)
+      .split(' ')
+      .filter((token) => token.length >= 4);
+    const poolRelacionados = produtosIndexados.length > 0 ? produtosIndexados : produtosOrdenadosIndexados;
+
+    const candidatos = [];
+
+    for (const item of poolRelacionados) {
+      if (item.chaveReact === base.chaveReact) {
+        continue;
+      }
+
+      let score = 0;
+
+      if (baseCategoria && item.categoriaOriginal === baseCategoria) {
+        score += 6;
+      }
+
+      const marcaCandidata = normalizeText(item.produto?.marca);
+      if (baseMarca && marcaCandidata && marcaCandidata === baseMarca) {
+        score += 4;
+      }
+
+      if (base.categoriaEhBebida && item.bebidaSubcategoriaId === base.bebidaSubcategoriaId) {
+        score += 3;
+      }
+
+      if (baseTokens.length > 0 && baseTokens.some((token) => item.textoBusca.includes(token))) {
+        score += 2;
+      }
+
+      if (item.emPromocao) {
+        score += 1;
+      }
+
+      if (score <= 0) {
+        continue;
+      }
+
+      candidatos.push({
+        item,
+        score
+      });
+    }
+
+    candidatos.sort((a, b) => {
+      const scoreDiff = b.score - a.score;
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+
+      const promoDiff = Number(b.item.emPromocao) - Number(a.item.emPromocao);
+      if (promoDiff !== 0) {
+        return promoDiff;
+      }
+
+      const precoDiff = a.item.precoInfo.precoAtual - b.item.precoInfo.precoAtual;
+      if (precoDiff !== 0) {
+        return precoDiff;
+      }
+
+      return compareProdutosPorNome(a.item, b.item);
+    });
+
+    const selecionados = candidatos.slice(0, 6).map((entry) => entry.item);
+    if (selecionados.length >= 4) {
+      return selecionados;
+    }
+
+    const complemento = poolRelacionados
+      .filter((item) => {
+        if (item.chaveReact === base.chaveReact) {
+          return false;
+        }
+
+        return !selecionados.some((selecionado) => selecionado.chaveReact === item.chaveReact);
+      })
+      .slice(0, Math.max(0, 6 - selecionados.length));
+
+    return [...selecionados, ...complemento].slice(0, 6);
+  }, [produtoDetalheSelecionado, produtosIndexados, produtosOrdenadosIndexados]);
 
   const secoesBebidas = useMemo(() => {
     if (!categoriaEhBebidas) {
@@ -1535,6 +2018,10 @@ export default function ProdutosPage() {
     return mapa;
   }, [itens]);
 
+  const favoritosIdsSet = useMemo(() => {
+    return new Set(favoritosIds);
+  }, [favoritosIds]);
+
   const getQuantidadeProduto = useCallback((produto) => {
     const id = getProdutoCarrinhoId(produto);
     if (id === null) {
@@ -1543,13 +2030,30 @@ export default function ProdutosPage() {
     return quantidadesCarrinhoPorId.get(id) || 0;
   }, [quantidadesCarrinhoPorId]);
 
+  const quantidadeProdutoDetalheNoCarrinho = useMemo(() => {
+    if (!produtoDetalheSelecionado) {
+      return 0;
+    }
+
+    return getQuantidadeProduto(produtoDetalheSelecionado.produto);
+  }, [getQuantidadeProduto, produtoDetalheSelecionado]);
+
+  const produtoDetalheFavorito = useMemo(() => {
+    const id = produtoDetalheSelecionado?.carrinhoId;
+    return id !== null && id !== undefined ? favoritosIdsSet.has(id) : false;
+  }, [favoritosIdsSet, produtoDetalheSelecionado]);
+
   const handleAddItem = useCallback((produto) => {
     addItem(produto, 1);
-  }, [addItem]);
+    registrarFeedbackAdicao(produto);
+    registrarAcaoCarrinho(produto, { quantidade: 1 });
+  }, [addItem, registrarAcaoCarrinho, registrarFeedbackAdicao]);
 
   const handleIncreaseItem = useCallback((produto) => {
     addItem(produto, 1);
-  }, [addItem]);
+    registrarFeedbackAdicao(produto);
+    registrarAcaoCarrinho(produto, { quantidade: 1 });
+  }, [addItem, registrarAcaoCarrinho, registrarFeedbackAdicao]);
 
   const handleDecreaseItem = useCallback((produto, quantidadeAtual) => {
     const id = getProdutoCarrinhoId(produto);
@@ -1573,9 +2077,13 @@ export default function ProdutosPage() {
         onAddItem={handleAddItem}
         onIncreaseItem={handleIncreaseItem}
         onDecreaseItem={handleDecreaseItem}
+        onToggleFavorito={handleToggleFavorito}
+        onOpenDetail={abrirDetalheProduto}
         getQuantidadeProduto={getQuantidadeProduto}
         chavesMaisVendidos={chavesMaisVendidos}
         idsNovidades={idsNovidades}
+        favoritosIdsSet={favoritosIdsSet}
+        produtoAdicionadoRecenteId={produtoAdicionadoRecenteId}
         listId={listId}
         gridClassName={gridClassName}
       />
@@ -1586,7 +2094,11 @@ export default function ProdutosPage() {
     handleAddItem,
     handleDecreaseItem,
     handleIncreaseItem,
-    idsNovidades
+    handleToggleFavorito,
+    abrirDetalheProduto,
+    favoritosIdsSet,
+    idsNovidades,
+    produtoAdicionadoRecenteId
   ]);
 
   const totalItensVitrine = totalProdutosBackend || produtos.length;
@@ -1595,11 +2107,41 @@ export default function ProdutosPage() {
   }, [produtosIndexados]);
 
   const totalMaisVendidosVitrine = chavesMaisVendidos.size;
+  const temDadosRecorrencia = recorrenciaStats.favoritos > 0 || recorrenciaStats.recentes > 0 || recorrenciaStats.recompra > 0;
+  const filtroRecorrenciaAtivoLabel = FILTROS_RECORRENCIA.find((item) => item.id === filtroRecorrencia)?.label || 'Tudo';
 
-  const filtrosAplicados = Boolean(normalizeText(busca))
+  const categoriaAtualLabel = useMemo(() => {
+    if (categoria === CATEGORIA_TODAS) {
+      return 'Todas as categorias';
+    }
+    if (categoria === CATEGORIA_PROMOCOES) {
+      return 'Promocoes';
+    }
+    return categorias.find((item) => item.id === categoria)?.label || categoria;
+  }, [categoria, categorias]);
+
+  const ordenacaoAtualLabel = useMemo(() => {
+    return ORDENACOES_PRODUTOS.find((item) => item.id === ordenacao)?.label || ordenacao;
+  }, [ordenacao]);
+
+  const bebidaSubcategoriaLabel = useMemo(() => {
+    if (bebidaSubcategoria === 'todas') {
+      return 'Todas';
+    }
+
+    const label = secoesBebidas.find((item) => item.id === bebidaSubcategoria)?.label;
+    if (label) {
+      return label;
+    }
+
+    return String(bebidaSubcategoria || '').replace(/-/g, ' ');
+  }, [bebidaSubcategoria, secoesBebidas]);
+
+  const filtrosAplicados = Boolean(normalizeText(termoBuscaDigitado))
     || categoria !== CATEGORIA_TODAS
     || bebidaSubcategoria !== 'todas'
-    || ordenacao !== ORDENACOES_PRODUTOS[0].id;
+    || ordenacao !== ORDENACOES_PRODUTOS[0].id
+    || filtroRecorrencia !== 'todos';
 
   const podeFinalizarPedido = resumo.itens > 0;
   const itensResumoTexto = resumo.itens === 1 ? '1 item' : `${resumo.itens} itens`;
@@ -1646,7 +2188,9 @@ export default function ProdutosPage() {
   } else if (produtosFiltradosIndexados.length === 0) {
     conteudoProdutos = renderSemResultados(
       'Nenhum produto encontrado',
-      'Tente buscar outro termo ou ajuste os filtros para ver mais opções.'
+      termoBuscaDigitado
+        ? `Nao encontramos resultados para "${termoBuscaDigitado}". Tente outro termo ou limpe os filtros para ampliar a vitrine.`
+        : 'Tente buscar outro termo ou ajuste os filtros para ver mais opcoes.'
     );
   } else if (categoriaEhBebidas) {
     if (bebidaSubcategoria === 'todas') {
@@ -1736,6 +2280,45 @@ export default function ProdutosPage() {
               onChange={handleBuscaChange}
               placeholder="Busque por arroz, leite, café, detergente..."
             />
+
+            {termoBuscaDigitado ? (
+              <button
+                type="button"
+                className="products-search-clear"
+                onClick={handleLimparBusca}
+                aria-label="Limpar busca"
+              >
+                Limpar
+              </button>
+            ) : null}
+          </div>
+
+          <div className="products-search-meta" aria-live="polite">
+            {buscaEmAtualizacao ? (
+              <span className="products-results-pill">Atualizando busca...</span>
+            ) : termoBuscaEfetivo ? (
+              <p>
+                Exibindo resultados para <strong>"{termoBuscaEfetivo}"</strong>
+              </p>
+            ) : (
+              <p>Use os atalhos abaixo para encontrar produtos mais rapido.</p>
+            )}
+          </div>
+
+          <div className="products-search-suggestions" aria-label="Atalhos de busca">
+            {BUSCA_SUGESTOES_RAPIDAS.map((atalho) => (
+              <button
+                key={atalho.id}
+                type="button"
+                className="products-search-suggestion-btn"
+                onClick={() => handleAplicarSugestaoBusca({
+                  termo: atalho.termo,
+                  categoria: atalho.categoria
+                })}
+              >
+                {atalho.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -1796,11 +2379,155 @@ export default function ProdutosPage() {
               type="button"
               className={`category-btn-react ${item.destaque ? 'category-promocoes-react' : ''} ${categoria === item.id ? 'active' : ''}`}
               onClick={() => handleCategoriaLegadoClick(item.id)}
+              aria-pressed={categoria === item.id}
             >
               {item.label}
             </button>
           ))}
         </div>
+
+        <section className="products-recorrencia" aria-label="Atalhos de recorrencia e recompra">
+          <div className="products-recorrencia-head">
+            <div>
+              <p className="products-recorrencia-kicker">Recorrencia</p>
+              <h2>Volte ao que voce gosta</h2>
+              <p>
+                Favoritos, vistos recentemente e sugestoes de recompra para reduzir esforco na proxima compra.
+              </p>
+            </div>
+
+            <div className="products-recorrencia-filters" role="tablist" aria-label="Filtrar recorrencia">
+              {FILTROS_RECORRENCIA.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`products-recorrencia-filter-btn ${filtroRecorrencia === item.id ? 'active' : ''}`}
+                  aria-pressed={filtroRecorrencia === item.id}
+                  onClick={() => handleSelecionarFiltroRecorrencia(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {feedbackRecorrencia ? (
+            <p className="products-recorrencia-feedback" role="status" aria-live="polite">
+              {feedbackRecorrencia}
+            </p>
+          ) : null}
+
+          {!temDadosRecorrencia ? (
+            <div className="products-recorrencia-empty" role="status" aria-live="polite">
+              <p><strong>Seus atalhos de recorrencia vao aparecer aqui.</strong></p>
+              <p>Abra detalhes de produtos, salve favoritos e recompre para montar seu painel personalizado.</p>
+            </div>
+          ) : null}
+
+          {temDadosRecorrencia && filtroRecorrencia === 'todos' ? (
+            <div className="products-recorrencia-groups">
+              {favoritosRecorrencia.length > 0 ? (
+                <section className="products-recorrencia-group" aria-label="Seus favoritos">
+                  <div className="products-recorrencia-group-head">
+                    <h3>Favoritos</h3>
+                    <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('favoritos')}>
+                      Ver na vitrine
+                    </button>
+                  </div>
+                  <div className="products-recorrencia-grid">
+                    {favoritosRecorrencia.slice(0, 6).map((produto) => (
+                      <RecorrenciaMiniCard
+                        key={`rec-fav-${produto.id}`}
+                        produto={produto}
+                        favorito={isFavorito(produto.id)}
+                        onAbrir={abrirProdutoRecorrente}
+                        onAdicionar={adicionarRecorrenteAoCarrinho}
+                        onAlternarFavorito={handleToggleFavorito}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {recentesRecorrencia.length > 0 ? (
+                <section className="products-recorrencia-group" aria-label="Produtos vistos recentemente">
+                  <div className="products-recorrencia-group-head">
+                    <h3>Vistos recentemente</h3>
+                    <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('recentes')}>
+                      Voltar aos vistos
+                    </button>
+                  </div>
+                  <div className="products-recorrencia-grid">
+                    {recentesRecorrencia.slice(0, 6).map((produto) => (
+                      <RecorrenciaMiniCard
+                        key={`rec-recentes-${produto.id}`}
+                        produto={produto}
+                        favorito={isFavorito(produto.id)}
+                        onAbrir={abrirProdutoRecorrente}
+                        onAdicionar={adicionarRecorrenteAoCarrinho}
+                        onAlternarFavorito={handleToggleFavorito}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {recompraRecorrencia.length > 0 ? (
+                <section className="products-recorrencia-group" aria-label="Comprar novamente">
+                  <div className="products-recorrencia-group-head">
+                    <h3>Comprar novamente</h3>
+                    <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('recompra')}>
+                      Abrir atalho de recompra
+                    </button>
+                  </div>
+                  <div className="products-recorrencia-grid">
+                    {recompraRecorrencia.slice(0, 6).map((produto) => (
+                      <RecorrenciaMiniCard
+                        key={`rec-recompra-${produto.id}`}
+                        produto={produto}
+                        favorito={isFavorito(produto.id)}
+                        onAbrir={abrirProdutoRecorrente}
+                        onAdicionar={adicionarRecorrenteAoCarrinho}
+                        onAlternarFavorito={handleToggleFavorito}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+            </div>
+          ) : null}
+
+          {temDadosRecorrencia && filtroRecorrencia !== 'todos' ? (
+            <section className="products-recorrencia-group" aria-label={`Filtro ativo: ${filtroRecorrenciaAtivoLabel}`}>
+              <div className="products-recorrencia-group-head">
+                <h3>{filtroRecorrenciaAtivoLabel}</h3>
+                <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('todos')}>
+                  Mostrar tudo
+                </button>
+              </div>
+
+              {listaRecorrenciaAtiva.length > 0 ? (
+                <div className="products-recorrencia-grid">
+                  {listaRecorrenciaAtiva.slice(0, 12).map((produto) => (
+                    <RecorrenciaMiniCard
+                      key={`rec-ativo-${filtroRecorrencia}-${produto.id}`}
+                      produto={produto}
+                      favorito={isFavorito(produto.id)}
+                      onAbrir={abrirProdutoRecorrente}
+                      onAdicionar={adicionarRecorrenteAoCarrinho}
+                      onAlternarFavorito={handleToggleFavorito}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="products-recorrencia-empty" role="status" aria-live="polite">
+                  <p><strong>Nao ha itens suficientes neste atalho ainda.</strong></p>
+                  <p>Continue navegando e interagindo para alimentar este bloco automaticamente.</p>
+                </div>
+              )}
+            </section>
+          ) : null}
+        </section>
 
         {categoriaEhBebidas ? (
           <div className="bebidas-subcats" aria-label="Subcategorias de bebidas">
@@ -1810,6 +2537,7 @@ export default function ProdutosPage() {
                 type="button"
                 className={`category-btn-react ${bebidaSubcategoria === 'todas' ? 'active' : ''}`}
                 onClick={() => setBebidaSubcategoria('todas')}
+                aria-pressed={bebidaSubcategoria === 'todas'}
               >
                 Todas
               </button>
@@ -1819,11 +2547,66 @@ export default function ProdutosPage() {
                   type="button"
                   className={`category-btn-react ${bebidaSubcategoria === secao.id ? 'active' : ''}`}
                   onClick={() => setBebidaSubcategoria(secao.id)}
+                  aria-pressed={bebidaSubcategoria === secao.id}
                 >
                   {secao.label} ({secao.itensIndexados.length})
                 </button>
               ))}
             </div>
+          </div>
+        ) : null}
+
+        {filtrosAplicados ? (
+          <div className="products-active-filters" aria-label="Filtros ativos">
+            {termoBuscaDigitado ? (
+              <button type="button" className="products-active-filter-chip" onClick={handleLimparBusca}>
+                Busca: "{termoBuscaDigitado}" <span aria-hidden="true">×</span>
+              </button>
+            ) : null}
+
+            {categoria !== CATEGORIA_TODAS ? (
+              <button
+                type="button"
+                className="products-active-filter-chip"
+                onClick={() => setCategoria(CATEGORIA_TODAS)}
+              >
+                Categoria: {categoriaAtualLabel} <span aria-hidden="true">×</span>
+              </button>
+            ) : null}
+
+            {bebidaSubcategoria !== 'todas' ? (
+              <button
+                type="button"
+                className="products-active-filter-chip"
+                onClick={() => setBebidaSubcategoria('todas')}
+              >
+                Subcategoria: {bebidaSubcategoriaLabel} <span aria-hidden="true">×</span>
+              </button>
+            ) : null}
+
+            {ordenacao !== ORDENACOES_PRODUTOS[0].id ? (
+              <button
+                type="button"
+                className="products-active-filter-chip"
+                onClick={() => setOrdenacao(ORDENACOES_PRODUTOS[0].id)}
+              >
+                Ordenacao: {ordenacaoAtualLabel} <span aria-hidden="true">×</span>
+              </button>
+            ) : null}
+
+            {filtroRecorrencia !== 'todos' ? (
+              <button
+                type="button"
+                className="products-active-filter-chip"
+                onClick={() => setFiltroRecorrencia('todos')}
+              >
+                Recorrencia: {filtroRecorrenciaAtivoLabel} <span aria-hidden="true">×</span>
+              </button>
+            ) : null}
+
+            <button type="button" className="products-active-filter-chip is-clear-all" onClick={handleLimparFiltros}>
+              Limpar tudo
+            </button>
           </div>
         ) : null}
 
@@ -1833,8 +2616,11 @@ export default function ProdutosPage() {
             {totalProdutosBackend > 0 ? ` de ${totalProdutosBackend}` : ''}
           </p>
           <div className="products-results-meta">
+            {termoBuscaEfetivo ? (
+              <span className="products-results-term">Busca ativa: "{termoBuscaEfetivo}"</span>
+            ) : null}
             <span>{totalOfertasDisponiveis} em oferta</span>
-            {carregando && produtos.length > 0 ? (
+            {(carregando && produtos.length > 0) || buscaEmAtualizacao ? (
               <span className="products-results-pill">Atualizando vitrine...</span>
             ) : null}
           </div>
@@ -1858,6 +2644,48 @@ export default function ProdutosPage() {
         </div>
       ) : null}
 
+      {produtoDetalheSelecionado ? (
+        <React.Suspense
+          fallback={(
+            <div className="product-detail-overlay" role="presentation" onClick={fecharDetalheProduto}>
+              <aside
+                className="product-detail-drawer"
+                role="status"
+                aria-live="polite"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <header className="product-detail-header">
+                  <div>
+                    <p className="product-detail-kicker">Carregando detalhes</p>
+                    <h2>Aguarde um instante...</h2>
+                  </div>
+                </header>
+              </aside>
+            </div>
+          )}
+        >
+          <ProdutoDecisionDrawer
+            produtoIndexado={produtoDetalheSelecionado}
+            quantidadeNoCarrinho={quantidadeProdutoDetalheNoCarrinho}
+            favorito={produtoDetalheFavorito}
+            recomendacoes={produtosRelacionadosDetalhe}
+            onClose={fecharDetalheProduto}
+            onAddItem={handleAddItem}
+            onIncreaseItem={handleIncreaseItem}
+            onDecreaseItem={handleDecreaseItem}
+            onToggleFavorito={handleToggleFavorito}
+            getQuantidadeProduto={getQuantidadeProduto}
+            onOpenDetail={abrirDetalheProduto}
+            formatCurrency={formatCurrency}
+            getProdutoMedida={getProdutoMedida}
+            getProdutoBadges={getProdutoBadges}
+            ProdutoBadgeComponent={ProdutoBadge}
+            ProdutoImageFallbackComponent={ProdutoImageFallback}
+            getPlaceholderIconePorCategoria={getPlaceholderIconePorCategoria}
+          />
+        </React.Suspense>
+      ) : null}
+
       <div className="pedido-resumo pedido-resumo-fixo" role="region" aria-label="Resumo do pedido e avanço para pagamento">
         <div className="pedido-resumo-fixo-conteudo">
           <span className="pedido-resumo-fixo-icone" aria-hidden="true">🛒</span>
@@ -1873,6 +2701,11 @@ export default function ProdutosPage() {
                 ? 'Frete estimado será calculado no checkout'
                 : 'Adicione itens para seguir para o checkout'}
             </p>
+            {produtoAdicionadoRecenteNome ? (
+              <p className="pedido-resumo-fixo-feedback" role="status" aria-live="polite">
+                {produtoAdicionadoRecenteNome} adicionado ao carrinho
+              </p>
+            ) : null}
           </div>
 
           {podeFinalizarPedido ? (
@@ -1889,5 +2722,59 @@ export default function ProdutosPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+function RecorrenciaMiniCard({
+  produto,
+  favorito,
+  onAbrir,
+  onAdicionar,
+  onAlternarFavorito
+}) {
+  const nome = getProdutoNome(produto);
+  const imagem = getProdutoImagem(produto) || CATEGORY_IMAGES[normalizeText(produto?.categoria)] || '/img/logo-oficial.png';
+  const preco = formatCurrency(Number(produto?.preco || 0));
+
+  return (
+    <article className="recorrencia-mini-card">
+      <button
+        type="button"
+        className={`recorrencia-favorite-btn ${favorito ? 'is-active' : ''}`}
+        onClick={() => onAlternarFavorito(produto)}
+        aria-label={favorito ? `Remover ${nome} dos favoritos` : `Salvar ${nome} nos favoritos`}
+      >
+        {favorito ? '♥' : '♡'}
+      </button>
+
+      <button
+        type="button"
+        className="recorrencia-mini-media"
+        onClick={() => onAbrir(produto)}
+        aria-label={`Abrir ${nome}`}
+      >
+        <img
+          src={imagem}
+          alt={nome}
+          loading="lazy"
+          onError={(event) => {
+            event.currentTarget.src = '/img/logo-oficial.png';
+          }}
+        />
+      </button>
+
+      <div className="recorrencia-mini-body">
+        <p className="recorrencia-mini-name" title={nome}>{nome}</p>
+        <p className="recorrencia-mini-price">{preco}</p>
+      </div>
+
+      <button
+        type="button"
+        className="btn-secondary recorrencia-mini-add"
+        onClick={() => onAdicionar(produto)}
+      >
+        Recomprar
+      </button>
+    </article>
   );
 }
