@@ -236,7 +236,7 @@ function obterMetaEnvelhecimentoPedido(statusRaw, tempoMinutosRaw, pagamentoTone
     return {
       nivel: 3,
       tone: 'critical',
-      label: 'Falha no pagamento'
+      label: 'Pagamento com falha'
     };
   }
 
@@ -244,7 +244,7 @@ function obterMetaEnvelhecimentoPedido(statusRaw, tempoMinutosRaw, pagamentoTone
     return {
       nivel: 3,
       tone: 'critical',
-      label: 'Pedido envelhecido'
+      label: 'Fila crítica'
     };
   }
 
@@ -252,7 +252,7 @@ function obterMetaEnvelhecimentoPedido(statusRaw, tempoMinutosRaw, pagamentoTone
     return {
       nivel: 2,
       tone: 'urgent',
-      label: 'Prioridade alta'
+      label: 'Fila alta'
     };
   }
 
@@ -260,7 +260,7 @@ function obterMetaEnvelhecimentoPedido(statusRaw, tempoMinutosRaw, pagamentoTone
     return {
       nivel: 1,
       tone: 'attention',
-      label: 'Monitorar tempo'
+      label: 'Tempo em fila'
     };
   }
 
@@ -268,7 +268,7 @@ function obterMetaEnvelhecimentoPedido(statusRaw, tempoMinutosRaw, pagamentoTone
     return {
       nivel: 1,
       tone: 'attention',
-      label: 'Aguardando confirmação'
+      label: 'Confirmação pendente'
     };
   }
 
@@ -394,13 +394,13 @@ function montarPendenciasOperacionaisPedido({
     pendencias.push({
       id: 'pagamento-falhou',
       tone: 'error',
-      label: 'Revisar pagamento com falha'
+      label: 'Pagamento com falha'
     });
   } else if (pagamentoMeta?.tone === 'waiting' || pagamentoMeta?.tone === 'attention') {
     pendencias.push({
       id: 'pagamento-pendente',
       tone: 'attention',
-      label: 'Confirmar pagamento'
+      label: 'Pagamento pendente'
     });
   }
 
@@ -416,7 +416,7 @@ function montarPendenciasOperacionaisPedido({
     pendencias.push({
       id: 'aguardando-proximo-passo',
       tone: 'action',
-      label: `Próxima etapa: ${formatarStatusPedido(proximoStatus)}`
+      label: `Avançar para ${formatarStatusPedido(proximoStatus)}`
     });
   }
 
@@ -424,7 +424,7 @@ function montarPendenciasOperacionaisPedido({
     pendencias.push({
       id: 'observacao-importante',
       tone: 'note',
-      label: 'Ler observação do cliente'
+      label: 'Observação do cliente'
     });
   }
 
@@ -1745,11 +1745,11 @@ export default function AdminPage() {
     if (!STATUS_OPTIONS.includes(statusSelecionado)) {
       setFeedbackPedidos({
         tipo: 'error',
-        mensagem: 'Selecione um status válido para salvar.'
+        mensagem: 'Status inválido para este pedido.'
       });
       registrarAcaoSessao({
         tipo: 'error',
-        mensagem: `Pedido #${pedidoId}: tentativa de salvar status inválido.`,
+        mensagem: `Pedido #${pedidoId}: tentativa com status inválido.`,
         pedidoId
       });
       return;
@@ -1768,8 +1768,8 @@ export default function AdminPage() {
       }));
 
       const mensagemAcao = origemAcao === 'proximo'
-        ? `Fluxo avançado para ${formatarStatusPedido(statusSelecionado)}`
-        : `Status atualizado para ${formatarStatusPedido(statusSelecionado)}`;
+        ? `Movido para ${formatarStatusPedido(statusSelecionado)}`
+        : `Status salvo como ${formatarStatusPedido(statusSelecionado)}`;
 
       setFeedbackPedidos({
         tipo: 'success',
@@ -1796,7 +1796,7 @@ export default function AdminPage() {
       setErro(error.message);
       setFeedbackPedidos({
         tipo: 'error',
-        mensagem: error.message || 'Não foi possível atualizar o status do pedido.'
+        mensagem: error.message || 'Falha ao atualizar status do pedido.'
       });
       registrarAcaoSessao({
         tipo: 'error',
@@ -1838,11 +1838,11 @@ export default function AdminPage() {
     if (!alvo) {
       setFeedbackPedidos({
         tipo: 'info',
-        mensagem: 'Nenhum pedido prioritário disponível com os filtros atuais.'
+        mensagem: 'Sem pedidos críticos com os filtros atuais.'
       });
       registrarAcaoSessao({
         tipo: 'info',
-        mensagem: 'Busca por pedido prioritário sem resultado com os filtros atuais.'
+        mensagem: 'Busca de crítico sem resultado com os filtros atuais.'
       });
       return;
     }
@@ -1874,11 +1874,11 @@ export default function AdminPage() {
     setBuscaPedidosOperacional('');
     setFeedbackPedidos({
       tipo: 'info',
-      mensagem: 'Filtros operacionais foram redefinidos para o padrão.'
+      mensagem: 'Filtros da fila redefinidos.'
     });
     registrarAcaoSessao({
       tipo: 'info',
-      mensagem: 'Filtros operacionais redefinidos para o padrão.'
+      mensagem: 'Filtros da fila redefinidos.'
     });
   }
 
@@ -1888,11 +1888,11 @@ export default function AdminPage() {
     if (sucesso) {
       setFeedbackPedidos({
         tipo: 'info',
-        mensagem: 'Fila sincronizada manualmente com sucesso.'
+        mensagem: 'Fila atualizada.'
       });
       registrarAcaoSessao({
         tipo: 'info',
-        mensagem: 'Fila sincronizada manualmente.'
+        mensagem: 'Fila atualizada manualmente.'
       });
     }
   }
@@ -1905,8 +1905,8 @@ export default function AdminPage() {
     setModoFilaAltaAtivo(ativo);
 
     const mensagem = ativo
-      ? 'Modo fila alta ativado: cards compactos e foco nas pendências principais.'
-      : 'Modo fila alta desativado: visão completa dos cartões restaurada.';
+      ? 'Fila alta ativada: mais pedidos por tela.'
+      : 'Fila alta desativada: visão completa restaurada.';
 
     setFeedbackPedidos({ tipo: 'info', mensagem });
     registrarAcaoSessao({ tipo: 'info', mensagem });
@@ -1916,7 +1916,7 @@ export default function AdminPage() {
     setHistoricoAcoesSessao([]);
     setFeedbackPedidos({
       tipo: 'info',
-      mensagem: 'Auditoria da sessão limpa.'
+      mensagem: 'Histórico da sessão limpo.'
     });
   }
 
@@ -1924,11 +1924,11 @@ export default function AdminPage() {
     if (!valor) {
       setFeedbackPedidos({
         tipo: 'error',
-        mensagem: `${label} indisponível para cópia.`
+        mensagem: `${label} indisponível.`
       });
       registrarAcaoSessao({
         tipo: 'error',
-        mensagem: `${label} indisponível para cópia.`
+        mensagem: `${label} indisponível.`
       });
       return;
     }
@@ -1937,11 +1937,11 @@ export default function AdminPage() {
       await copiarTextoNavegador(valor);
       setFeedbackPedidos({
         tipo: 'success',
-        mensagem: `${label} copiado com sucesso.`
+        mensagem: `${label} copiado.`
       });
       registrarAcaoSessao({
         tipo: 'success',
-        mensagem: `${label} copiado com sucesso.`
+        mensagem: `${label} copiado.`
       });
     } catch {
       setFeedbackPedidos({
@@ -1958,7 +1958,7 @@ export default function AdminPage() {
   async function handleCopiarResumoPedido(pedido) {
     await handleCopiarCampoPedido(
       montarResumoOperacionalPedido(pedido),
-      `Resumo operacional do pedido #${pedido?.id || ''}`
+      `Resumo do pedido #${pedido?.id || ''}`
     );
   }
 
@@ -2262,7 +2262,7 @@ export default function AdminPage() {
                     checked={modoFilaAltaAtivo}
                     onChange={(event) => handleToggleModoFilaAlta(event.target.checked)}
                   />
-                  Modo fila alta (compacto)
+                  Fila alta: mais pedidos por tela
                 </label>
 
                 <button
@@ -2287,7 +2287,7 @@ export default function AdminPage() {
 
               <div className="admin-orders-quick-nav-actions">
                 <button className="btn-secondary" type="button" onClick={abrirPrimeiroPedidoPrioritario}>
-                  Abrir próximo crítico
+                  Abrir pedido crítico
                 </button>
                 <button
                   className="btn-secondary"
@@ -2319,7 +2319,7 @@ export default function AdminPage() {
             <div className="admin-orders-session-audit" aria-label="Auditoria da sessão operacional">
               <div className="admin-orders-session-audit-head">
                 <p>
-                  <strong>Auditoria da sessão:</strong> {resumoAuditoriaSessao.total} ação(ões)
+                  <strong>Histórico da sessão:</strong> {resumoAuditoriaSessao.total} ação(ões)
                 </p>
                 <small>
                   {resumoAuditoriaSessao.ultimaAcao
@@ -2329,9 +2329,9 @@ export default function AdminPage() {
               </div>
 
               <div className="admin-orders-session-audit-chips">
-                <span className="admin-orders-session-audit-chip tone-success">Sucesso: {resumoAuditoriaSessao.success}</span>
-                <span className="admin-orders-session-audit-chip tone-info">Informativo: {resumoAuditoriaSessao.info}</span>
-                <span className="admin-orders-session-audit-chip tone-error">Falha: {resumoAuditoriaSessao.error}</span>
+                <span className="admin-orders-session-audit-chip tone-success">Sucessos: {resumoAuditoriaSessao.success}</span>
+                <span className="admin-orders-session-audit-chip tone-info">Avisos: {resumoAuditoriaSessao.info}</span>
+                <span className="admin-orders-session-audit-chip tone-error">Falhas: {resumoAuditoriaSessao.error}</span>
               </div>
 
               {ultimasAcoesSessaoVisiveis.length > 0 ? (
@@ -2352,7 +2352,7 @@ export default function AdminPage() {
                 onClick={limparHistoricoAuditoriaSessao}
                 disabled={resumoAuditoriaSessao.total === 0}
               >
-                Limpar auditoria da sessão
+                Limpar histórico da sessão
               </button>
             </div>
 
@@ -2578,7 +2578,7 @@ export default function AdminPage() {
                             className="btn-secondary admin-order-util-btn"
                             type="button"
                             onClick={() => {
-                              void handleCopiarCampoPedido(pedido.clienteTelefone, 'Telefone do cliente');
+                              void handleCopiarCampoPedido(pedido.clienteTelefone, 'Telefone');
                             }}
                             disabled={!pedido.clienteTelefone}
                           >
@@ -2595,7 +2595,7 @@ export default function AdminPage() {
                             className="btn-secondary admin-order-util-btn"
                             type="button"
                             onClick={() => {
-                              void handleCopiarCampoPedido(pedido.enderecoTexto, 'Endereço completo');
+                              void handleCopiarCampoPedido(pedido.enderecoTexto, 'Endereço');
                             }}
                             disabled={!pedido.enderecoDisponivel}
                           >
@@ -2610,7 +2610,7 @@ export default function AdminPage() {
                             }}
                             disabled={!resumoOperacionalTexto}
                           >
-                            Copiar resumo rápido
+                            Copiar resumo
                           </button>
                         </div>
                       </div>
@@ -2631,7 +2631,7 @@ export default function AdminPage() {
                             }}
                             disabled={emAtualizacao}
                           >
-                            {pedido.acaoRapidaLabel || 'Próximo passo'}: {proximoStatusLabel}
+                            Avançar para {proximoStatusLabel}
                           </button>
                         ) : null}
 
@@ -2701,7 +2701,7 @@ export default function AdminPage() {
                                       className="btn-secondary"
                                       type="button"
                                       onClick={() => {
-                                        void handleCopiarCampoPedido(pedido.clienteTelefone, 'Telefone do cliente');
+                                        void handleCopiarCampoPedido(pedido.clienteTelefone, 'Telefone');
                                       }}
                                     >
                                       Copiar telefone
