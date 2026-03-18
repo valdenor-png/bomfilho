@@ -24,6 +24,8 @@ Este pacote contem exemplos dos requests e responses das chamadas PagBank usadas
 - Request e response completos do `POST /orders` para cartao debito.
 - Request e response de consulta (`GET /orders/{order_id}`) para um pedido criado.
 - Roteiro rapido: `docs/pagbank-homologacao/CHECKLIST_CARTAO_DEBITO.md`.
+- Roteiro oficial de sucesso (Visa 2701): `docs/pagbank-homologacao/CHECKLIST_SANDBOX_OFICIAL_DEBITO_3DS_2026-03-17.md`.
+- Pacote de evidencias sanitizadas 2026-03-17: `docs/pagbank-homologacao/sandbox-logs/2026-03-17/`.
 
 ## Observacoes
 - Nao incluir token real nos anexos enviados ao PagBank.

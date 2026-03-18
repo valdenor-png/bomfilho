@@ -1,6 +1,7 @@
 'use strict';
 
 const FORMAS_PAGAMENTO_PEDIDO_VALIDAS = new Set(['pix', 'dinheiro', 'debito', 'credito', 'cartao']);
+const TIPOS_ENTREGA_PEDIDO_VALIDOS = new Set(['entrega', 'retirada']);
 
 function extrairTaxIdDigits(payload = {}) {
   return String(payload?.tax_id ?? payload?.cpf ?? '').replace(/\D/g, '');
@@ -8,6 +9,11 @@ function extrairTaxIdDigits(payload = {}) {
 
 function normalizarFormaPagamentoPedido(value) {
   return String(value || 'pix').trim().toLowerCase();
+}
+
+function normalizarTipoEntregaPedidoInput(value) {
+  const tipo = String(value || 'entrega').trim().toLowerCase();
+  return TIPOS_ENTREGA_PEDIDO_VALIDOS.has(tipo) ? tipo : 'entrega';
 }
 
 function normalizarItensPedidoInput(itens) {
@@ -75,8 +81,10 @@ async function buscarPedidoDoUsuarioPorId({ connection, pedidoId, usuarioId } = 
 
 module.exports = {
   FORMAS_PAGAMENTO_PEDIDO_VALIDAS,
+  TIPOS_ENTREGA_PEDIDO_VALIDOS,
   extrairTaxIdDigits,
   normalizarFormaPagamentoPedido,
+  normalizarTipoEntregaPedidoInput,
   normalizarItensPedidoInput,
   itensPedidoSaoValidos,
   normalizarEntregaPedidoInput,

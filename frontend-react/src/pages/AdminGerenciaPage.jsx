@@ -19,6 +19,7 @@ import {
   isAuthErrorMessage
 } from '../lib/api';
 import useDebouncedValue from '../hooks/useDebouncedValue';
+import SmartImage from '../components/ui/SmartImage';
 
 const PRODUTOS_POR_PAGINA = 60;
 
@@ -1565,7 +1566,7 @@ export default function AdminGerenciaPage() {
                     <tr key={produto.id}>
                       <td>
                         {produto.imagem_url ? (
-                          <img className="admin-produto-thumb" src={produto.imagem_url} alt={produto.nome} loading="lazy" />
+                          <SmartImage className="admin-produto-thumb" src={produto.imagem_url} alt={produto.nome} loading="lazy" />
                         ) : (
                           <span className="muted-text">Sem foto</span>
                         )}

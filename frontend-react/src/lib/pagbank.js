@@ -1,6 +1,7 @@
 const PAGBANK_SDK_URL = 'https://assets.pagseguro.com.br/checkout-sdk-js/rc/dist/browser/pagseguro.min.js';
 
 let pagBankSdkPromise = null;
+let ultimaSessao3DSConfigurada = null;
 
 function normalizarEnvSdkPagBank(env) {
   const value = String(env || '').trim().toUpperCase();
@@ -112,14 +113,31 @@ export async function configurarSessao3DSPagBank({ session, env } = {}) {
     throw new Error('Sessão 3DS inválida ou ausente. Atualize a página e tente novamente.');
   }
 
+  const envNormalizado = normalizarEnvSdkPagBank(env);
+  if (
+    ultimaSessao3DSConfigurada
+    && ultimaSessao3DSConfigurada.session === sessionNormalizada
+    && ultimaSessao3DSConfigurada.env === envNormalizado
+  ) {
+    return {
+      session: sessionNormalizada,
+      env: envNormalizado
+    };
+  }
+
   pagSeguro.setUp({
     session: sessionNormalizada,
-    env: normalizarEnvSdkPagBank(env)
+    env: envNormalizado
   });
+
+  ultimaSessao3DSConfigurada = {
+    session: sessionNormalizada,
+    env: envNormalizado
+  };
 
   return {
     session: sessionNormalizada,
-    env: normalizarEnvSdkPagBank(env)
+    env: envNormalizado
   };
 }
 

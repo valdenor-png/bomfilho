@@ -3,7 +3,7 @@ import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-route
 import HomePage from './pages/HomePage';
 import { useCart } from './context/CartContext';
 
-const BOTTOM_NAV_SAFE_AREA = 90;
+const BOTTOM_NAV_SAFE_AREA = 76;
 const WHATSAPP_ATENDIMENTO_URL = 'https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido.';
 const TELEFONE_FIXO_URL = 'tel:+559137219780';
 
@@ -89,6 +89,9 @@ export default function App() {
   const isLocalHost = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isPedidosRoute = location.pathname.startsWith('/pedidos');
+  const isProdutosRoute = location.pathname.startsWith('/produtos');
+  const isPagamentoRoute = location.pathname.startsWith('/pagamento');
+  const podeMostrarCarrinhoFlutuante = resumo.itens > 0 && !isPedidosRoute && !isProdutosRoute && !isPagamentoRoute;
 
   useEffect(() => {
     if (!podePrefetchNavegacao()) {
@@ -146,7 +149,7 @@ export default function App() {
         </Suspense>
       </main>
 
-      {resumo.itens > 0 && !isPedidosRoute ? (
+      {podeMostrarCarrinhoFlutuante ? (
         <div
           className="floating-cart-wrapper"
           style={{ right: '12px', bottom: `${BOTTOM_NAV_SAFE_AREA + 10}px` }}

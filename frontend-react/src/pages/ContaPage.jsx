@@ -1215,13 +1215,12 @@ export default function ContaPage() {
               </div>
 
               <p className="muted-text" style={{ marginTop: '-0.1rem' }}>
-                Favoritos: {recorrenciaStats.favoritos} • Vistos: {recorrenciaStats.recentes} • Recompra: {recorrenciaStats.recompra}
+                Favoritos: {recorrenciaStats.favoritos} • Recompra: {recorrenciaStats.recompra}
               </p>
 
               <div className="conta-shortcuts-grid">
                 <ShortcutCard to="/pedidos" title="Meus pedidos" description="Acompanhar status e histórico." />
                 <ShortcutCard to="/produtos?recorrencia=favoritos" title="Favoritos" description="Abrir seus produtos salvos." />
-                <ShortcutCard to="/produtos?recorrencia=recentes" title="Vistos recentemente" description="Retomar produtos visualizados." />
                 <ShortcutCard to="/produtos?recorrencia=recompra" title="Comprar novamente" description="Atalho para recompra rapida." />
                 <ShortcutCard disabled title="Cupons" description="Ver cupons disponíveis (em breve)." />
                 <ShortcutCard

@@ -5,6 +5,7 @@ import App from './App';
 import './styles.css';
 import { CartProvider } from './context/CartContext';
 import { RecorrenciaProvider } from './context/RecorrenciaContext';
+import { trackWebVitals } from './lib/trackWebVitals';
 import {
   applyFontScale,
   applyHighContrast,
@@ -17,6 +18,7 @@ import {
 applyFontScale(getStoredFontScale());
 applyHighContrast(getStoredHighContrast());
 applyReducedMotion(getStoredReducedMotion());
+void trackWebVitals();
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

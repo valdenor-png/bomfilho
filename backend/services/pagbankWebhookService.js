@@ -63,10 +63,31 @@ function mapearStatusPorEventoPagBank(evento) {
   return '';
 }
 
+function extrairStatusThreeDSPagBank(chargePrincipal = {}) {
+  const candidatos = [
+    chargePrincipal?.threeds?.status,
+    chargePrincipal?.three_ds?.status,
+    chargePrincipal?.authentication_method?.status,
+    chargePrincipal?.payment_method?.authentication_method?.status,
+    chargePrincipal?.payment_method?.card?.threeds?.status,
+    chargePrincipal?.payment_method?.card?.three_ds?.status
+  ];
+
+  for (const candidato of candidatos) {
+    const valor = String(candidato || '').trim().toUpperCase();
+    if (valor) {
+      return valor;
+    }
+  }
+
+  return '';
+}
+
 function extrairStatusPagamentoPagBank(payload = {}, evento) {
   const charges = Array.isArray(payload?.charges) ? payload.charges : [];
   const chargePrincipal = charges[0] || null;
   const chargeStatus = String(chargePrincipal?.status || '').trim().toUpperCase();
+  const chargeThreeDSStatus = extrairStatusThreeDSPagBank(chargePrincipal);
   const orderStatus = String(payload?.status || '').trim().toUpperCase();
   const eventStatus = mapearStatusPorEventoPagBank(evento);
   const statusResolvido = chargeStatus || eventStatus || orderStatus || 'WAITING';
@@ -86,6 +107,7 @@ function extrairStatusPagamentoPagBank(payload = {}, evento) {
     orderStatus,
     chargeStatus,
     eventStatus,
+    chargeThreeDSStatus,
     chargePrincipal,
     charges
   };

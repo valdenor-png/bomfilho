@@ -6,6 +6,17 @@ import { getProdutos } from '../lib/api';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
 import useDebouncedValue from '../hooks/useDebouncedValue';
+import usePreloadImage from '../hooks/usePreloadImage';
+import SmartImage from '../components/ui/SmartImage';
+import {
+  buildProductEventPayload,
+  captureCommerceEvent
+} from '../lib/commerceTracking';
+import {
+  GROWTH_BOTTLENECK_LABELS,
+  GROWTH_UPDATE_EVENT_NAME,
+  getGrowthInsights
+} from '../lib/conversionGrowth';
 
 const ProdutoDecisionDrawer = React.lazy(() => import('../components/ProdutoDecisionDrawer'));
 
@@ -124,7 +135,7 @@ const CATEGORIAS_LEGADO = [
 ];
 
 const ORDENACOES_PRODUTOS = [
-  { id: 'mais-vendidos', label: 'Mais vendidos' },
+  { id: 'mais-vendidos', label: 'Mais comprados' },
   { id: 'menor-preco', label: 'Menor preço' },
   { id: 'maior-preco', label: 'Maior preço' },
   { id: 'az', label: 'A-Z' },
@@ -143,7 +154,6 @@ const BUSCA_SUGESTOES_RAPIDAS = [
 const FILTROS_RECORRENCIA = [
   { id: 'todos', label: 'Tudo' },
   { id: 'favoritos', label: 'Favoritos' },
-  { id: 'recentes', label: 'Vistos recentemente' },
   { id: 'recompra', label: 'Comprar novamente' }
 ];
 
@@ -213,6 +223,7 @@ const TOKENS_MAIS_VENDIDOS = [
   'refrigerante',
   'frango'
 ];
+const ESTOQUE_BAIXO_LIMIAR = 5;
 
 const BRL_CURRENCY = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -302,6 +313,15 @@ function toNumber(value) {
 
 function formatCurrency(value) {
   return BRL_CURRENCY.format(Number(value || 0));
+}
+
+function formatConversionRate(value) {
+  const normalized = Number(value || 0);
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    return '0%';
+  }
+
+  return `${Math.round(normalized * 100)}%`;
 }
 
 function getProdutoCarrinhoId(produto) {
@@ -419,6 +439,38 @@ function getProdutoPrecoInfo(produto) {
   };
 }
 
+function getProdutoEstoqueInfo(produto) {
+  const candidatos = [
+    produto?.estoque,
+    produto?.estoque_atual,
+    produto?.quantidade_estoque,
+    produto?.saldo_estoque,
+    produto?.saldo
+  ];
+
+  for (const candidato of candidatos) {
+    const texto = String(candidato ?? '').trim();
+    if (!texto || !/\d/.test(texto)) {
+      continue;
+    }
+
+    const quantidade = Math.max(0, Math.trunc(toNumber(texto)));
+    return {
+      informado: true,
+      quantidade,
+      estoqueBaixo: quantidade > 0 && quantidade <= ESTOQUE_BAIXO_LIMIAR,
+      semEstoque: quantidade === 0
+    };
+  }
+
+  return {
+    informado: false,
+    quantidade: null,
+    estoqueBaixo: false,
+    semEstoque: false
+  };
+}
+
 function getScoreMaisVendido(produtoIndexado) {
   let score = 0;
 
@@ -445,24 +497,75 @@ function compareProdutosPorNome(a, b) {
   return PT_BR_COLLATOR.compare(a.nomeProduto, b.nomeProduto);
 }
 
-function sortProdutosIndexados(lista, ordenacao) {
+function getScoreComportamento(item, scoreComportamentoPorId) {
+  const id = Number(item?.carrinhoId || 0);
+  if (!id || !scoreComportamentoPorId) {
+    return 0;
+  }
+
+  return Number(scoreComportamentoPorId.get(id) || 0);
+}
+
+function sortProdutosIndexados(
+  lista,
+  ordenacao,
+  {
+    priorizarConversao = true,
+    priorizarPersonalizacao = false,
+    scoreComportamentoPorId = null
+  } = {}
+) {
   const ordenados = [...lista];
 
   switch (ordenacao) {
     case 'menor-preco':
       ordenados.sort((a, b) => {
         const diff = a.precoInfo.precoAtual - b.precoInfo.precoAtual;
-        return diff === 0 ? compareProdutosPorNome(a, b) : diff;
+        if (diff !== 0) {
+          return diff;
+        }
+
+        if (priorizarPersonalizacao) {
+          const scoreComportamentoDiff = getScoreComportamento(b, scoreComportamentoPorId)
+            - getScoreComportamento(a, scoreComportamentoPorId);
+          if (scoreComportamentoDiff !== 0) {
+            return scoreComportamentoDiff;
+          }
+        }
+
+        return compareProdutosPorNome(a, b);
       });
       break;
     case 'maior-preco':
       ordenados.sort((a, b) => {
         const diff = b.precoInfo.precoAtual - a.precoInfo.precoAtual;
-        return diff === 0 ? compareProdutosPorNome(a, b) : diff;
+        if (diff !== 0) {
+          return diff;
+        }
+
+        if (priorizarPersonalizacao) {
+          const scoreComportamentoDiff = getScoreComportamento(b, scoreComportamentoPorId)
+            - getScoreComportamento(a, scoreComportamentoPorId);
+          if (scoreComportamentoDiff !== 0) {
+            return scoreComportamentoDiff;
+          }
+        }
+
+        return compareProdutosPorNome(a, b);
       });
       break;
     case 'az':
-      ordenados.sort(compareProdutosPorNome);
+      ordenados.sort((a, b) => {
+        if (priorizarPersonalizacao) {
+          const scoreComportamentoDiff = getScoreComportamento(b, scoreComportamentoPorId)
+            - getScoreComportamento(a, scoreComportamentoPorId);
+          if (scoreComportamentoDiff !== 0) {
+            return scoreComportamentoDiff;
+          }
+        }
+
+        return compareProdutosPorNome(a, b);
+      });
       break;
     case 'promocoes':
       ordenados.sort((a, b) => {
@@ -476,12 +579,35 @@ function sortProdutosIndexados(lista, ordenacao) {
           return descontoDiff;
         }
 
+        if (priorizarPersonalizacao) {
+          const scoreComportamentoDiff = getScoreComportamento(b, scoreComportamentoPorId)
+            - getScoreComportamento(a, scoreComportamentoPorId);
+          if (scoreComportamentoDiff !== 0) {
+            return scoreComportamentoDiff;
+          }
+        }
+
         return compareProdutosPorNome(a, b);
       });
       break;
     case 'mais-vendidos':
     default:
       ordenados.sort((a, b) => {
+        if (priorizarConversao) {
+          const conversaoDiff = Number(b.scoreConversao || 0) - Number(a.scoreConversao || 0);
+          if (conversaoDiff !== 0) {
+            return conversaoDiff;
+          }
+        }
+
+        if (priorizarPersonalizacao) {
+          const scoreComportamentoDiff = getScoreComportamento(b, scoreComportamentoPorId)
+            - getScoreComportamento(a, scoreComportamentoPorId);
+          if (scoreComportamentoDiff !== 0) {
+            return scoreComportamentoDiff;
+          }
+        }
+
         const scoreDiff = b.scoreMaisVendido - a.scoreMaisVendido;
         if (scoreDiff !== 0) {
           return scoreDiff;
@@ -505,26 +631,35 @@ function getProdutoBadges(
   {
     destaqueMaisVendido = false,
     destaqueNovo = false,
+    destaqueConversao = false,
     favorito = false,
     recorrente = false,
-    recente = false,
-    recomendado = false
+    recomendado = false,
+    growthBadgeLabel = ''
   } = {}
 ) {
   const badges = [];
   const { precoInfo } = produtoIndexado;
+
+  if (growthBadgeLabel) {
+    badges.push({ tone: 'growth', label: growthBadgeLabel });
+  }
+
+  if (destaqueConversao) {
+    badges.push({ tone: 'conversao', label: 'Alta conversao' });
+  }
 
   if (produtoIndexado.emPromocao || precoInfo.precoAnterior) {
     badges.push({
       tone: 'oferta',
       label: precoInfo.percentualEconomia >= 5
         ? `${precoInfo.percentualEconomia}% OFF`
-        : 'Oferta'
+        : 'OFERTA'
     });
   }
 
   if (destaqueMaisVendido) {
-    badges.push({ tone: 'mais-vendido', label: 'Destaque' });
+    badges.push({ tone: 'mais-vendido', label: 'Mais comprado' });
   }
 
   if (favorito) {
@@ -532,11 +667,7 @@ function getProdutoBadges(
   }
 
   if (recorrente) {
-    badges.push({ tone: 'recorrente', label: 'Compra recorrente' });
-  }
-
-  if (recente) {
-    badges.push({ tone: 'visto', label: 'Mais visto' });
+    badges.push({ tone: 'recorrente', label: 'Compra frequente' });
   }
 
   if (recomendado) {
@@ -549,12 +680,12 @@ function getProdutoBadges(
 
   if (
     (produtoIndexado.textoBusca.includes('leve 2') || produtoIndexado.textoBusca.includes('2x'))
-    && badges.length < 2
+    && badges.length < 3
   ) {
     badges.push({ tone: 'combo', label: 'Leve 2' });
   }
 
-  if (precoInfo.economia >= 2 && badges.length < 2) {
+  if (precoInfo.economia >= 2 && badges.length < 3) {
     badges.push({ tone: 'desconto', label: 'Desconto' });
   }
 
@@ -671,7 +802,7 @@ function isUnsplashUrl(value) {
   return String(value || '').includes('images.unsplash.com');
 }
 
-function buildUnsplashVariant(url, width) {
+function buildUnsplashVariant(url, width, quality = 60) {
   if (!isUnsplashUrl(url)) {
     return url;
   }
@@ -680,7 +811,7 @@ function buildUnsplashVariant(url, width) {
     const parsed = new URL(url);
     parsed.searchParams.set('auto', 'format');
     parsed.searchParams.set('fit', 'crop');
-    parsed.searchParams.set('q', '60');
+    parsed.searchParams.set('q', String(quality));
     parsed.searchParams.set('w', String(width));
     return parsed.toString();
   } catch {
@@ -694,6 +825,7 @@ function getProdutoImagemResponsiva(produto) {
   if (!srcBase) {
     return {
       src: '',
+      blurSrc: '',
       srcSet: undefined,
       sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 240px'
     };
@@ -702,6 +834,7 @@ function getProdutoImagemResponsiva(produto) {
   if (!isUnsplashUrl(srcBase)) {
     return {
       src: srcBase,
+      blurSrc: '',
       srcSet: undefined,
       sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 240px'
     };
@@ -710,9 +843,19 @@ function getProdutoImagemResponsiva(produto) {
   const widths = [240, 340, 460, 680, 920];
   return {
     src: buildUnsplashVariant(srcBase, 460),
+    blurSrc: buildUnsplashVariant(srcBase, 64, 24),
     srcSet: widths.map((width) => `${buildUnsplashVariant(srcBase, width)} ${width}w`).join(', '),
     sizes: '(max-width: 640px) 44vw, (max-width: 1024px) 30vw, 240px'
   };
+}
+
+function getProdutoImagemBlurSrc(produto) {
+  const srcBase = getProdutoImagem(produto);
+  if (!isUnsplashUrl(srcBase)) {
+    return '';
+  }
+
+  return buildUnsplashVariant(srcBase, 64, 24);
 }
 
 function mergeProdutosById(listaAtual, novosProdutos) {
@@ -735,9 +878,37 @@ const VIRTUALIZATION_THRESHOLD = 64;
 const VIRTUAL_GRID_GAP = 14;
 const VIRTUAL_CARD_MIN_WIDTH_DESKTOP = 236;
 const VIRTUAL_CARD_MIN_WIDTH_MOBILE = 174;
-const VIRTUAL_CARD_HEIGHT_DESKTOP = 476;
-const VIRTUAL_CARD_HEIGHT_MOBILE = 452;
+const VIRTUAL_CARD_HEIGHT_DESKTOP = 448;
+const VIRTUAL_CARD_HEIGHT_MOBILE = 324;
 const VIRTUAL_GRID_MIN_HEIGHT = 300;
+const PREFETCHED_PRODUCT_IMAGE_LIMIT = 1200;
+const prefetchedProductImageSrc = new Set();
+const prefetchedProductImageQueue = [];
+
+function prefetchProductImage(src) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const normalizedSrc = String(src || '').trim();
+  if (!normalizedSrc || prefetchedProductImageSrc.has(normalizedSrc)) {
+    return;
+  }
+
+  prefetchedProductImageSrc.add(normalizedSrc);
+  prefetchedProductImageQueue.push(normalizedSrc);
+
+  while (prefetchedProductImageQueue.length > PREFETCHED_PRODUCT_IMAGE_LIMIT) {
+    const oldest = prefetchedProductImageQueue.shift();
+    if (oldest) {
+      prefetchedProductImageSrc.delete(oldest);
+    }
+  }
+
+  const prefetchImageElement = new window.Image();
+  prefetchImageElement.decoding = 'async';
+  prefetchImageElement.src = normalizedSrc;
+}
 
 function useViewportHeight() {
   const [viewportHeight, setViewportHeight] = useState(() => {
@@ -839,13 +1010,18 @@ function ProdutosSkeletonGrid({ quantidade = 10 }) {
 
 const ProdutoCard = React.memo(function ProdutoCard({
   produtoIndexado,
+  index = 0,
+  isMobileViewport = false,
+  nextImageSrc = '',
+  estaAdicionando = false,
   quantidadeNoCarrinho,
   destaqueMaisVendido,
   destaqueNovo,
+  destaqueConversao = false,
   favorito = false,
   sinalRecorrente = false,
-  sinalRecente = false,
   sinalRecomendado = false,
+  growthExperimento = null,
   foiAdicionadoRecente = false,
   onAddItem,
   onIncreaseItem,
@@ -861,30 +1037,106 @@ const ProdutoCard = React.memo(function ProdutoCard({
     setImagemIndisponivel(!imagem.src);
   }, [imagem.src]);
 
+  useEffect(() => {
+    prefetchProductImage(nextImageSrc);
+  }, [nextImageSrc]);
+
   const nomeProduto = produtoIndexado.nomeProduto;
   const categoriaLabel = produtoIndexado.categoriaLabel;
   const detalhesProduto = produtoIndexado.detalhesComerciais;
   const medidaProduto = produtoIndexado.medidaProduto;
   const precoInfo = produtoIndexado.precoInfo;
+  const estoqueInfo = produtoIndexado.estoqueInfo;
+  const growthCatalogConfig = growthExperimento?.catalog || null;
+  const growthCatalogEnabled = Boolean(growthCatalogConfig?.enabled);
+  const growthCatalogBadge = growthCatalogEnabled
+    ? String(growthCatalogConfig?.badgeLabel || '').trim()
+    : '';
+  const growthCatalogPriceHighlight = growthCatalogEnabled
+    ? String(growthCatalogConfig?.priceHighlight || 'none').trim() || 'none'
+    : 'none';
+  const growthCatalogHelper = growthCatalogEnabled
+    ? String(growthCatalogConfig?.helperText || '').trim()
+    : '';
   const badges = useMemo(() => getProdutoBadges(produtoIndexado, {
     destaqueMaisVendido,
     destaqueNovo,
+    destaqueConversao,
     favorito,
     recorrente: sinalRecorrente,
-    recente: sinalRecente,
-    recomendado: sinalRecomendado
-  }), [destaqueMaisVendido, destaqueNovo, favorito, sinalRecorrente, sinalRecente, sinalRecomendado, produtoIndexado]);
+    recomendado: sinalRecomendado,
+    growthBadgeLabel: growthCatalogBadge
+  }), [
+    destaqueMaisVendido,
+    destaqueNovo,
+    destaqueConversao,
+    favorito,
+    growthCatalogBadge,
+    sinalRecorrente,
+    sinalRecomendado,
+    produtoIndexado
+  ]);
   const podeComprar = produtoIndexado.carrinhoId !== null;
+  const shouldPrioritizeImage = isMobileViewport ? index < 1 : index < 2;
+  const urgenciaEstoqueAtiva = Boolean(podeComprar && estoqueInfo?.estoqueBaixo);
+  const copyDisponibilidade = !podeComprar
+    ? 'Indisponivel no momento'
+    : (urgenciaEstoqueAtiva ? 'Restam poucas unidades' : '');
+  const microcopyConversao = !podeComprar
+    ? ''
+    : (sinalRecorrente
+      ? 'Baseado nas suas compras anteriores'
+      : (growthCatalogHelper
+        ? growthCatalogHelper
+        : (urgenciaEstoqueAtiva
+          ? 'Vale a pena levar agora'
+          : (precoInfo.economia >= 1
+            ? 'Economize hoje'
+            : (destaqueMaisVendido ? 'Preco baixo de verdade' : 'Decisao rapida no carrinho')))));
+  const precoCta = formatCurrency(precoInfo.precoAtual);
+  const temPrecoNoCta = Number(precoInfo.precoAtual || 0) > 0;
+  const ctaExperimentoCatalogo = !temPrecoNoCta || !growthCatalogEnabled
+    ? ''
+    : (growthCatalogConfig?.ctaMode === 'valor'
+      ? `Levar agora • ${precoCta}`
+      : (growthCatalogConfig?.ctaMode === 'urgencia' ? `Garantir hoje • ${precoCta}` : ''));
+  const indicadorUrgencia = !podeComprar
+    ? ''
+    : (urgenciaEstoqueAtiva
+      ? '⏳ Acabando'
+      : (precoInfo.economia >= 1
+        ? `💸 Economize ${formatCurrency(precoInfo.economia)}`
+        : ((produtoIndexado.emPromocao || precoInfo.precoAnterior) ? '🔥 Oferta hoje' : '')));
   const ctaPrimaria = !podeComprar
     ? 'Indisponivel'
-    : (foiAdicionadoRecente
-      ? 'Adicionado'
-      : (quantidadeNoCarrinho > 0
-        ? 'Adicionar +'
-        : (precoInfo.precoAnterior ? 'Aproveitar oferta' : 'Adicionar')));
+    : (estaAdicionando
+      ? 'Adicionando...'
+      : (temPrecoNoCta
+        ? (quantidadeNoCarrinho > 0
+          ? `Adicionar +1 • ${precoCta}`
+          : (ctaExperimentoCatalogo
+            || (precoInfo.precoAnterior ? `Levar por ${precoCta}` : `Adicionar agora • ${precoCta}`)))
+        : 'Adicionar ao carrinho'));
+  const priceAreaClassName = [
+    'produto-price-area',
+    growthCatalogEnabled ? `is-growth-${growthCatalogPriceHighlight}` : ''
+  ].filter(Boolean).join(' ');
+  const priceClassName = [
+    'produto-price',
+    (growthCatalogEnabled && growthCatalogPriceHighlight !== 'none') ? 'is-growth-emphasis' : ''
+  ].filter(Boolean).join(' ');
+  const cardClassName = [
+    'produto-card',
+    foiAdicionadoRecente ? 'is-added' : '',
+    index === 0 ? 'is-prime' : '',
+    indicadorUrgencia ? 'is-urgent' : '',
+    (produtoIndexado.emPromocao || precoInfo.precoAnterior) ? 'is-offer' : '',
+    (destaqueMaisVendido || sinalRecorrente) ? 'is-popular' : '',
+    destaqueConversao ? 'is-conversion-winner' : ''
+  ].filter(Boolean).join(' ');
 
   return (
-    <article className={`produto-card ${foiAdicionadoRecente ? 'is-added' : ''}`}>
+    <article className={cardClassName}>
       <div className="produto-card-media">
         <button
           type="button"
@@ -912,15 +1164,16 @@ const ProdutoCard = React.memo(function ProdutoCard({
           {imagemIndisponivel ? (
             <ProdutoImageFallback produto={produto} />
           ) : (
-            <img
+            <SmartImage
               className="produto-image"
               src={imagem.src}
+              blurSrc={imagem.blurSrc}
               srcSet={imagem.srcSet}
               sizes={imagem.sizes}
               alt={nomeProduto}
+              priority={shouldPrioritizeImage}
               loading="lazy"
               decoding="async"
-              fetchPriority="low"
               onError={() => {
                 setImagemIndisponivel(true);
               }}
@@ -936,15 +1189,17 @@ const ProdutoCard = React.memo(function ProdutoCard({
         </p>
         <h3 className="produto-title" title={nomeProduto}>{nomeProduto}</h3>
         <p className="produto-details">{detalhesProduto}</p>
-        <p className={`produto-availability ${podeComprar ? 'is-available' : 'is-unavailable'}`}>
-          {podeComprar ? 'Disponivel para adicionar' : 'Indisponivel no momento'}
-        </p>
+        {copyDisponibilidade ? (
+          <p className={`produto-availability ${podeComprar ? 'is-available' : 'is-unavailable'} ${urgenciaEstoqueAtiva ? 'is-urgency' : ''}`.trim()}>
+            {copyDisponibilidade}
+          </p>
+        ) : null}
 
-        <div className="produto-price-area">
-          <p className="produto-price">{formatCurrency(precoInfo.precoAtual)}</p>
+        <div className={priceAreaClassName}>
           {precoInfo.precoAnterior ? (
             <p className="produto-price-old">de {formatCurrency(precoInfo.precoAnterior)}</p>
           ) : null}
+          <p className={priceClassName}>{formatCurrency(precoInfo.precoAtual)}</p>
 
           {medidaProduto ? (
             <p className="produto-price-unit">Unidade: {medidaProduto}</p>
@@ -956,11 +1211,9 @@ const ProdutoCard = React.memo(function ProdutoCard({
           {precoInfo.precoPix ? (
             <p className="produto-price-pix">{formatCurrency(precoInfo.precoPix)} no Pix</p>
           ) : null}
-
-          {precoInfo.precoAnterior ? (
-            <p className="produto-value-note">Oportunidade com economia real</p>
-          ) : null}
         </div>
+
+        {indicadorUrgencia ? <p className="produto-urgency">{indicadorUrgencia}</p> : null}
       </div>
 
       <div className="produto-card-actions">
@@ -971,6 +1224,7 @@ const ProdutoCard = React.memo(function ProdutoCard({
               className="produto-qty-btn"
               onClick={() => onDecreaseItem(produto, quantidadeNoCarrinho)}
               aria-label={`Diminuir quantidade de ${nomeProduto}`}
+              disabled={estaAdicionando}
             >
               -
             </button>
@@ -980,18 +1234,21 @@ const ProdutoCard = React.memo(function ProdutoCard({
               className="produto-qty-btn"
               onClick={() => onIncreaseItem(produto)}
               aria-label={`Aumentar quantidade de ${nomeProduto}`}
+              disabled={estaAdicionando}
             >
               +
             </button>
           </div>
         ) : null}
 
+        {microcopyConversao ? <p className="produto-microcopy">{microcopyConversao}</p> : null}
+
         <div className="produto-card-actions-row">
           <button
-            className="btn-primary produto-add-btn"
+            className={`btn-primary produto-add-btn ${estaAdicionando ? 'is-loading' : ''}`.trim()}
             type="button"
             onClick={() => onAddItem(produto)}
-            disabled={!podeComprar}
+            disabled={!podeComprar || estaAdicionando}
           >
             {ctaPrimaria}
           </button>
@@ -1007,7 +1264,7 @@ const ProdutoCard = React.memo(function ProdutoCard({
 
         {foiAdicionadoRecente ? (
           <p className="produto-card-feedback" role="status" aria-live="polite">
-            Adicionado ao carrinho
+            Adicionado ao carrinho ✅
           </p>
         ) : null}
       </div>
@@ -1029,8 +1286,10 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
   idsNovidades,
   favoritosIdsSet,
   recompraIdsSet,
-  recentesIdsSet,
+  idsAltaConversaoSet,
+  growthExperimento,
   produtoAdicionadoRecenteId,
+  isProdutoAdicionando = () => false,
   gridClassName = 'produto-grid',
   listId
 }) {
@@ -1079,9 +1338,12 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     idsNovidades,
     favoritosIdsSet,
     recompraIdsSet,
-    recentesIdsSet,
+    idsAltaConversaoSet,
+    growthExperimento,
     produtoAdicionadoRecenteId,
-    columnCount
+    isProdutoAdicionando,
+    columnCount,
+    isMobileViewport
   }), [
     chavesMaisVendidos,
     columnCount,
@@ -1094,8 +1356,11 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     onToggleFavorito,
     onOpenDetail,
     favoritosIdsSet,
+    growthExperimento,
+    idsAltaConversaoSet,
+    isMobileViewport,
+    isProdutoAdicionando,
     recompraIdsSet,
-    recentesIdsSet,
     produtoAdicionadoRecenteId
   ]);
   const shellClassName = gridClassName.includes('brand-produto-grid')
@@ -1118,12 +1383,16 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     idsNovidades: novidades,
     favoritosIdsSet: favoritosSet,
     recompraIdsSet: recompraSet,
-    recentesIdsSet: recentesSet,
+    idsAltaConversaoSet: altaConversaoSet,
+    growthExperimento: growth,
     produtoAdicionadoRecenteId: adicionadoRecenteId,
-    columnCount: columns
+    isProdutoAdicionando: isAddingProduto,
+    columnCount: columns,
+    isMobileViewport: isMobile
   }) => {
     const index = rowIndex * columns + columnIndex;
     const produtoIndexado = itens[index];
+    const proximoProdutoIndexado = itens[index + 1] || null;
 
     if (!produtoIndexado) {
       return null;
@@ -1146,7 +1415,11 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
         }}
       >
         <ProdutoCard
+          index={index}
+          isMobileViewport={isMobile}
+          nextImageSrc={proximoProdutoIndexado?.imagemResponsiva?.src || ''}
           produtoIndexado={produtoIndexado}
+          estaAdicionando={isAddingProduto(produtoIndexado.produto)}
           quantidadeNoCarrinho={getQtd(produtoIndexado.produto)}
           destaqueMaisVendido={destaqueMaisVendido}
           destaqueNovo={destaqueNovo}
@@ -1158,11 +1431,12 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
             produtoIndexado.carrinhoId !== null
             && recompraSet.has(produtoIndexado.carrinhoId)
           }
-          sinalRecente={
-            produtoIndexado.carrinhoId !== null
-            && recentesSet.has(produtoIndexado.carrinhoId)
-          }
           sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
+          destaqueConversao={
+            produtoIndexado.carrinhoId !== null
+            && altaConversaoSet.has(produtoIndexado.carrinhoId)
+          }
+          growthExperimento={growth}
           foiAdicionadoRecente={
             produtoIndexado.carrinhoId !== null
             && produtoIndexado.carrinhoId === adicionadoRecenteId
@@ -1178,12 +1452,19 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
   }, []);
 
   if (!usarVirtualizacao) {
+    const isMobileCardPriority = isMobileViewport
+      || (containerWidth === 0 && typeof window !== 'undefined' && window.innerWidth < 700);
+
     return (
       <div className={gridClassName} id={listId}>
-        {itensIndexados.map((produtoIndexado) => (
+        {itensIndexados.map((produtoIndexado, index) => (
           <ProdutoCard
             key={produtoIndexado.chaveReact}
+            index={index}
+            isMobileViewport={isMobileCardPriority}
+            nextImageSrc={itensIndexados[index + 1]?.imagemResponsiva?.src || ''}
             produtoIndexado={produtoIndexado}
+            estaAdicionando={isProdutoAdicionando(produtoIndexado.produto)}
             quantidadeNoCarrinho={getQuantidadeProduto(produtoIndexado.produto)}
             destaqueMaisVendido={chavesMaisVendidos.has(produtoIndexado.chaveReact)}
             destaqueNovo={
@@ -1198,11 +1479,12 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
               produtoIndexado.carrinhoId !== null
               && recompraIdsSet.has(produtoIndexado.carrinhoId)
             }
-            sinalRecente={
-              produtoIndexado.carrinhoId !== null
-              && recentesIdsSet.has(produtoIndexado.carrinhoId)
-            }
             sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
+            destaqueConversao={
+              produtoIndexado.carrinhoId !== null
+              && idsAltaConversaoSet.has(produtoIndexado.carrinhoId)
+            }
+            growthExperimento={growthExperimento}
             foiAdicionadoRecente={
               produtoIndexado.carrinhoId !== null
               && produtoIndexado.carrinhoId === produtoAdicionadoRecenteId
@@ -1239,10 +1521,14 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
         />
       ) : (
         <div className={gridClassName}>
-          {itensIndexados.slice(0, 12).map((produtoIndexado) => (
+          {itensIndexados.slice(0, 12).map((produtoIndexado, index) => (
             <ProdutoCard
               key={produtoIndexado.chaveReact}
+              index={index}
+              isMobileViewport={typeof window !== 'undefined' && window.innerWidth < 700}
+              nextImageSrc={itensIndexados[index + 1]?.imagemResponsiva?.src || ''}
               produtoIndexado={produtoIndexado}
+              estaAdicionando={isProdutoAdicionando(produtoIndexado.produto)}
               quantidadeNoCarrinho={getQuantidadeProduto(produtoIndexado.produto)}
               destaqueMaisVendido={chavesMaisVendidos.has(produtoIndexado.chaveReact)}
               destaqueNovo={
@@ -1257,11 +1543,12 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
                 produtoIndexado.carrinhoId !== null
                 && recompraIdsSet.has(produtoIndexado.carrinhoId)
               }
-              sinalRecente={
-                produtoIndexado.carrinhoId !== null
-                && recentesIdsSet.has(produtoIndexado.carrinhoId)
-              }
               sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
+              destaqueConversao={
+                produtoIndexado.carrinhoId !== null
+                && idsAltaConversaoSet.has(produtoIndexado.carrinhoId)
+              }
+              growthExperimento={growthExperimento}
               foiAdicionadoRecente={
                 produtoIndexado.carrinhoId !== null
                 && produtoIndexado.carrinhoId === produtoAdicionadoRecenteId
@@ -1286,7 +1573,6 @@ export default function ProdutosPage() {
   const {
     favoritosIds,
     favoritosProdutos,
-    recentesProdutos,
     recomprasProdutos,
     stats: recorrenciaStats,
     isFavorito,
@@ -1300,7 +1586,6 @@ export default function ProdutosPage() {
   const filtroRecorrenciaInicial = String(
     searchParams.get('recorrencia')
     || (searchParams.get('favoritos') === '1' ? 'favoritos' : '')
-    || (searchParams.get('recentes') === '1' ? 'recentes' : '')
     || (searchParams.get('recompra') === '1' ? 'recompra' : '')
     || 'todos'
   ).toLowerCase();
@@ -1318,6 +1603,7 @@ export default function ProdutosPage() {
   const [totalProdutosBackend, setTotalProdutosBackend] = useState(0);
   const [produtoAdicionadoRecenteId, setProdutoAdicionadoRecenteId] = useState(null);
   const [produtoAdicionadoRecenteNome, setProdutoAdicionadoRecenteNome] = useState('');
+  const [adicionandoPorId, setAdicionandoPorId] = useState({});
   const [produtoDetalheAbertoChave, setProdutoDetalheAbertoChave] = useState('');
   const [filtroRecorrencia, setFiltroRecorrencia] = useState(
     FILTROS_RECORRENCIA.some((item) => item.id === filtroRecorrenciaInicial)
@@ -1325,9 +1611,12 @@ export default function ProdutosPage() {
       : 'todos'
   );
   const [feedbackRecorrencia, setFeedbackRecorrencia] = useState('');
+  const [growthVersion, setGrowthVersion] = useState(0);
   const requisicaoProdutosIdRef = useRef(0);
   const limparFeedbackAdicaoRef = useRef(null);
   const limparFeedbackRecorrenciaRef = useRef(null);
+  const adicionandoIdsRef = useRef(new Set());
+  const limparAdicionandoTimersRef = useRef(new Map());
   const prefetchProdutosCacheRef = useRef(new Map());
   const prefetchEmAndamentoRef = useRef(new Set());
   const buscaDebounced = useDebouncedValue(busca, 280);
@@ -1335,6 +1624,52 @@ export default function ProdutosPage() {
   const termoBuscaEfetivo = String(buscaDebounced || '').trim();
   const buscaEmAtualizacao = normalizeText(termoBuscaDigitado) !== normalizeText(termoBuscaEfetivo);
   const categoriaEhBebidas = useMemo(() => isBebidasCategoria(categoria), [categoria]);
+  const growthInsights = useMemo(() => getGrowthInsights({ windowDays: 7 }), [growthVersion]);
+  const growthFunnel = Array.isArray(growthInsights?.funnel) ? growthInsights.funnel : [];
+  const growthBottleneckLabel = GROWTH_BOTTLENECK_LABELS[growthInsights?.bottleneck] || GROWTH_BOTTLENECK_LABELS.view_to_cart;
+  const growthExperimento = growthInsights?.experiment || {
+    enabled: false,
+    mode: 'collecting_data',
+    variantKey: 'control',
+    winnerVariantKey: null,
+    variants: [],
+    ui: {
+      catalog: { enabled: false, ctaMode: 'default', badgeLabel: '', priceHighlight: 'none', helperText: '' },
+      checkoutEntry: { enabled: false, ctaText: 'Ir para checkout', badgeLabel: '', priceHighlight: 'none' },
+      checkoutPayment: { enabled: false, ctaPrefix: 'Finalizar pedido', badgeLabel: '', priceHighlight: 'none' }
+    }
+  };
+  const growthDataVolume = growthInsights?.dataVolume || {
+    readyForAction: false,
+    windowEventCount: 0,
+    bottleneckFromCount: 0,
+    bottleneckToCount: 0,
+    missingWindowEvents: 0,
+    missingBottleneckBase: 0,
+    missingBottleneckTarget: 0,
+    thresholds: {
+      windowEvents: 90,
+      bottleneckBase: 28,
+      bottleneckTarget: 8,
+      samplePerVariant: 12
+    }
+  };
+  const growthColetaAtiva = Boolean(growthExperimento?.mode === 'collecting_data' || !growthExperimento?.enabled);
+  const growthTopProductsById = useMemo(() => {
+    const mapa = new Map();
+
+    (growthInsights?.topProducts || []).forEach((item) => {
+      const id = Number(item?.productId || 0);
+      if (Number.isFinite(id) && id > 0) {
+        mapa.set(id, item);
+      }
+    });
+
+    return mapa;
+  }, [growthInsights?.topProducts]);
+  const idsAltaConversaoSet = useMemo(() => {
+    return new Set(Array.from(growthTopProductsById.keys()));
+  }, [growthTopProductsById]);
   const assinaturaConsultaAtual = useMemo(
     () => JSON.stringify(buildProdutosQueryKey({
       categoria,
@@ -1352,7 +1687,6 @@ export default function ProdutosPage() {
     const proximoFiltroRecorrencia = String(
       searchParams.get('recorrencia')
       || (searchParams.get('favoritos') === '1' ? 'favoritos' : '')
-      || (searchParams.get('recentes') === '1' ? 'recentes' : '')
       || (searchParams.get('recompra') === '1' ? 'recompra' : '')
       || 'todos'
     ).toLowerCase();
@@ -1371,6 +1705,21 @@ export default function ProdutosPage() {
   }, [categoriaEhBebidas]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handleGrowthUpdate = () => {
+      setGrowthVersion((atual) => atual + 1);
+    };
+
+    window.addEventListener(GROWTH_UPDATE_EVENT_NAME, handleGrowthUpdate);
+    return () => {
+      window.removeEventListener(GROWTH_UPDATE_EVENT_NAME, handleGrowthUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
     prefetchProdutosCacheRef.current.clear();
     prefetchEmAndamentoRef.current.clear();
   }, [assinaturaConsultaAtual]);
@@ -1384,6 +1733,12 @@ export default function ProdutosPage() {
       if (limparFeedbackRecorrenciaRef.current) {
         clearTimeout(limparFeedbackRecorrenciaRef.current);
       }
+
+      limparAdicionandoTimersRef.current.forEach((timerId) => {
+        clearTimeout(timerId);
+      });
+      limparAdicionandoTimersRef.current.clear();
+      adicionandoIdsRef.current.clear();
     };
   }, []);
 
@@ -1705,8 +2060,48 @@ export default function ProdutosPage() {
       setProdutoAdicionadoRecenteId(null);
       setProdutoAdicionadoRecenteNome('');
       limparFeedbackAdicaoRef.current = null;
-    }, 1400);
+    }, 2600);
   }, []);
+
+  const limparEstadoAdicionando = useCallback((carrinhoId) => {
+    if (!Number.isFinite(carrinhoId)) {
+      return;
+    }
+
+    const timerId = limparAdicionandoTimersRef.current.get(carrinhoId);
+    if (timerId) {
+      clearTimeout(timerId);
+      limparAdicionandoTimersRef.current.delete(carrinhoId);
+    }
+
+    adicionandoIdsRef.current.delete(carrinhoId);
+    setAdicionandoPorId((atual) => {
+      if (!atual[carrinhoId]) {
+        return atual;
+      }
+
+      const proximo = { ...atual };
+      delete proximo[carrinhoId];
+      return proximo;
+    });
+  }, []);
+
+  const agendarLimpezaEstadoAdicionando = useCallback((carrinhoId, delayMs = 520) => {
+    if (!Number.isFinite(carrinhoId)) {
+      return;
+    }
+
+    const timerAnterior = limparAdicionandoTimersRef.current.get(carrinhoId);
+    if (timerAnterior) {
+      clearTimeout(timerAnterior);
+    }
+
+    const timerId = setTimeout(() => {
+      limparEstadoAdicionando(carrinhoId);
+    }, delayMs);
+
+    limparAdicionandoTimersRef.current.set(carrinhoId, timerId);
+  }, [limparEstadoAdicionando]);
 
   // Índice local com campos normalizados para evitar recomputações em cada filtro/render.
   const produtosIndexados = useMemo(() => {
@@ -1719,7 +2114,12 @@ export default function ProdutosPage() {
       const categoriaOriginal = String(produto?.categoria || '').toLowerCase();
       const categoriaNormalizada = normalizeText(categoriaOriginal);
       const precoInfo = getProdutoPrecoInfo(produto);
+      const estoqueInfo = getProdutoEstoqueInfo(produto);
       const imagemResponsiva = getProdutoImagemResponsiva(produto);
+      const carrinhoId = getProdutoCarrinhoId(produto);
+      const conversaoProduto = carrinhoId !== null
+        ? growthTopProductsById.get(carrinhoId) || null
+        : null;
 
       const indexadoBase = {
         chaveReact: getProdutoStableKey(produto),
@@ -1732,19 +2132,22 @@ export default function ProdutosPage() {
         categoriaOriginal,
         categoriaNormalizada,
         categoriaEhBebida: categoriaNormalizada.includes(TOKEN_BEBIDA),
-        carrinhoId: getProdutoCarrinhoId(produto),
+        estoqueInfo,
+        carrinhoId,
         precoInfo,
         emPromocao: precoInfo.emPromocao,
         bebidaSubcategoriaId: getBebidaSubcategoriaIdByTexto(textoBusca),
-        imagemResponsiva
+        imagemResponsiva,
+        conversaoProduto
       };
 
       return {
         ...indexadoBase,
-        scoreMaisVendido: getScoreMaisVendido(indexadoBase)
+        scoreMaisVendido: getScoreMaisVendido(indexadoBase),
+        scoreConversao: Number(conversaoProduto?.score || 0)
       };
     });
-  }, [produtos]);
+  }, [growthTopProductsById, produtos]);
 
   const produtosIndexadosPorId = useMemo(() => {
     const mapa = new Map();
@@ -1762,10 +2165,6 @@ export default function ProdutosPage() {
     return favoritosProdutos.slice(0, 12);
   }, [favoritosProdutos]);
 
-  const recentesRecorrencia = useMemo(() => {
-    return recentesProdutos.slice(0, 12);
-  }, [recentesProdutos]);
-
   const recompraRecorrencia = useMemo(() => {
     return recomprasProdutos.slice(0, 12);
   }, [recomprasProdutos]);
@@ -1774,14 +2173,12 @@ export default function ProdutosPage() {
     switch (filtroRecorrencia) {
       case 'favoritos':
         return favoritosRecorrencia;
-      case 'recentes':
-        return recentesRecorrencia;
       case 'recompra':
         return recompraRecorrencia;
       default:
         return [];
     }
-  }, [filtroRecorrencia, favoritosRecorrencia, recentesRecorrencia, recompraRecorrencia]);
+  }, [filtroRecorrencia, favoritosRecorrencia, recompraRecorrencia]);
 
   const idsFiltroRecorrenciaAtivos = useMemo(() => {
     return new Set(
@@ -1838,6 +2235,17 @@ export default function ProdutosPage() {
       return undefined;
     }
 
+    captureCommerceEvent(
+      'product_view',
+      buildProductEventPayload(produtoDetalheSelecionado.produto, {
+        view_context: 'produto_detalhe_drawer',
+        categoria_ativa: categoria,
+        filtro_recorrencia: filtroRecorrencia,
+        termo_busca: termoBuscaEfetivo || null,
+        ordenacao_ativa: ordenacao
+      })
+    );
+
     registrarVisualizacao(produtoDetalheSelecionado.produto);
 
     const previousOverflow = document.body.style.overflow;
@@ -1855,7 +2263,15 @@ export default function ProdutosPage() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [fecharDetalheProduto, produtoDetalheSelecionado, registrarVisualizacao]);
+  }, [
+    categoria,
+    fecharDetalheProduto,
+    filtroRecorrencia,
+    ordenacao,
+    produtoDetalheSelecionado,
+    registrarVisualizacao,
+    termoBuscaEfetivo
+  ]);
 
   const categorias = useMemo(() => {
     const values = new Map();
@@ -1933,9 +2349,49 @@ export default function ProdutosPage() {
     termoBusca
   ]);
 
+  const scoreComportamentoPorId = useMemo(() => {
+    const mapa = new Map();
+
+    const somarScore = (id, valor) => {
+      const normalizedId = Number(id || 0);
+      const score = Number(valor || 0);
+
+      if (!normalizedId || !Number.isFinite(score) || score <= 0) {
+        return;
+      }
+
+      mapa.set(normalizedId, Number((Number(mapa.get(normalizedId) || 0) + score).toFixed(4)));
+    };
+
+    favoritosProdutos.slice(0, 24).forEach((item, index) => {
+      const id = getProdutoIdNormalizado(item);
+      somarScore(id, Math.max(0.6, 6 - (index * 0.18)));
+    });
+
+    recomprasProdutos.slice(0, 28).forEach((item, index) => {
+      const id = getProdutoIdNormalizado(item);
+      const scoreRecorrencia = Number(item?.scoreRecorrencia || 0);
+      somarScore(id, Math.max(1.1, 9 - (index * 0.24)) + Math.min(12, scoreRecorrencia * 0.35));
+    });
+
+    return mapa;
+  }, [favoritosProdutos, recomprasProdutos]);
+
+  const personalizacaoComportamentalAtiva = scoreComportamentoPorId.size > 0;
+
   const produtosOrdenadosIndexados = useMemo(() => {
-    return sortProdutosIndexados(produtosFiltradosBase, ordenacao);
-  }, [ordenacao, produtosFiltradosBase]);
+    return sortProdutosIndexados(produtosFiltradosBase, ordenacao, {
+      priorizarConversao: growthTopProductsById.size > 0,
+      priorizarPersonalizacao: personalizacaoComportamentalAtiva,
+      scoreComportamentoPorId
+    });
+  }, [
+    growthTopProductsById,
+    ordenacao,
+    personalizacaoComportamentalAtiva,
+    produtosFiltradosBase,
+    scoreComportamentoPorId
+  ]);
 
   const chavesMaisVendidos = useMemo(() => {
     const candidatosBase = produtosOrdenadosIndexados.filter((item) => item.scoreMaisVendido > 0);
@@ -1967,6 +2423,12 @@ export default function ProdutosPage() {
 
   // Lista linear consumida tanto pelo grid tradicional quanto pelo virtualizado.
   const produtosFiltradosIndexados = produtosOrdenadosIndexados;
+
+  const primeiraImagemCatalogo = useMemo(() => {
+    return String(produtosFiltradosIndexados[0]?.imagemResponsiva?.src || '').trim();
+  }, [produtosFiltradosIndexados]);
+
+  usePreloadImage(primeiraImagemCatalogo);
 
   const produtosRelacionadosDetalhe = useMemo(() => {
     if (!produtoDetalheSelecionado) {
@@ -2175,13 +2637,116 @@ export default function ProdutosPage() {
     );
   }, [recompraRecorrencia]);
 
-  const recentesIdsSet = useMemo(() => {
-    return new Set(
-      recentesRecorrencia
-        .map((item) => getProdutoIdNormalizado(item?.id || item))
-        .filter((id) => id !== null)
+  const crossSellAposAdicao = useMemo(() => {
+    if (produtoAdicionadoRecenteId === null) {
+      return [];
+    }
+
+    const base = produtosIndexadosPorId.get(produtoAdicionadoRecenteId);
+    if (!base) {
+      return [];
+    }
+
+    const itensNoCarrinhoSet = new Set(
+      Array.from(quantidadesCarrinhoPorId.entries())
+        .filter(([, quantidade]) => Number(quantidade || 0) > 0)
+        .map(([id]) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
     );
-  }, [recentesRecorrencia]);
+    const baseMarca = normalizeText(base.produto?.marca);
+    const basePreco = Number(base.precoInfo?.precoAtual || 0);
+
+    const candidatos = [];
+
+    for (const item of produtosIndexados) {
+      if (item.carrinhoId === null || item.carrinhoId === base.carrinhoId) {
+        continue;
+      }
+
+      if (itensNoCarrinhoSet.has(item.carrinhoId)) {
+        continue;
+      }
+
+      let score = 0;
+
+      if (base.categoriaOriginal && item.categoriaOriginal === base.categoriaOriginal) {
+        score += 8;
+      }
+
+      const marcaCandidata = normalizeText(item.produto?.marca);
+      if (baseMarca && marcaCandidata && baseMarca === marcaCandidata) {
+        score += 4;
+      }
+
+      if (base.categoriaEhBebida && item.bebidaSubcategoriaId === base.bebidaSubcategoriaId) {
+        score += 3;
+      }
+
+      if (item.emPromocao) {
+        score += 2;
+      }
+
+      if (item.scoreMaisVendido > 0) {
+        score += Math.min(3, item.scoreMaisVendido);
+      }
+
+      if (item.carrinhoId !== null && idsAltaConversaoSet.has(item.carrinhoId)) {
+        score += 5;
+      }
+
+      if (item.carrinhoId !== null && recompraIdsSet.has(item.carrinhoId)) {
+        score += 4;
+      }
+
+      const scoreComportamento = item.carrinhoId !== null
+        ? Number(scoreComportamentoPorId.get(item.carrinhoId) || 0)
+        : 0;
+
+      if (scoreComportamento > 0) {
+        score += Math.min(9, scoreComportamento * 0.62);
+      }
+
+      const precoCandidato = Number(item.precoInfo?.precoAtual || 0);
+      if (basePreco > 0 && precoCandidato >= basePreco * 0.35 && precoCandidato <= basePreco * 1.5) {
+        score += 2;
+      }
+
+      if (score <= 0) {
+        continue;
+      }
+
+      candidatos.push({ item, score, scoreComportamento });
+    }
+
+    candidatos.sort((a, b) => {
+      const scoreDiff = b.score - a.score;
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+
+      const conversaoDiff = Number(b.item.scoreConversao || 0) - Number(a.item.scoreConversao || 0);
+      if (conversaoDiff !== 0) {
+        return conversaoDiff;
+      }
+
+      const comportamentoDiff = Number(b.scoreComportamento || 0) - Number(a.scoreComportamento || 0);
+      if (comportamentoDiff !== 0) {
+        return comportamentoDiff;
+      }
+
+      return compareProdutosPorNome(a.item, b.item);
+    });
+
+    return candidatos.slice(0, 4).map((entry) => entry.item);
+  }, [
+    idsAltaConversaoSet,
+    produtoAdicionadoRecenteId,
+    produtosIndexados,
+    produtosIndexadosPorId,
+    quantidadesCarrinhoPorId,
+    recompraIdsSet,
+    scoreComportamentoPorId
+  ]);
 
   const getQuantidadeProduto = useCallback((produto) => {
     const id = getProdutoCarrinhoId(produto);
@@ -2204,17 +2769,32 @@ export default function ProdutosPage() {
     return id !== null && id !== undefined ? favoritosIdsSet.has(id) : false;
   }, [favoritosIdsSet, produtoDetalheSelecionado]);
 
+  const isProdutoAdicionando = useCallback((produto) => {
+    const carrinhoId = getProdutoCarrinhoId(produto);
+    return carrinhoId !== null && Boolean(adicionandoPorId[carrinhoId]);
+  }, [adicionandoPorId]);
+
   const handleAddItem = useCallback((produto) => {
+    const carrinhoId = getProdutoCarrinhoId(produto);
+    if (carrinhoId === null || adicionandoIdsRef.current.has(carrinhoId)) {
+      return;
+    }
+
+    adicionandoIdsRef.current.add(carrinhoId);
+    setAdicionandoPorId((atual) => ({
+      ...atual,
+      [carrinhoId]: true
+    }));
+
     addItem(produto, 1);
     registrarFeedbackAdicao(produto);
     registrarAcaoCarrinho(produto, { quantidade: 1 });
-  }, [addItem, registrarAcaoCarrinho, registrarFeedbackAdicao]);
+    agendarLimpezaEstadoAdicionando(carrinhoId);
+  }, [addItem, agendarLimpezaEstadoAdicionando, registrarAcaoCarrinho, registrarFeedbackAdicao]);
 
   const handleIncreaseItem = useCallback((produto) => {
-    addItem(produto, 1);
-    registrarFeedbackAdicao(produto);
-    registrarAcaoCarrinho(produto, { quantidade: 1 });
-  }, [addItem, registrarAcaoCarrinho, registrarFeedbackAdicao]);
+    handleAddItem(produto);
+  }, [handleAddItem]);
 
   const handleDecreaseItem = useCallback((produto, quantidadeAtual) => {
     const id = getProdutoCarrinhoId(produto);
@@ -2245,8 +2825,10 @@ export default function ProdutosPage() {
         idsNovidades={idsNovidades}
         favoritosIdsSet={favoritosIdsSet}
         recompraIdsSet={recompraIdsSet}
-        recentesIdsSet={recentesIdsSet}
+        idsAltaConversaoSet={idsAltaConversaoSet}
+        growthExperimento={growthExperimento}
         produtoAdicionadoRecenteId={produtoAdicionadoRecenteId}
+        isProdutoAdicionando={isProdutoAdicionando}
         listId={listId}
         gridClassName={gridClassName}
       />
@@ -2260,8 +2842,10 @@ export default function ProdutosPage() {
     handleToggleFavorito,
     abrirDetalheProduto,
     favoritosIdsSet,
+    growthExperimento,
+    idsAltaConversaoSet,
     recompraIdsSet,
-    recentesIdsSet,
+    isProdutoAdicionando,
     idsNovidades,
     produtoAdicionadoRecenteId
   ]);
@@ -2272,7 +2856,70 @@ export default function ProdutosPage() {
   }, [produtosIndexados]);
 
   const totalMaisVendidosVitrine = chavesMaisVendidos.size;
-  const temDadosRecorrencia = recorrenciaStats.favoritos > 0 || recorrenciaStats.recentes > 0 || recorrenciaStats.recompra > 0;
+  const growthFunnelMap = useMemo(() => {
+    const mapa = new Map();
+
+    growthFunnel.forEach((stage) => {
+      mapa.set(stage.id, stage);
+    });
+
+    return mapa;
+  }, [growthFunnel]);
+  const growthStageViewCart = growthFunnelMap.get('view_to_cart');
+  const growthStageCartCheckout = growthFunnelMap.get('cart_to_checkout');
+  const growthStageCheckoutPurchase = growthFunnelMap.get('checkout_to_purchase');
+  const growthCheckoutEntryConfig = growthExperimento?.ui?.checkoutEntry || {
+    enabled: false,
+    ctaText: 'Ir para checkout',
+    badgeLabel: '',
+    priceHighlight: 'none'
+  };
+  const growthCheckoutEntryEnabled = Boolean(growthCheckoutEntryConfig.enabled);
+  const growthCheckoutEntryClass = growthCheckoutEntryEnabled
+    ? `is-growth-${String(growthCheckoutEntryConfig.priceHighlight || 'none').trim() || 'none'}`
+    : '';
+  const checkoutResumoCtaLabel = (growthCheckoutEntryEnabled && growthCheckoutEntryConfig.ctaText)
+    ? growthCheckoutEntryConfig.ctaText
+    : 'Ir para checkout';
+  const checkoutResumoGrowthBadge = growthCheckoutEntryEnabled
+    ? String(growthCheckoutEntryConfig.badgeLabel || '').trim()
+    : '';
+  const produtosCampeoesConversao = useMemo(() => {
+    return produtosIndexados
+      .filter((item) => item.carrinhoId !== null && idsAltaConversaoSet.has(item.carrinhoId))
+      .sort((a, b) => Number(b.scoreConversao || 0) - Number(a.scoreConversao || 0))
+      .slice(0, 6);
+  }, [idsAltaConversaoSet, produtosIndexados]);
+  const growthVolumeFaltanteLabel = useMemo(() => {
+    const faltantes = [];
+
+    if (Number(growthDataVolume?.missingWindowEvents || 0) > 0) {
+      faltantes.push(`${growthDataVolume.missingWindowEvents} eventos na janela`);
+    }
+
+    if (Number(growthDataVolume?.missingBottleneckBase || 0) > 0) {
+      faltantes.push(`${growthDataVolume.missingBottleneckBase} eventos de base no gargalo`);
+    }
+
+    if (Number(growthDataVolume?.missingBottleneckTarget || 0) > 0) {
+      faltantes.push(`${growthDataVolume.missingBottleneckTarget} conversoes no gargalo`);
+    }
+
+    if (!faltantes.length) {
+      return 'Amostra minima atingida para ativar mudancas.';
+    }
+
+    return `Coletando volume minimo: faltam ${faltantes.join(' • ')}.`;
+  }, [growthDataVolume]);
+  const growthModoLabel = growthColetaAtiva
+    ? 'Coletando amostra minima'
+    : (growthExperimento?.mode === 'scaled_winner'
+      ? 'Escalando vencedor'
+      : 'Teste semanal ativo');
+  const crossSellTitulo = personalizacaoComportamentalAtiva
+    ? 'Sugestoes para aumentar seu pedido'
+    : 'Leve tambem';
+  const temDadosRecorrencia = recorrenciaStats.favoritos > 0 || recorrenciaStats.recompra > 0;
   const filtroRecorrenciaAtivoLabel = FILTROS_RECORRENCIA.find((item) => item.id === filtroRecorrencia)?.label || 'Tudo';
 
   const categoriaAtualLabel = useMemo(() => {
@@ -2407,30 +3054,12 @@ export default function ProdutosPage() {
 
   return (
     <section className="page page-produtos">
-      <section className="products-hero" id="produtos" aria-label="Página de produtos">
-        <div className="products-hero-header">
-          <div className="products-hero-copy">
-            <p className="products-hero-kicker">Vitrine Bomfilho</p>
-            <h1>Produtos</h1>
-            <p className="products-hero-subtitle">
-              Compare valor com rapidez, identifique oportunidades reais e monte seu carrinho com mais confiança.
-            </p>
-          </div>
-
-          <div className="products-hero-metrics" aria-label="Indicadores da vitrine">
-            <article className="products-metric-card">
-              <strong>{totalItensVitrine}</strong>
-              <span>itens na vitrine</span>
-            </article>
-            <article className="products-metric-card products-metric-card-highlight">
-              <strong>{totalOfertasDisponiveis}</strong>
-              <span>promoções do dia</span>
-            </article>
-            <article className="products-metric-card">
-              <strong>{totalMaisVendidosVitrine}</strong>
-              <span>mais vendidos</span>
-            </article>
-          </div>
+      <section className="products-hero products-hero-clean" id="produtos" aria-label="Página de produtos">
+        <div className="products-hero-header products-hero-header-clean">
+          <h1>Produtos</h1>
+          <p className="products-hero-subtitle">
+            Encontre o que precisa, compare precos e monte seu carrinho.
+          </p>
         </div>
 
         <div className="products-search-wrap">
@@ -2537,50 +3166,9 @@ export default function ProdutosPage() {
           </div>
         </div>
 
-        <div className="legacy-categories products-quick-filters" aria-label="Filtros rápidos de categoria">
-          {CATEGORIAS_LEGADO.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`category-btn-react ${item.destaque ? 'category-promocoes-react' : ''} ${categoria === item.id ? 'active' : ''}`}
-              onClick={() => handleCategoriaLegadoClick(item.id)}
-              aria-pressed={categoria === item.id}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
-        <section className="products-commerce-shortcuts" aria-label="Atalhos comerciais">
-          <div className="products-commerce-shortcuts-head">
-            <h2>Atalhos comerciais</h2>
-            <p>Encontre oportunidades e itens de alto interesse com menos cliques.</p>
-          </div>
-
-          <div className="products-commerce-shortcuts-list">
-            {FILTROS_COMERCIAIS_RAPIDOS.map((atalho) => (
-              <button
-                key={atalho.id}
-                type="button"
-                className="products-commerce-shortcut-btn"
-                onClick={() => handleAtalhoComercial(atalho.id)}
-              >
-                <strong>{atalho.label}</strong>
-                <span>{atalho.descricao}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="products-recorrencia" aria-label="Atalhos de recorrencia e recompra">
+        <section className="products-recorrencia products-recorrencia-clean" aria-label="Atalhos de recorrencia e recompra">
           <div className="products-recorrencia-head">
-            <div>
-              <p className="products-recorrencia-kicker">Recorrencia</p>
-              <h2>Volte ao que voce gosta</h2>
-              <p>
-                Favoritos, vistos recentemente e recompra para acelerar sua compra sem perder boas oportunidades.
-              </p>
-            </div>
+            <h2>Sua rotina</h2>
 
             <div className="products-recorrencia-filters" role="tablist" aria-label="Filtrar recorrencia">
               {FILTROS_RECORRENCIA.map((item) => (
@@ -2605,8 +3193,7 @@ export default function ProdutosPage() {
 
           {!temDadosRecorrencia ? (
             <div className="products-recorrencia-empty" role="status" aria-live="polite">
-              <p><strong>Seus atalhos de recorrencia vao aparecer aqui.</strong></p>
-              <p>Abra detalhes de produtos, salve favoritos e recompre para montar seu painel personalizado.</p>
+              <p>Favorite produtos e compre para montar seu painel personalizado.</p>
             </div>
           ) : null}
 
@@ -2615,13 +3202,13 @@ export default function ProdutosPage() {
               {favoritosRecorrencia.length > 0 ? (
                 <section className="products-recorrencia-group" aria-label="Seus favoritos">
                   <div className="products-recorrencia-group-head">
-                    <h3>Favoritos</h3>
+                    <h3>❤️ Favoritos</h3>
                     <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('favoritos')}>
-                      Ver na vitrine
+                      Ver todos
                     </button>
                   </div>
                   <div className="products-recorrencia-grid">
-                    {favoritosRecorrencia.slice(0, 6).map((produto) => (
+                    {favoritosRecorrencia.slice(0, 4).map((produto) => (
                       <RecorrenciaMiniCard
                         key={`rec-fav-${produto.id}`}
                         produto={produto}
@@ -2635,39 +3222,16 @@ export default function ProdutosPage() {
                 </section>
               ) : null}
 
-              {recentesRecorrencia.length > 0 ? (
-                <section className="products-recorrencia-group" aria-label="Produtos vistos recentemente">
-                  <div className="products-recorrencia-group-head">
-                    <h3>Vistos recentemente</h3>
-                    <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('recentes')}>
-                      Voltar aos vistos
-                    </button>
-                  </div>
-                  <div className="products-recorrencia-grid">
-                    {recentesRecorrencia.slice(0, 6).map((produto) => (
-                      <RecorrenciaMiniCard
-                        key={`rec-recentes-${produto.id}`}
-                        produto={produto}
-                        favorito={isFavorito(produto.id)}
-                        onAbrir={abrirProdutoRecorrente}
-                        onAdicionar={adicionarRecorrenteAoCarrinho}
-                        onAlternarFavorito={handleToggleFavorito}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
               {recompraRecorrencia.length > 0 ? (
-                <section className="products-recorrencia-group" aria-label="Comprar novamente">
+                <section className="products-recorrencia-group products-recorrencia-group-recompra" aria-label="Comprar novamente">
                   <div className="products-recorrencia-group-head">
-                    <h3>Comprar novamente</h3>
+                    <h3>🔁 Comprar de novo</h3>
                     <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('recompra')}>
-                      Abrir atalho de recompra
+                      Ver todos
                     </button>
                   </div>
                   <div className="products-recorrencia-grid">
-                    {recompraRecorrencia.slice(0, 6).map((produto) => (
+                    {recompraRecorrencia.slice(0, 4).map((produto) => (
                       <RecorrenciaMiniCard
                         key={`rec-recompra-${produto.id}`}
                         produto={produto}
@@ -2675,6 +3239,7 @@ export default function ProdutosPage() {
                         onAbrir={abrirProdutoRecorrente}
                         onAdicionar={adicionarRecorrenteAoCarrinho}
                         onAlternarFavorito={handleToggleFavorito}
+                        destaqueRecompra
                       />
                     ))}
                   </div>
@@ -2702,13 +3267,13 @@ export default function ProdutosPage() {
                       onAbrir={abrirProdutoRecorrente}
                       onAdicionar={adicionarRecorrenteAoCarrinho}
                       onAlternarFavorito={handleToggleFavorito}
+                      destaqueRecompra={filtroRecorrencia === 'recompra'}
                     />
                   ))}
                 </div>
               ) : (
                 <div className="products-recorrencia-empty" role="status" aria-live="polite">
-                  <p><strong>Nao ha itens suficientes neste atalho ainda.</strong></p>
-                  <p>Continue navegando e interagindo para alimentar este bloco automaticamente.</p>
+                  <p>Nenhum item neste atalho ainda. Continue navegando.</p>
                 </div>
               )}
             </section>
@@ -2796,23 +3361,15 @@ export default function ProdutosPage() {
           </div>
         ) : null}
 
-        <div className="products-results-bar" aria-live="polite">
+        <div className="products-results-bar products-results-bar-clean" aria-live="polite">
           <p>
-            <strong>{produtosFiltradosIndexados.length}</strong> produtos exibidos
+            <strong>{produtosFiltradosIndexados.length}</strong> produtos
             {totalProdutosBackend > 0 ? ` de ${totalProdutosBackend}` : ''}
+            {totalOfertasDisponiveis > 0 ? ` · ${totalOfertasDisponiveis} em oferta` : ''}
           </p>
-          <div className="products-results-meta">
-            {termoBuscaEfetivo ? (
-              <span className="products-results-term">Busca ativa: "{termoBuscaEfetivo}"</span>
-            ) : null}
-            <span>{totalOfertasDisponiveis} em oferta</span>
-            {filtroRecorrencia !== 'todos' ? (
-              <span className="products-results-pill">Atalho ativo: {filtroRecorrenciaAtivoLabel}</span>
-            ) : null}
-            {(carregando && produtos.length > 0) || buscaEmAtualizacao ? (
-              <span className="products-results-pill">Atualizando vitrine...</span>
-            ) : null}
-          </div>
+          {(carregando && produtos.length > 0) || buscaEmAtualizacao ? (
+            <span className="products-results-pill">Atualizando...</span>
+          ) : null}
         </div>
       </section>
 
@@ -2863,6 +3420,7 @@ export default function ProdutosPage() {
             onIncreaseItem={handleIncreaseItem}
             onDecreaseItem={handleDecreaseItem}
             onToggleFavorito={handleToggleFavorito}
+            isAddingItem={isProdutoAdicionando}
             getQuantidadeProduto={getQuantidadeProduto}
             onOpenDetail={abrirDetalheProduto}
             formatCurrency={formatCurrency}
@@ -2875,37 +3433,28 @@ export default function ProdutosPage() {
         </React.Suspense>
       ) : null}
 
-      <div className="pedido-resumo pedido-resumo-fixo" role="region" aria-label="Resumo do pedido e avanço para pagamento">
+      <div className="pedido-resumo pedido-resumo-fixo pedido-resumo-fixo-clean" role="region" aria-label="Resumo do pedido">
         <div className="pedido-resumo-fixo-conteudo">
-          <span className="pedido-resumo-fixo-icone" aria-hidden="true">🛒</span>
-
           <div className="pedido-resumo-fixo-info" title={`Itens: ${resumo.itens} | Total: ${subtotalTexto}`}>
             <p className="pedido-resumo-fixo-linha">
               <strong>{itensResumoTexto}</strong>
-              <span className="pedido-resumo-fixo-separador" aria-hidden="true">•</span>
-              <span>Total {subtotalTexto}</span>
-            </p>
-            <p className="pedido-resumo-fixo-meta">
-              {podeFinalizarPedido
-                ? 'Frete estimado será calculado no checkout'
-                : 'Adicione itens para seguir para o checkout'}
+              <span className="pedido-resumo-fixo-separador" aria-hidden="true">·</span>
+              <span>{subtotalTexto}</span>
             </p>
             {produtoAdicionadoRecenteNome ? (
               <p className="pedido-resumo-fixo-feedback" role="status" aria-live="polite">
-                {produtoAdicionadoRecenteNome} adicionado ao carrinho
+                + {produtoAdicionadoRecenteNome}
               </p>
             ) : null}
           </div>
 
           {podeFinalizarPedido ? (
             <Link to="/pagamento" className="btn-primary pedido-resumo-fixo-botao">
-              <span className="pedido-resumo-fixo-botao-icon" aria-hidden="true">🧾</span>
-              Ir para checkout
+              Finalizar pedido
             </Link>
           ) : (
             <button type="button" className="btn-primary pedido-resumo-fixo-botao" disabled>
-              <span className="pedido-resumo-fixo-botao-icon" aria-hidden="true">🧾</span>
-              Ir para checkout
+              Adicione itens
             </button>
           )}
         </div>
@@ -2914,19 +3463,21 @@ export default function ProdutosPage() {
   );
 }
 
-function RecorrenciaMiniCard({
+const RecorrenciaMiniCard = React.memo(function RecorrenciaMiniCard({
   produto,
   favorito,
   onAbrir,
   onAdicionar,
-  onAlternarFavorito
+  onAlternarFavorito,
+  destaqueRecompra = false
 }) {
   const nome = getProdutoNome(produto);
   const imagem = getProdutoImagem(produto) || CATEGORY_IMAGES[normalizeText(produto?.categoria)] || '/img/logo-oficial.png';
+  const blurSrc = getProdutoImagemBlurSrc(produto);
   const preco = formatCurrency(Number(produto?.preco || 0));
 
   return (
-    <article className="recorrencia-mini-card">
+    <article className={`recorrencia-mini-card ${destaqueRecompra ? 'is-recompra' : ''}`.trim()}>
       <button
         type="button"
         className={`recorrencia-favorite-btn ${favorito ? 'is-active' : ''}`}
@@ -2942,13 +3493,12 @@ function RecorrenciaMiniCard({
         onClick={() => onAbrir(produto)}
         aria-label={`Abrir ${nome}`}
       >
-        <img
+        <SmartImage
           src={imagem}
+          blurSrc={blurSrc}
           alt={nome}
           loading="lazy"
-          onError={(event) => {
-            event.currentTarget.src = '/img/logo-oficial.png';
-          }}
+          fallbackSrc="/img/logo-oficial.png"
         />
       </button>
 
@@ -2959,11 +3509,13 @@ function RecorrenciaMiniCard({
 
       <button
         type="button"
-        className="btn-secondary recorrencia-mini-add"
+        className={`btn-secondary recorrencia-mini-add ${destaqueRecompra ? 'is-recompra' : ''}`.trim()}
         onClick={() => onAdicionar(produto)}
       >
-        Recomprar
+        Comprar novamente • {preco}
       </button>
     </article>
   );
-}
+});
+
+RecorrenciaMiniCard.displayName = 'RecorrenciaMiniCard';

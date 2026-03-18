@@ -1,8 +1,23 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  buildCartEventPayload,
+  buildProductEventPayload,
+  captureCommerceEvent
+} from '../lib/commerceTracking';
 
 const CART_KEY = 'bomfilho_cart';
 
 const CartContext = createContext(null);
+
+function resumirCarrinho(itens = []) {
+  return itens.reduce(
+    (acc, item) => ({
+      itens: acc.itens + Math.max(1, Number(item?.quantidade || 1)),
+      total: acc.total + (Number(item?.preco || 0) * Math.max(1, Number(item?.quantidade || 1)))
+    }),
+    { itens: 0, total: 0 }
+  );
+}
 
 function readCart() {
   try {
@@ -38,12 +53,15 @@ export function CartProvider({ children }) {
     localStorage.setItem(CART_KEY, JSON.stringify(itens));
   }, [itens]);
 
-  function addItem(produto, quantidade = 1) {
+  function addItem(produto, quantidade = 1, meta = {}) {
     const qtd = Math.max(1, Number(quantidade || 1));
+    let payloadEvento = null;
+
     setItens((atual) => {
       const index = atual.findIndex((item) => item.id === Number(produto.id));
+
       if (index === -1) {
-        return [
+        const proximo = [
           ...atual,
           {
             id: Number(produto.id),
@@ -56,9 +74,21 @@ export function CartProvider({ children }) {
             quantidade: qtd
           }
         ];
+
+        const resumoProximo = resumirCarrinho(proximo);
+        payloadEvento = {
+          ...buildProductEventPayload(produto, {
+            quantity: qtd,
+            add_mode: 'new_item',
+            source: String(meta?.source || 'catalog').trim() || 'catalog'
+          }),
+          ...buildCartEventPayload({ itens: proximo, resumo: resumoProximo })
+        };
+
+        return proximo;
       }
 
-      return atual.map((item, itemIndex) =>
+      const proximo = atual.map((item, itemIndex) =>
         itemIndex === index
           ? {
               ...item,
@@ -72,7 +102,23 @@ export function CartProvider({ children }) {
             }
           : item
       );
+
+      const resumoProximo = resumirCarrinho(proximo);
+      payloadEvento = {
+        ...buildProductEventPayload(produto, {
+          quantity: qtd,
+          add_mode: 'increase_item',
+          source: String(meta?.source || 'catalog').trim() || 'catalog'
+        }),
+        ...buildCartEventPayload({ itens: proximo, resumo: resumoProximo })
+      };
+
+      return proximo;
     });
+
+    if (payloadEvento) {
+      captureCommerceEvent('add_to_cart', payloadEvento);
+    }
   }
 
   function updateItemQuantity(id, quantidade) {

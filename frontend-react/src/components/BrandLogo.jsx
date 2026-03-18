@@ -1,4 +1,5 @@
 import React from 'react';
+import SmartImage from './ui/SmartImage';
 
 export default function BrandLogo({
   subtitle = '',
@@ -11,7 +12,7 @@ export default function BrandLogo({
   return (
     <div className={`brand-logo ${compact ? 'is-compact' : ''}`}>
       <div className="brand-logo-seal" aria-hidden="true">
-        <img src="/img/logo-oficial.png" alt="" className="brand-logo-seal-image" />
+        <SmartImage src="/img/logo-oficial.png" alt="" className="brand-logo-seal-image" priority />
       </div>
 
       <div className="brand-logo-copy">

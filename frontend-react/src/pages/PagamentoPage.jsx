@@ -24,7 +24,17 @@ import {
   IS_DEVELOPMENT,
   RECAPTCHA_SITE_KEY
 } from '../config/api';
+import {
+  buildCartEventPayload,
+  buildOrderItemsPayload,
+  captureCommerceEvent
+} from '../lib/commerceTracking';
+import {
+  GROWTH_UPDATE_EVENT_NAME,
+  getGrowthInsights
+} from '../lib/conversionGrowth';
 import { useCart } from '../context/CartContext';
+import SmartImage from '../components/ui/SmartImage';
 
 const ETAPAS = {
   CARRINHO: 'carrinho',
@@ -39,6 +49,7 @@ const CHECKOUT_STEPS = ['Carrinho', 'Entrega', 'Pagamento', 'Confirmação'];
 const PARCELAMENTO_MINIMO_CREDITO = 100;
 const PARCELAMENTO_MAXIMO_CREDITO = 3;
 const SESSAO_3DS_TTL_MS = 29 * 60 * 1000;
+const HOMOLOGACAO_3DS_MAX_EVENTOS = 40;
 
 const STATUS_3DS_LABELS = {
   idle: 'Autenticacao 3DS ainda nao iniciada.',
@@ -50,12 +61,18 @@ const STATUS_3DS_LABELS = {
   pagamento_aprovado: 'Pagamento aprovado.',
   nao_suportado: 'Cartao nao elegivel para 3DS no debito.',
   trocar_metodo: 'Autenticacao negada. Escolha outro meio de pagamento.',
-  erro: 'Nao foi possivel concluir a autenticacao 3DS.'
+  erro: 'Falhou na autenticacao 3DS.'
 };
 
 const CEP_MERCADO = '68740-180';
 const NUMERO_MERCADO = '70';
 const LIMITE_BIKE_KM = 1;
+const RETIRADA_LOJA_INFO = Object.freeze({
+  nome: 'BomFilho Supermercado',
+  endereco: `Travessa 07 de Setembro, nº ${NUMERO_MERCADO} - CEP ${CEP_MERCADO}`,
+  horario: 'Segunda a sábado, das 07h às 22h',
+  tempo_estimado: '20-40 min'
+});
 
 const VEICULOS_ENTREGA = {
   bike: {
@@ -163,6 +180,12 @@ function formatarQuantidadeItens(valor) {
   return `${quantidade} ${quantidade === 1 ? 'item' : 'itens'}`;
 }
 
+function formatarTipoEntrega(tipoEntrega) {
+  return String(tipoEntrega || '').trim().toLowerCase() === 'retirada'
+    ? 'Retirada na loja'
+    : 'Entrega';
+}
+
 function erroEntregaEhCobertura(mensagem) {
   const texto = String(mensagem || '').toLowerCase();
   return (
@@ -189,6 +212,67 @@ function formatarCep(valor) {
 
 function normalizarDocumentoFiscal(valor) {
   return String(valor || '').replace(/\D/g, '').slice(0, 14);
+}
+
+function possuiDigitosRepetidos(valor) {
+  return /(\d)\1{10,13}/.test(String(valor || ''));
+}
+
+function validarCpf(cpf) {
+  const digits = String(cpf || '').replace(/\D/g, '');
+  if (digits.length !== 11 || possuiDigitosRepetidos(digits)) {
+    return false;
+  }
+
+  const calcularDigito = (base, fatorInicial) => {
+    let soma = 0;
+    for (let i = 0; i < base.length; i += 1) {
+      soma += Number(base[i]) * (fatorInicial - i);
+    }
+
+    const resto = (soma * 10) % 11;
+    return resto === 10 ? 0 : resto;
+  };
+
+  const base = digits.slice(0, 9);
+  const digito1 = calcularDigito(base, 10);
+  const digito2 = calcularDigito(`${base}${digito1}`, 11);
+
+  return Number(digits[9]) === digito1 && Number(digits[10]) === digito2;
+}
+
+function validarCnpj(cnpj) {
+  const digits = String(cnpj || '').replace(/\D/g, '');
+  if (digits.length !== 14 || possuiDigitosRepetidos(digits)) {
+    return false;
+  }
+
+  const calcularDigito = (base, pesos) => {
+    const soma = base
+      .split('')
+      .reduce((acumulador, digito, index) => acumulador + (Number(digito) * pesos[index]), 0);
+    const resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  };
+
+  const base = digits.slice(0, 12);
+  const digito1 = calcularDigito(base, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const digito2 = calcularDigito(`${base}${digito1}`, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+
+  return Number(digits[12]) === digito1 && Number(digits[13]) === digito2;
+}
+
+function validarDocumentoFiscalPagBank3DS(valor) {
+  const digits = normalizarDocumentoFiscal(valor);
+  if (digits.length === 11) {
+    return validarCpf(digits);
+  }
+
+  if (digits.length === 14) {
+    return validarCnpj(digits);
+  }
+
+  return false;
 }
 
 function formatarDocumentoFiscal(valor) {
@@ -229,6 +313,25 @@ function formatarCvvCartao(valor) {
   return String(valor || '').replace(/\D/g, '').slice(0, 4);
 }
 
+function normalizarNomeCompletoPara3DS(valor, fallback = 'Cliente Teste') {
+  const base = String(valor || '').trim();
+  const semCaracteresInvalidos = base
+    .replace(/[^\p{L}\s'.-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!semCaracteresInvalidos) {
+    return fallback;
+  }
+
+  const partes = semCaracteresInvalidos.split(' ').filter(Boolean);
+  if (partes.length >= 2) {
+    return partes.join(' ');
+  }
+
+  return `${partes[0]} Teste`;
+}
+
 function normalizarTelefonePara3DS(telefone) {
   const digits = String(telefone || '').replace(/\D/g, '');
   if (!digits) {
@@ -256,16 +359,240 @@ function normalizarTelefonePara3DS(telefone) {
   };
 }
 
+function normalizarNumeroEnderecoPara3DS(numero) {
+  const digits = String(numero || '').replace(/\D/g, '').trim();
+  const numeroInteiro = Number.parseInt(digits, 10);
+
+  if (Number.isInteger(numeroInteiro) && numeroInteiro > 0) {
+    return String(numeroInteiro);
+  }
+
+  return '1';
+}
+
 function construirEndereco3DS({ endereco, cepFallback } = {}) {
   const cepDigits = normalizarCep(endereco?.cep || cepFallback || '');
-  return {
+  const numeroEndereco = normalizarNumeroEnderecoPara3DS(endereco?.numero);
+  const complementoEndereco = String(endereco?.complemento || '').trim();
+  const endereco3DS = {
     street: String(endereco?.logradouro || 'Endereco').trim() || 'Endereco',
-    number: String(endereco?.numero || '0').trim() || '0',
-    complement: String(endereco?.complemento || '').trim(),
+    number: numeroEndereco,
     regionCode: String(endereco?.estado || 'SP').trim().toUpperCase().slice(0, 2) || 'SP',
     country: 'BRA',
     city: String(endereco?.cidade || 'Sao Paulo').trim() || 'Sao Paulo',
     postalCode: cepDigits || '01001000'
+  };
+
+  if (complementoEndereco) {
+    endereco3DS.complement = complementoEndereco;
+  }
+
+  return endereco3DS;
+}
+
+function mascararValorHomologacao(valor, { prefixo = 6, sufixo = 4 } = {}) {
+  const texto = String(valor || '').trim();
+  if (!texto) {
+    return '';
+  }
+
+  if (texto.length <= prefixo + sufixo) {
+    return `${texto.slice(0, 2)}***`;
+  }
+
+  return `${texto.slice(0, prefixo)}***${texto.slice(-sufixo)}`;
+}
+
+function mascararDocumentoHomologacao(valor) {
+  const digits = normalizarDocumentoFiscal(valor);
+  if (!digits) {
+    return '';
+  }
+
+  return `${digits.slice(0, 3)}***${digits.slice(-2)}`;
+}
+
+function mascararTraceHomologacao(valor) {
+  return mascararValorHomologacao(valor, { prefixo: 8, sufixo: 4 });
+}
+
+function sanitizarErrorMessages3DS(errorMessages) {
+  if (!Array.isArray(errorMessages) || !errorMessages.length) {
+    return [];
+  }
+
+  return errorMessages.slice(0, 8).map((item) => {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const field = String(
+        item.field
+          || item.parameter_name
+          || item.parameterName
+          || item.parameter
+          || item.property
+          || item.path
+          || item.pointer
+          || item.target
+          || item.name
+          || ''
+      ).trim() || null;
+      const code = String(item.code || item.error || item.reason || '').trim() || null;
+      const message = String(item.message || item.description || item.detail || '').trim() || null;
+
+      return { field, code, message };
+    }
+
+    return {
+      field: null,
+      code: null,
+      message: String(item || '').trim() || null
+    };
+  });
+}
+
+function sanitizarRequestPagamentoCartaoHomologacao({ payloadRequest, endpoint = '/api/pagamentos/cartao' } = {}) {
+  const payload = (payloadRequest && typeof payloadRequest === 'object' && !Array.isArray(payloadRequest))
+    ? payloadRequest
+    : {};
+
+  return {
+    endpoint,
+    pedido_id: Number.parseInt(String(payload?.pedido_id || ''), 10) || null,
+    reference_id: payload?.pedido_id ? `pedido_${payload.pedido_id}` : null,
+    tipo_cartao: String(payload?.tipo_cartao || '').trim().toLowerCase() || null,
+    parcelas: Number.parseInt(String(payload?.parcelas || ''), 10) || 1,
+    tax_id_masked: mascararDocumentoHomologacao(payload?.tax_id),
+    token_cartao_masked: mascararValorHomologacao(payload?.token_cartao, { prefixo: 10, sufixo: 6 }),
+    authentication_method: payload?.authentication_method
+      ? {
+        type: String(payload.authentication_method?.type || '').trim().toUpperCase() || null,
+        id_masked: mascararValorHomologacao(payload.authentication_method?.id, { prefixo: 6, sufixo: 4 }) || null
+      }
+      : null,
+    three_ds_result: payload?.three_ds_result
+      ? {
+        flow: String(payload.three_ds_result?.flow || '').trim() || null,
+        status: String(payload.three_ds_result?.status || '').trim().toUpperCase() || null,
+        id_masked: mascararValorHomologacao(payload.three_ds_result?.id, { prefixo: 6, sufixo: 4 }) || null,
+        trace_id_masked: mascararTraceHomologacao(payload.three_ds_result?.trace_id || payload.three_ds_result?.traceId) || null
+      }
+      : null,
+    recaptcha_token_present: Boolean(String(payload?.recaptcha_token || '').trim())
+  };
+}
+
+function extrairStatusThreeDSChargeHomologacao(responsePayload) {
+  const payload = (responsePayload && typeof responsePayload === 'object' && !Array.isArray(responsePayload))
+    ? responsePayload
+    : {};
+  const raw = (payload?.raw && typeof payload.raw === 'object' && !Array.isArray(payload.raw))
+    ? payload.raw
+    : null;
+  const chargePrincipal = Array.isArray(raw?.charges) ? raw.charges[0] || null : null;
+  const candidatos = [
+    payload?.status_charge_threeds,
+    chargePrincipal?.threeds?.status,
+    chargePrincipal?.three_ds?.status,
+    chargePrincipal?.authentication_method?.status,
+    chargePrincipal?.payment_method?.authentication_method?.status,
+    chargePrincipal?.payment_method?.card?.threeds?.status,
+    chargePrincipal?.payment_method?.card?.three_ds?.status
+  ];
+
+  for (const candidato of candidatos) {
+    const valor = String(candidato || '').trim().toUpperCase();
+    if (valor) {
+      return valor;
+    }
+  }
+
+  return null;
+}
+
+function montarResumoRespostaPagBankHomologacao({ responsePayload, pedidoId } = {}) {
+  const payload = (responsePayload && typeof responsePayload === 'object' && !Array.isArray(responsePayload))
+    ? responsePayload
+    : {};
+  const raw = (payload?.raw && typeof payload.raw === 'object' && !Array.isArray(payload.raw))
+    ? payload.raw
+    : null;
+  const chargePrincipal = Array.isArray(raw?.charges) ? raw.charges[0] || null : null;
+  const paymentResponse = (payload?.payment_response && typeof payload.payment_response === 'object')
+    ? payload.payment_response
+    : {};
+  const paymentResponseRaw = chargePrincipal?.payment_response || {};
+  const chargesStatus = String(
+    payload?.status_charge
+      || chargePrincipal?.status
+      || payload?.status
+      || ''
+  ).trim().toUpperCase() || null;
+  const chargeThreeDSStatus = extrairStatusThreeDSChargeHomologacao(payload);
+  const paymentResponseCode = String(
+    paymentResponse?.code
+      || paymentResponseRaw?.code
+      || payload?.authorization_code
+      || ''
+  ).trim() || null;
+  const paymentResponseMessage = String(
+    paymentResponse?.message
+      || paymentResponseRaw?.message
+      || payload?.message
+      || ''
+  ).trim() || null;
+  const authenticationId3DS = String(payload?.authentication_id_3ds || '').trim();
+  const traceId = String(payload?.trace_id || '').trim();
+  const referenceId = String(
+    payload?.reference_id
+      || raw?.reference_id
+      || (pedidoId ? `pedido_${pedidoId}` : '')
+  ).trim();
+
+  return {
+    endpoint: '/api/pagamentos/cartao',
+    pedido_id: Number.parseInt(String(pedidoId || payload?.pedido_id || ''), 10) || null,
+    reference_id: referenceId || null,
+    pagbank_order_id: String(payload?.pagbank_order_id || raw?.id || '').trim() || null,
+    charges: {
+      status: chargesStatus,
+      threeds: {
+        status: chargeThreeDSStatus
+      }
+    },
+    payment_response: {
+      code: paymentResponseCode,
+      message: paymentResponseMessage
+    },
+    three_ds_validation: {
+      status: String(payload?.three_ds_status || '').trim().toUpperCase() || null,
+      codigo: String(payload?.three_ds_codigo || '').trim().toUpperCase() || null,
+      authentication_id_masked: authenticationId3DS
+        ? mascararValorHomologacao(authenticationId3DS, { prefixo: 6, sufixo: 4 })
+        : null
+    },
+    trace_id_masked: traceId ? mascararTraceHomologacao(traceId) : null,
+    response_final_pagbank_masked: raw
+      ? {
+        id: String(raw?.id || '').trim() || null,
+        reference_id: String(raw?.reference_id || '').trim() || null,
+        status: String(raw?.status || '').trim().toUpperCase() || null,
+        charges: chargePrincipal
+          ? [
+            {
+              id: String(chargePrincipal?.id || '').trim() || null,
+              reference_id: String(chargePrincipal?.reference_id || '').trim() || null,
+              status: String(chargePrincipal?.status || '').trim().toUpperCase() || null,
+              threeds: {
+                status: chargeThreeDSStatus
+              },
+              payment_response: {
+                code: paymentResponseCode,
+                message: paymentResponseMessage
+              }
+            }
+          ]
+          : []
+      }
+      : null
   };
 }
 
@@ -273,6 +600,8 @@ const STATUS_PEDIDO_LABELS = {
   pendente: 'Aguardando confirmação',
   preparando: 'Em preparação',
   enviado: 'Saiu para entrega',
+  pronto_para_retirada: 'Pronto para retirada',
+  retirado: 'Retirado na loja',
   entregue: 'Entregue',
   cancelado: 'Cancelado',
   pago: 'Pago'
@@ -537,7 +866,7 @@ function DeliveryOptionCard({
     >
       <div className="delivery-option-head">
         <div className="delivery-option-icon-wrap" aria-hidden="true">
-          <img src={veiculo.imagem} alt="" className="delivery-option-icon" loading="lazy" />
+          <SmartImage src={veiculo.imagem} alt="" className="delivery-option-icon" loading="lazy" />
         </div>
 
         <div className="delivery-option-title-wrap">
@@ -598,6 +927,76 @@ function DeliverySummaryCard({
       </div>
 
       <p className="delivery-summary-origin">Origem: CEP {cepOrigem}, nº {numeroOrigem}</p>
+    </article>
+  );
+}
+
+function DeliveryModeSelector({ tipoEntrega, onChange }) {
+  return (
+    <section className="checkout-delivery-section" aria-label="Tipo de atendimento">
+      <div className="checkout-delivery-section-head">
+        <h3>Como voce prefere receber?</h3>
+        <p>Escolha entre entrega no endereco ou retirada na loja.</p>
+      </div>
+
+      <div className="delivery-mode-toggle" role="radiogroup" aria-label="Tipo de entrega">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={tipoEntrega === 'entrega'}
+          className={`delivery-mode-toggle-btn ${tipoEntrega === 'entrega' ? 'is-active' : ''}`.trim()}
+          onClick={() => onChange('entrega')}
+        >
+          Entrega
+        </button>
+
+        <button
+          type="button"
+          role="radio"
+          aria-checked={tipoEntrega === 'retirada'}
+          className={`delivery-mode-toggle-btn ${tipoEntrega === 'retirada' ? 'is-active' : ''}`.trim()}
+          onClick={() => onChange('retirada')}
+        >
+          Retirada na loja
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function PickupStoreCard({ economiaFrete = 0 }) {
+  const economiaTexto = Number(economiaFrete || 0) > 0
+    ? formatarMoeda(economiaFrete)
+    : 'Sem custo de frete';
+
+  return (
+    <article className="pickup-store-card" aria-label="Informacoes para retirada na loja">
+      <div className="pickup-store-card-head">
+        <div>
+          <p className="pickup-store-kicker">Retirada na loja</p>
+          <h3>{RETIRADA_LOJA_INFO.nome}</h3>
+        </div>
+        <span className="pickup-store-icon" aria-hidden="true">🏪</span>
+      </div>
+
+      <div className="pickup-store-grid">
+        <div>
+          <span>Endereco</span>
+          <strong>{RETIRADA_LOJA_INFO.endereco}</strong>
+        </div>
+        <div>
+          <span>Horario de funcionamento</span>
+          <strong>{RETIRADA_LOJA_INFO.horario}</strong>
+        </div>
+        <div>
+          <span>Tempo estimado</span>
+          <strong>{RETIRADA_LOJA_INFO.tempo_estimado}</strong>
+        </div>
+        <div>
+          <span>Economia no frete</span>
+          <strong className="pickup-store-economia">{economiaTexto}</strong>
+        </div>
+      </div>
     </article>
   );
 }
@@ -677,7 +1076,7 @@ function CartItemRow({
     <article className="cart-item-row" aria-label={`Item ${item.nome}`}>
       <div className="cart-item-media" aria-hidden="true">
         {exibirImagem ? (
-          <img
+          <SmartImage
             src={imagem}
             alt=""
             className="cart-item-image"
@@ -752,10 +1151,14 @@ function CheckoutSummaryCard({
   itens,
   produtosDistintos,
   subtotal,
+  tipoEntrega = 'entrega',
+  economiaFrete = 0,
   onContinue,
   onClearCart,
   disabled
 }) {
+  const retirada = String(tipoEntrega || '').trim().toLowerCase() === 'retirada';
+
   return (
     <aside className="checkout-cart-summary-card" aria-label="Resumo da etapa de carrinho">
       <p className="checkout-cart-summary-kicker">Resumo do carrinho</p>
@@ -775,6 +1178,18 @@ function CheckoutSummaryCard({
         <span>Subtotal</span>
         <strong>{formatarMoeda(subtotal)}</strong>
       </div>
+
+      <div className="checkout-cart-summary-row">
+        <span>Frete</span>
+        <strong>{retirada ? 'Sem frete' : 'Calculado na etapa de entrega'}</strong>
+      </div>
+
+      {retirada ? (
+        <div className="checkout-cart-summary-row is-savings">
+          <span>Economia no frete</span>
+          <strong>{Number(economiaFrete || 0) > 0 ? formatarMoeda(economiaFrete) : 'Sem custo adicional'}</strong>
+        </div>
+      ) : null}
 
       <div className="checkout-cart-summary-divider" aria-hidden="true" />
 
@@ -811,12 +1226,15 @@ function OrderSummaryCard({
   subtotal,
   frete,
   total,
+  tipoEntrega = 'entrega',
+  economiaFrete = 0,
   veiculoLabel,
   className = ''
 }) {
   const itensExibicao = Number.isFinite(Number(itens))
     ? formatarQuantidadeItens(Number(itens))
     : itens;
+  const retirada = String(tipoEntrega || '').trim().toLowerCase() === 'retirada';
 
   return (
     <aside className={`checkout-order-summary ${className}`.trim()} aria-label="Resumo do pedido">
@@ -835,13 +1253,20 @@ function OrderSummaryCard({
 
       <div className="checkout-order-summary-row">
         <span>Frete</span>
-        <strong>{frete === null ? 'A calcular' : formatarMoeda(frete)}</strong>
+        <strong>{frete === null ? 'A calcular' : retirada ? 'Sem frete' : formatarMoeda(frete)}</strong>
       </div>
 
       <div className="checkout-order-summary-row">
-        <span>Tipo de entrega</span>
+        <span>Atendimento</span>
         <strong>{veiculoLabel}</strong>
       </div>
+
+      {retirada ? (
+        <div className="checkout-order-summary-row is-savings">
+          <span>Economia no frete</span>
+          <strong>{Number(economiaFrete || 0) > 0 ? formatarMoeda(economiaFrete) : 'Sem custo adicional'}</strong>
+        </div>
+      ) : null}
 
       <div className="checkout-order-summary-divider" aria-hidden="true" />
 
@@ -905,13 +1330,73 @@ function PaymentSelectionSummary({ title, description }) {
   );
 }
 
-function PaymentOrderSummary({ itens, subtotal, frete, total, metodo }) {
+function CheckoutSecurityTrust({
+  formaPagamento = 'pix',
+  total = 0,
+  frete = null,
+  retiradaSelecionada = false,
+  recaptchaEnabled = false,
+  compact = false
+}) {
+  const metodoLabel = formaPagamento === 'debito'
+    ? 'Cartao de debito'
+    : formaPagamento === 'credito'
+      ? 'Cartao de credito'
+      : 'PIX';
+
+  const linhaFrete = retiradaSelecionada
+    ? 'Retirada na loja ativa: sem custo de frete.'
+    : frete === null
+      ? 'Frete exibido separadamente assim que o CEP for confirmado.'
+      : `Frete separado no resumo: ${formatarMoeda(frete)}.`;
+
+  const linhaMetodo = formaPagamento === 'pix'
+    ? 'QR Code oficial e codigo copia e cola vinculados ao seu pedido.'
+    : 'Dados de cartao protegidos por tokenizacao antes de enviar ao gateway.';
+
+  return (
+    <article
+      className={`checkout-security-trust ${compact ? 'is-compact' : ''}`.trim()}
+      aria-label="Seguranca e clareza de valores no checkout"
+    >
+      <div className="checkout-security-trust-head">
+        <p className="checkout-security-trust-kicker">Confianca no checkout</p>
+        <strong>Pagamento protegido e total transparente</strong>
+      </div>
+
+      <ul className="checkout-security-trust-list">
+        <li>{recaptchaEnabled ? 'Validacao antiabuso ativa nesta etapa.' : 'Ambiente com protecao ativa para finalizacao.'}</li>
+        <li>{linhaMetodo}</li>
+        <li>{linhaFrete}</li>
+      </ul>
+
+      <p className="checkout-security-trust-total">
+        Metodo atual: <strong>{metodoLabel}</strong> • Total em revisao: <strong>{formatarMoeda(total)}</strong>
+      </p>
+    </article>
+  );
+}
+
+function PaymentOrderSummary({ itens, subtotal, frete, total, metodo, tipoEntrega = 'entrega', economiaFrete = 0, className = '' }) {
+  const itensNumerico = Number(itens);
   const itensExibicao = Number.isFinite(Number(itens))
     ? formatarQuantidadeItens(Number(itens))
     : itens;
+  const retirada = String(tipoEntrega || '').trim().toLowerCase() === 'retirada';
+  const subtotalNumerico = Number(subtotal || 0);
+  const totalNumerico = Number(total || 0);
+  const freteNumerico = frete === null ? null : Number(frete || 0);
+  const valorMedioPorItem = Number.isFinite(itensNumerico) && itensNumerico > 0
+    ? Number((totalNumerico / itensNumerico).toFixed(2))
+    : null;
+  const linhaConferencia = freteNumerico === null
+    ? 'Total parcial exibido. O frete sera somado apos a simulacao de entrega.'
+    : retirada
+      ? `Conferencia: ${formatarMoeda(subtotalNumerico)} + sem frete = ${formatarMoeda(totalNumerico)}.`
+      : `Conferencia: ${formatarMoeda(subtotalNumerico)} + ${formatarMoeda(freteNumerico)} = ${formatarMoeda(totalNumerico)}.`;
 
   return (
-    <aside className="payment-order-summary" aria-label="Resumo financeiro da etapa de pagamento">
+    <aside className={`payment-order-summary ${className}`.trim()} aria-label="Resumo financeiro da etapa de pagamento">
       <p className="payment-order-summary-kicker">Resumo do pedido</p>
       <h3>Quanto você vai pagar</h3>
 
@@ -927,8 +1412,22 @@ function PaymentOrderSummary({ itens, subtotal, frete, total, metodo }) {
 
       <div className="payment-order-summary-row">
         <span>Frete</span>
-        <strong>{frete === null ? 'A calcular' : formatarMoeda(frete)}</strong>
+        <strong>{frete === null ? 'A calcular' : retirada ? 'Sem frete' : formatarMoeda(frete)}</strong>
       </div>
+
+      {valorMedioPorItem !== null ? (
+        <div className="payment-order-summary-row is-average">
+          <span>Media por item</span>
+          <strong>{formatarMoeda(valorMedioPorItem)}</strong>
+        </div>
+      ) : null}
+
+      {retirada ? (
+        <div className="payment-order-summary-row is-savings">
+          <span>Economia no frete</span>
+          <strong>{Number(economiaFrete || 0) > 0 ? formatarMoeda(economiaFrete) : 'Sem custo adicional'}</strong>
+        </div>
+      ) : null}
 
       <div className="payment-order-summary-row">
         <span>Pagamento</span>
@@ -941,6 +1440,8 @@ function PaymentOrderSummary({ itens, subtotal, frete, total, metodo }) {
         <span>Total</span>
         <strong>{formatarMoeda(total)}</strong>
       </div>
+
+      <p className="payment-order-summary-clarity">{linhaConferencia}</p>
     </aside>
   );
 }
@@ -1012,7 +1513,7 @@ function PixQrCodeCard({ qrCodeSrc, carregando }) {
             <p className="pix-qr-placeholder">Aguarde alguns segundos enquanto criamos o código PIX.</p>
           </div>
         ) : qrCodeSrc ? (
-          <img className="pix-qr-image" src={qrCodeSrc} alt="QR Code para pagamento PIX" />
+          <SmartImage className="pix-qr-image" src={qrCodeSrc} alt="QR Code para pagamento PIX" priority />
         ) : (
           <div className="pix-qr-placeholder-block">
             <span className="pix-qr-placeholder-icon" aria-hidden="true">◻</span>
@@ -1075,13 +1576,16 @@ export default function PagamentoPage() {
   const [feedbackCopiaPix, setFeedbackCopiaPix] = useState('');
   const [verificandoStatusPix, setVerificandoStatusPix] = useState(false);
   const [resumoPedidoSnapshot, setResumoPedidoSnapshot] = useState(null);
+  const [itensPedidoSnapshot, setItensPedidoSnapshot] = useState([]);
   const [etapaAtual, setEtapaAtual] = useState(ETAPAS.CARRINHO);
   const [statusPedidoAtual, setStatusPedidoAtual] = useState('');
   const [pagamentoConfirmado, setPagamentoConfirmado] = useState(false);
   const [autenticado, setAutenticado] = useState(null);
   const [verificandoSessao, setVerificandoSessao] = useState(true);
+  const [tipoEntrega, setTipoEntrega] = useState('entrega');
   const [cepEntrega, setCepEntrega] = useState('');
   const [veiculoEntrega, setVeiculoEntrega] = useState('moto');
+  const [ultimoFreteEntrega, setUltimoFreteEntrega] = useState(0);
   const [simulacaoFrete, setSimulacaoFrete] = useState(null);
   const [simulandoFrete, setSimulandoFrete] = useState(false);
   const [erroEntrega, setErroEntrega] = useState('');
@@ -1109,11 +1613,45 @@ export default function PagamentoPage() {
   const [status3DS, setStatus3DS] = useState('idle');
   const [resultado3DS, setResultado3DS] = useState(null);
   const [idAutenticacao3DS, setIdAutenticacao3DS] = useState('');
+  const [eventosHomologacao3DS, setEventosHomologacao3DS] = useState([]);
+  const [feedbackEvidencia3DS, setFeedbackEvidencia3DS] = useState('');
+  const [growthVersion, setGrowthVersion] = useState(0);
   const [recaptchaCheckoutToken, setRecaptchaCheckoutToken] = useState('');
   const [recaptchaCheckoutErroCarregamento, setRecaptchaCheckoutErroCarregamento] = useState('');
   const recaptchaCheckoutRef = useRef(null);
   const pagandoCartaoRef = useRef(false);
   const buscaEnderecoRef = useRef(0);
+  const startCheckoutTrackedRef = useRef(false);
+  const purchaseTrackedOrdersRef = useRef(new Set());
+  const growthInsights = useMemo(() => getGrowthInsights({ windowDays: 7 }), [growthVersion]);
+  const growthCheckoutPaymentConfig = growthInsights?.experiment?.ui?.checkoutPayment || {
+    enabled: false,
+    ctaPrefix: 'Finalizar pedido',
+    badgeLabel: '',
+    priceHighlight: 'none'
+  };
+  const growthCheckoutPaymentEnabled = Boolean(growthCheckoutPaymentConfig.enabled);
+  const growthCheckoutPaymentPriceClass = growthCheckoutPaymentEnabled
+    ? `is-growth-${String(growthCheckoutPaymentConfig.priceHighlight || 'none').trim() || 'none'}`
+    : '';
+  const growthCheckoutPaymentBadge = growthCheckoutPaymentEnabled
+    ? String(growthCheckoutPaymentConfig.badgeLabel || '').trim()
+    : '';
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handleGrowthUpdate = () => {
+      setGrowthVersion((atual) => atual + 1);
+    };
+
+    window.addEventListener(GROWTH_UPDATE_EVENT_NAME, handleGrowthUpdate);
+    return () => {
+      window.removeEventListener(GROWTH_UPDATE_EVENT_NAME, handleGrowthUpdate);
+    };
+  }, []);
 
   const itensPedido = useMemo(
     () =>
@@ -1159,17 +1697,26 @@ export default function PagamentoPage() {
     setFeedbackCarrinho('Carrinho esvaziado. Você pode continuar comprando quando quiser.');
   }, [clearCart, itens.length]);
 
-  const freteAtual = Number(simulacaoFrete?.frete || 0);
+  const retiradaSelecionada = tipoEntrega === 'retirada';
+  const freteAtual = retiradaSelecionada ? 0 : Number(simulacaoFrete?.frete || 0);
+  const economiaFreteRetirada = Number(ultimoFreteEntrega || simulacaoFrete?.frete || 0);
 
   const totalComFreteAtual = useMemo(
     () => Number((Number(resumo.total || 0) + freteAtual).toFixed(2)),
     [resumo.total, freteAtual]
   );
 
-  const freteSelecionado = Number(resultadoPedido?.frete_entrega ?? simulacaoFrete?.frete ?? 0);
-  const distanciaSelecionada = Number(resultadoPedido?.distancia_entrega_km ?? simulacaoFrete?.distancia_km ?? 0);
+  const freteSelecionado = Number(resultadoPedido?.frete_entrega ?? (retiradaSelecionada ? 0 : simulacaoFrete?.frete ?? 0));
+  const distanciaSelecionada = retiradaSelecionada
+    ? 0
+    : Number(resultadoPedido?.distancia_entrega_km ?? simulacaoFrete?.distancia_km ?? 0);
   const distanciaSelecionadaTexto = distanciaSelecionada > 0 ? `${distanciaSelecionada.toFixed(2)} km` : '-';
-  const veiculoSelecionadoResumo = VEICULOS_ENTREGA[resultadoPedido?.veiculo_entrega] || VEICULOS_ENTREGA[simulacaoFrete?.veiculo] || VEICULOS_ENTREGA[veiculoEntrega] || VEICULOS_ENTREGA.moto;
+  const veiculoSelecionadoResumo = retiradaSelecionada
+    ? null
+    : (VEICULOS_ENTREGA[resultadoPedido?.veiculo_entrega] || VEICULOS_ENTREGA[simulacaoFrete?.veiculo] || VEICULOS_ENTREGA[veiculoEntrega] || VEICULOS_ENTREGA.moto);
+  const atendimentoSelecionadoLabel = retiradaSelecionada
+    ? formatarTipoEntrega('retirada')
+    : (veiculoSelecionadoResumo?.label || formatarTipoEntrega('entrega'));
   const cepDestinoSelecionado = String(resultadoPedido?.cep_destino_entrega || simulacaoFrete?.cep_destino || formatarCep(cepEntrega) || '-');
   const cepOrigemSelecionado = String(resultadoPedido?.cep_origem_entrega || simulacaoFrete?.cep_origem || CEP_MERCADO);
   const numeroOrigemSelecionado = String(resultadoPedido?.numero_origem_entrega || simulacaoFrete?.numero_origem || NUMERO_MERCADO);
@@ -1222,9 +1769,13 @@ export default function PagamentoPage() {
   const cepEntregaNormalizado = normalizarCep(cepEntrega);
   const cepEntregaValido = cepEntregaNormalizado.length === 8;
   const cepEntregaIncompleto = cepEntregaNormalizado.length > 0 && cepEntregaNormalizado.length < 8;
-  const freteCalculado = Boolean(simulacaoFrete);
-  const semOpcaoEntregaDisponivel = !simulandoFrete && !simulacaoFrete && erroEntregaEhCobertura(erroEntrega);
-  const podeAvancarParaPagamento = itens.length > 0 && freteCalculado && !simulandoFrete && !semOpcaoEntregaDisponivel;
+  const freteCalculado = retiradaSelecionada ? true : Boolean(simulacaoFrete);
+  const semOpcaoEntregaDisponivel = retiradaSelecionada
+    ? false
+    : (!simulandoFrete && !simulacaoFrete && erroEntregaEhCobertura(erroEntrega));
+  const podeAvancarParaPagamento = retiradaSelecionada
+    ? (itens.length > 0 && !simulandoFrete)
+    : (itens.length > 0 && freteCalculado && !simulandoFrete && !semOpcaoEntregaDisponivel);
   const veiculoSelecionadoEntrega = VEICULOS_ENTREGA[veiculoEntrega] || VEICULOS_ENTREGA.moto;
   const veiculoRecomendado = useMemo(() => {
     const distancia = Number(simulacaoFrete?.distancia_km || 0);
@@ -1241,6 +1792,15 @@ export default function PagamentoPage() {
 
   // Consolida feedback da simulação para manter mensagens consistentes na UX da entrega.
   const mensagemFrete = useMemo(() => {
+    if (retiradaSelecionada) {
+      return {
+        tone: 'success',
+        text: Number(economiaFreteRetirada || 0) > 0
+          ? `Retirada na loja selecionada. Economia estimada de frete: ${formatarMoeda(economiaFreteRetirada)}.`
+          : 'Retirada na loja selecionada. Sem cobranca de frete.'
+      };
+    }
+
     if (simulandoFrete) {
       return { tone: 'loading', text: 'Calculando frete com base no CEP informado...' };
     }
@@ -1264,7 +1824,7 @@ export default function PagamentoPage() {
       tone: 'neutral',
       text: 'Digite um CEP válido e escolha o tipo de entrega para calcular o frete.'
     };
-  }, [erroEntrega, freteAtual, simulacaoFrete, simulandoFrete]);
+  }, [economiaFreteRetirada, erroEntrega, freteAtual, retiradaSelecionada, simulacaoFrete, simulandoFrete]);
 
   const consultarEnderecoCepEntrega = useCallback(async (cep, { mostrarErro = true } = {}) => {
     const cepNormalizado = normalizarCep(cep);
@@ -1448,6 +2008,12 @@ export default function PagamentoPage() {
   }, [resultadoPedido?.pedido_id, autenticado]);
 
   async function executarSimulacaoFrete({ mostrarErro = true } = {}) {
+    if (retiradaSelecionada) {
+      setSimulacaoFrete(null);
+      setErroEntrega('');
+      return null;
+    }
+
     const cepNormalizado = normalizarCep(cepEntrega);
     if (cepNormalizado.length !== 8) {
       const mensagem = 'Informe um CEP válido com 8 dígitos.';
@@ -1471,6 +2037,7 @@ export default function PagamentoPage() {
         veiculo: veiculoEntrega
       });
       setSimulacaoFrete(data);
+      setUltimoFreteEntrega(Number(data?.frete || 0));
       return data;
     } catch (error) {
       setSimulacaoFrete(null);
@@ -1504,6 +2071,48 @@ export default function PagamentoPage() {
     }
   }
 
+  const registrarEventoHomologacao3DS = useCallback((evento, detalhes = {}) => {
+    const registro = {
+      timestamp: new Date().toISOString(),
+      evento: String(evento || '').trim() || 'evento_desconhecido',
+      detalhes: (detalhes && typeof detalhes === 'object' && !Array.isArray(detalhes))
+        ? detalhes
+        : {}
+    };
+
+    setEventosHomologacao3DS((atual) => {
+      const proximo = [...atual, registro];
+      if (proximo.length <= HOMOLOGACAO_3DS_MAX_EVENTOS) {
+        return proximo;
+      }
+
+      return proximo.slice(proximo.length - HOMOLOGACAO_3DS_MAX_EVENTOS);
+    });
+
+    if (IS_DEVELOPMENT) {
+      console.info('[debit_3ds_auth.homologacao]', registro);
+    }
+  }, []);
+
+  function montarPacoteEvidenciaHomologacao3DS() {
+    return {
+      generated_at: new Date().toISOString(),
+      flow: 'debit_3ds_auth',
+      pedido_id: Number.parseInt(String(resultadoPedido?.pedido_id || ''), 10) || null,
+      reference_id: String(
+        resultadoCartao?.reference_id
+          || (resultadoPedido?.pedido_id ? `pedido_${resultadoPedido.pedido_id}` : '')
+      ).trim() || null,
+      payment_summary: resultadoCartao
+        ? montarResumoRespostaPagBankHomologacao({
+          responsePayload: resultadoCartao,
+          pedidoId: resultadoPedido?.pedido_id
+        })
+        : null,
+      events: eventosHomologacao3DS
+    };
+  }
+
   function obterRecaptchaCheckoutTokenObrigatorio() {
     if (!recaptchaCheckoutEnabled) {
       return '';
@@ -1535,6 +2144,14 @@ export default function PagamentoPage() {
 
   async function obterSessao3DSComRenovacao({ forceRefresh = false, pedidoId } = {}) {
     if (!forceRefresh && sessao3DSValida) {
+      registrarEventoHomologacao3DS('sessao_3ds_cache', {
+        endpoint: '/api/pagbank/3ds/session',
+        reference_id: pedidoId ? `pedido_${pedidoId}` : null,
+        env: sessao3DSEnv,
+        session_masked: mascararValorHomologacao(sessao3DS, { prefixo: 8, sufixo: 4 }),
+        reused: true
+      });
+
       return {
         session: sessao3DS,
         env: sessao3DSEnv
@@ -1554,18 +2171,35 @@ export default function PagamentoPage() {
     setSessao3DSEnv(env);
     setSessao3DSGeradaEm(Date.now());
 
+    registrarEventoHomologacao3DS('geracao_sessao_3ds', {
+      endpoint: '/api/pagbank/3ds/session',
+      reference_id: referencia || null,
+      force_refresh: Boolean(forceRefresh),
+      env,
+      session_masked: mascararValorHomologacao(session, { prefixo: 8, sufixo: 4 }),
+      expires_in_seconds: Number.parseInt(String(data?.expires_in_seconds || ''), 10) || null,
+      trace_id_masked: mascararTraceHomologacao(data?.trace_id || data?.traceId) || null
+    });
+
     return {
       session,
       env
     };
   }
 
-  function montarRequestAutenticacao3DS() {
+  function montarRequestAutenticacao3DS({ documentoDigits } = {}) {
     const numeroCartaoLimpo = normalizarNumeroCartao(numeroCartao);
-    const mes = formatarMesCartao(mesExpiracaoCartao);
+    const mes = formatarMesCartao(mesExpiracaoCartao).padStart(2, '0');
     const ano = formatarAnoCartao(anoExpiracaoCartao);
-    const nomeHolder = String(nomeTitularCartao || dadosUsuarioCheckout?.nome || 'Cliente').trim() || 'Cliente';
-    const nomeCliente = String(dadosUsuarioCheckout?.nome || nomeHolder || 'Cliente').trim() || 'Cliente';
+    const documentoFiscal3DS = normalizarDocumentoFiscal(documentoDigits);
+    const nomeHolder = normalizarNomeCompletoPara3DS(
+      nomeTitularCartao || dadosUsuarioCheckout?.nome,
+      'Cliente Teste'
+    );
+    const nomeCliente = normalizarNomeCompletoPara3DS(
+      dadosUsuarioCheckout?.nome || nomeHolder,
+      'Cliente Teste'
+    );
     const emailCliente = String(dadosUsuarioCheckout?.email || 'cliente@example.com').trim() || 'cliente@example.com';
     const telefoneCliente = normalizarTelefonePara3DS(dadosUsuarioCheckout?.telefone) || {
       country: '55',
@@ -1578,14 +2212,19 @@ export default function PagamentoPage() {
       endereco: enderecoCepEntrega,
       cepFallback: cepEntrega
     });
+    const customerPayload = {
+      name: nomeCliente,
+      email: emailCliente,
+      phones: [telefoneCliente]
+    };
+
+    if (validarDocumentoFiscalPagBank3DS(documentoFiscal3DS)) {
+      customerPayload.taxId = documentoFiscal3DS;
+    }
 
     return {
       data: {
-        customer: {
-          name: nomeCliente,
-          email: emailCliente,
-          phones: [telefoneCliente]
-        },
+        customer: customerPayload,
         paymentMethod: {
           type: 'DEBIT_CARD',
           installments: 1,
@@ -1640,7 +2279,27 @@ export default function PagamentoPage() {
         });
 
         setStatus3DS('aguardando_validacao');
-        const request3DS = montarRequestAutenticacao3DS();
+        const request3DS = montarRequestAutenticacao3DS({ documentoDigits });
+        registrarEventoHomologacao3DS('request_authenticate3ds', {
+          endpoint: 'https://sandbox.sdk.pagseguro.com/checkout-sdk/3ds/authentications',
+          amount: {
+            value: Number(request3DS?.data?.amount?.value) || null,
+            currency: String(request3DS?.data?.amount?.currency || '').trim() || null
+          },
+          customer: {
+            email_masked: mascararValorHomologacao(request3DS?.data?.customer?.email, { prefixo: 3, sufixo: 8 }) || null,
+            tax_id_masked: mascararDocumentoHomologacao(request3DS?.data?.customer?.taxId) || null,
+            phone_present: Array.isArray(request3DS?.data?.customer?.phones) && request3DS.data.customer.phones.length > 0
+          },
+          card: {
+            number_masked: mascararValorHomologacao(request3DS?.data?.paymentMethod?.card?.number, { prefixo: 6, sufixo: 4 }) || null,
+            exp_month: String(request3DS?.data?.paymentMethod?.card?.expMonth || '').trim() || null,
+            exp_year: String(request3DS?.data?.paymentMethod?.card?.expYear || '').trim() || null,
+            holder_present: Boolean(String(request3DS?.data?.paymentMethod?.card?.holder?.name || '').trim())
+          },
+          shipping_address_present: Boolean(request3DS?.data?.shippingAddress),
+          billing_address_present: Boolean(request3DS?.data?.billingAddress)
+        });
         const resultado = await autenticar3DSPagBank(request3DS);
         const status = String(resultado?.status || '').trim().toUpperCase();
         const authId = String(resultado?.id || '').trim();
@@ -1664,6 +2323,14 @@ export default function PagamentoPage() {
           status,
           id: authId || null,
           trace_id: traceId
+        });
+
+        registrarEventoHomologacao3DS('resultado_authenticate3ds', {
+          status,
+          authentication_id_masked: authId
+            ? mascararValorHomologacao(authId, { prefixo: 6, sufixo: 4 })
+            : null,
+          trace_id_masked: traceId ? mascararTraceHomologacao(traceId) : null
         });
 
         if (status === 'AUTH_FLOW_COMPLETED') {
@@ -1703,9 +2370,35 @@ export default function PagamentoPage() {
         setStatus3DS('erro');
         throw new Error('Nao foi possivel concluir a autenticacao 3DS. Tente novamente.');
       } catch (error) {
+        const detail = (error?.detail && typeof error.detail === 'object' && !Array.isArray(error.detail))
+          ? error.detail
+          : {};
+        const erroDetalhado = String(detail?.message || detail?.error_description || detail?.error || '').trim();
+        const erroCodigo = String(detail?.code || detail?.error_code || '').trim();
+        const erroHttpStatus = Number(detail?.httpStatus || detail?.status || error?.status || 0) || null;
+        const erroMensagens = sanitizarErrorMessages3DS(detail?.errorMessages);
+
+        registrarEventoHomologacao3DS('erro_authenticate3ds', {
+          message: String(error?.message || 'Falha ao autenticar 3DS').trim(),
+          sdk_http_status: erroHttpStatus,
+          sdk_code: erroCodigo || null,
+          sdk_message: erroDetalhado || null,
+          sdk_error_messages: erroMensagens.length ? erroMensagens : null,
+          trace_id_masked: mascararTraceHomologacao(
+            error?.traceId
+              || error?.trace_id
+              || error?.detail?.traceId
+              || error?.detail?.trace_id
+          ) || null
+        });
+
         if (IS_DEVELOPMENT) {
           console.error('[debit_3ds_auth.error]', {
             message: error?.message,
+            httpStatus: erroHttpStatus,
+            code: erroCodigo || null,
+            detailMessage: erroDetalhado || null,
+            errorMessages: erroMensagens,
             detail: error?.detail || null
           });
         }
@@ -1806,6 +2499,7 @@ export default function PagamentoPage() {
     setSessao3DSGeradaEm(0);
     setResultadoPedido(null);
     setResumoPedidoSnapshot(null);
+    setItensPedidoSnapshot([]);
     setQrCodePixDataUrl('');
     setFeedbackCopiaPix('');
     setErro('');
@@ -1822,22 +2516,26 @@ export default function PagamentoPage() {
     }
 
     const cepNormalizado = normalizarCep(cepEntrega);
-    if (cepNormalizado.length !== 8) {
-      setErroEntrega('Informe um CEP válido com 8 dígitos para calcular a entrega.');
-      setEtapaAtual(ETAPAS.ENTREGA);
-      return;
-    }
+    let freteSimulado = null;
 
-    let freteSimulado = simulacaoFrete;
-    const cepSimulacaoAtual = normalizarCep(simulacaoFrete?.cep_destino);
-    const veiculoSimulacaoAtual = String(simulacaoFrete?.veiculo || '').toLowerCase();
-    const precisaNovaSimulacao = !freteSimulado || cepSimulacaoAtual !== cepNormalizado || veiculoSimulacaoAtual !== veiculoEntrega;
-
-    if (precisaNovaSimulacao) {
-      freteSimulado = await executarSimulacaoFrete();
-      if (!freteSimulado) {
+    if (!retiradaSelecionada) {
+      if (cepNormalizado.length !== 8) {
+        setErroEntrega('Informe um CEP válido com 8 dígitos para calcular a entrega.');
         setEtapaAtual(ETAPAS.ENTREGA);
         return;
+      }
+
+      freteSimulado = simulacaoFrete;
+      const cepSimulacaoAtual = normalizarCep(simulacaoFrete?.cep_destino);
+      const veiculoSimulacaoAtual = String(simulacaoFrete?.veiculo || '').toLowerCase();
+      const precisaNovaSimulacao = !freteSimulado || cepSimulacaoAtual !== cepNormalizado || veiculoSimulacaoAtual !== veiculoEntrega;
+
+      if (precisaNovaSimulacao) {
+        freteSimulado = await executarSimulacaoFrete();
+        if (!freteSimulado) {
+          setEtapaAtual(ETAPAS.ENTREGA);
+          return;
+        }
       }
     }
 
@@ -1845,6 +2543,12 @@ export default function PagamentoPage() {
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
       setErro(`Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartão'}.`);
+      setEtapaAtual(ETAPAS.PAGAMENTO);
+      return;
+    }
+
+    if (formaPagamento === 'debito' && !validarDocumentoFiscalPagBank3DS(documentoDigits)) {
+      setErro('Para débito com autenticação 3DS, informe um CPF ou CNPJ válido.');
       setEtapaAtual(ETAPAS.PAGAMENTO);
       return;
     }
@@ -1869,18 +2573,23 @@ export default function PagamentoPage() {
 
     setCarregando(true);
     try {
-      const data = await criarPedido({
-        itens: itensPedido,
-        formaPagamento,
-        taxId: documentoDigits,
-        recaptchaToken: recaptchaTokenAcao,
-        entrega: {
+      const entregaPayload = retiradaSelecionada
+        ? null
+        : {
           veiculo: veiculoEntrega,
           cep_destino: formatarCep(cepNormalizado),
           frete_estimado: Number(freteSimulado?.frete || 0),
           distancia_km: Number(freteSimulado?.distancia_km || 0),
           fator_reparo: VEICULOS_ENTREGA[veiculoEntrega]?.fatorReparo || 1
-        }
+        };
+
+      const data = await criarPedido({
+        itens: itensPedido,
+        formaPagamento,
+        tipoEntrega,
+        taxId: documentoDigits,
+        recaptchaToken: recaptchaTokenAcao,
+        entrega: entregaPayload
       });
 
       setResultadoPedido(data);
@@ -1892,6 +2601,14 @@ export default function PagamentoPage() {
         subtotal: Number(data?.total_produtos ?? resumo.total ?? 0),
         frete: Number(data?.frete_entrega ?? freteSimulado?.frete ?? 0)
       });
+      setItensPedidoSnapshot(
+        itensPedido.map((item) => ({
+          produto_id: item.produto_id,
+          nome: item.nome,
+          preco: Number(item.preco || 0),
+          quantidade: Number(item.quantidade || 1)
+        }))
+      );
       const formaRetornada = String(data?.forma_pagamento || formaPagamento || '').toLowerCase();
       if (formaRetornada === 'debito') {
         setFormaPagamento('debito');
@@ -2063,6 +2780,54 @@ export default function PagamentoPage() {
     }
   }
 
+  async function handleCopiarEvidenciaHomologacao3DS() {
+    if (!eventosHomologacao3DS.length) {
+      return;
+    }
+
+    const conteudo = JSON.stringify(montarPacoteEvidenciaHomologacao3DS(), null, 2);
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(conteudo);
+      } else {
+        const campoTemporario = document.createElement('textarea');
+        campoTemporario.value = conteudo;
+        campoTemporario.setAttribute('readonly', '');
+        campoTemporario.style.position = 'absolute';
+        campoTemporario.style.left = '-9999px';
+        document.body.appendChild(campoTemporario);
+        campoTemporario.select();
+        document.execCommand('copy');
+        document.body.removeChild(campoTemporario);
+      }
+
+      setFeedbackEvidencia3DS('Log sanitizado de homologacao 3DS copiado.');
+    } catch {
+      setFeedbackEvidencia3DS('Nao foi possivel copiar o log de homologacao automaticamente.');
+    }
+  }
+
+  function handleBaixarEvidenciaHomologacao3DS() {
+    if (!eventosHomologacao3DS.length) {
+      return;
+    }
+
+    const conteudo = JSON.stringify(montarPacoteEvidenciaHomologacao3DS(), null, 2);
+    const pedidoIdArquivo = Number.parseInt(String(resultadoPedido?.pedido_id || ''), 10) || 'sem-pedido';
+    const nomeArquivo = `pagbank-hml-debito-3ds-pedido-${pedidoIdArquivo}-${Date.now()}.json`;
+    const blob = new Blob([conteudo], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = nomeArquivo;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setFeedbackEvidencia3DS(`Arquivo de homologacao gerado: ${nomeArquivo}`);
+  }
+
   async function handlePagarCartao(pedidoId) {
     if (pagandoCartaoRef.current || carregando || criptografandoCartao) {
       return;
@@ -2071,10 +2836,20 @@ export default function PagamentoPage() {
     setResultadoCartao(null);
     setErro('');
 
+    if (debitoSelecionado) {
+      setEventosHomologacao3DS([]);
+      setFeedbackEvidencia3DS('');
+    }
+
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
       setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento com cartão.');
+      return;
+    }
+
+    if (debitoSelecionado && !validarDocumentoFiscalPagBank3DS(documentoDigits)) {
+      setErro('Para débito com autenticação 3DS, informe um CPF ou CNPJ válido.');
       return;
     }
 
@@ -2120,6 +2895,24 @@ export default function PagamentoPage() {
         setStatus3DS('processando_pagamento');
       }
 
+      const payloadPagamentoCartao = {
+        pedido_id: pedidoId,
+        tax_id: documentoDigits,
+        token_cartao: tokenNormalizado,
+        parcelas: parcelasCartaoEfetivas,
+        tipo_cartao: formaPagamento,
+        authentication_method: authenticationMethod,
+        three_ds_result: threeDSResultPayload,
+        recaptcha_token: recaptchaTokenAcao
+      };
+
+      if (debitoSelecionado) {
+        registrarEventoHomologacao3DS(
+          'request_final_pedido',
+          sanitizarRequestPagamentoCartaoHomologacao({ payloadRequest: payloadPagamentoCartao })
+        );
+      }
+
       const data = await pagarCartao(pedidoId, {
         taxId: documentoDigits,
         tokenCartao: tokenNormalizado,
@@ -2131,6 +2924,16 @@ export default function PagamentoPage() {
       });
 
       setResultadoCartao(data);
+
+      if (debitoSelecionado) {
+        registrarEventoHomologacao3DS(
+          'response_final_pagbank',
+          montarResumoRespostaPagBankHomologacao({
+            responsePayload: data,
+            pedidoId
+          })
+        );
+      }
 
       const statusPagBank = String(data?.status || '').toUpperCase();
       const statusInterno = String(data?.status_interno || '').toLowerCase();
@@ -2148,6 +2951,17 @@ export default function PagamentoPage() {
       }
 
       if (debitoSelecionado) {
+        registrarEventoHomologacao3DS('erro_pagamento_backend', {
+          endpoint: '/api/pagamentos/cartao',
+          message: String(error?.message || 'Falha no processamento do pagamento com cartao.').trim(),
+          trace_id_masked: mascararTraceHomologacao(
+            error?.traceId
+              || error?.trace_id
+              || error?.detail?.traceId
+              || error?.detail?.trace_id
+          ) || null
+        });
+
         setStatus3DS((atual) => (
           ['nao_suportado', 'trocar_metodo', 'pagamento_aprovado'].includes(atual)
             ? atual
@@ -2183,6 +2997,12 @@ export default function PagamentoPage() {
   const cartaoAprovado = statusCartaoAtual === 'PAID' || statusInternoCartaoAtual === 'pago' || statusInternoCartaoAtual === 'entregue';
   const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
   const documentoValidoPagamento = documentoDigits.length === 11 || documentoDigits.length === 14;
+  const feedbackEvidencia3DSTone = feedbackEvidencia3DS
+    ? (String(feedbackEvidencia3DS).toLowerCase().includes('nao foi possivel')
+      || String(feedbackEvidencia3DS).toLowerCase().includes('não foi possível')
+      ? 'is-warning'
+      : 'is-success')
+    : '';
   const documentoObrigatorioNaoPreenchido = documentoTocado && documentoDigits.length === 0;
   const documentoInvalidoPagamento = documentoTocado && documentoDigits.length > 0 && !documentoValidoPagamento;
   const documentoValidoFeedback = documentoTocado && documentoValidoPagamento;
@@ -2202,10 +3022,26 @@ export default function PagamentoPage() {
   const dadosCartaoCompletos = nomeTitularCartaoValido && numeroCartaoValido && mesCartaoValido && anoCartaoValido && cvvCartaoValido;
   const cartaoProntoParaContinuar = !pagamentoCartaoSelecionado || Boolean(tokenCartao) || dadosCartaoCompletos;
   const formaPagamentoAtual = FORMAS_PAGAMENTO_OPCOES[formaPagamento] || FORMAS_PAGAMENTO_OPCOES.pix;
-  const resumoFretePagamento = resultadoPedido?.pedido_id ? freteSelecionado : simulacaoFrete ? freteAtual : null;
-  const resumoTotalPagamento = resultadoPedido?.pedido_id ? totalComEntregaPedido : simulacaoFrete ? totalComFreteAtual : Number(resumo.total || 0);
+  const ctaFinalPedidoBase = retiradaSelecionada ? 'Reservar para retirada' : 'Finalizar pedido';
+  const ctaFinalPedido = growthCheckoutPaymentEnabled && growthCheckoutPaymentConfig.ctaPrefix
+    ? growthCheckoutPaymentConfig.ctaPrefix
+    : ctaFinalPedidoBase;
+  const resumoFretePagamento = resultadoPedido?.pedido_id
+    ? freteSelecionado
+    : retiradaSelecionada
+      ? 0
+      : simulacaoFrete
+        ? freteAtual
+        : null;
+  const resumoTotalPagamento = resultadoPedido?.pedido_id
+    ? totalComEntregaPedido
+    : retiradaSelecionada
+      ? Number(resumo.total || 0)
+      : simulacaoFrete
+        ? totalComFreteAtual
+        : Number(resumo.total || 0);
   const resumoItensPagamento = Number(resultadoPedido?.itens_count || resumoPedidoSnapshot?.itens || resumo.itens || 0);
-  const pagamentoSemFreteCalculado = !resultadoPedido?.pedido_id && !simulacaoFrete;
+  const pagamentoSemFreteCalculado = !retiradaSelecionada && !resultadoPedido?.pedido_id && !simulacaoFrete;
   const pagamentoSemItens = itens.length === 0 && !resultadoPedido?.pedido_id;
   const bloqueioPagamento = pagamentoSemItens
     || pagamentoSemFreteCalculado
@@ -2253,8 +3089,8 @@ export default function PagamentoPage() {
     },
     {
       id: 'frete',
-      label: 'Frete calculado',
-      ok: !pagamentoSemFreteCalculado
+      label: retiradaSelecionada ? 'Retirada na loja (sem frete)' : 'Frete calculado',
+      ok: retiradaSelecionada ? true : !pagamentoSemFreteCalculado
     },
     {
       id: 'documento',
@@ -2292,6 +3128,7 @@ export default function PagamentoPage() {
       ? 'Processando informações do PIX. Aguarde para evitar pagamentos duplicados.'
       : `Processando ${tituloFormaPagamento.toLowerCase()}. Aguarde a confirmação do gateway.`)
     : 'Processando as informações do seu pedido com segurança.';
+  const pagamentoAprovadoCheckout = pagamentoConfirmado || pixPagamentoAprovado || cartaoAprovado;
 
   const contextoCheckout = (() => {
     if (etapaAtual === ETAPAS.CARRINHO) {
@@ -2313,6 +3150,17 @@ export default function PagamentoPage() {
     }
 
     if (etapaAtual === ETAPAS.ENTREGA) {
+      if (retiradaSelecionada) {
+        return {
+          tone: 'success',
+          title: 'Retirada na loja selecionada.',
+          description: Number(economiaFreteRetirada || 0) > 0
+            ? `Voce economiza ${formatarMoeda(economiaFreteRetirada)} de frete com retirada.`
+            : 'Sem custo de frete. Agora avance para o pagamento da sua reserva.',
+          chips: ['Sem frete', 'Retirada no balcao', 'Pronto para pagamento']
+        };
+      }
+
       if (semOpcaoEntregaDisponivel) {
         return {
           tone: 'warning',
@@ -2425,10 +3273,16 @@ export default function PagamentoPage() {
     if (etapaAtual === ETAPAS.ENTREGA) {
       return {
         stepLabel: 'Etapa 2 de 4',
-        totalLabel: simulacaoFrete
-          ? `Total com frete: ${formatarMoeda(totalComFreteAtual)}`
-          : `Subtotal atual: ${formatarMoeda(resumo.total)}`,
-        caption: simulacaoFrete ? 'Frete calculado e pronto para pagamento.' : 'Calcule o frete para continuar.',
+        totalLabel: retiradaSelecionada
+          ? `Total sem frete: ${formatarMoeda(resumo.total)}`
+          : simulacaoFrete
+            ? `Total com frete: ${formatarMoeda(totalComFreteAtual)}`
+            : `Subtotal atual: ${formatarMoeda(resumo.total)}`,
+        caption: retiradaSelecionada
+          ? 'Retirada na loja selecionada. Siga para pagamento.'
+          : simulacaoFrete
+            ? 'Frete calculado e pronto para pagamento.'
+            : 'Calcule o frete para continuar.',
         primaryLabel: 'Ir para pagamento',
         onPrimaryClick: () => setEtapaAtual(ETAPAS.PAGAMENTO),
         primaryDisabled: !podeAvancarParaPagamento,
@@ -2442,7 +3296,9 @@ export default function PagamentoPage() {
         stepLabel: 'Etapa 3 de 4',
         totalLabel: `Total do pedido: ${formatarMoeda(resumoTotalPagamento)}`,
         caption: `Forma atual: ${formaPagamentoAtual.title}`,
-        primaryLabel: carregando ? 'Preparando pagamento...' : formaPagamentoAtual.ctaText,
+        primaryLabel: carregando
+          ? (retiradaSelecionada ? 'Reservando retirada...' : 'Finalizando pedido...')
+          : `${ctaFinalPedido} • Total ${formatarMoeda(resumoTotalPagamento)}`,
         onPrimaryClick: () => {
           void handleContinuarPagamento();
         },
@@ -2503,6 +3359,83 @@ export default function PagamentoPage() {
 
     return null;
   })();
+
+  useEffect(() => {
+    if (startCheckoutTrackedRef.current) {
+      return;
+    }
+
+    if (itens.length === 0) {
+      return;
+    }
+
+    const cartPayload = buildCartEventPayload({
+      itens,
+      resumo: { total: resumo.total }
+    });
+
+    captureCommerceEvent('start_checkout', {
+      ...cartPayload,
+      checkout_step: etapaAtual,
+      checkout_step_index: getIndiceEtapa(etapaAtual) + 1,
+      delivery_type_selected: tipoEntrega,
+      payment_method_selected: formaPagamento,
+      authenticated_session: autenticado === true,
+      currency: 'BRL'
+    });
+
+    startCheckoutTrackedRef.current = true;
+  }, [autenticado, etapaAtual, formaPagamento, itens, resumo.total, tipoEntrega]);
+
+  useEffect(() => {
+    const pedidoId = Number.parseInt(String(resultadoPedido?.pedido_id || ''), 10);
+    if (!pedidoId || !pagamentoAprovadoCheckout) {
+      return;
+    }
+
+    if (purchaseTrackedOrdersRef.current.has(pedidoId)) {
+      return;
+    }
+
+    const subtotal = Number(resultadoPedido?.total_produtos ?? resumoPedidoSnapshot?.subtotal ?? 0);
+    const frete = Number(resultadoPedido?.frete_entrega ?? resumoPedidoSnapshot?.frete ?? 0);
+    const total = Number(resultadoPedido?.total ?? Number((subtotal + frete).toFixed(2)));
+    const itensFonte = itensPedidoSnapshot.length
+      ? itensPedidoSnapshot
+      : Array.isArray(resultadoPedido?.itens)
+        ? resultadoPedido.itens
+        : [];
+    const itensPedidoTracking = buildOrderItemsPayload(itensFonte);
+    const itemsCount = Number(
+      resultadoPedido?.itens_count
+      ?? resumoPedidoSnapshot?.itens
+      ?? itensPedidoTracking.length
+      ?? 0
+    );
+
+    captureCommerceEvent('purchase', {
+      order_id: pedidoId,
+      payment_method: String(resultadoPedido?.forma_pagamento || formaPagamento || '').toLowerCase() || null,
+      delivery_type: String(resultadoPedido?.tipo_entrega || tipoEntrega || '').toLowerCase() || null,
+      payment_status: String(statusPedidoAtual || resultadoPedido?.status || '').toLowerCase() || null,
+      currency: 'BRL',
+      subtotal: Number(subtotal.toFixed(2)),
+      shipping: Number(frete.toFixed(2)),
+      revenue: Number(total.toFixed(2)),
+      items_count: itemsCount,
+      line_items: itensPedidoTracking
+    });
+
+    purchaseTrackedOrdersRef.current.add(pedidoId);
+  }, [
+    formaPagamento,
+    itensPedidoSnapshot,
+    pagamentoAprovadoCheckout,
+    resultadoPedido,
+    resumoPedidoSnapshot,
+    statusPedidoAtual,
+    tipoEntrega
+  ]);
 
   useEffect(() => {
     if (!feedbackCarrinho) {
@@ -2683,6 +3616,8 @@ export default function PagamentoPage() {
               itens={resumo.itens}
               produtosDistintos={itensDistintosCarrinho}
               subtotal={resumo.total}
+              tipoEntrega={tipoEntrega}
+              economiaFrete={economiaFreteRetirada}
               onContinue={() => setEtapaAtual(ETAPAS.ENTREGA)}
               onClearCart={handleLimparCarrinho}
               disabled={carrinhoVazio}
@@ -2706,7 +3641,9 @@ export default function PagamentoPage() {
               <p className="checkout-delivery-kicker">Etapa 2</p>
               <h2>Entrega</h2>
               <p className="muted-text">
-                Informe o CEP, confira o endereço retornado e escolha a modalidade de entrega mais adequada para seu pedido.
+                {retiradaSelecionada
+                  ? 'Retirada na loja ativa. Sem frete e com preparo rapido para voce buscar no balcao.'
+                  : 'Informe o CEP, confira o endereço retornado e escolha a modalidade de entrega mais adequada para seu pedido.'}
               </p>
 
               <CheckoutGuidanceChips
@@ -2718,128 +3655,168 @@ export default function PagamentoPage() {
               />
             </div>
 
-            <section className="checkout-delivery-section" aria-label="Cálculo de frete por CEP">
-              <label htmlFor="cep-entrega"><strong>CEP de entrega</strong></label>
+            <DeliveryModeSelector
+              tipoEntrega={tipoEntrega}
+              onChange={(proximoTipo) => {
+                const tipoNormalizado = proximoTipo === 'retirada' ? 'retirada' : 'entrega';
 
-              <div className="delivery-cep-row">
-                <div className="delivery-cep-input-wrap">
-                  <span className="delivery-cep-icon" aria-hidden="true">📍</span>
-                  <input
-                    id="cep-entrega"
-                    className="field-input entrega-cep-input"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="postal-code"
-                    maxLength={9}
-                    placeholder="00000-000"
-                    value={cepEntrega}
-                    onChange={(event) => {
-                      const cepFormatado = formatarCep(event.target.value);
-                      const cepNormalizado = normalizarCep(cepFormatado);
+                if (tipoNormalizado === tipoEntrega) {
+                  return;
+                }
 
-                      setCepEntrega(cepFormatado);
-                      setSimulacaoFrete(null);
-                      setErroEntrega('');
+                if (tipoNormalizado === 'retirada') {
+                  const freteAnterior = Number(simulacaoFrete?.frete || 0);
+                  if (freteAnterior > 0) {
+                    setUltimoFreteEntrega(freteAnterior);
+                  }
+                  setSimulacaoFrete(null);
+                  setErroEntrega('');
+                }
 
-                      if (cepNormalizado !== cepEnderecoConsultado) {
-                        setEnderecoCepEntrega(null);
-                        setErroEnderecoCepEntrega('');
-                        setCepEnderecoConsultado('');
-                      }
-                    }}
-                  />
-                </div>
-
-                <button
-                  className="btn-primary entrega-calcular-btn"
-                  type="button"
-                  onClick={() => {
-                    void executarSimulacaoFrete();
-                  }}
-                  disabled={simulandoFrete || !cepEntregaValido}
-                >
-                  {simulandoFrete ? 'Calculando frete...' : 'Calcular frete'}
-                </button>
-              </div>
-
-              {cepEntregaNormalizado ? (
-                <DeliveryAddressLookupCard
-                  cep={formatarCep(cepEntregaNormalizado)}
-                  endereco={enderecoCepEntrega}
-                  carregando={buscandoEnderecoCepEntrega}
-                  erro={erroEnderecoCepEntrega}
-                  cepIncompleto={cepEntregaIncompleto}
-                />
-              ) : null}
-
-              <p className="delivery-cep-helper">
-                Origem da loja: CEP {CEP_MERCADO}, nº {NUMERO_MERCADO}. Bike disponível até {LIMITE_BIKE_KM.toFixed(1)} km.
-              </p>
-
-              <p className="delivery-cep-helper delivery-cep-helper-secondary">
-                Dica: tenha número, complemento e referência do endereço em mãos para agilizar a confirmação da entrega.
-              </p>
-
-              <p
-                className={`delivery-feedback is-${mensagemFrete.tone}`}
-                role={mensagemFrete.tone === 'error' || mensagemFrete.tone === 'warning' ? 'alert' : 'status'}
-                aria-live="polite"
-              >
-                {mensagemFrete.text}
-              </p>
-            </section>
-
-            <section className="checkout-delivery-section" aria-label="Opções de veículo de entrega">
-              <div className="checkout-delivery-section-head">
-                <h3>Escolha o tipo de entrega</h3>
-                <p>Selecione o veículo para estimar prazo operacional e custo do frete.</p>
-              </div>
-
-              <div className="delivery-options-grid" role="radiogroup" aria-label="Seleção de veículo de entrega">
-                {Object.entries(VEICULOS_ENTREGA).map(([key, veiculo]) => (
-                  <DeliveryOptionCard
-                    key={key}
-                    veiculo={veiculo}
-                    selecionado={veiculoEntrega === key}
-                    recomendado={veiculoRecomendado === key}
-                    onSelect={() => {
-                      setVeiculoEntrega(key);
-                      setSimulacaoFrete(null);
-                      setErroEntrega('');
-                    }}
-                  />
-                ))}
-              </div>
-            </section>
-
-            {semOpcaoEntregaDisponivel ? (
-              <div className="delivery-empty-state" role="alert">
-                <span aria-hidden="true">⚠️</span>
-                <div>
-                  <strong>Sem opção de entrega disponível para este CEP.</strong>
-                  <p>Verifique o CEP informado ou tente outro endereço para continuar.</p>
-                </div>
-              </div>
-            ) : null}
-
-            <DeliverySummaryCard
-              veiculoLabel={veiculoSelecionadoEntrega.label}
-              cepDestino={simulacaoFrete?.cep_destino || formatarCep(cepEntrega) || '-'}
-              distanciaTexto={simulacaoFrete ? `${Number(simulacaoFrete.distancia_km || 0).toFixed(2)} km` : '-'}
-              freteTexto={simulacaoFrete ? formatarMoeda(freteAtual) : 'A calcular'}
-              totalTexto={simulacaoFrete ? formatarMoeda(totalComFreteAtual) : '-'}
-              cepOrigem={CEP_MERCADO}
-              numeroOrigem={NUMERO_MERCADO}
+                setTipoEntrega(tipoNormalizado);
+              }}
             />
+
+            {retiradaSelecionada ? (
+              <>
+                <PickupStoreCard economiaFrete={economiaFreteRetirada} />
+
+                <p
+                  className={`delivery-feedback is-${mensagemFrete.tone}`}
+                  role={mensagemFrete.tone === 'error' || mensagemFrete.tone === 'warning' ? 'alert' : 'status'}
+                  aria-live="polite"
+                >
+                  {mensagemFrete.text}
+                </p>
+              </>
+            ) : (
+              <>
+                <section className="checkout-delivery-section" aria-label="Cálculo de frete por CEP">
+                  <label htmlFor="cep-entrega"><strong>CEP de entrega</strong></label>
+
+                  <div className="delivery-cep-row">
+                    <div className="delivery-cep-input-wrap">
+                      <span className="delivery-cep-icon" aria-hidden="true">📍</span>
+                      <input
+                        id="cep-entrega"
+                        className="field-input entrega-cep-input"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="postal-code"
+                        maxLength={9}
+                        placeholder="00000-000"
+                        value={cepEntrega}
+                        onChange={(event) => {
+                          const cepFormatado = formatarCep(event.target.value);
+                          const cepNormalizado = normalizarCep(cepFormatado);
+
+                          setCepEntrega(cepFormatado);
+                          setSimulacaoFrete(null);
+                          setErroEntrega('');
+
+                          if (cepNormalizado !== cepEnderecoConsultado) {
+                            setEnderecoCepEntrega(null);
+                            setErroEnderecoCepEntrega('');
+                            setCepEnderecoConsultado('');
+                          }
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      className="btn-primary entrega-calcular-btn"
+                      type="button"
+                      onClick={() => {
+                        void executarSimulacaoFrete();
+                      }}
+                      disabled={simulandoFrete || !cepEntregaValido}
+                    >
+                      {simulandoFrete ? 'Calculando frete...' : 'Calcular frete'}
+                    </button>
+                  </div>
+
+                  {cepEntregaNormalizado ? (
+                    <DeliveryAddressLookupCard
+                      cep={formatarCep(cepEntregaNormalizado)}
+                      endereco={enderecoCepEntrega}
+                      carregando={buscandoEnderecoCepEntrega}
+                      erro={erroEnderecoCepEntrega}
+                      cepIncompleto={cepEntregaIncompleto}
+                    />
+                  ) : null}
+
+                  <p className="delivery-cep-helper">
+                    Origem da loja: CEP {CEP_MERCADO}, nº {NUMERO_MERCADO}. Bike disponível até {LIMITE_BIKE_KM.toFixed(1)} km.
+                  </p>
+
+                  <p className="delivery-cep-helper delivery-cep-helper-secondary">
+                    Dica: tenha número, complemento e referência do endereço em mãos para agilizar a confirmação da entrega.
+                  </p>
+
+                  <p
+                    className={`delivery-feedback is-${mensagemFrete.tone}`}
+                    role={mensagemFrete.tone === 'error' || mensagemFrete.tone === 'warning' ? 'alert' : 'status'}
+                    aria-live="polite"
+                  >
+                    {mensagemFrete.text}
+                  </p>
+                </section>
+
+                <section className="checkout-delivery-section" aria-label="Opções de veículo de entrega">
+                  <div className="checkout-delivery-section-head">
+                    <h3>Escolha o tipo de entrega</h3>
+                    <p>Selecione o veículo para estimar prazo operacional e custo do frete.</p>
+                  </div>
+
+                  <div className="delivery-options-grid" role="radiogroup" aria-label="Seleção de veículo de entrega">
+                    {Object.entries(VEICULOS_ENTREGA).map(([key, veiculo]) => (
+                      <DeliveryOptionCard
+                        key={key}
+                        veiculo={veiculo}
+                        selecionado={veiculoEntrega === key}
+                        recomendado={veiculoRecomendado === key}
+                        onSelect={() => {
+                          setVeiculoEntrega(key);
+                          setSimulacaoFrete(null);
+                          setErroEntrega('');
+                        }}
+                      />
+                    ))}
+                  </div>
+                </section>
+
+                {semOpcaoEntregaDisponivel ? (
+                  <div className="delivery-empty-state" role="alert">
+                    <span aria-hidden="true">⚠️</span>
+                    <div>
+                      <strong>Sem opção de entrega disponível para este CEP.</strong>
+                      <p>Verifique o CEP informado ou tente outro endereço para continuar.</p>
+                    </div>
+                  </div>
+                ) : null}
+
+                <DeliverySummaryCard
+                  veiculoLabel={veiculoSelecionadoEntrega.label}
+                  cepDestino={simulacaoFrete?.cep_destino || formatarCep(cepEntrega) || '-'}
+                  distanciaTexto={simulacaoFrete ? `${Number(simulacaoFrete.distancia_km || 0).toFixed(2)} km` : '-'}
+                  freteTexto={simulacaoFrete ? formatarMoeda(freteAtual) : 'A calcular'}
+                  totalTexto={simulacaoFrete ? formatarMoeda(totalComFreteAtual) : '-'}
+                  cepOrigem={CEP_MERCADO}
+                  numeroOrigem={NUMERO_MERCADO}
+                />
+              </>
+            )}
           </div>
 
           <aside className="checkout-delivery-side">
             <OrderSummaryCard
               itens={resumo.itens}
               subtotal={resumo.total}
-              frete={simulacaoFrete ? freteAtual : null}
-              total={simulacaoFrete ? totalComFreteAtual : resumo.total}
-              veiculoLabel={veiculoSelecionadoEntrega.label}
+              frete={retiradaSelecionada ? 0 : simulacaoFrete ? freteAtual : null}
+              total={retiradaSelecionada ? Number(resumo.total || 0) : simulacaoFrete ? totalComFreteAtual : resumo.total}
+              tipoEntrega={tipoEntrega}
+              economiaFrete={economiaFreteRetirada}
+              veiculoLabel={atendimentoSelecionadoLabel}
             />
 
             <div className="card-box checkout-delivery-actions-card">
@@ -2856,9 +3833,11 @@ export default function PagamentoPage() {
                   onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}
                   disabled={!podeAvancarParaPagamento}
                 >
-                  {simulacaoFrete
-                    ? `Continuar para pagamento • Total ${formatarMoeda(totalComFreteAtual)}`
-                    : 'Continuar para pagamento'}
+                  {retiradaSelecionada
+                    ? `Continuar para pagamento • Total ${formatarMoeda(Number(resumo.total || 0))}`
+                    : simulacaoFrete
+                      ? `Continuar para pagamento • Total ${formatarMoeda(totalComFreteAtual)}`
+                      : 'Continuar para pagamento'}
                 </button>
               </div>
             </div>
@@ -2885,11 +3864,27 @@ export default function PagamentoPage() {
               />
             </div>
 
-            <p className={`payment-frete-info ${(simulacaoFrete || resultadoPedido?.pedido_id) ? 'is-ready' : 'is-warning'}`}>
-              {(simulacaoFrete || resultadoPedido?.pedido_id)
-                ? `Frete ${veiculoSelecionadoResumo.label}: ${formatarMoeda(resumoFretePagamento)} • Distância ${distanciaSelecionadaTexto}`
-                : 'Frete não calculado. Volte para entrega e simule o CEP antes de continuar.'}
+            <p className={`payment-frete-info ${(retiradaSelecionada || simulacaoFrete || resultadoPedido?.pedido_id) ? 'is-ready' : 'is-warning'}`}>
+              {retiradaSelecionada
+                ? `Retirada na loja selecionada. Sem frete${Number(economiaFreteRetirada || 0) > 0 ? ` • Economia ${formatarMoeda(economiaFreteRetirada)}` : ''}.`
+                : (simulacaoFrete || resultadoPedido?.pedido_id)
+                  ? `Frete ${atendimentoSelecionadoLabel}: ${formatarMoeda(resumoFretePagamento)} • Distância ${distanciaSelecionadaTexto}`
+                  : 'Frete não calculado. Volte para entrega e simule o CEP antes de continuar.'}
             </p>
+
+            {growthCheckoutPaymentBadge ? (
+              <p className={`payment-growth-badge ${growthCheckoutPaymentPriceClass}`.trim()}>
+                {growthCheckoutPaymentBadge}
+              </p>
+            ) : null}
+
+            <CheckoutSecurityTrust
+              formaPagamento={formaPagamento}
+              total={resumoTotalPagamento}
+              frete={resumoFretePagamento}
+              retiradaSelecionada={retiradaSelecionada}
+              recaptchaEnabled={recaptchaCheckoutEnabled}
+            />
 
             {autenticado === true ? (
               <>
@@ -3160,6 +4155,9 @@ export default function PagamentoPage() {
               frete={resumoFretePagamento}
               total={resumoTotalPagamento}
               metodo={formaPagamentoAtual.title}
+              tipoEntrega={tipoEntrega}
+              economiaFrete={economiaFreteRetirada}
+              className={growthCheckoutPaymentPriceClass}
             />
 
             {autenticado === true ? (
@@ -3202,8 +4200,8 @@ export default function PagamentoPage() {
                     disabled={bloqueioPagamento}
                   >
                     {carregando
-                      ? 'Preparando pagamento...'
-                      : `${formaPagamentoAtual.ctaText} • Total ${formatarMoeda(resumoTotalPagamento)}`}
+                      ? (retiradaSelecionada ? 'Reservando retirada...' : 'Finalizando pedido...')
+                      : `${ctaFinalPedido} • Total ${formatarMoeda(resumoTotalPagamento)}`}
                   </button>
                 </div>
               </div>
@@ -3230,6 +4228,15 @@ export default function PagamentoPage() {
                   : ['Concluir pagamento no cartão', 'Conferir status do pedido', 'Seguir para confirmação']}
               />
             </div>
+
+            <CheckoutSecurityTrust
+              formaPagamento={formaPagamento}
+              total={totalComEntregaPedido}
+              frete={freteSelecionado}
+              retiradaSelecionada={retiradaSelecionada}
+              recaptchaEnabled={recaptchaCheckoutEnabled}
+              compact
+            />
 
             {formaPagamento === 'pix' ? (
               <>
@@ -3279,9 +4286,18 @@ export default function PagamentoPage() {
                     <p>Status do pagamento: {formatarStatusPagamento(resultadoCartao.status)}</p>
                     <p>Status do pedido: {formatarStatusPedido(resultadoCartao.status_interno || 'pendente')}</p>
                     <p>Referência do pedido no PagBank: {resultadoCartao.pagbank_order_id || '-'}</p>
+                    <p>Referência lógica: {resultadoCartao.reference_id || '-'}</p>
                     <p>Referência da transação: {resultadoCartao.payment_id || '-'}</p>
                     <p>Método: {resultadoCartao.tipo_cartao === 'debito' ? 'Cartão de Débito' : 'Cartão de Crédito'}</p>
                     <p>Parcelas: {resultadoCartao.tipo_cartao === 'debito' ? '1x' : `${resultadoCartao.parcelas || parcelasCartaoEfetivas}x`}</p>
+                    {debitoSelecionado ? (
+                      <>
+                        <p>Charge status: {String(resultadoCartao.status_charge || '-').toUpperCase()}</p>
+                        <p>Charge 3DS status: {String(resultadoCartao.status_charge_threeds || '-').toUpperCase()}</p>
+                        <p>Payment response code: {resultadoCartao.payment_response?.code || resultadoCartao.authorization_code || '-'}</p>
+                        <p>Payment response message: {resultadoCartao.payment_response?.message || resultadoCartao.message || '-'}</p>
+                      </>
+                    ) : null}
                     {cartaoRecusado ? (
                       <p className="error-text">Pagamento não aprovado. Revise os dados do cartão e tente novamente.</p>
                     ) : null}
@@ -3289,6 +4305,38 @@ export default function PagamentoPage() {
                 ) : (
                   <p className="muted-text">Revise os dados e conclua o pagamento para liberar a confirmação do pedido.</p>
                 )}
+
+                {debitoSelecionado && eventosHomologacao3DS.length > 0 ? (
+                  <div className="payment-homologacao-logs" aria-label="Evidencia sanitizada de homologacao 3DS">
+                    <p className="payment-homologacao-logs-title">Evidência de homologação 3DS (dados mascarados)</p>
+
+                    <div className="payment-homologacao-logs-actions">
+                      <button
+                        className="btn-secondary"
+                        type="button"
+                        onClick={() => {
+                          void handleCopiarEvidenciaHomologacao3DS();
+                        }}
+                      >
+                        Copiar log sanitizado
+                      </button>
+
+                      <button
+                        className="btn-secondary"
+                        type="button"
+                        onClick={handleBaixarEvidenciaHomologacao3DS}
+                      >
+                        Baixar JSON sanitizado
+                      </button>
+                    </div>
+
+                    {feedbackEvidencia3DS ? (
+                      <p className={`payment-action-feedback ${feedbackEvidencia3DSTone}`.trim()} role="status">
+                        {feedbackEvidencia3DS}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
             )}
           </div>
@@ -3300,6 +4348,7 @@ export default function PagamentoPage() {
               frete={freteSelecionado}
               total={totalComEntregaPedido}
               metodo={formaPagamento === 'pix' ? 'PIX' : tituloFormaPagamento}
+              className={growthCheckoutPaymentPriceClass}
             />
 
             <div className="card-box checkout-pix-actions-card">

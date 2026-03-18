@@ -15,12 +15,15 @@ import {
   getProdutos,
   isAuthErrorMessage
 } from '../lib/api';
+import SmartImage from '../components/ui/SmartImage';
 
-const STATUS_OPTIONS = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado'];
+const STATUS_OPTIONS = ['pendente', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
 const STATUS_LABELS = {
   pendente: 'Aguardando confirmação',
   preparando: 'Em preparação',
+  pronto_para_retirada: 'Pronto para retirada',
   enviado: 'Saiu para entrega',
+  retirado: 'Retirado na loja',
   entregue: 'Entregue',
   cancelado: 'Cancelado',
   pago: 'Pago'
@@ -64,11 +67,23 @@ const STATUS_OPERACAO_META = {
     tone: 'preparing',
     timelineStep: 3
   },
+  pronto_para_retirada: {
+    label: 'Pronto para retirada',
+    icon: '🛍️',
+    tone: 'pickup-ready',
+    timelineStep: 4
+  },
   enviado: {
     label: 'Saiu para entrega',
     icon: '🛵',
     tone: 'delivery',
     timelineStep: 4
+  },
+  retirado: {
+    label: 'Retirado na loja',
+    icon: '🏁',
+    tone: 'pickup-done',
+    timelineStep: 5
   },
   entregue: {
     label: 'Entregue',
@@ -83,7 +98,7 @@ const STATUS_OPERACAO_META = {
     timelineStep: -1
   }
 };
-const STATUS_CHIPS_OPERACIONAIS = ['todos', 'criticos', 'pendente', 'pago', 'preparando', 'enviado', 'entregue', 'cancelado'];
+const STATUS_CHIPS_OPERACIONAIS = ['todos', 'criticos', 'pendente', 'pago', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
 const TIMELINE_ETAPAS_ADMIN = ['Recebido', 'Pagamento', 'Separação', 'Saída', 'Concluído'];
 const ORDENACAO_PEDIDOS_OPTIONS = [
   { id: 'prioridade', label: 'Prioridade operacional' },
@@ -102,11 +117,18 @@ const FILTRO_PAGAMENTO_OPTIONS = [
   { id: 'cartao', label: 'Somente cartão' },
   { id: 'dinheiro', label: 'Somente dinheiro' }
 ];
+const FILTRO_TIPO_ENTREGA_OPTIONS = [
+  { id: 'todos', label: 'Atendimento: todos' },
+  { id: 'entrega', label: 'Somente entrega' },
+  { id: 'retirada', label: 'Somente retirada' }
+];
 const OPERACAO_PEDIDOS_LIMITES = Object.freeze({
   pendenteAtencaoMinutos: 20,
   envelhecimentoAtencaoMinutos: 45,
   envelhecimentoUrgenciaMinutos: 90,
   envelhecimentoCriticoMinutos: 180,
+  muitosItensDistintos: 6,
+  muitasUnidadesEstimadas: 12,
   autoRefreshMs: 90000,
   maxPendenciasVisiveisFilaAlta: 2,
   historicoSessaoMaxItens: 30
@@ -118,6 +140,7 @@ const CAMPOS_DATA_STATUS_PEDIDO = ['status_atualizado_em', 'status_alterado_em',
 const STATUS_CHIPS_OPERACIONAIS_SET = new Set(STATUS_CHIPS_OPERACIONAIS);
 const ORDENACAO_PEDIDOS_SET = new Set(ORDENACAO_PEDIDOS_OPTIONS.map((item) => item.id));
 const FILTRO_PAGAMENTO_SET = new Set(FILTRO_PAGAMENTO_OPTIONS.map((item) => item.id));
+const FILTRO_TIPO_ENTREGA_SET = new Set(FILTRO_TIPO_ENTREGA_OPTIONS.map((item) => item.id));
 
 function formatarMoeda(valor) {
   return BRL_CURRENCY.format(Number(valor || 0));
@@ -134,6 +157,29 @@ function normalizarTextoBusca(texto) {
 function formatarFormaPagamentoPedido(formaRaw) {
   const forma = String(formaRaw || '').trim().toLowerCase();
   return FORMAS_PAGAMENTO_LABELS[forma] || 'Não informado';
+}
+
+function normalizarTipoEntregaPedido(tipoEntregaRaw, enderecoRaw) {
+  const tipoEntrega = String(tipoEntregaRaw || '').trim().toLowerCase();
+  if (tipoEntrega === 'retirada') {
+    return 'retirada';
+  }
+
+  if (tipoEntrega === 'entrega') {
+    return 'entrega';
+  }
+
+  const enderecoEhObjeto = Boolean(enderecoRaw && typeof enderecoRaw === 'object');
+  const possuiEndereco = enderecoEhObjeto
+    && [enderecoRaw?.rua, enderecoRaw?.logradouro, enderecoRaw?.cep].some((valor) => String(valor || '').trim().length > 0);
+
+  return possuiEndereco ? 'entrega' : 'retirada';
+}
+
+function formatarTipoEntregaPedido(tipoEntregaRaw, enderecoRaw) {
+  return normalizarTipoEntregaPedido(tipoEntregaRaw, enderecoRaw) === 'retirada'
+    ? 'Retirada'
+    : 'Entrega';
 }
 
 function obterMetaStatusOperacional(statusRaw) {
@@ -224,7 +270,7 @@ function obterMetaEnvelhecimentoPedido(statusRaw, tempoMinutosRaw, pagamentoTone
   const tempoMinutos = Number(tempoMinutosRaw || 0);
   const minutos = Number.isFinite(tempoMinutos) && tempoMinutos > 0 ? tempoMinutos : 0;
 
-  if (['entregue', 'cancelado'].includes(status)) {
+  if (['entregue', 'retirado', 'cancelado'].includes(status)) {
     return {
       nivel: 0,
       tone: 'normal',
@@ -283,6 +329,7 @@ function obterContextoPedidosOperacionaisInicial() {
   const contextoPadrao = {
     filtroStatus: 'todos',
     filtroPagamento: 'todos',
+    filtroTipoEntrega: 'todos',
     ordenacao: 'prioridade',
     busca: '',
     pedidoExpandidoId: null,
@@ -307,6 +354,9 @@ function obterContextoPedidosOperacionaisInicial() {
     const filtroPagamento = FILTRO_PAGAMENTO_SET.has(String(salvo?.filtroPagamento || ''))
       ? String(salvo.filtroPagamento)
       : contextoPadrao.filtroPagamento;
+    const filtroTipoEntrega = FILTRO_TIPO_ENTREGA_SET.has(String(salvo?.filtroTipoEntrega || ''))
+      ? String(salvo.filtroTipoEntrega)
+      : contextoPadrao.filtroTipoEntrega;
     const ordenacao = ORDENACAO_PEDIDOS_SET.has(String(salvo?.ordenacao || ''))
       ? String(salvo.ordenacao)
       : contextoPadrao.ordenacao;
@@ -319,6 +369,7 @@ function obterContextoPedidosOperacionaisInicial() {
     return {
       filtroStatus,
       filtroPagamento,
+      filtroTipoEntrega,
       ordenacao,
       busca,
       pedidoExpandidoId,
@@ -349,6 +400,7 @@ function montarResumoOperacionalPedido(pedido) {
   const pagamentoDetalhe = pedido?.pagamentoMeta?.detalhe
     ? ` (${pedido.pagamentoMeta.detalhe})`
     : '';
+  const tipoAtendimento = formatarTipoEntregaPedido(pedido?.tipoEntregaNormalizado || pedido?.tipo_entrega, pedido?.endereco);
 
   return [
     `Pedido #${pedido?.id || '-'}`,
@@ -356,9 +408,165 @@ function montarResumoOperacionalPedido(pedido) {
     `Telefone: ${pedido?.clienteTelefone || 'não informado'}`,
     `Total: ${formatarMoeda(pedido?.totalNumero || pedido?.total || 0)}`,
     `Status: ${pedido?.statusMeta?.label || formatarStatusPedido(pedido?.status || '')}`,
+    `Atendimento: ${tipoAtendimento}`,
     `Pagamento: ${pedido?.pagamentoMeta?.label || '-'}${pagamentoDetalhe}`,
-    `Endereço: ${pedido?.enderecoTexto || 'não cadastrado'}`,
+    `Endereço: ${tipoAtendimento === 'Retirada' ? 'Retirada na loja (sem entrega)' : (pedido?.enderecoTexto || 'não cadastrado')}`,
     `Itens principais: ${itensPrincipais}`
+  ].join('\n');
+}
+
+function coletarTextosOperacionais(candidatosRaw) {
+  const textos = [];
+  const vistos = new Set();
+
+  function adicionarTexto(valorRaw) {
+    const texto = String(valorRaw || '').trim();
+    if (!texto) {
+      return;
+    }
+
+    const chave = normalizarTextoBusca(texto);
+    if (vistos.has(chave)) {
+      return;
+    }
+
+    vistos.add(chave);
+    textos.push(texto);
+  }
+
+  function visitarValor(valor) {
+    if (!valor && valor !== 0) {
+      return;
+    }
+
+    if (Array.isArray(valor)) {
+      valor.forEach(visitarValor);
+      return;
+    }
+
+    if (typeof valor === 'object') {
+      const chaves = ['nome', 'label', 'valor', 'descricao', 'detalhe', 'texto', 'observacao'];
+      chaves.forEach((chave) => {
+        if (Object.prototype.hasOwnProperty.call(valor, chave)) {
+          visitarValor(valor[chave]);
+        }
+      });
+      return;
+    }
+
+    adicionarTexto(valor);
+  }
+
+  (Array.isArray(candidatosRaw) ? candidatosRaw : [candidatosRaw]).forEach(visitarValor);
+  return textos;
+}
+
+function extrairVariacaoItemOperacional(item) {
+  return coletarTextosOperacionais([
+    item?.variacao,
+    item?.variacoes,
+    item?.opcao,
+    item?.opcoes,
+    item?.complemento,
+    item?.complementos,
+    item?.adicionais,
+    item?.sabor,
+    item?.tamanho
+  ]).join(' • ');
+}
+
+function extrairObservacaoItemOperacional(item) {
+  return coletarTextosOperacionais([
+    item?.observacao,
+    item?.observacoes,
+    item?.obs,
+    item?.nota,
+    item?.comentario,
+    item?.instrucoes,
+    item?.observacao_cliente
+  ]).join(' • ');
+}
+
+function montarListaSeparacaoPedido(pedido) {
+  const itens = Array.isArray(pedido?.itensLista) ? pedido.itensLista : [];
+  const linhasItens = itens.length
+    ? itens.map((item, index) => {
+      const linhas = [`${index + 1}. ${item.quantidade}x ${item.nome}`];
+
+      if (item.variacaoTexto) {
+        linhas.push(`   Variação: ${item.variacaoTexto}`);
+      }
+
+      if (item.observacaoItem) {
+        linhas.push(`   Obs item: ${item.observacaoItem}`);
+      }
+
+      return linhas.join('\n');
+    }).join('\n')
+    : 'Itens não detalhados neste pedido.';
+  const observacoesRelevantes = Array.isArray(pedido?.observacoesRelevantesLista)
+    ? pedido.observacoesRelevantesLista
+    : [];
+
+  return [
+    `Separação do pedido #${pedido?.id || '-'}`,
+    `Cliente: ${pedido?.clienteNome || '-'}`,
+    `Itens distintos: ${Number(pedido?.totalItensDistintos || itens.length || 0)}`,
+    `Unidades estimadas: ${Number(pedido?.totalUnidadesEstimadas || 0)}`,
+    '',
+    linhasItens,
+    '',
+    `Observações relevantes: ${observacoesRelevantes.length ? observacoesRelevantes.join(' | ') : 'nenhuma'}`
+  ].join('\n');
+}
+
+function montarMensagemContatoOperacionalPedido(pedido) {
+  const status = String(pedido?.statusMeta?.label || formatarStatusPedido(pedido?.status || '')).toLowerCase();
+  const pagamento = String(pedido?.pagamentoMeta?.label || 'Pagamento não informado');
+  const tipoEntrega = normalizarTipoEntregaPedido(pedido?.tipoEntregaNormalizado || pedido?.tipo_entrega, pedido?.endereco);
+  const enderecoTexto = tipoEntrega === 'retirada'
+    ? 'Retirada na loja confirmada.'
+    : (pedido?.enderecoDisponivel ? 'Endereço confirmado.' : 'Endereço pendente.');
+  const telefoneTexto = pedido?.clienteTelefone ? 'Telefone confirmado.' : 'Telefone pendente.';
+
+  return `BomFilho: pedido #${pedido?.id || '-'} em ${status}. ${pagamento}. ${enderecoTexto} ${telefoneTexto} Responda se precisar ajustar dados.`;
+}
+
+function montarResumoConferenciaExpedicaoPedido(pedido, { modoFilaAlta = false } = {}) {
+  const pagamentoDetalhe = pedido?.pagamentoMeta?.detalhe ? ` (${pedido.pagamentoMeta.detalhe})` : '';
+  const tipoEntrega = normalizarTipoEntregaPedido(pedido?.tipoEntregaNormalizado || pedido?.tipo_entrega, pedido?.endereco);
+  const alertas = [];
+
+  if (pedido?.observacoesRelevantesCount > 0) {
+    alertas.push('Observação do cliente presente');
+  }
+
+  if (['waiting', 'attention', 'error'].includes(String(pedido?.pagamentoMeta?.tone || '').trim().toLowerCase())) {
+    alertas.push('Pagamento pendente/falha');
+  }
+
+  if (pedido?.possuiMuitosItens) {
+    alertas.push('Separação volumosa');
+  }
+
+  if (pedido?.envelhecimentoLabel) {
+    alertas.push(pedido.envelhecimentoLabel);
+  }
+
+  if (modoFilaAlta) {
+    alertas.push('Fila alta ativa');
+  }
+
+  return [
+    `Conferência de expedição #${pedido?.id || '-'}`,
+    `Status atual: ${pedido?.statusMeta?.label || formatarStatusPedido(pedido?.status || '')}`,
+    `Atendimento: ${formatarTipoEntregaPedido(tipoEntrega)}`,
+    `Pagamento: ${pedido?.pagamentoMeta?.label || '-'}${pagamentoDetalhe}`,
+    `Telefone: ${pedido?.clienteTelefone || 'não informado'}`,
+    `Endereço: ${tipoEntrega === 'retirada' ? 'Retirada na loja (sem entrega)' : (pedido?.enderecoTexto || 'não cadastrado')}`,
+    `Observação do cliente: ${pedido?.observacaoOperacional || 'sem observação'}`,
+    `Itens: ${Number(pedido?.totalItensDistintos || 0)} distintos / ${Number(pedido?.totalUnidadesEstimadas || 0)} unidades`,
+    `Atenções: ${alertas.length ? alertas.join(' | ') : 'sem alertas adicionais'}`
   ].join('\n');
 }
 
@@ -386,7 +594,8 @@ function montarPendenciasOperacionaisPedido({
   envelhecimentoMeta,
   requerAcao,
   proximoStatus,
-  observacaoOperacional
+  observacaoOperacional,
+  possuiMuitosItens
 }) {
   const pendencias = [];
 
@@ -428,18 +637,31 @@ function montarPendenciasOperacionaisPedido({
     });
   }
 
+  if (possuiMuitosItens) {
+    pendencias.push({
+      id: 'separacao-volumosa',
+      tone: 'attention',
+      label: 'Separação volumosa'
+    });
+  }
+
   return pendencias.slice(0, 4);
 }
 
-function obterProximoStatusPedido(statusRaw) {
+function obterProximoStatusPedido(statusRaw, tipoEntregaRaw = 'entrega') {
   const status = String(statusRaw || '').trim().toLowerCase();
+  const tipoEntrega = String(tipoEntregaRaw || '').trim().toLowerCase() === 'retirada' ? 'retirada' : 'entrega';
 
   if (status === 'pendente' || status === 'pago') {
     return 'preparando';
   }
 
   if (status === 'preparando') {
-    return 'enviado';
+    return tipoEntrega === 'retirada' ? 'pronto_para_retirada' : 'enviado';
+  }
+
+  if (status === 'pronto_para_retirada') {
+    return 'retirado';
   }
 
   if (status === 'enviado') {
@@ -449,15 +671,20 @@ function obterProximoStatusPedido(statusRaw) {
   return null;
 }
 
-function obterLabelAcaoRapida(statusRaw) {
+function obterLabelAcaoRapida(statusRaw, tipoEntregaRaw = 'entrega') {
   const status = String(statusRaw || '').trim().toLowerCase();
+  const tipoEntrega = String(tipoEntregaRaw || '').trim().toLowerCase() === 'retirada' ? 'retirada' : 'entrega';
 
   if (status === 'pendente' || status === 'pago') {
     return 'Iniciar separação';
   }
 
   if (status === 'preparando') {
-    return 'Marcar saída';
+    return tipoEntrega === 'retirada' ? 'Marcar pronto para retirada' : 'Marcar saída';
+  }
+
+  if (status === 'pronto_para_retirada') {
+    return 'Marcar retirado';
   }
 
   if (status === 'enviado') {
@@ -533,7 +760,7 @@ function inferirPagamentoMeta(pedido) {
   }
 
   if (forma === 'pix') {
-    if (pixStatus === 'PAID' || ['pago', 'preparando', 'enviado', 'entregue'].includes(statusPedido)) {
+    if (pixStatus === 'PAID' || ['pago', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue'].includes(statusPedido)) {
       return {
         tone: 'ok',
         label: 'Pagamento confirmado',
@@ -581,7 +808,7 @@ function inferirPagamentoMeta(pedido) {
   }
 
   if (['credito', 'debito', 'cartao'].includes(forma)) {
-    if (['pago', 'preparando', 'enviado', 'entregue'].includes(statusPedido)) {
+    if (['pago', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue'].includes(statusPedido)) {
       return {
         tone: 'ok',
         label: 'Pagamento confirmado',
@@ -750,6 +977,7 @@ export default function AdminPage() {
   const [statusDraft, setStatusDraft] = useState({});
   const [filtroPedidoStatus, setFiltroPedidoStatus] = useState(() => contextoPedidosInicial.filtroStatus);
   const [filtroPedidoPagamento, setFiltroPedidoPagamento] = useState(() => contextoPedidosInicial.filtroPagamento);
+  const [filtroPedidoTipoEntrega, setFiltroPedidoTipoEntrega] = useState(() => contextoPedidosInicial.filtroTipoEntrega);
   const [ordenacaoPedidos, setOrdenacaoPedidos] = useState(() => contextoPedidosInicial.ordenacao);
   const [buscaPedidosOperacional, setBuscaPedidosOperacional] = useState(() => contextoPedidosInicial.busca);
   const [pedidoExpandidoId, setPedidoExpandidoId] = useState(() => contextoPedidosInicial.pedidoExpandidoId);
@@ -846,6 +1074,7 @@ export default function AdminPage() {
     salvarContextoPedidosOperacionais({
       filtroStatus: filtroPedidoStatus,
       filtroPagamento: filtroPedidoPagamento,
+      filtroTipoEntrega: filtroPedidoTipoEntrega,
       ordenacao: ordenacaoPedidos,
       busca: buscaPedidosOperacional,
       pedidoExpandidoId,
@@ -856,6 +1085,7 @@ export default function AdminPage() {
     autoRefreshPedidosAtivo,
     buscaPedidosOperacional,
     filtroPedidoPagamento,
+    filtroPedidoTipoEntrega,
     filtroPedidoStatus,
     modoFilaAltaAtivo,
     ordenacaoPedidos,
@@ -1194,6 +1424,7 @@ export default function AdminPage() {
     setStatusDraft({});
     setFiltroPedidoStatus('todos');
     setFiltroPedidoPagamento('todos');
+    setFiltroPedidoTipoEntrega('todos');
     setOrdenacaoPedidos('prioridade');
     setBuscaPedidosOperacional('');
     setPedidoExpandidoId(null);
@@ -1240,7 +1471,11 @@ export default function AdminPage() {
       const tempoNoStatusMinutos = dataStatusMs > 0 ? Math.floor((Date.now() - dataStatusMs) / 60000) : null;
       const resumoItens = montarResumoItensOperacional(pedido?.itens);
       const formaPagamento = String(pedido?.forma_pagamento || '').trim().toLowerCase();
+      const tipoEntregaNormalizado = normalizarTipoEntregaPedido(pedido?.tipo_entrega, pedido?.endereco);
       const enderecoDisponivel = Boolean(pedido?.endereco && typeof pedido?.endereco === 'object' && pedido?.endereco?.rua);
+      const enderecoTextoOperacional = tipoEntregaNormalizado === 'retirada'
+        ? 'Retirada na loja (sem endereço de entrega).'
+        : formatarEnderecoOperacional(pedido?.endereco);
       const observacaoOperacional = obterObservacaoOperacionalPedido(pedido);
       const telefoneCliente = String(pedido?.cliente_telefone || '').trim();
       const clienteNome = String(pedido?.cliente_nome || '').trim() || 'Cliente não identificado';
@@ -1250,20 +1485,40 @@ export default function AdminPage() {
           const quantidade = Math.max(1, Number(item?.quantidade || 1));
           const preco = Number(item?.preco || 0);
           const subtotal = Number(item?.subtotal || (quantidade * preco));
+          const variacaoTexto = extrairVariacaoItemOperacional(item);
+          const observacaoItem = extrairObservacaoItemOperacional(item);
 
           return {
             id: Number(item?.id || 0) || `item-${pedido?.id}-${index}`,
             nome: String(item?.nome_produto || item?.nome || `Item ${index + 1}`).trim(),
             quantidade,
             preco,
-            subtotal
+            subtotal,
+            variacaoTexto,
+            observacaoItem
           };
         })
         : [];
+      const totalItensDistintos = itensLista.length;
+      const totalUnidadesEstimadas = itensLista.reduce((acc, item) => {
+        const quantidade = Number(item?.quantidade || 0);
+        return acc + (Number.isFinite(quantidade) && quantidade > 0 ? quantidade : 1);
+      }, 0);
+      const observacoesItens = itensLista
+        .map((item) => String(item?.observacaoItem || '').trim())
+        .filter(Boolean);
+      const observacoesRelevantesLista = [...new Set([
+        String(observacaoOperacional || '').trim(),
+        ...observacoesItens
+      ].filter(Boolean))];
+      const observacoesRelevantesCount = observacoesRelevantesLista.length;
+      const possuiMuitosItens = totalItensDistintos >= OPERACAO_PEDIDOS_LIMITES.muitosItensDistintos
+        || totalUnidadesEstimadas >= OPERACAO_PEDIDOS_LIMITES.muitasUnidadesEstimadas;
+      const pagamentoRequerConferencia = ['waiting', 'attention', 'error'].includes(pagamentoMeta.tone);
 
-      const requerAcao = ['pendente', 'pago', 'preparando', 'enviado'].includes(statusNormalizado);
+      const requerAcao = ['pendente', 'pago', 'preparando', 'pronto_para_retirada', 'enviado'].includes(statusNormalizado);
       const envelhecimentoMeta = obterMetaEnvelhecimentoPedido(statusNormalizado, tempoMinutos, pagamentoMeta.tone);
-      const proximoStatus = obterProximoStatusPedido(statusNormalizado);
+      const proximoStatus = obterProximoStatusPedido(statusNormalizado, tipoEntregaNormalizado);
       const urgente = envelhecimentoMeta.nivel >= 2;
       const critico = envelhecimentoMeta.nivel >= 3 || statusNormalizado === 'pendente' || pagamentoMeta.tone === 'error';
       const tempoNoStatusDisponivel = Number.isFinite(tempoNoStatusMinutos) && tempoNoStatusMinutos >= 0;
@@ -1272,7 +1527,8 @@ export default function AdminPage() {
         envelhecimentoMeta,
         requerAcao,
         proximoStatus,
-        observacaoOperacional
+        observacaoOperacional,
+        possuiMuitosItens
       });
 
       return {
@@ -1297,17 +1553,24 @@ export default function AdminPage() {
         pixStatus: String(pedido?.pix_status || '').trim().toUpperCase(),
         clienteNome,
         clienteTelefone: telefoneCliente,
+        tipoEntregaNormalizado,
         observacaoOperacional,
+        observacoesRelevantesLista,
+        observacoesRelevantesCount,
         pendenciasOperacionais,
         resumoItensTexto: resumoItens.resumoTexto,
         totalItens: resumoItens.totalItens,
+        totalItensDistintos,
+        totalUnidadesEstimadas,
+        possuiMuitosItens,
+        pagamentoRequerConferencia,
         itensLista,
         enderecoDisponivel,
-        enderecoTexto: formatarEnderecoOperacional(pedido?.endereco),
-        tipoAtendimento: enderecoDisponivel ? 'Entrega' : 'Retirada/indefinido',
+        enderecoTexto: enderecoTextoOperacional,
+        tipoAtendimento: formatarTipoEntregaPedido(tipoEntregaNormalizado),
         whatsappLink: montarLinkWhatsappPedido(pedido),
         proximoStatus,
-        acaoRapidaLabel: obterLabelAcaoRapida(statusNormalizado),
+        acaoRapidaLabel: obterLabelAcaoRapida(statusNormalizado, tipoEntregaNormalizado),
         requerAcao,
         urgente,
         critico,
@@ -1317,6 +1580,8 @@ export default function AdminPage() {
           telefoneCliente,
           formaPagamento,
           statusNormalizado,
+          tipoEntregaNormalizado,
+          formatarTipoEntregaPedido(tipoEntregaNormalizado),
           resumoItens.resumoTexto,
           observacaoOperacional,
           pendenciasOperacionais.map((item) => item.label).join(' ')
@@ -1333,7 +1598,9 @@ export default function AdminPage() {
       pendente: 0,
       pago: 0,
       preparando: 0,
+      pronto_para_retirada: 0,
       enviado: 0,
+      retirado: 0,
       entregue: 0,
       cancelado: 0
     };
@@ -1357,11 +1624,11 @@ export default function AdminPage() {
         aguardandoAcao += 1;
       }
 
-      if (['pago', 'preparando', 'enviado'].includes(pedido.statusNormalizado)) {
+      if (['pago', 'preparando', 'pronto_para_retirada', 'enviado'].includes(pedido.statusNormalizado)) {
         emAndamento += 1;
       }
 
-      if (pedido.statusNormalizado === 'entregue' && pedido.dataMs > 0 && pedido.dataMs >= inicioHoje.getTime()) {
+      if (['entregue', 'retirado'].includes(pedido.statusNormalizado) && pedido.dataMs > 0 && pedido.dataMs >= inicioHoje.getTime()) {
         concluidosHoje += 1;
       }
 
@@ -1421,6 +1688,13 @@ export default function AdminPage() {
       }
     }
 
+    if (filtroPedidoTipoEntrega !== 'todos') {
+      const opcao = FILTRO_TIPO_ENTREGA_OPTIONS.find((item) => item.id === filtroPedidoTipoEntrega);
+      if (opcao) {
+        ativos.push(opcao.label);
+      }
+    }
+
     const busca = String(buscaPedidosOperacional || '').trim();
     if (busca) {
       ativos.push(`Busca: ${busca}`);
@@ -1434,7 +1708,7 @@ export default function AdminPage() {
     }
 
     return ativos;
-  }, [buscaPedidosOperacional, filtroPedidoPagamento, filtroPedidoStatus, ordenacaoPedidos]);
+  }, [buscaPedidosOperacional, filtroPedidoPagamento, filtroPedidoStatus, filtroPedidoTipoEntrega, ordenacaoPedidos]);
 
   const pedidosFiltradosOperacionais = useMemo(() => {
     const termoBusca = normalizarTextoBusca(buscaPedidosOperacional);
@@ -1445,6 +1719,10 @@ export default function AdminPage() {
       }
 
       if (filtroPedidoStatus !== 'todos' && filtroPedidoStatus !== 'criticos' && pedido.statusNormalizado !== filtroPedidoStatus) {
+        return false;
+      }
+
+      if (filtroPedidoTipoEntrega !== 'todos' && pedido.tipoEntregaNormalizado !== filtroPedidoTipoEntrega) {
         return false;
       }
 
@@ -1533,6 +1811,7 @@ export default function AdminPage() {
     buscaPedidosOperacional,
     filtroPedidoPagamento,
     filtroPedidoStatus,
+    filtroPedidoTipoEntrega,
     ordenacaoPedidos,
     pedidosOperacionais
   ]);
@@ -1810,7 +2089,7 @@ export default function AdminPage() {
 
   async function handleAcaoRapidaPedido(pedido) {
     const statusAtual = String(pedido?.statusNormalizado || pedido?.status || '').trim().toLowerCase();
-    const proximoStatus = obterProximoStatusPedido(statusAtual);
+    const proximoStatus = obterProximoStatusPedido(statusAtual, pedido?.tipoEntregaNormalizado || pedido?.tipo_entrega);
 
     if (!proximoStatus) {
       return;
@@ -1870,6 +2149,7 @@ export default function AdminPage() {
   function limparFiltrosPedidosOperacionais() {
     setFiltroPedidoStatus('todos');
     setFiltroPedidoPagamento('todos');
+    setFiltroPedidoTipoEntrega('todos');
     setOrdenacaoPedidos('prioridade');
     setBuscaPedidosOperacional('');
     setFeedbackPedidos({
@@ -1959,6 +2239,27 @@ export default function AdminPage() {
     await handleCopiarCampoPedido(
       montarResumoOperacionalPedido(pedido),
       `Resumo do pedido #${pedido?.id || ''}`
+    );
+  }
+
+  async function handleCopiarListaSeparacaoPedido(pedido) {
+    await handleCopiarCampoPedido(
+      montarListaSeparacaoPedido(pedido),
+      `Lista de separação #${pedido?.id || ''}`
+    );
+  }
+
+  async function handleCopiarMensagemContatoPedido(pedido) {
+    await handleCopiarCampoPedido(
+      montarMensagemContatoOperacionalPedido(pedido),
+      `Mensagem de contato #${pedido?.id || ''}`
+    );
+  }
+
+  async function handleCopiarConferenciaExpedicaoPedido(pedido) {
+    await handleCopiarCampoPedido(
+      montarResumoConferenciaExpedicaoPedido(pedido, { modoFilaAlta: modoFilaAltaAtivo }),
+      `Conferência/expedição #${pedido?.id || ''}`
     );
   }
 
@@ -2398,6 +2699,20 @@ export default function AdminPage() {
                   </select>
                 </label>
 
+                <label className="admin-orders-select-field" htmlFor="admin-orders-delivery-filter">
+                  <span>Atendimento</span>
+                  <select
+                    id="admin-orders-delivery-filter"
+                    className="field-input"
+                    value={filtroPedidoTipoEntrega}
+                    onChange={(event) => setFiltroPedidoTipoEntrega(event.target.value)}
+                  >
+                    {FILTRO_TIPO_ENTREGA_OPTIONS.map((opcao) => (
+                      <option key={opcao.id} value={opcao.id}>{opcao.label}</option>
+                    ))}
+                  </select>
+                </label>
+
                 <label className="admin-orders-select-field" htmlFor="admin-orders-orderby">
                   <span>Ordenação</span>
                   <select
@@ -2475,12 +2790,15 @@ export default function AdminPage() {
                 {pedidosFiltradosOperacionais.map((pedido) => {
                   const pedidoId = Number(pedido?.id || 0);
                   const statusSelecionado = String(statusDraft[pedidoId] || pedido.statusNormalizado || '').trim().toLowerCase() || 'pendente';
-                  const opcoesStatus = STATUS_OPTIONS.includes(statusSelecionado)
-                    ? STATUS_OPTIONS
-                    : [statusSelecionado, ...STATUS_OPTIONS.filter((status) => status !== statusSelecionado)];
+                  const statusFluxoPedido = pedido.tipoEntregaNormalizado === 'retirada'
+                    ? ['pendente', 'preparando', 'pronto_para_retirada', 'retirado', 'cancelado']
+                    : ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado'];
+                  const opcoesStatus = statusFluxoPedido.includes(statusSelecionado)
+                    ? statusFluxoPedido
+                    : [statusSelecionado, ...statusFluxoPedido.filter((status) => status !== statusSelecionado)];
                   const detalheAberto = pedidoExpandidoId === pedidoId;
                   const emAtualizacao = atualizandoStatusPedidoId === pedidoId;
-                  const podeSalvarStatus = STATUS_OPTIONS.includes(statusSelecionado);
+                  const podeSalvarStatus = statusFluxoPedido.includes(statusSelecionado);
                   const resumoOperacionalTexto = montarResumoOperacionalPedido(pedido);
                   const proximoStatusLabel = pedido.proximoStatus ? formatarStatusPedido(pedido.proximoStatus) : '';
                   const classeEnvelhecimento = pedido.envelhecimentoTone !== 'normal'
@@ -2492,6 +2810,18 @@ export default function AdminPage() {
                     : pedido.pendenciasOperacionais;
                   const pendenciasOcultas = Math.max(0, pedido.pendenciasOperacionais.length - pendenciasVisiveis.length);
                   const ultimaAcaoPedido = ultimasAcoesPedidos[pedidoId] || null;
+                  const observacoesRelevantesPreview = pedido.observacoesRelevantesLista.slice(0, 2);
+                  const observacoesRelevantesExtras = Math.max(0, pedido.observacoesRelevantesLista.length - observacoesRelevantesPreview.length);
+                  const tipoAtendimentoTone = pedido.tipoEntregaNormalizado === 'retirada' ? 'retirada' : 'entrega';
+                  const enderecoConferenciaTone = pedido.tipoEntregaNormalizado === 'retirada'
+                    ? 'note'
+                    : (pedido.enderecoDisponivel ? 'ok' : 'attention');
+                  const enderecoConferenciaLabel = pedido.tipoEntregaNormalizado === 'retirada'
+                    ? 'Não se aplica'
+                    : (pedido.enderecoDisponivel ? 'Confirmado' : 'Pendente');
+                  const enderecoConferenciaDetalhe = pedido.tipoEntregaNormalizado === 'retirada'
+                    ? 'Cliente escolheu retirar na loja.'
+                    : pedido.enderecoTexto;
 
                   return (
                     <article
@@ -2522,6 +2852,10 @@ export default function AdminPage() {
                           {pedido.envelhecimentoLabel ? (
                             <span className={`admin-order-urgency tone-${pedido.envelhecimentoTone}`}>{pedido.envelhecimentoLabel}</span>
                           ) : null}
+
+                          <span className={`admin-delivery-badge tone-${tipoAtendimentoTone}`}>
+                            {pedido.tipoEntregaNormalizado === 'retirada' ? 'RETIRADA' : 'ENTREGA'}
+                          </span>
 
                           <span className={`admin-payment-badge tone-${pedido.pagamentoMeta.tone}`}>
                             {pedido.pagamentoMeta.label}
@@ -2676,8 +3010,186 @@ export default function AdminPage() {
 
                       {detalheAberto ? (
                         <div className="admin-order-details">
+                          <div className="admin-order-operational-signals" aria-label="Sinalização operacional do pedido">
+                            {pedido.observacoesRelevantesCount > 0 ? (
+                              <span className="admin-order-operational-signal tone-note">
+                                Observação do cliente
+                              </span>
+                            ) : null}
+
+                            {pedido.pagamentoRequerConferencia ? (
+                              <span className="admin-order-operational-signal tone-attention">
+                                Pagamento pendente/falha
+                              </span>
+                            ) : null}
+
+                            {pedido.possuiMuitosItens ? (
+                              <span className="admin-order-operational-signal tone-attention">
+                                Separação volumosa
+                              </span>
+                            ) : null}
+
+                            {pedido.envelhecimentoLabel ? (
+                              <span className="admin-order-operational-signal tone-urgent">
+                                {pedido.envelhecimentoLabel}
+                              </span>
+                            ) : null}
+
+                            {modoFilaAltaAtivo ? (
+                              <span className="admin-order-operational-signal tone-muted">Fila alta ativa</span>
+                            ) : null}
+                          </div>
+
                           <div className="admin-order-details-layout">
                             <div className="admin-order-details-main">
+                              <div className="admin-order-separacao-box">
+                                <div className="admin-order-separacao-head">
+                                  <strong>Separação do pedido</strong>
+                                  <span>Priorize quantidade, item e pontos críticos</span>
+                                </div>
+
+                                <div className="admin-order-separacao-metrics" aria-label="Resumo de separação">
+                                  <span>
+                                    <strong>{pedido.totalItensDistintos}</strong> itens distintos
+                                  </span>
+                                  <span>
+                                    <strong>{pedido.totalUnidadesEstimadas}</strong> unidades estimadas
+                                  </span>
+                                  <span>
+                                    <strong>{pedido.observacoesRelevantesCount}</strong> observação(ões) relevante(s)
+                                  </span>
+                                </div>
+
+                                {observacoesRelevantesPreview.length > 0 ? (
+                                  <p className="admin-order-separacao-observacoes">
+                                    Observações: {observacoesRelevantesPreview.join(' | ')}
+                                    {observacoesRelevantesExtras > 0 ? ` +${observacoesRelevantesExtras}` : ''}
+                                  </p>
+                                ) : (
+                                  <p className="admin-order-separacao-observacoes is-empty">Sem observações relevantes no pedido.</p>
+                                )}
+
+                                <div className="admin-order-separacao-copy-row">
+                                  <button
+                                    className="btn-secondary"
+                                    type="button"
+                                    onClick={() => {
+                                      void handleCopiarListaSeparacaoPedido(pedido);
+                                    }}
+                                  >
+                                    Copiar lista de separação
+                                  </button>
+
+                                  <button
+                                    className="btn-secondary"
+                                    type="button"
+                                    onClick={() => {
+                                      void handleCopiarMensagemContatoPedido(pedido);
+                                    }}
+                                  >
+                                    Copiar mensagem de contato
+                                  </button>
+
+                                  <button
+                                    className="btn-secondary"
+                                    type="button"
+                                    onClick={() => {
+                                      void handleCopiarConferenciaExpedicaoPedido(pedido);
+                                    }}
+                                  >
+                                    Copiar conferência/expedição
+                                  </button>
+                                </div>
+
+                                {pedido.itensLista.length === 0 ? (
+                                  <p className="muted-text">Itens não detalhados neste pedido.</p>
+                                ) : (
+                                  <ul className="admin-order-items-list is-operacional">
+                                    {pedido.itensLista.map((item) => (
+                                      <li key={`${pedidoId}-${item.id}`}>
+                                        <div className="admin-order-item-qty">{item.quantidade}x</div>
+                                        <div className="admin-order-item-main">
+                                          <p>{item.nome}</p>
+                                          <small>{formatarMoeda(item.preco)} por unidade</small>
+                                          {item.variacaoTexto ? (
+                                            <small className="admin-order-item-variation">Variação: {item.variacaoTexto}</small>
+                                          ) : null}
+                                          {item.observacaoItem ? (
+                                            <small className="admin-order-item-note">Obs item: {item.observacaoItem}</small>
+                                          ) : null}
+                                        </div>
+                                        <strong>{formatarMoeda(item.subtotal)}</strong>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+
+                              {pedido.statusNormalizado === 'cancelado' ? (
+                                <div className="orders-timeline is-canceled is-compact">
+                                  <span className="orders-timeline-canceled-text">Pedido cancelado.</span>
+                                </div>
+                              ) : (
+                                <div className="orders-timeline is-compact" aria-label="Andamento operacional do pedido">
+                                  {TIMELINE_ETAPAS_ADMIN.map((etapa, index) => {
+                                    const numeroEtapa = index + 1;
+                                    const done = numeroEtapa < pedido.statusMeta.timelineStep;
+                                    const current = numeroEtapa === pedido.statusMeta.timelineStep;
+
+                                    return (
+                                      <div
+                                        className={`orders-timeline-step ${done ? 'is-done' : ''} ${current ? 'is-current' : ''}`}
+                                        key={`${pedidoId}-timeline-${etapa}`}
+                                      >
+                                        <span className="orders-timeline-dot" aria-hidden="true" />
+                                        <span className="orders-timeline-label">{etapa}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="admin-order-details-side">
+                              <div className="admin-order-conferencia-box" aria-label="Conferência antes de sair">
+                                <div className="admin-order-conferencia-head">
+                                  <strong>Conferência antes de sair</strong>
+                                  <small>Checklist rápido de expedição</small>
+                                </div>
+
+                                <ul className="admin-order-conferencia-list">
+                                  <li className={`tone-${pedido.pagamentoMeta.tone === 'error' ? 'error' : (pedido.pagamentoRequerConferencia ? 'attention' : 'ok')}`}>
+                                    <span>Pagamento</span>
+                                    <strong>{pedido.pagamentoMeta.label}</strong>
+                                    <small>{pedido.pagamentoMeta.detalhe}</small>
+                                  </li>
+
+                                  <li className={`tone-${enderecoConferenciaTone}`}>
+                                    <span>Endereço</span>
+                                    <strong>{enderecoConferenciaLabel}</strong>
+                                    <small>{enderecoConferenciaDetalhe}</small>
+                                  </li>
+
+                                  <li className={`tone-${pedido.clienteTelefone ? 'ok' : 'attention'}`}>
+                                    <span>Telefone</span>
+                                    <strong>{pedido.clienteTelefone ? 'Confirmado' : 'Pendente'}</strong>
+                                    <small>{pedido.clienteTelefone || 'Telefone não informado'}</small>
+                                  </li>
+
+                                  <li className={`tone-${pedido.observacaoOperacional ? 'note' : 'muted'}`}>
+                                    <span>Observação do cliente</span>
+                                    <strong>{pedido.observacaoOperacional ? 'Com observação' : 'Sem observação'}</strong>
+                                    <small>{pedido.observacaoOperacional || 'Sem instruções adicionais do cliente.'}</small>
+                                  </li>
+
+                                  <li className={`tone-${pedido.statusNormalizado === 'cancelado' ? 'error' : (pedido.requerAcao ? 'action' : 'ok')}`}>
+                                    <span>Status atual</span>
+                                    <strong>{pedido.statusMeta.label}</strong>
+                                    <small>{pedido.tempoNoStatusDisponivel ? `No status há ${pedido.tempoNoStatusLabel}` : 'Sem histórico dedicado de status.'}</small>
+                                  </li>
+                                </ul>
+                              </div>
+
                               <div className="admin-order-details-grid">
                                 <article className="admin-order-detail-card">
                                   <h4>Pagamento</h4>
@@ -2716,7 +3228,7 @@ export default function AdminPage() {
 
                                 <article className="admin-order-detail-card">
                                   <h4>Endereço</h4>
-                                  <p>{pedido.enderecoTexto}</p>
+                                  <p>{pedido.tipoEntregaNormalizado === 'retirada' ? 'Retirada na loja (sem rota de entrega).' : pedido.enderecoTexto}</p>
                                   <div className="admin-order-detail-actions">
                                     <button
                                       className="btn-secondary"
@@ -2737,55 +3249,6 @@ export default function AdminPage() {
                                     <p>{pedido.observacaoOperacional}</p>
                                   </article>
                                 ) : null}
-                              </div>
-
-                              {pedido.statusNormalizado === 'cancelado' ? (
-                                <div className="orders-timeline is-canceled is-compact">
-                                  <span className="orders-timeline-canceled-text">Pedido cancelado.</span>
-                                </div>
-                              ) : (
-                                <div className="orders-timeline is-compact" aria-label="Andamento operacional do pedido">
-                                  {TIMELINE_ETAPAS_ADMIN.map((etapa, index) => {
-                                    const numeroEtapa = index + 1;
-                                    const done = numeroEtapa < pedido.statusMeta.timelineStep;
-                                    const current = numeroEtapa === pedido.statusMeta.timelineStep;
-
-                                    return (
-                                      <div
-                                        className={`orders-timeline-step ${done ? 'is-done' : ''} ${current ? 'is-current' : ''}`}
-                                        key={`${pedidoId}-timeline-${etapa}`}
-                                      >
-                                        <span className="orders-timeline-dot" aria-hidden="true" />
-                                        <span className="orders-timeline-label">{etapa}</span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="admin-order-details-side">
-                              <div className="admin-order-items-box">
-                                <div className="admin-order-items-head">
-                                  <strong>Itens do pedido</strong>
-                                  <span>{pedido.totalItens} item(ns)</span>
-                                </div>
-
-                                {pedido.itensLista.length === 0 ? (
-                                  <p className="muted-text">Itens não detalhados neste pedido.</p>
-                                ) : (
-                                  <ul className="admin-order-items-list">
-                                    {pedido.itensLista.map((item) => (
-                                      <li key={`${pedidoId}-${item.id}`}>
-                                        <div>
-                                          <p>{item.nome}</p>
-                                          <small>{item.quantidade} x {formatarMoeda(item.preco)}</small>
-                                        </div>
-                                        <strong>{formatarMoeda(item.subtotal)}</strong>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
                               </div>
                             </div>
                           </div>
@@ -2872,7 +3335,7 @@ export default function AdminPage() {
               onChange={(event) => setProdutoForm((atual) => ({ ...atual, imagem: event.target.value }))}
             />
             {produtoForm.imagem ? (
-              <img
+              <SmartImage
                 className="produto-preview-image"
                 src={produtoForm.imagem}
                 alt="Prévia do produto"

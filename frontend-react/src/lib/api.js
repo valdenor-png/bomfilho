@@ -714,10 +714,11 @@ export function simularFretePorCep({ cep, veiculo = 'moto' }) {
   return request(`/api/frete/simular?cep=${cepNormalizado}&veiculo=${encodeURIComponent(veiculoNormalizado)}`);
 }
 
-export function criarPedido({ itens, formaPagamento = 'pix', entrega, taxId, recaptchaToken }) {
+export function criarPedido({ itens, formaPagamento = 'pix', tipoEntrega = 'entrega', entrega, taxId, recaptchaToken }) {
   const body = {
     itens,
-    forma_pagamento: formaPagamento
+    forma_pagamento: formaPagamento,
+    tipo_entrega: String(tipoEntrega || 'entrega').trim().toLowerCase() === 'retirada' ? 'retirada' : 'entrega'
   };
 
   if (entrega && typeof entrega === 'object') {

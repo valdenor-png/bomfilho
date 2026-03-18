@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     total DECIMAL(10, 2) NOT NULL,
     status VARCHAR(50) DEFAULT 'pendente',
     forma_pagamento VARCHAR(20) DEFAULT 'pix',
+    tipo_entrega ENUM('entrega', 'retirada') DEFAULT 'entrega',
     mp_payment_id VARCHAR(64) NULL,
     pix_status VARCHAR(32) NULL,
     pix_qr_data TEXT NULL,

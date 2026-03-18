@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import SmartImage from './ui/SmartImage';
 
 function ProdutoFallbackPadrao({ icone = '📦' }) {
   return (
@@ -13,6 +14,7 @@ const ProdutoRecomendadoCard = React.memo(function ProdutoRecomendadoCard({
   produtoIndexado,
   quantidadeNoCarrinho = 0,
   onAddItem,
+  isAddingItem,
   onOpenDetail,
   formatCurrency,
   getPlaceholderIconePorCategoria
@@ -23,6 +25,16 @@ const ProdutoRecomendadoCard = React.memo(function ProdutoRecomendadoCard({
   const categoriaLabel = produtoIndexado.categoriaLabel;
   const precoInfo = produtoIndexado.precoInfo;
   const podeComprar = produtoIndexado.carrinhoId !== null;
+  const estaAdicionando = typeof isAddingItem === 'function' ? isAddingItem(produto) : false;
+  const precoLabel = formatCurrency(precoInfo.precoAtual);
+  const temPrecoNoCta = Number(precoInfo.precoAtual || 0) > 0;
+  const ctaRecomendado = !podeComprar
+    ? 'Indisponivel'
+    : (estaAdicionando
+      ? 'Adicionando...'
+      : (temPrecoNoCta
+        ? (quantidadeNoCarrinho > 0 ? `Adicionar ao carrinho • ${precoLabel}` : `Levar por ${precoLabel}`)
+        : 'Adicionar ao carrinho'));
   const [imagemIndisponivel, setImagemIndisponivel] = useState(() => !imagem.src);
 
   useEffect(() => {
@@ -46,7 +58,7 @@ const ProdutoRecomendadoCard = React.memo(function ProdutoRecomendadoCard({
             <span>{iconeFallback}</span>
           </div>
         ) : (
-          <img
+          <SmartImage
             className="product-reco-image"
             src={imagem.src}
             srcSet={imagem.srcSet}
@@ -73,16 +85,16 @@ const ProdutoRecomendadoCard = React.memo(function ProdutoRecomendadoCard({
           className="btn-secondary product-reco-view-btn"
           onClick={() => onOpenDetail(produtoIndexado.chaveReact)}
         >
-          Ver
+          Ver detalhes
         </button>
 
         <button
           type="button"
           className="btn-primary product-reco-add-btn"
           onClick={() => onAddItem(produto)}
-          disabled={!podeComprar}
+          disabled={!podeComprar || estaAdicionando}
         >
-          {podeComprar ? (quantidadeNoCarrinho > 0 ? 'Adicionar +' : 'Adicionar') : 'Indisponivel'}
+          {ctaRecomendado}
         </button>
       </div>
     </article>
@@ -101,6 +113,7 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
   onIncreaseItem,
   onDecreaseItem,
   onToggleFavorito,
+  isAddingItem,
   getQuantidadeProduto,
   onOpenDetail,
   formatCurrency,
@@ -125,7 +138,22 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
     economia: 0,
     precoPix: null
   };
+  const formatarMoeda = typeof formatCurrency === 'function'
+    ? formatCurrency
+    : (valor) => String(valor ?? '');
   const podeComprar = Boolean(produtoIndexado && produtoIndexado.carrinhoId !== null);
+  const estaAdicionando = typeof isAddingItem === 'function' ? isAddingItem(produto) : false;
+  const precoLabel = formatarMoeda(precoInfo.precoAtual);
+  const temPrecoNoCta = Number(precoInfo.precoAtual || 0) > 0;
+  const ctaPrincipal = !podeComprar
+    ? 'Indisponivel no momento'
+    : (estaAdicionando
+      ? 'Adicionando...'
+      : (temPrecoNoCta
+        ? (quantidadeNoCarrinho > 0
+          ? `Adicionar ao carrinho • ${precoLabel}`
+          : (precoInfo.precoAnterior ? `Levar por ${precoLabel}` : `Adicionar • ${precoLabel}`))
+        : 'Adicionar ao carrinho'));
   const descricaoProduto = String(produto?.descricao || '').trim();
   const possuiDescricao = Boolean(descricaoProduto);
   const marcaProduto = String(produto?.marca || '').trim();
@@ -187,10 +215,6 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
   if (medidaProduto) {
     mensagensConfianca.push(`Unidade ou medida: ${medidaProduto}.`);
   }
-
-  const formatarMoeda = typeof formatCurrency === 'function'
-    ? formatCurrency
-    : (valor) => String(valor ?? '');
   const ProdutoBadge = ProdutoBadgeComponent;
   const ProdutoImageFallback = ProdutoImageFallbackComponent;
   const iconeFallbackProduto = typeof getPlaceholderIconePorCategoria === 'function'
@@ -255,12 +279,13 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
                   ? <ProdutoImageFallback produto={produto} />
                   : <ProdutoFallbackPadrao icone={iconeFallbackProduto} />
               ) : (
-                <img
+                <SmartImage
                   className="product-detail-image"
                   src={imagem.src}
                   srcSet={imagem.srcSet}
                   sizes="(max-width: 900px) 100vw, 46vw"
                   alt={nomeProduto}
+                  priority
                   loading="eager"
                   decoding="async"
                   onError={() => {
@@ -331,6 +356,7 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
                   className="produto-qty-btn"
                   onClick={() => onDecreaseItem(produto, quantidadeNoCarrinho)}
                   aria-label={`Diminuir quantidade de ${nomeProduto}`}
+                  disabled={estaAdicionando}
                 >
                   -
                 </button>
@@ -340,6 +366,7 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
                   className="produto-qty-btn"
                   onClick={() => onIncreaseItem(produto)}
                   aria-label={`Aumentar quantidade de ${nomeProduto}`}
+                  disabled={estaAdicionando}
                 >
                   +
                 </button>
@@ -349,15 +376,11 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
             <div className="product-detail-cta-row">
               <button
                 type="button"
-                className="btn-primary product-detail-add-btn"
+                className={`btn-primary product-detail-add-btn ${estaAdicionando ? 'is-loading' : ''}`.trim()}
                 onClick={() => onAddItem(produto)}
-                disabled={!podeComprar}
+                disabled={!podeComprar || estaAdicionando}
               >
-                {podeComprar
-                  ? (quantidadeNoCarrinho > 0
-                    ? 'Adicionar mais ao carrinho'
-                    : (precoInfo.precoAnterior ? 'Aproveitar oferta' : 'Adicionar ao carrinho'))
-                  : 'Indisponivel no momento'}
+                {ctaPrincipal}
               </button>
 
               <button
@@ -384,6 +407,7 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
                     produtoIndexado={item}
                     quantidadeNoCarrinho={getQuantidadeProduto(item.produto)}
                     onAddItem={onAddItem}
+                    isAddingItem={isAddingItem}
                     onOpenDetail={onOpenDetail}
                     formatCurrency={formatarMoeda}
                     getPlaceholderIconePorCategoria={getPlaceholderIconePorCategoria}

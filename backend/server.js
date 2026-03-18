@@ -53,6 +53,7 @@ const {
   itensPedidoSaoValidos,
   normalizarEntregaPedidoInput,
   normalizarFormaPagamentoPedido,
+  normalizarTipoEntregaPedidoInput,
   normalizarItensPedidoInput
 } = require('./services/pedidoPagamentoHelpers');
 const {
@@ -73,7 +74,8 @@ const {
   normalizarTipoCartao,
   normalizarAuthenticationMethodPagBank,
   validarAuthenticationMethodPagBank,
-  montarAuthenticationMethodMock3DS
+  montarAuthenticationMethodMock3DS,
+  validarResultadoAutenticacao3DSPagBank
 } = require('./services/pagbankPaymentHelpers');
 const {
   enviarPostPagBankOrders: enviarPostPagBankOrdersClient,
@@ -2681,6 +2683,7 @@ async function criarPagamentoCartao({
 
   const statusInfoCartao = extrairStatusPagamentoPagBank(responsePayload);
   const chargePrincipalCartao = statusInfoCartao.chargePrincipal || {};
+  const paymentResponseCartao = chargePrincipalCartao?.payment_response || {};
   const statusPagBankCartao = String(statusInfoCartao.statusResolvido || responsePayload?.status || '').toUpperCase() || null;
 
   registrarLogPagBank({
@@ -2706,6 +2709,9 @@ async function criarPagamentoCartao({
       status_pagbank: statusPagBankCartao,
       status_order: statusInfoCartao.orderStatus || null,
       status_charge: statusInfoCartao.chargeStatus || null,
+      status_charge_threeds: statusInfoCartao.chargeThreeDSStatus || null,
+      payment_response_code: paymentResponseCartao?.code || null,
+      payment_response_message: paymentResponseCartao?.message || null,
       status_fonte: statusInfoCartao.fonteStatus,
       trace_id: traceId || undefined
     }
@@ -4462,7 +4468,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     const taxIdDigits = extrairTaxIdDigits(payloadRequest);
     const tokenCartao = String(payloadRequest?.token_cartao || payloadRequest?.cartao_encriptado || '').trim();
     const authenticationMethodBruto = payloadRequest?.authentication_method;
-    const authenticationMethod = normalizarAuthenticationMethodPagBank(authenticationMethodBruto);
+    let authenticationMethod = normalizarAuthenticationMethodPagBank(authenticationMethodBruto);
     const threeDSResult = payloadRequest?.three_ds_result;
     const tipoCartaoSolicitado = String(payloadRequest?.tipo_cartao || payloadRequest?.forma_pagamento || '').trim();
     const parcelas = normalizarParcelasCartao(payloadRequest?.parcelas);
@@ -4551,21 +4557,124 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       ? 1
       : (parcelamentoCreditoDisponivel ? parcelas : 1);
 
+    let validacao3DSDebito = null;
+
     if (tipoCartao === 'debito') {
       const fallback3dsMockPermitido = PAGBANK_ENV !== 'production' && ALLOW_DEBIT_3DS_MOCK;
       const validacaoAuthDebito = validarAuthenticationMethodPagBank(authenticationMethod);
+      const validacaoResultado3DS = validarResultadoAutenticacao3DSPagBank({
+        threeDSResult,
+        authenticationMethod
+      });
+      const status3DS = String(validacaoResultado3DS?.status || '').trim() || null;
+      const authenticationId3DS = String(validacaoResultado3DS?.authenticationId || '').trim() || null;
+      const traceId3DS = String(validacaoResultado3DS?.traceId || '').trim() || null;
+
+      validacao3DSDebito = {
+        ...validacaoResultado3DS,
+        status: status3DS,
+        authenticationId: authenticationId3DS,
+        traceId: traceId3DS
+      };
+
+      registrarLogPagBank({
+        operacao: 'api.pagamentos.cartao.3ds.validation',
+        endpoint: '/api/pagamentos/cartao',
+        method: 'POST',
+        httpStatus: 200,
+        responsePayload: {
+          ok: validacaoResultado3DS.ok,
+          codigo: validacaoResultado3DS.codigo,
+          status: status3DS,
+          authentication_id_present: Boolean(authenticationId3DS),
+          auth_method_present: validacaoAuthDebito.ok,
+          fallback_mock_3ds_permitido: fallback3dsMockPermitido,
+          trace_id: traceId3DS || undefined
+        },
+        extra: {
+          usuario_id: req.usuario?.id || null,
+          pedido_id: pedidoIdNumerico || null,
+          fluxo: 'debit_3ds_auth',
+          tipo_cartao: 'debito',
+          three_ds_status: status3DS,
+          three_ds_codigo: validacaoResultado3DS.codigo,
+          authentication_method_type: authenticationMethod?.type || null,
+          authentication_method_id_present: Boolean(authenticationMethod?.id),
+          trace_id: traceId3DS || undefined
+        }
+      });
+
+      if (!validacaoResultado3DS.ok && !fallback3dsMockPermitido) {
+        const mensagensErro3DS = {
+          MISSING_3DS_STATUS: 'Para concluir no debito, complete a autenticacao 3DS e tente novamente.',
+          MISSING_3DS_AUTH_ID: 'Autenticacao 3DS concluida sem id valido. Gere uma nova autenticacao e tente novamente.',
+          '3DS_AUTH_ID_MISMATCH': 'Nao foi possivel validar a autenticacao 3DS do debito. Gere uma nova autenticacao e tente novamente.',
+          AUTH_NOT_SUPPORTED: 'Seu cartao de debito nao e elegivel para autenticacao 3DS. Escolha outro meio de pagamento.',
+          CHANGE_PAYMENT_METHOD: 'A autenticacao 3DS foi negada. Escolha outro meio de pagamento.',
+          REQUIRE_CHALLENGE: 'Conclua o desafio 3DS para continuar o pagamento no debito.',
+          INVALID_3DS_STATUS: 'Nao foi possivel validar a autenticacao 3DS do debito. Tente novamente.'
+        };
+        const mensagemErro3DS = mensagensErro3DS[validacaoResultado3DS.codigo]
+          || 'Nao foi possivel validar a autenticacao 3DS do debito. Tente novamente.';
+
+        registrarFalhaOperacaoPagBank({
+          operacao: 'api.pagamentos.cartao.3ds.error',
+          endpoint: '/api/pagamentos/cartao',
+          method: 'POST',
+          httpStatus: 400,
+          requestPayload: {
+            pedido_id: pedidoIdNumerico,
+            tipo_cartao: 'debito',
+            authentication_method: authenticationMethod,
+            three_ds_result: threeDSResult
+          },
+          responsePayload: {
+            erro: mensagemErro3DS,
+            codigo: validacaoResultado3DS.codigo,
+            three_ds_status: status3DS,
+            trace_id: traceId3DS || undefined
+          },
+          extra: {
+            usuario_id: req.usuario?.id || null,
+            pedido_id: pedidoIdNumerico || null,
+            fluxo: 'debit_3ds_auth',
+            three_ds_status: status3DS,
+            three_ds_codigo: validacaoResultado3DS.codigo,
+            authentication_method_type: authenticationMethod?.type || null,
+            authentication_method_id_present: Boolean(authenticationMethod?.id),
+            trace_id: traceId3DS || undefined
+          }
+        });
+
+        return res.status(400).json({
+          erro: mensagemErro3DS,
+          codigo: validacaoResultado3DS.codigo,
+          trace_id: traceId3DS || undefined
+        });
+      }
 
       if (!validacaoAuthDebito.ok && !fallback3dsMockPermitido) {
-        let mensagemErroAuth = 'Para concluir no débito, complete a autenticação 3DS e tente novamente.';
+        let mensagemErroAuth = 'Para concluir no debito, complete a autenticacao 3DS e tente novamente.';
         if (validacaoAuthDebito.motivo === 'missing_id') {
-          mensagemErroAuth = 'Autenticação 3DS inválida: id da autenticação não foi informado.';
+          mensagemErroAuth = 'Autenticacao 3DS invalida: id da autenticacao nao foi informado.';
         } else if (validacaoAuthDebito.motivo === 'invalid_type') {
-          mensagemErroAuth = 'Autenticação 3DS inválida: authentication_method.type deve ser THREEDS.';
+          mensagemErroAuth = 'Autenticacao 3DS invalida: authentication_method.type deve ser THREEDS.';
         }
 
         return res.status(400).json({
           erro: mensagemErroAuth
         });
+      }
+
+      if (validacaoResultado3DS.ok) {
+        authenticationMethod = {
+          type: 'THREEDS',
+          id: authenticationId3DS
+        };
+      } else if (validacaoAuthDebito.ok) {
+        authenticationMethod = validacaoAuthDebito.auth;
+      } else if (fallback3dsMockPermitido) {
+        authenticationMethod = null;
       }
     }
 
@@ -4605,8 +4714,10 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
     const chargePrincipal = statusInfo.chargePrincipal || {};
     const paymentResponse = chargePrincipal?.payment_response || {};
     const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
+    const statusChargeThreeDS = String(statusInfo.chargeThreeDSStatus || '').trim().toUpperCase() || null;
     const statusInterno = mapearStatusPedido(statusPagBank);
     const pagbankChargeId = chargePrincipal?.id || null;
+    const referenceIdPedido = String(pagamento?.reference_id || `pedido_${pedido.id}`).trim() || `pedido_${pedido.id}`;
     const traceId = String(extrairTraceIdPagBank(pagamento) || '').trim() || null;
 
     try {
@@ -4617,21 +4728,49 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
         [statusInterno, statusPagBank, pagbankOrderId, pedido.id]
       );
     } catch (err) {
-      console.warn('Não foi possível salvar dados do pagamento cartão (faltam colunas?):', err.message);
+      const mensagemErroPersistencia = String(err?.message || '').trim();
+      const faltamColunasPix = /Unknown column 'pix_status'|Unknown column 'pix_id'/i.test(mensagemErroPersistencia);
+
+      if (faltamColunasPix) {
+        try {
+          await pool.query(
+            `UPDATE pedidos
+             SET status = ?
+             WHERE id = ?`,
+            [statusInterno, pedido.id]
+          );
+          console.warn('Persistência parcial no pagamento cartão: colunas pix_* ausentes; status do pedido atualizado.');
+        } catch (erroFallbackPersistencia) {
+          console.warn('Não foi possível salvar o status do pagamento cartão no fallback:', erroFallbackPersistencia?.message || erroFallbackPersistencia);
+        }
+      } else {
+        console.warn('Não foi possível salvar dados do pagamento cartão:', mensagemErroPersistencia || err);
+      }
     }
 
     const payloadResposta = {
       payment_id: pagbankChargeId,
       pagbank_order_id: pagbankOrderId,
+      reference_id: referenceIdPedido,
       status: statusPagBank,
       status_interno: statusInterno,
       status_order: statusInfo.orderStatus || null,
       status_charge: statusInfo.chargeStatus || null,
+      status_charge_threeds: statusChargeThreeDS,
       status_fonte: statusInfo.fonteStatus,
       tipo_cartao: tipoCartao,
       parcelas: tipoCartao === 'debito' ? 1 : parcelasAplicadas,
       authorization_code: paymentResponse?.code || null,
       message: paymentResponse?.message || null,
+      payment_response: {
+        code: paymentResponse?.code || null,
+        message: paymentResponse?.message || null
+      },
+      three_ds_status: tipoCartao === 'debito' ? (validacao3DSDebito?.status || null) : undefined,
+      three_ds_codigo: tipoCartao === 'debito' ? (validacao3DSDebito?.codigo || null) : undefined,
+      authentication_id_3ds: tipoCartao === 'debito'
+        ? String(authenticationMethod?.id || validacao3DSDebito?.authenticationId || '').trim() || null
+        : undefined,
       trace_id: traceId || undefined
     };
 
@@ -4648,11 +4787,18 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       extra: {
         usuario_id: req.usuario?.id || null,
         pedido_id: pedido.id,
+        reference_id: referenceIdPedido,
         pagbank_order_id: pagbankOrderId,
         pagbank_charge_id: pagbankChargeId,
         payment_method_type: tipoCartao === 'debito' ? 'DEBIT_CARD' : 'CREDIT_CARD',
         authentication_method_type: authenticationMethod?.type || null,
         authentication_method_id_present: Boolean(authenticationMethod?.id),
+        status_charge: statusInfo.chargeStatus || null,
+        status_charge_threeds: statusChargeThreeDS,
+        payment_response_code: paymentResponse?.code || null,
+        payment_response_message: paymentResponse?.message || null,
+        three_ds_status: validacao3DSDebito?.status || null,
+        three_ds_codigo: validacao3DSDebito?.codigo || null,
         capture: true,
         trace_id: traceId || undefined
       }
@@ -4745,7 +4891,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       });
     }
 
-    const { itens, forma_pagamento, cupom_id, entrega } = req.body || {};
+    const { itens, forma_pagamento, cupom_id, entrega, tipo_entrega } = req.body || {};
     let usuarioPedido = null;
 
     const itensNormalizados = normalizarItensPedidoInput(itens);
@@ -4761,6 +4907,8 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     if (!FORMAS_PAGAMENTO_PEDIDO_VALIDAS.has(formaPagamento)) {
       throw criarErroHttp(400, 'Forma de pagamento inválida para este pedido.');
     }
+
+    const tipoEntrega = normalizarTipoEntregaPedidoInput(tipo_entrega);
 
     const taxIdDigits = extrairTaxIdDigits(req.body);
     const pagbankProducao = PAGBANK_ENV === 'production';
@@ -4788,36 +4936,41 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     let itensCalculados = [];
     let total = 0;
 
-    const entregaInput = normalizarEntregaPedidoInput(entrega, normalizarCep);
-    if (!entregaInput) {
-      throw criarErroHttp(400, 'Informe os dados de entrega para continuar.');
+    let freteEntrega = 0;
+    let entregaNormalizada = null;
+
+    if (tipoEntrega === 'entrega') {
+      const entregaInput = normalizarEntregaPedidoInput(entrega, normalizarCep);
+      if (!entregaInput) {
+        throw criarErroHttp(400, 'Informe os dados de entrega para continuar.');
+      }
+
+      const veiculoEntrega = entregaInput.veiculo;
+      const cepDestinoEntrega = entregaInput.cepDestino;
+      const numeroDestinoEntrega = entregaInput.numeroDestino;
+
+      if (cepDestinoEntrega.length !== 8) {
+        throw criarErroHttp(400, 'Informe um CEP de entrega válido.');
+      }
+
+      const entregaCalculada = await calcularEntregaPorCep({
+        cepDestino: cepDestinoEntrega,
+        veiculo: veiculoEntrega,
+        numeroDestino: numeroDestinoEntrega
+      });
+
+      freteEntrega = Number(entregaCalculada.frete || 0);
+      entregaNormalizada = {
+        veiculo: entregaCalculada.veiculo,
+        distancia_km: entregaCalculada.distancia_km,
+        distancia_cobrada_km: entregaCalculada.distancia_cobrada_km,
+        metodo_distancia: entregaCalculada.metodo_distancia,
+        cep_origem: entregaCalculada.cep_origem,
+        numero_origem: entregaCalculada.numero_origem,
+        cep_destino: entregaCalculada.cep_destino,
+        numero_destino: entregaCalculada.numero_destino
+      };
     }
-
-    const veiculoEntrega = entregaInput.veiculo;
-    const cepDestinoEntrega = entregaInput.cepDestino;
-    const numeroDestinoEntrega = entregaInput.numeroDestino;
-
-    if (cepDestinoEntrega.length !== 8) {
-      throw criarErroHttp(400, 'Informe um CEP de entrega válido.');
-    }
-
-    const entregaCalculada = await calcularEntregaPorCep({
-      cepDestino: cepDestinoEntrega,
-      veiculo: veiculoEntrega,
-      numeroDestino: numeroDestinoEntrega
-    });
-
-    const freteEntrega = entregaCalculada.frete;
-    const entregaNormalizada = {
-      veiculo: entregaCalculada.veiculo,
-      distancia_km: entregaCalculada.distancia_km,
-      distancia_cobrada_km: entregaCalculada.distancia_cobrada_km,
-      metodo_distancia: entregaCalculada.metodo_distancia,
-      cep_origem: entregaCalculada.cep_origem,
-      numero_origem: entregaCalculada.numero_origem,
-      cep_destino: entregaCalculada.cep_destino,
-      numero_destino: entregaCalculada.numero_destino
-    };
 
     const [usuarioPedidoRows] = await connection.query(
       'SELECT nome, email, telefone, whatsapp_opt_in FROM usuarios WHERE id = ? LIMIT 1',
@@ -4927,8 +5080,8 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
 
     // Criar pedido
     const [pedidoResultado] = await connection.query(
-      'INSERT INTO pedidos (usuario_id, total, status, forma_pagamento) VALUES (?, ?, ?, ?)',
-      [req.usuario.id, totalFinal, 'pendente', formaPagamento]
+      'INSERT INTO pedidos (usuario_id, total, status, forma_pagamento, tipo_entrega) VALUES (?, ?, ?, ?, ?)',
+      [req.usuario.id, totalFinal, 'pendente', formaPagamento, tipoEntrega]
     );
 
     const pedidoId = pedidoResultado.insertId;
@@ -5030,6 +5183,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
     res.status(201).json({
       mensagem: 'Pedido confirmado com sucesso.',
       pedido_id: pedidoId,
+      tipo_entrega: tipoEntrega,
       total: totalFinal,
       total_produtos: totalProdutos,
       frete_entrega: freteEntrega,
@@ -5038,6 +5192,12 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       cep_origem_entrega: entregaNormalizada?.cep_origem || null,
       numero_origem_entrega: entregaNormalizada?.numero_origem || null,
       cep_destino_entrega: entregaNormalizada?.cep_destino || null,
+      endereco_entrega: tipoEntrega === 'retirada'
+        ? null
+        : {
+          cep: entregaNormalizada?.cep_destino || null,
+          numero: entregaNormalizada?.numero_destino || null
+        },
       desconto_aplicado: descontoAplicado,
       forma_pagamento: formaPagamento,
       pix_codigo: pixCodigo,
@@ -5073,9 +5233,16 @@ app.get('/api/pedidos', autenticarToken, async (req, res) => {
         [req.usuario.id]
       );
 
+      const pedidosNormalizados = pedidos.map((pedido) => ({
+        ...pedido,
+        tipo_entrega: String(pedido?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
+          ? 'retirada'
+          : 'entrega'
+      }));
+
       return res.json({
-        pedidos,
-        total: pedidos.length
+        pedidos: pedidosNormalizados,
+        total: pedidosNormalizados.length
       });
     }
 
@@ -5095,8 +5262,15 @@ app.get('/api/pedidos', autenticarToken, async (req, res) => {
       [req.usuario.id, paginacao.limite, offset]
     );
 
+    const pedidosNormalizados = pedidos.map((pedido) => ({
+      ...pedido,
+      tipo_entrega: String(pedido?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
+        ? 'retirada'
+        : 'entrega'
+    }));
+
     return res.json({
-      pedidos,
+      pedidos: pedidosNormalizados,
       paginacao
     });
   } catch (erro) {
@@ -5129,7 +5303,12 @@ app.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     `, [req.params.id]);
 
     res.json({
-      pedido: pedidos[0],
+      pedido: {
+        ...pedidos[0],
+        tipo_entrega: String(pedidos[0]?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
+          ? 'retirada'
+          : 'entrega'
+      },
       itens: itens
     });
   } catch (erro) {
@@ -5325,10 +5504,16 @@ app.get('/api/admin/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, asyn
     const pedidos = pedidosBase.map((pedido) => {
       const pedidoId = Number(pedido.id);
       const usuarioId = Number(pedido.usuario_id);
+      const tipoEntrega = String(pedido?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
+        ? 'retirada'
+        : 'entrega';
       return {
         ...pedido,
+        tipo_entrega: tipoEntrega,
         itens: itensPorPedido.get(pedidoId) || [],
-        endereco: enderecosPorUsuario.get(usuarioId) || null
+        endereco: tipoEntrega === 'retirada'
+          ? null
+          : (enderecosPorUsuario.get(usuarioId) || null)
       };
     });
 
@@ -5349,7 +5534,7 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
     const { status } = req.body;
     const pedidoId = req.params.id;
 
-    const statusValidos = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado'];
+    const statusValidos = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado', 'pronto_para_retirada', 'retirado'];
     
     if (!statusValidos.includes(status)) {
       return res.status(400).json({ erro: 'Selecione um status de pedido válido.' });
@@ -5361,7 +5546,7 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
     );
 
     // Notificar cliente via WhatsApp se estiver configurado e houver opt-in
-    if (status === 'preparando' || status === 'enviado' || status === 'entregue') {
+    if (status === 'preparando' || status === 'enviado' || status === 'entregue' || status === 'pronto_para_retirada' || status === 'retirado') {
       try {
         const [dados] = await pool.query(
           `SELECT p.id, p.total, p.forma_pagamento, u.nome, u.telefone, u.whatsapp_opt_in
@@ -5377,7 +5562,11 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
             ? 'Seu pedido está sendo preparado!'
             : status === 'enviado'
               ? 'Seu pedido saiu para entrega!'
-              : 'Seu pedido foi entregue.';
+              : status === 'entregue'
+                ? 'Seu pedido foi entregue.'
+                : status === 'pronto_para_retirada'
+                  ? 'Seu pedido está pronto para retirada na loja.'
+                  : 'Seu pedido foi retirado com sucesso.';
 
           await enviarWhatsappPedido({
             telefone: dados[0].telefone,
