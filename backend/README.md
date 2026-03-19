@@ -422,6 +422,58 @@ POST /api/webhooks/pagbank
 - **dotenv**: Variáveis de ambiente
 - **body-parser**: Parse de requisições JSON
 
+## 🏗️ Arquitetura do Backend
+
+```
+backend/
+├── server.js              # Servidor principal (~6000 linhas) — middleware, helpers, rotas admin/pagbank/pedido-criação
+├── lib/
+│   ├── config.js          # Configuração centralizada (env vars, PagBank, cookies, CORS)
+│   ├── db.js              # Pool MySQL + queryWithRetry + testConnection
+│   ├── logger.js          # Logger estruturado (info/warn/error/debug + child)
+│   ├── cache.js           # BoundedCache com TTL e LRU eviction
+│   └── sentry.js          # Sentry stubs (captureException, errorHandler)
+├── routes/
+│   ├── auth.js            # POST /api/auth/cadastro, login, logout; admin login/me
+│   ├── health.js          # GET /api, /health, /ready, /metrics, /version
+│   ├── webhooks.js        # POST /api/webhooks/evolution, /api/webhooks/pagbank
+│   ├── enderecos.js       # GET/POST /api/endereco
+│   ├── produtos.js        # GET /api/produtos, /api/categorias, /api/banners
+│   ├── pedidos.js         # GET /api/pedidos, /api/pedidos/:id
+│   ├── cupons.js          # POST /api/cupons/validar, GET /api/cupons/disponiveis
+│   ├── avaliacoes.js      # GET/POST /api/avaliacoes
+│   └── frete.js           # GET /api/frete/simular
+├── services/              # Serviços de domínio (pagbank, barcode lookup, etc.)
+├── tests/
+│   ├── cache.test.js      # 7 testes
+│   ├── config.test.js     # 7 testes
+│   ├── logger.test.js     # 4 testes
+│   └── sentry.test.js     # 7 testes
+└── migrations/            # Arquivos de migração SQL
+```
+
+### Padrão de rotas
+
+Cada arquivo em `routes/` exporta uma **factory function** que recebe dependências e devolve um Express Router:
+
+```js
+module.exports = function createXRoutes(deps) {
+  const router = express.Router();
+  // rotas movidas do server.js
+  return router;
+};
+```
+
+Dependências compartilhadas (config, db, logger) são importadas diretamente via `require`.
+Dependências específicas do servidor (middleware, helpers) são passadas via `deps`.
+
+### Rotas que permanecem no server.js
+
+- **POST /api/pedidos** — criação de pedido (transação + PIX + frete + WhatsApp)
+- **Rotas PagBank** — 3DS, pagamento com cartão, diagnóstico
+- **Rotas admin** — pedidos, dashboard, catálogo, fase 2/3
+- Estas rotas têm muitas dependências cruzadas e serão extraídas em fases futuras
+
 ## 🛠️ Estrutura do Banco
 
 ### Tabelas:

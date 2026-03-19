@@ -1,10 +1,4 @@
-const path = require('path');
-const dotenv = require('dotenv');
-
-// Carrega variaveis de ambiente independente do cwd do processo.
-dotenv.config({ path: path.join(__dirname, '.env') });
-dotenv.config({ path: path.join(__dirname, '..', '.env') });
-dotenv.config();
+﻿const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -16,13 +10,13 @@ const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const mysql = require("mysql2/promise");
 const fetch = global.fetch || require('node-fetch');
 const crypto = require('crypto');
 const fs = require('fs');
 const logger = require('./lib/logger');
 const { BoundedCache } = require('./lib/cache');
 const { captureException, sentryErrorHandler } = require('./lib/sentry');
+const config = require('./lib/config');
 const {
   EXTENSOES_IMPORTACAO_ACEITAS,
   MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO,
@@ -86,9 +80,6 @@ const {
   criarSessaoAutenticacao3DSPagBank: criarSessaoAutenticacao3DSPagBankClient
 } = require('./services/pagbankClientService');
 const {
-  construirConfiguracaoPagBank
-} = require('./services/pagbankConfigService');
-const {
   gerarLogsHomologacaoPagBank,
   gerarLog3DSAuth,
   gerarLogOrderRequest,
@@ -96,241 +87,39 @@ const {
 } = require('./services/pagbankHomologacaoLogService');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const SERVICE_NAME = String(process.env.SERVICE_NAME || 'bom-filho-backend').trim() || 'bom-filho-backend';
-const API_VERSION = String(process.env.API_VERSION || '1.0.0').trim() || '1.0.0';
-const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', 'frontend-react', 'dist');
-const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
-const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
 
-function parseBooleanEnv(name, fallback = false) {
-  const rawValue = String(process.env[name] || '').trim().toLowerCase();
+// ============================================
+// CONFIGURAÇÃO CENTRALIZADA (lib/config.js)
+// ============================================
+const {
+  NODE_ENV, IS_PRODUCTION, PORT, SERVICE_NAME, API_VERSION,
+  FRONTEND_DIST_PATH, REACT_DIST_INDEX, FRONTEND_APP_URL, SHOULD_SERVE_REACT,
+  DATABASE_URL, TRUST_PROXY, BASE_URL_ENV,
+  PAGBANK_ENV, PAGBANK_TOKEN, PAGBANK_PUBLIC_KEY,
+  PAGBANK_WEBHOOK_TOKEN, PAGBANK_DEBUG_LOGS, ALLOW_PIX_MOCK, ALLOW_DEBIT_3DS_MOCK,
+  PAGBANK_TIMEOUT_MS, PAGBANK_API_URL, PAGBANK_SDK_API_URL, PAGBANK_3DS_SDK_ENV,
+  TAMANHO_MAXIMO_IMPORTACAO_BYTES,
+  EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE, EVOLUTION_WEBHOOK_TOKEN,
+  WHATSAPP_AUTO_REPLY_ENABLED, WHATSAPP_AUTO_REPLY_TEXT, WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS,
+  RECAPTCHA_SECRET_KEY, RECAPTCHA_MIN_SCORE,
+  RECAPTCHA_CHECKOUT_PROTECTION_ENABLED, RECAPTCHA_PAYMENT_PROTECTION_ENABLED,
+  JWT_SECRET, DIAGNOSTIC_TOKEN, ALLOW_REMOTE_DIAGNOSTIC,
+  METRICS_ENABLED, METRICS_TOKEN,
+  ADMIN_USER, ADMIN_PASSWORD_HASH, ADMIN_PASSWORD, ADMIN_LOCAL_ONLY,
+  CORS_ORIGINS, CORS_ORIGIN_PATTERNS,
+  USER_AUTH_COOKIE_NAME, ADMIN_AUTH_COOKIE_NAME, CSRF_COOKIE_NAME,
+  USER_AUTH_COOKIE_MAX_AGE, ADMIN_AUTH_COOKIE_MAX_AGE, CSRF_COOKIE_MAX_AGE,
+  COOKIE_SECURE, COOKIE_DOMAIN, COOKIE_SAME_SITE,
+  PRECO_COMBUSTIVEL_LITRO, CEP_MERCADO, NUMERO_MERCADO, LIMITE_BIKE_KM,
+  CEP_GEO_TTL_MS, PRODUTOS_QUERY_CACHE_TTL_MS, READ_QUERY_CACHE_TTL_MS,
+  FRETE_DEBUG_LOGS,
+} = config;
 
-  if (!rawValue) {
-    return fallback;
-  }
-
-  if (['true', '1', 'yes', 'on', 'sim'].includes(rawValue)) {
-    return true;
-  }
-
-  if (['false', '0', 'no', 'off', 'nao', 'não'].includes(rawValue)) {
-    return false;
-  }
-
-  return fallback;
-}
-
-function escapeRegex(text) {
-  return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-const NODE_ENV = String(process.env.NODE_ENV || 'development').trim().toLowerCase() || 'development';
-const IS_PRODUCTION = NODE_ENV === 'production';
-const SHOULD_SERVE_REACT = parseBooleanEnv('SERVE_REACT', !IS_PRODUCTION);
-const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
-const TRUST_PROXY = parseBooleanEnv('TRUST_PROXY', IS_PRODUCTION);
-
-if (!DATABASE_URL) {
-  throw new Error('DATABASE_URL não configurada no ambiente.');
-}
-
-const PAGBANK_CONFIG = construirConfiguracaoPagBank({
-  env: process.env,
-  isProductionApp: IS_PRODUCTION
-});
-const PAGBANK_ENV = PAGBANK_CONFIG.env;
-const PAGBANK_TOKEN = PAGBANK_CONFIG.token;
-const PAGBANK_PUBLIC_KEY = PAGBANK_CONFIG.publicKey;
-const PAGBANK_WEBHOOK_TOKEN = PAGBANK_CONFIG.webhookToken;
-const PAGBANK_DEBUG_LOGS = PAGBANK_CONFIG.debugLogs;
+// Runtime instances (dependem de config, não podem ficar no módulo config)
 const registrarLogPagBank = criarRegistradorLogPagBank({ ativo: PAGBANK_DEBUG_LOGS });
-const ALLOW_PIX_MOCK = PAGBANK_CONFIG.allowPixMock;
-const ALLOW_DEBIT_3DS_MOCK = PAGBANK_CONFIG.allowDebit3dsMock;
-const PAGBANK_TIMEOUT_MS = PAGBANK_CONFIG.timeoutMs;
-const PAGBANK_API_URL = PAGBANK_CONFIG.ordersApiUrl;
-const PAGBANK_SDK_API_URL = PAGBANK_CONFIG.sdkApiUrl;
-const PAGBANK_3DS_SDK_ENV = PAGBANK_CONFIG.sdkEnv;
-const TAMANHO_MAXIMO_IMPORTACAO_MB = (() => {
-  const valor = Number(process.env.TAMANHO_MAXIMO_IMPORTACAO_MB || 8);
-  return Number.isFinite(valor) && valor > 0 ? Math.min(valor, 100) : 8;
-})();
-const TAMANHO_MAXIMO_IMPORTACAO_BYTES = Math.round(TAMANHO_MAXIMO_IMPORTACAO_MB * 1024 * 1024);
-
-// Configuração Evolution API (WhatsApp)
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
-const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || 'loja';
-const EVOLUTION_WEBHOOK_TOKEN = String(process.env.EVOLUTION_WEBHOOK_TOKEN || '').trim();
-const WHATSAPP_AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY_ENABLED === 'true';
-const WHATSAPP_AUTO_REPLY_TEXT = String(
-  process.env.WHATSAPP_AUTO_REPLY_TEXT ||
-  'Estamos com o site do Bom Filho no ar. Faca seu pedido por la.'
-).trim();
-const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
-  process.env.WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS || '0',
-  10
-);
-
-// Configuração PagBank
-
-if (IS_PRODUCTION && !PAGBANK_WEBHOOK_TOKEN) {
-  throw new Error('PAGBANK_WEBHOOK_TOKEN é obrigatório em produção para validação segura dos webhooks PagBank.');
-}
-
-if (!PAGBANK_WEBHOOK_TOKEN) {
-  console.warn('⚠️ PAGBANK_WEBHOOK_TOKEN não configurado. Em produção o servidor não inicializa sem essa variável.');
-}
-
-const RECAPTCHA_SECRET_KEY = String(process.env.RECAPTCHA_SECRET_KEY || '').trim();
-const RECAPTCHA_MIN_SCORE = (() => {
-  const valor = Number(process.env.RECAPTCHA_MIN_SCORE || 0.5);
-  if (!Number.isFinite(valor)) {
-    return 0.5;
-  }
-  return Math.min(1, Math.max(0, valor));
-})();
-const RECAPTCHA_CHECKOUT_ENABLED = parseBooleanEnv('RECAPTCHA_CHECKOUT_ENABLED', false);
-const RECAPTCHA_PAYMENT_ENABLED = parseBooleanEnv('RECAPTCHA_PAYMENT_ENABLED', false);
-
-const JWT_SECRET = String(process.env.JWT_SECRET || '');
-const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
-const ALLOW_REMOTE_DIAGNOSTIC = parseBooleanEnv('ALLOW_REMOTE_DIAGNOSTIC', false);
-const BASE_URL_ENV = String(process.env.BASE_URL || '').trim();
-const METRICS_ENABLED = parseBooleanEnv('METRICS_ENABLED', !IS_PRODUCTION);
-const METRICS_TOKEN = String(process.env.METRICS_TOKEN || '').trim();
-
-const RECAPTCHA_CHECKOUT_PROTECTION_ENABLED = RECAPTCHA_CHECKOUT_ENABLED && Boolean(RECAPTCHA_SECRET_KEY);
-const RECAPTCHA_PAYMENT_PROTECTION_ENABLED = RECAPTCHA_PAYMENT_ENABLED && Boolean(RECAPTCHA_SECRET_KEY);
-
-if ((RECAPTCHA_CHECKOUT_ENABLED || RECAPTCHA_PAYMENT_ENABLED) && !RECAPTCHA_SECRET_KEY) {
-  const avisoRecaptcha = 'RECAPTCHA_CHECKOUT_ENABLED/RECAPTCHA_PAYMENT_ENABLED ativos sem RECAPTCHA_SECRET_KEY. A protecao antiabuso do checkout ficara desabilitada.';
-  if (IS_PRODUCTION) {
-    throw new Error(avisoRecaptcha);
-  }
-  console.warn(`⚠️ ${avisoRecaptcha}`);
-}
-
-if (IS_PRODUCTION) {
-  if (!BASE_URL_ENV) {
-    throw new Error('BASE_URL obrigatoria em producao para notificacoes e webhooks.');
-  }
-
-  if (!/^https:\/\//i.test(BASE_URL_ENV)) {
-    throw new Error('BASE_URL deve usar HTTPS em producao.');
-  }
-
-  if (FRONTEND_APP_URL && !/^https:\/\//i.test(FRONTEND_APP_URL)) {
-    throw new Error('FRONTEND_APP_URL deve usar HTTPS em producao.');
-  }
-
-  if (!PAGBANK_TOKEN) {
-    throw new Error('PAGBANK_TOKEN e obrigatorio em producao para habilitar pagamentos.');
-  }
-
-  if (METRICS_ENABLED && !METRICS_TOKEN) {
-    throw new Error('METRICS_TOKEN e obrigatorio quando METRICS_ENABLED=true em producao.');
-  }
-}
-
-if (ALLOW_REMOTE_DIAGNOSTIC && !DIAGNOSTIC_TOKEN) {
-  console.warn('⚠️ ALLOW_REMOTE_DIAGNOSTIC=true sem DIAGNOSTIC_TOKEN. O acesso remoto de diagnóstico ficará indisponível.');
-}
-
-function normalizarOrigin(origin) {
-  return String(origin || '').trim().replace(/\/+$/, '').toLowerCase();
-}
-
-const CORS_ORIGENS_FIXAS_PRODUCAO = [
-  'https://bomfilho-delivery.vercel.app'
-];
-
-const CORS_ORIGENS_FIXAS_DESENVOLVIMENTO = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://127.0.0.1:5173',
-  'http://127.0.0.1:5174'
-];
-
-const origensPadrao = IS_PRODUCTION
-  ? CORS_ORIGENS_FIXAS_PRODUCAO
-  : [...CORS_ORIGENS_FIXAS_DESENVOLVIMENTO, ...CORS_ORIGENS_FIXAS_PRODUCAO];
-
-const CORS_ORIGINS_SET = new Set(
-  origensPadrao
-    .map((origin) => normalizarOrigin(origin))
-    .filter(Boolean)
-);
-
-for (const origin of String(process.env.CORS_ORIGINS || '').split(',')) {
-  const originNormalizada = normalizarOrigin(origin);
-  if (originNormalizada) {
-    CORS_ORIGINS_SET.add(originNormalizada);
-  }
-}
-
-const frontendAppOrigin = normalizarOrigin(FRONTEND_APP_URL);
-if (frontendAppOrigin) {
-  CORS_ORIGINS_SET.add(frontendAppOrigin);
-}
-
-const CORS_ORIGINS = Array.from(CORS_ORIGINS_SET);
-
-if (IS_PRODUCTION && CORS_ORIGINS.length === 0) {
-  throw new Error('CORS_ORIGINS nao configurada no ambiente de producao.');
-}
-
-if (IS_PRODUCTION) {
-  const origensLocais = CORS_ORIGINS.filter((origin) => /localhost|127\.0\.0\.1/.test(origin));
-  if (origensLocais.length) {
-    console.warn(`⚠️ CORS_ORIGINS em producao contem origem local: ${origensLocais.join(', ')}`);
-  }
-}
-
-const CORS_ORIGIN_PATTERNS = CORS_ORIGINS
-  .filter((origin) => origin.includes('*'))
-  .map((origin) => {
-    const regexSource = `^${escapeRegex(origin).replace(/\\\*/g, '[^.]+')}$`;
-    return new RegExp(regexSource, 'i');
-  });
-const USER_AUTH_COOKIE_NAME = 'bf_access_token';
-const ADMIN_AUTH_COOKIE_NAME = 'bf_admin_token';
-const CSRF_COOKIE_NAME = 'bf_csrf_token';
-const USER_AUTH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
-const ADMIN_AUTH_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
-const CSRF_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
-const COOKIE_SECURE = parseBooleanEnv('COOKIE_SECURE', IS_PRODUCTION);
-const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
-const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').trim().toLowerCase();
-const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW)
-  ? COOKIE_SAME_SITE_RAW
-  : 'strict';
-
-if (IS_PRODUCTION && !COOKIE_SECURE) {
-  throw new Error('COOKIE_SECURE deve ser true em producao.');
-}
-
-const PRECO_COMBUSTIVEL_LITRO = Number(process.env.PRECO_COMBUSTIVEL_LITRO || 6.2);
-const CEP_MERCADO = String(process.env.CEP_MERCADO || '68740-180').replace(/\D/g, '');
-const NUMERO_MERCADO = String(process.env.NUMERO_MERCADO || '70').trim() || '70';
-const LIMITE_BIKE_KM = (() => {
-  const valor = Number(process.env.LIMITE_BIKE_KM || 1);
-  return Number.isFinite(valor) && valor > 0 ? valor : 1;
-})();
-const CEP_GEO_TTL_MS = 24 * 60 * 60 * 1000;
 const cepGeoCache = new BoundedCache({ maxSize: 2000, ttlMs: CEP_GEO_TTL_MS, name: 'cepGeo' });
-const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 20000);
 const produtosQueryCache = new BoundedCache({ maxSize: 200, ttlMs: PRODUTOS_QUERY_CACHE_TTL_MS, name: 'produtosQuery' });
-const READ_QUERY_CACHE_TTL_MS = 30 * 1000;
 const readQueryCache = new BoundedCache({ maxSize: 500, ttlMs: READ_QUERY_CACHE_TTL_MS, name: 'readQuery' });
-const FRETE_DEBUG_LOGS = (() => {
-  const raw = String(process.env.FRETE_DEBUG_LOGS || '').trim().toLowerCase();
-  if (!raw) {
-    return String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production';
-  }
-
-  return ['1', 'true', 'yes', 'on', 'sim'].includes(raw);
-})();
 
 const VEICULOS_ENTREGA = {
   bike: {
@@ -386,7 +175,7 @@ function registrarLogFreteDebug(evento, dados = {}) {
     dados
   };
 
-  console.log(`FRETE_DEBUG ${JSON.stringify(payload)}`);
+  logger.info(`FRETE_DEBUG ${JSON.stringify(payload)}`);
 }
 
 function calcularFreteEntregaDetalhado(veiculoKey, distanciaKm) {
@@ -1056,7 +845,7 @@ if (JWT_SECRET.length < 32) {
   if (IS_PRODUCTION) {
     throw new Error(aviso);
   }
-  console.warn(`⚠️ ${aviso}`);
+  logger.warn(`⚠️ ${aviso}`);
 }
 
 function normalizarIp(ip) {
@@ -1233,11 +1022,11 @@ function registrarLogEndpointDiagnostico({ endpoint, statusHttp, detalhe, extra 
 
   const status = Number(payload.status_http || 0);
   if (status >= 500) {
-    console.error('📍 API diagnóstico:', JSON.stringify(payload));
+    logger.error('📍 API diagnóstico:', JSON.stringify(payload));
     return;
   }
 
-  console.log('📍 API diagnóstico:', JSON.stringify(payload));
+  logger.info('📍 API diagnóstico:', JSON.stringify(payload));
 }
 
 function extrairBearerToken(req) {
@@ -1646,21 +1435,21 @@ const evolutionProcessedMessageIds = new BoundedCache({ maxSize: 5000, ttlMs: 30
 const evolutionLastReplyByNumber = new BoundedCache({ maxSize: 2000, ttlMs: 24 * 60 * 60 * 1000, name: 'evolutionReply' });
 
 if (PAGBANK_TOKEN) {
-  console.log('✅ PagBank configurado com sucesso!');
+  logger.info('✅ PagBank configurado com sucesso!');
   // Check não-bloqueante para avisar cedo se a credencial está inválida
   setTimeout(() => {
     verificarCredencialPagBank()
       .then((r) => {
         if (r.ok) {
-          console.log(`✅ PagBank token OK (${r.message})`);
+          logger.info(`✅ PagBank token OK (${r.message})`);
         } else {
-          console.warn(`⚠️ PagBank token inválido/erro (${r.status}): ${r.message}`);
+          logger.warn(`⚠️ PagBank token inválido/erro (${r.status}): ${r.message}`);
         }
       })
-      .catch((e) => console.warn('⚠️ Falha ao checar token PagBank:', e?.message));
+      .catch((e) => logger.warn('⚠️ Falha ao checar token PagBank:', e?.message));
   }, 0);
 } else {
-  console.warn('⚠️ PAGBANK_TOKEN não configurado; PIX desabilitado.');
+  logger.warn('⚠️ PAGBANK_TOKEN não configurado; PIX desabilitado.');
 }
 
 // ============================================
@@ -2103,83 +1892,14 @@ app.post('/api/pagbank/test-pix', protegerDiagnostico, async (req, res) => {
 });
 
 // ============================================
-// CONEXÃO COM O BANCO DE DADOS
+// CONEXÃO COM O BANCO DE DADOS (lib/db.js)
 // ============================================
-const dbUrl = new URL(DATABASE_URL);
-
-const pool = mysql.createPool({
-  host: dbUrl.hostname,
-  port: dbUrl.port,
-  user: dbUrl.username,
-  password: dbUrl.password,
-  database: dbUrl.pathname.replace("/", ""),
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 30000
-});
+const { pool, queryWithRetry, testConnection } = require('./lib/db');
 
 const barcodeLookupService = createDefaultBarcodeLookupService({
   pool,
-  logger: console
+  logger
 });
-
-console.log('🧭 MySQL config:', {
-  host: dbUrl.hostname ? `${dbUrl.hostname.slice(0, 4)}***` : '(vazio)',
-  port: dbUrl.port || '(padrão)',
-  user: dbUrl.username ? `${dbUrl.username.slice(0, 2)}***` : '(vazio)',
-  database: dbUrl.pathname ? dbUrl.pathname.replace('/', '').slice(0, 3) + '***' : '(vazio)',
-  source: 'DATABASE_URL'
-});
-
-const QUERY_RETRY_ATTEMPTS = 3;
-const QUERY_RETRY_DELAY_MS = 1000;
-const MYSQL_RETRYABLE_CODES = new Set([
-  'PROTOCOL_CONNECTION_LOST',
-  'ECONNRESET',
-  'ECONNREFUSED',
-  'ETIMEDOUT',
-  'EPIPE',
-  'ER_CON_COUNT_ERROR',
-  'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
-  'PROTOCOL_ENQUEUE_AFTER_QUIT'
-]);
-
-const aguardar = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function isErroConexaoMySql(error) {
-  if (!error) return false;
-
-  if (MYSQL_RETRYABLE_CODES.has(error.code)) {
-    return true;
-  }
-
-  const mensagem = String(error.message || '').toLowerCase();
-  return mensagem.includes('connection') || mensagem.includes('socket') || mensagem.includes('timeout');
-}
-
-async function queryWithRetry(sql, params = []) {
-  let lastError = null;
-
-  for (let tentativa = 1; tentativa <= QUERY_RETRY_ATTEMPTS; tentativa++) {
-    try {
-      return await pool.query(sql, params);
-    } catch (error) {
-      lastError = error;
-      const podeTentarNovamente = tentativa < QUERY_RETRY_ATTEMPTS && isErroConexaoMySql(error);
-
-      if (!podeTentarNovamente) {
-        throw error;
-      }
-
-      console.warn(`⚠️ Falha de conexão MySQL (tentativa ${tentativa}/${QUERY_RETRY_ATTEMPTS}). Repetindo em ${QUERY_RETRY_DELAY_MS}ms...`);
-      await aguardar(QUERY_RETRY_DELAY_MS);
-    }
-  }
-
-  throw lastError || new Error('Falha ao executar consulta MySQL com retry.');
-}
 
 async function preloadData() {
   try {
@@ -2247,23 +1967,21 @@ async function preloadData() {
       }
     }
 
-    console.log(`✅ Preload concluído: ${produtos.length} produtos e ${categorias.length} categorias em cache.`);
+    logger.info(`✅ Preload concluído: ${produtos.length} produtos e ${categorias.length} categorias em cache.`);
   } catch (err) {
-    console.warn('⚠️ Falha no preload inicial de dados:', err?.message || err);
+    logger.warn('⚠️ Falha no preload inicial de dados:', err?.message || err);
   }
 }
 
 // Testar conexão ao iniciar
 (async () => {
   try {
-    const conn = await pool.getConnection();
-    console.log('✅ MySQL conectado');
-    conn.release();
+    await testConnection();
     await ensureAdminCatalogSchema(pool);
     await barcodeLookupService.ensureCacheSchema();
     await preloadData();
   } catch (err) {
-    console.error('❌ Erro ao conectar ao MySQL:', err);
+    logger.error('❌ Erro ao conectar ao MySQL:', err);
   }
 })();
 
@@ -2511,7 +2229,7 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
   const notificationUrlSeguro = sanitizarPayloadPagBankParaLog({
     notification_url: payload.notification_urls?.[0]
   })?.notification_url;
-  console.log('🔔 PagBank notification URL:', notificationUrlSeguro || '');
+  logger.info('🔔 PagBank notification URL:', notificationUrlSeguro || '');
 
   const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   const { response, responseBodyText: responseText, responsePayload, traceId, endpoint } = await enviarPostPagBankOrders({
@@ -2823,7 +2541,7 @@ async function criarPagamentoCartao({
 
 async function enviarWhatsappTexto({ telefone, mensagem }) {
   if (!EVOLUTION_API_KEY) {
-    console.warn('⚠️ Evolution API não configurada. WhatsApp desabilitado.');
+    logger.warn('⚠️ Evolution API não configurada. WhatsApp desabilitado.');
     return false;
   }
 
@@ -2833,7 +2551,7 @@ async function enviarWhatsappTexto({ telefone, mensagem }) {
   }
 
   if (typeof fetch !== 'function') {
-    console.warn('Fetch indisponível; mensagem de WhatsApp não enviada.');
+    logger.warn('Fetch indisponível; mensagem de WhatsApp não enviada.');
     return false;
   }
   
@@ -2856,15 +2574,15 @@ async function enviarWhatsappTexto({ telefone, mensagem }) {
 
     if (!resp.ok) {
       const erroTexto = await resp.text();
-      console.error('❌ Erro ao enviar WhatsApp:', erroTexto);
+      logger.error('❌ Erro ao enviar WhatsApp:', erroTexto);
       return false;
     } else {
       const resultado = await resp.json();
-      console.log('✅ WhatsApp enviado:', resultado);
+      logger.info('✅ WhatsApp enviado:', resultado);
       return true;
     }
   } catch (erro) {
-    console.error('❌ Erro ao enviar WhatsApp:', erro.message);
+    logger.error('❌ Erro ao enviar WhatsApp:', erro.message);
     return false;
   }
 }
@@ -2900,17 +2618,7 @@ const autenticarToken = (req, res, next) => {
   });
 };
 
-const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASSWORD_HASH = String(process.env.ADMIN_PASSWORD_HASH || '').trim();
-const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || '').trim();
-const ADMIN_LOCAL_ONLY = process.env.ADMIN_LOCAL_ONLY !== 'false';
-
-if (ADMIN_PASSWORD && !ADMIN_PASSWORD_HASH) {
-  console.warn('⚠️ [DEPRECIADO] ADMIN_PASSWORD em texto plano está ativo. Migre para ADMIN_PASSWORD_HASH (bcrypt) o mais rápido possível.');
-}
-if (!ADMIN_PASSWORD_HASH && !ADMIN_PASSWORD) {
-  console.warn('⚠️ Admin login desabilitado: nem ADMIN_PASSWORD_HASH nem ADMIN_PASSWORD estão configurados.');
-}
+// ADMIN vars agora vêm de config (via destructuring no topo)
 
 function extrairIpRequisicao(req) {
   return normalizarIp(req.ip || req.socket?.remoteAddress || '');
@@ -3055,513 +2763,28 @@ async function buscarProdutoUpcItemDb(codigo) {
 }
 
 // ============================================
-// ROTAS DE AUTENTICAÇÃO
+// ROTAS DE AUTENTICAÇÃO (routes/auth.js)
 // ============================================
-
-// Cadastro de usuário
-app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
-  try {
-    const { nome, email, senha, telefone, whatsapp_opt_in, recaptcha_token } = req.body || {};
-    const optIn = !!whatsapp_opt_in;
-
-    await validarRecaptcha({
-      token: recaptcha_token,
-      req,
-      action: 'auth_cadastro'
-    });
-
-    if (!nome || !email || !senha || !telefone) {
-      return res.status(400).json({ erro: 'Preencha todos os campos obrigatórios.' });
-    }
-
-    if (!/^\S+@\S+\.\S+$/.test(String(email))) {
-      return res.status(400).json({ erro: 'Informe um e-mail válido.' });
-    }
-
-    if (String(senha).length < 8) {
-      return res.status(400).json({ erro: 'A senha deve ter no mínimo 8 caracteres.' });
-    }
-
-    // Verificar se o email já existe (resposta genérica para evitar enumeração)
-    const [usuariosExistentes] = await pool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
-    if (usuariosExistentes.length > 0) {
-      return res.status(409).json({ erro: 'Não foi possível criar a conta. Verifique os dados ou tente fazer login.' });
-    }
-
-    // Criptografar senha
-    const senhaHash = await bcrypt.hash(senha, 10);
-
-    // Inserir usuário
-    const [resultado] = await pool.query(
-      'INSERT INTO usuarios (nome, email, senha, telefone, whatsapp_opt_in) VALUES (?, ?, ?, ?, ?)',
-      [nome, email, senhaHash, telefone, optIn]
-    );
-
-    // Gerar token
-    const token = jwt.sign(
-      { id: resultado.insertId, email: email },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    const csrfToken = emitirCsrfToken(res);
-    definirCookieAuth(res, USER_AUTH_COOKIE_NAME, token, USER_AUTH_COOKIE_MAX_AGE);
-
-    res.status(201).json({
-      mensagem: 'Cadastro realizado com sucesso.',
-      csrfToken,
-      usuario: {
-        id: resultado.insertId,
-        nome: nome,
-        email: email,
-        telefone: telefone,
-        whatsapp_opt_in: optIn
-      }
-    });
-  } catch (erro) {
-    if (erro?.httpStatus) {
-      return res.status(erro.httpStatus).json({ erro: erro.message });
-    }
-
-    console.error('Erro ao cadastrar usuário:', erro);
-    return res.status(500).json({ erro: 'Não foi possível concluir o cadastro. Tente novamente.' });
-  }
-});
-
-// Login
-app.post('/api/auth/login', loginLimiter, async (req, res) => {
-  try {
-    const { email, senha, recaptcha_token } = req.body || {};
-
-    await validarRecaptcha({
-      token: recaptcha_token,
-      req,
-      action: 'auth_login'
-    });
-
-    if (!email || !senha) {
-      return res.status(400).json({ erro: 'Informe e-mail e senha.' });
-    }
-
-    // Buscar usuário
-    const [usuarios] = await pool.query('SELECT id, nome, email, telefone, senha, whatsapp_opt_in FROM usuarios WHERE email = ?', [email]);
-    if (usuarios.length === 0) {
-      return res.status(401).json({ erro: 'E-mail ou senha não conferem.' });
-    }
-
-    const usuario = usuarios[0];
-
-    // Verificar senha
-    const senhaValida = await bcrypt.compare(senha, usuario.senha);
-    if (!senhaValida) {
-      return res.status(401).json({ erro: 'E-mail ou senha não conferem.' });
-    }
-
-    // Gerar token
-    const token = jwt.sign(
-      { id: usuario.id, email: usuario.email },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    const csrfToken = emitirCsrfToken(res);
-    definirCookieAuth(res, USER_AUTH_COOKIE_NAME, token, USER_AUTH_COOKIE_MAX_AGE);
-
-    res.json({
-      mensagem: 'Login realizado com sucesso.',
-      csrfToken,
-      usuario: {
-        id: usuario.id,
-        nome: usuario.nome,
-        email: usuario.email,
-        telefone: usuario.telefone,
-        whatsapp_opt_in: usuario.whatsapp_opt_in === 1 || usuario.whatsapp_opt_in === true
-      }
-    });
-  } catch (erro) {
-    if (erro?.httpStatus) {
-      return res.status(erro.httpStatus).json({ erro: erro.message });
-    }
-
-    console.error('Erro ao fazer login:', erro);
-    return res.status(500).json({ erro: 'Não foi possível concluir o login. Tente novamente.' });
-  }
-});
-
-// Login administrativo (somente acesso local)
-app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (req, res) => {
-  try {
-    const { usuario, senha } = req.body || {};
-
-    if (!ADMIN_PASSWORD_HASH && !ADMIN_PASSWORD) {
-      return res.status(503).json({ erro: 'A autenticação administrativa está indisponível no momento.' });
-    }
-
-    if (!usuario || !senha) {
-      return res.status(400).json({ erro: 'Informe usuário e senha de administrador.' });
-    }
-
-    if (!compararTextoSegura(String(usuario).trim(), ADMIN_USER)) {
-      return res.status(401).json({ erro: 'Usuário ou senha de administrador inválidos.' });
-    }
-
-    let senhaValida = false;
-    if (ADMIN_PASSWORD_HASH) {
-      senhaValida = await bcrypt.compare(String(senha), ADMIN_PASSWORD_HASH);
-    } else if (ADMIN_PASSWORD) {
-      senhaValida = compararTextoSegura(String(senha), ADMIN_PASSWORD);
-      if (senhaValida) {
-        console.warn('⚠️ [DEPRECIADO] Login admin via ADMIN_PASSWORD (texto plano). Migre para ADMIN_PASSWORD_HASH.');
-      }
-    }
-
-    if (!senhaValida) {
-      return res.status(401).json({ erro: 'Usuário ou senha de administrador inválidos.' });
-    }
-
-    const token = jwt.sign(
-      { role: 'admin', usuario: ADMIN_USER },
-      JWT_SECRET,
-      { expiresIn: '12h' }
-    );
-
-    const csrfToken = emitirCsrfToken(res);
-    definirCookieAuth(res, ADMIN_AUTH_COOKIE_NAME, token, ADMIN_AUTH_COOKIE_MAX_AGE);
-
-    registrarAuditoria(pool, {
-      acao: 'admin_login',
-      entidade: 'admin',
-      detalhes: { metodo: ADMIN_PASSWORD_HASH ? 'bcrypt' : 'legacy_plaintext' },
-      admin_usuario: ADMIN_USER,
-      ip: extrairIpRequisicao(req)
-    }).catch(() => {});
-
-    return res.json({
-      mensagem: 'Acesso administrativo liberado com sucesso.',
-      usuario: ADMIN_USER,
-      csrfToken
-    });
-  } catch (erro) {
-    console.error('Erro no login admin:', erro);
-    return res.status(500).json({ erro: 'Não foi possível concluir o login administrativo.' });
-  }
-});
-
-app.get('/api/auth/csrf', (req, res) => {
-  const csrfToken = emitirCsrfToken(res);
-  return res.json({ csrfToken });
-});
-
-app.post('/api/auth/logout', (req, res) => {
-  limparCookie(res, USER_AUTH_COOKIE_NAME, { httpOnly: true });
-  limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
-  return res.json({ mensagem: 'Sessão encerrada com sucesso.' });
-});
-
-app.get('/api/admin/me', exigirAcessoLocalAdmin, autenticarAdminToken, (req, res) => {
-  return res.json({ admin: { usuario: req.admin?.usuario || ADMIN_USER } });
-});
-
-app.post('/api/admin/logout', exigirAcessoLocalAdmin, (req, res) => {
-  limparCookie(res, ADMIN_AUTH_COOKIE_NAME, { httpOnly: true });
-  limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
-  return res.json({ mensagem: 'Sessão administrativa encerrada com sucesso.' });
-});
-
-// Obter dados do usuário logado
-app.get('/api/auth/me', autenticarToken, async (req, res) => {
-  try {
-    const [usuarios] = await pool.query(
-      'SELECT id, nome, email, telefone, whatsapp_opt_in FROM usuarios WHERE id = ?',
-      [req.usuario.id]
-    );
-
-    if (usuarios.length === 0) {
-      return res.status(404).json({ erro: 'Não encontramos sua conta.' });
-    }
-
-    res.json({ usuario: usuarios[0] });
-  } catch (erro) {
-    console.error('Erro ao buscar usuário:', erro);
-    res.status(500).json({ erro: 'Não foi possível carregar os dados da sua conta.' });
-  }
-});
-
-// Atualizar telefone e consentimento de WhatsApp
-app.post('/api/usuario/whatsapp', autenticarToken, async (req, res) => {
-  try {
-    const { telefone, whatsapp_opt_in } = req.body;
-
-    if (!telefone) {
-      return res.status(400).json({ erro: 'Informe um telefone para continuar.' });
-    }
-
-    const numeroLimpo = telefone.trim();
-    const optIn = !!whatsapp_opt_in;
-
-    await pool.query(
-      'UPDATE usuarios SET telefone = ?, whatsapp_opt_in = ? WHERE id = ?',
-      [numeroLimpo, optIn, req.usuario.id]
-    );
-
-    res.json({ mensagem: 'Preferências de WhatsApp atualizadas com sucesso.', whatsapp_opt_in: optIn, telefone: numeroLimpo });
-  } catch (erro) {
-    console.error('Erro ao atualizar WhatsApp:', erro);
-    res.status(500).json({ erro: 'Não foi possível atualizar suas preferências de WhatsApp.' });
-  }
-});
+app.use(require('./routes/auth')({
+  authLimiter, loginLimiter, adminAuthLimiter,
+  autenticarToken, autenticarAdminToken, exigirAcessoLocalAdmin,
+  validarRecaptcha, emitirCsrfToken, definirCookieAuth, limparCookie,
+  compararTextoSegura, registrarAuditoria, extrairIpRequisicao,
+}));
 
 // ============================================
-// ROTAS DE ENDEREÇOS
+// ROTAS DE ENDEREÇOS (routes/enderecos.js)
 // ============================================
-
-// Obter endereço do usuário
-app.get('/api/endereco', autenticarToken, async (req, res) => {
-  try {
-    const [enderecos] = await pool.query(
-      'SELECT id, usuario_id, cep, logradouro, numero, complemento, bairro, cidade, estado, atualizado_em FROM enderecos WHERE usuario_id = ?',
-      [req.usuario.id]
-    );
-
-    if (enderecos.length === 0) {
-      return res.json({ endereco: null });
-    }
-
-    res.json({ endereco: enderecos[0] });
-  } catch (erro) {
-    console.error('Erro ao buscar endereço:', erro);
-    res.status(500).json({ erro: 'Não foi possível carregar seu endereço.' });
-  }
-});
-
-// Salvar/atualizar endereço
-app.post('/api/endereco', autenticarToken, async (req, res) => {
-  try {
-    const { rua, numero, bairro, cidade, estado, cep } = req.body;
-
-    if (!rua || !numero || !bairro || !cidade || !estado || !cep) {
-      return res.status(400).json({ erro: 'Preencha todos os campos do endereço.' });
-    }
-
-    // Verificar se já existe endereço
-    const [enderecosExistentes] = await pool.query(
-      'SELECT id FROM enderecos WHERE usuario_id = ?',
-      [req.usuario.id]
-    );
-
-    if (enderecosExistentes.length > 0) {
-      // Atualizar
-      await pool.query(
-        'UPDATE enderecos SET rua = ?, numero = ?, bairro = ?, cidade = ?, estado = ?, cep = ? WHERE usuario_id = ?',
-        [rua, numero, bairro, cidade, estado, cep, req.usuario.id]
-      );
-    } else {
-      // Inserir
-      await pool.query(
-        'INSERT INTO enderecos (usuario_id, rua, numero, bairro, cidade, estado, cep) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [req.usuario.id, rua, numero, bairro, cidade, estado, cep]
-      );
-    }
-
-    res.json({ mensagem: 'Endereço salvo com sucesso.' });
-  } catch (erro) {
-    console.error('Erro ao salvar endereço:', erro);
-    res.status(500).json({ erro: 'Não foi possível salvar seu endereço. Tente novamente.' });
-  }
-});
+app.use(require('./routes/enderecos')({ autenticarToken }));
 
 // ============================================
-// ROTAS DE PRODUTOS
+// ROTAS DE PRODUTOS PÚBLICO (routes/produtos.js)
 // ============================================
-
-// Listar todos os produtos ativos
-app.get('/api/produtos', async (req, res) => {
-  try {
-    res.set('Cache-Control', 'public, max-age=30');
-    const colunas = await obterColunasProdutos();
-    const campos = [
-      'id',
-      'nome',
-      colunas.has('descricao') ? 'descricao' : 'NULL AS descricao',
-      colunas.has('marca') ? 'marca' : 'NULL AS marca',
-      'preco',
-      colunas.has('unidade') ? 'unidade' : "'un' AS unidade",
-      colunas.has('categoria') ? 'categoria' : "'geral' AS categoria",
-      colunas.has('emoji') ? 'emoji' : "'📦' AS emoji",
-      colunas.has('estoque') ? 'estoque' : '0 AS estoque',
-      colunas.has('validade') ? 'validade' : 'NULL AS validade'
-    ];
-
-    if (colunas.has('codigo_barras')) {
-      campos.push('codigo_barras');
-    }
-
-    if (colunas.has('imagem_url')) {
-      campos.push('imagem_url AS imagem');
-    }
-
-    const busca = toLowerTrim(req.query?.busca);
-    const categoriaRaw = toLowerTrim(req.query?.categoria);
-    const categoria = categoriaRaw && categoriaRaw !== 'todas' ? categoriaRaw : '';
-    const ordenacaoRaw = toLowerTrim(req.query?.sort || req.query?.ordenacao);
-    const ordenacaoMap = {
-      nome_asc: 'categoria ASC, nome ASC',
-      nome_desc: 'categoria DESC, nome DESC',
-      preco_asc: 'preco ASC, nome ASC',
-      preco_desc: 'preco DESC, nome ASC',
-      recentes: 'id DESC'
-    };
-    const ordenacaoSql = ordenacaoMap[ordenacaoRaw] || 'categoria ASC, nome ASC';
-
-    const limite = parsePositiveInt(req.query?.limit || req.query?.limite, 60, { min: 1, max: 200 });
-    const paginaSolicitada = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
-
-    const filtros = ['ativo = TRUE'];
-    const params = [];
-
-    if (categoria) {
-      filtros.push('LOWER(categoria) = ?');
-      params.push(categoria);
-    }
-
-    if (busca) {
-      const termo = `%${escapeLike(busca)}%`;
-      const filtrosBusca = [
-        `LOWER(nome) LIKE ? ESCAPE '\\\\'`
-      ];
-      params.push(termo);
-
-      if (colunas.has('descricao')) {
-        filtrosBusca.push(`LOWER(COALESCE(descricao, '')) LIKE ? ESCAPE '\\\\'`);
-        params.push(termo);
-      }
-
-      if (colunas.has('marca')) {
-        filtrosBusca.push(`LOWER(COALESCE(marca, '')) LIKE ? ESCAPE '\\\\'`);
-        params.push(termo);
-      }
-
-      filtros.push(`(${filtrosBusca.join(' OR ')})`);
-    }
-
-    const whereSql = filtros.length ? `WHERE ${filtros.join(' AND ')}` : '';
-
-    const chaveCache = montarChaveCacheProdutos({
-      pagina: paginaSolicitada,
-      limite,
-      busca,
-      categoria,
-      ordenacao: ordenacaoSql
-    });
-    const cachePayload = obterCacheProdutos(chaveCache);
-    if (cachePayload) {
-      return res.json({
-        ...cachePayload,
-        cache: true
-      });
-    }
-
-    const [[countRow]] = await queryWithRetry(
-      `SELECT COUNT(*) AS total FROM produtos ${whereSql}`,
-      params
-    );
-    const total = Number(countRow?.total || 0);
-    const paginacao = montarPaginacao(total, paginaSolicitada, limite);
-    const offset = (paginacao.pagina - 1) * paginacao.limite;
-
-    const [produtos] = await queryWithRetry(
-      `SELECT ${campos.join(', ')}
-       FROM produtos
-       ${whereSql}
-       ORDER BY ${ordenacaoSql}
-       LIMIT ? OFFSET ?`,
-      [...params, paginacao.limite, offset]
-    );
-
-    const payload = {
-      produtos,
-      paginacao
-    };
-    salvarCacheProdutos(chaveCache, payload);
-
-    return res.json(payload);
-  } catch (erro) {
-    console.error('Erro ao buscar produtos:', erro);
-    res.status(500).json({ erro: 'Não foi possível carregar os produtos no momento.' });
-  }
-});
-
-// Listar categorias ativas (cache em memória por 30s)
-app.get('/api/categorias', async (req, res) => {
-  try {
-    res.set('Cache-Control', 'public, max-age=30');
-    const chaveCacheLeitura = 'categorias:ativas';
-    const cacheLeitura = obterCacheLeitura(chaveCacheLeitura);
-    if (cacheLeitura) {
-      return res.json({
-        categorias: cacheLeitura,
-        cache: true
-      });
-    }
-
-    const [rows] = await queryWithRetry(
-      `SELECT DISTINCT categoria
-       FROM produtos
-       WHERE ativo = TRUE
-         AND categoria IS NOT NULL
-         AND categoria <> ''
-       ORDER BY categoria ASC`
-    );
-
-    const categorias = rows
-      .map((item) => String(item?.categoria || '').trim())
-      .filter(Boolean);
-
-    salvarCacheLeitura(chaveCacheLeitura, categorias);
-
-    return res.json({ categorias });
-  } catch (erro) {
-    console.error('Erro ao buscar categorias:', erro);
-    return res.status(500).json({ erro: 'Erro ao buscar categorias' });
-  }
-});
-
-// Listar banners ativos (cache em memória por 30s)
-app.get('/api/banners', async (req, res) => {
-  try {
-    res.set('Cache-Control', 'public, max-age=30');
-    const chaveCacheLeitura = 'banners:ativos';
-    const cacheLeitura = obterCacheLeitura(chaveCacheLeitura);
-    if (cacheLeitura) {
-      return res.json({
-        banners: cacheLeitura,
-        cache: true
-      });
-    }
-
-    let banners = [];
-    try {
-      const [rows] = await queryWithRetry(
-        `SELECT id, titulo, imagem_url, link_url, ordem
-         FROM banners
-         WHERE ativo = TRUE
-         ORDER BY ordem ASC, id DESC`
-      );
-      banners = rows;
-    } catch (erroTabela) {
-      if (erroTabela?.code !== 'ER_NO_SUCH_TABLE') {
-        throw erroTabela;
-      }
-    }
-
-    salvarCacheLeitura(chaveCacheLeitura, banners);
-
-    return res.json({ banners });
-  } catch (erro) {
-    console.error('Erro ao buscar banners:', erro);
-    return res.status(500).json({ erro: 'Erro ao buscar banners' });
-  }
-});
+app.use(require('./routes/produtos')({
+  obterColunasProdutos, toLowerTrim, parsePositiveInt, escapeLike,
+  montarPaginacao, montarChaveCacheProdutos, obterCacheProdutos, salvarCacheProdutos,
+  obterCacheLeitura, salvarCacheLeitura
+}));
 
 async function responderBuscaProdutoPorCodigoBarrasAdmin(req, res) {
   try {
@@ -3614,7 +2837,7 @@ async function responderBuscaProdutoPorCodigoBarrasAdmin(req, res) {
       tentativas: lookup?.attemptedProviders || []
     });
   } catch (erro) {
-    console.error('Erro ao buscar produto por codigo de barras:', erro);
+    logger.error('Erro ao buscar produto por codigo de barras:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel consultar o codigo de barras.' });
   }
 }
@@ -3713,7 +2936,7 @@ async function processarImportacaoProdutosAdmin(req, res) {
             : []
         };
       } catch (erroEnriquecimento) {
-        console.error('Falha no enriquecimento pos-importacao:', erroEnriquecimento);
+        logger.error('Falha no enriquecimento pos-importacao:', erroEnriquecimento);
         avisoEnriquecimento = erroEnriquecimento?.message || 'Importacao concluida, mas houve falha no enriquecimento pos-importacao.';
       }
     }
@@ -3746,7 +2969,7 @@ async function processarImportacaoProdutosAdmin(req, res) {
         criado_por: req.admin?.usuario || ADMIN_USER
       });
     } catch (erroLog) {
-      console.error('Falha ao registrar log administrativo de importacao:', erroLog);
+      logger.error('Falha ao registrar log administrativo de importacao:', erroLog);
       avisoLog = 'Importacao concluida, mas nao foi possivel registrar no log administrativo.';
     }
 
@@ -3777,7 +3000,7 @@ async function processarImportacaoProdutosAdmin(req, res) {
       : 500;
 
     if (status >= 500) {
-      console.error('Erro ao importar planilha de produtos:', erro);
+      logger.error('Erro ao importar planilha de produtos:', erro);
     }
 
     const detalhesErro = erro?.extra && typeof erro.extra === 'object'
@@ -3829,7 +3052,7 @@ app.get('/api/admin/catalogo/dashboard', exigirAcessoLocalAdmin, autenticarAdmin
     const dashboard = await getAdminProdutosDashboard(pool);
     return res.json({ dashboard });
   } catch (erro) {
-    console.error('Erro ao carregar dashboard de produtos admin:', erro);
+    logger.error('Erro ao carregar dashboard de produtos admin:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel carregar o dashboard administrativo.' });
   }
 });
@@ -3839,7 +3062,7 @@ app.get('/api/admin/catalogo/produtos', exigirAcessoLocalAdmin, autenticarAdminT
     const resultado = await listarProdutosAdmin(pool, req.query || {});
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao listar produtos do catalogo admin:', erro);
+    logger.error('Erro ao listar produtos do catalogo admin:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel listar os produtos administrativos.' });
   }
 });
@@ -3858,7 +3081,7 @@ app.patch('/api/admin/catalogo/produtos/:id', exigirAcessoLocalAdmin, autenticar
       ? 404
       : (/invalido|valido|Nenhum campo/i.test(mensagem) ? 400 : 500);
     if (status >= 500) {
-      console.error('Erro ao atualizar produto admin:', erro);
+      logger.error('Erro ao atualizar produto admin:', erro);
     }
     return res.status(status).json({ erro: mensagem });
   }
@@ -3889,7 +3112,7 @@ app.post('/api/admin/catalogo/produtos/:id/enriquecer', exigirAcessoLocalAdmin, 
     const mensagem = erro?.message || 'Nao foi possivel reprocessar enriquecimento.';
     const status = /invalido|nao encontrado/i.test(mensagem) ? 400 : 500;
     if (status >= 500) {
-      console.error('Erro ao enriquecer produto por id:', erro);
+      logger.error('Erro ao enriquecer produto por id:', erro);
     }
     return res.status(status).json({ erro: mensagem });
   }
@@ -3919,7 +3142,7 @@ app.get('/api/admin/catalogo/enriquecimento/metricas', exigirAcessoLocalAdmin, a
 
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao coletar metricas de enriquecimento:', erro);
+    logger.error('Erro ao coletar metricas de enriquecimento:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel coletar metricas de enriquecimento.' });
   }
 });
@@ -3983,7 +3206,7 @@ app.post('/api/admin/catalogo/produtos/enriquecer-pendentes', exigirAcessoLocalA
 
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao disparar job de enriquecimento pendente:', erro);
+    logger.error('Erro ao disparar job de enriquecimento pendente:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel iniciar o job de enriquecimento pendente.' });
   }
 });
@@ -4002,7 +3225,7 @@ app.get('/api/admin/catalogo/produtos/enriquecimento-jobs/:jobId', exigirAcessoL
 
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao consultar job de enriquecimento:', erro);
+    logger.error('Erro ao consultar job de enriquecimento:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel consultar o job de enriquecimento.' });
   }
 });
@@ -4028,7 +3251,7 @@ app.post('/api/admin/catalogo/enriquecimento/reprocessar-falhas', exigirAcessoLo
 
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao reprocessar falhas de enriquecimento:', erro);
+    logger.error('Erro ao reprocessar falhas de enriquecimento:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel reprocessar os itens com falha.' });
   }
 });
@@ -4057,7 +3280,7 @@ app.post('/api/admin/catalogo/enriquecimento/sem-imagem', exigirAcessoLocalAdmin
 
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao enriquecer produtos sem imagem:', erro);
+    logger.error('Erro ao enriquecer produtos sem imagem:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel enriquecer produtos sem imagem agora.' });
   }
 });
@@ -4094,7 +3317,7 @@ app.post('/api/admin/catalogo/enriquecimento/importacao-recente', exigirAcessoLo
 
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao enriquecer importacao recente:', erro);
+    logger.error('Erro ao enriquecer importacao recente:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel enriquecer itens de importacao recente agora.' });
   }
 });
@@ -4104,7 +3327,7 @@ app.get('/api/admin/catalogo/enriquecimento/logs', exigirAcessoLocalAdmin, auten
     const resultado = await listarEnrichmentLogs(pool, req.query || {});
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao listar logs de enriquecimento:', erro);
+    logger.error('Erro ao listar logs de enriquecimento:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel carregar os logs de enriquecimento.' });
   }
 });
@@ -4114,7 +3337,7 @@ app.get('/api/admin/catalogo/importacoes', exigirAcessoLocalAdmin, autenticarAdm
     const resultado = await listarImportLogs(pool, req.query || {});
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao listar logs de importacao (catalogo):', erro);
+    logger.error('Erro ao listar logs de importacao (catalogo):', erro);
     return res.status(500).json({ erro: 'Nao foi possivel carregar os logs de importacao.' });
   }
 });
@@ -4143,7 +3366,7 @@ app.get('/api/admin/catalogo/produtos/exportar.xlsx', exigirAcessoLocalAdmin, au
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).send(resultado.buffer);
   } catch (erro) {
-    console.error('Erro ao exportar produtos para excel:', erro);
+    logger.error('Erro ao exportar produtos para excel:', erro);
     return res.status(500).json({ erro: 'Nao foi possivel exportar os produtos agora.' });
   }
 });
@@ -4164,7 +3387,7 @@ app.get('/api/produtos/:id', async (req, res) => {
 
     res.json({ produto: produtos[0] });
   } catch (erro) {
-    console.error('Erro ao buscar produto:', erro);
+    logger.error('Erro ao buscar produto:', erro);
     res.status(500).json({ erro: 'Não foi possível carregar este produto.' });
   }
 });
@@ -4226,7 +3449,7 @@ app.post('/api/admin/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, as
       produto_id: resultado.insertId
     });
   } catch (erro) {
-    console.error('Erro ao cadastrar produto:', erro);
+    logger.error('Erro ao cadastrar produto:', erro);
     res.status(500).json({ erro: 'Não foi possível cadastrar o produto.' });
   }
 });
@@ -4267,7 +3490,7 @@ app.post('/api/admin/produtos/bulk', exigirAcessoLocalAdmin, autenticarAdminToke
     });
   } catch (erro) {
     await connection.rollback();
-    console.error('Erro ao importar produtos:', erro);
+    logger.error('Erro ao importar produtos:', erro);
     res.status(500).json({ erro: 'Não foi possível importar os produtos.' });
   } finally {
     connection.release();
@@ -4297,7 +3520,7 @@ app.get('/api/admin/produtos/importacoes', exigirAcessoLocalAdmin, autenticarAdm
 
     return res.json(resultado);
   } catch (erro) {
-    console.error('Erro ao listar histórico de importações de produtos:', erro);
+    logger.error('Erro ao listar histórico de importações de produtos:', erro);
     return res.status(500).json({
       erro: 'Não foi possível carregar o histórico de importações agora.'
     });
@@ -4324,7 +3547,7 @@ app.delete('/api/admin/produtos/:id', exigirAcessoLocalAdmin, autenticarAdminTok
 
     res.json({ mensagem: 'Produto removido com sucesso.' });
   } catch (erro) {
-    console.error('Erro ao excluir produto:', erro);
+    logger.error('Erro ao excluir produto:', erro);
     res.status(500).json({ erro: 'Não foi possível remover o produto.' });
   }
 });
@@ -4504,7 +3727,7 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
         [paymentId, statusPagBank, pixCodigo, pixQrCode, pedido.id]
       );
     } catch (err) {
-      console.warn('Não foi possível salvar dados do PIX (faltam colunas?):', err.message);
+      logger.warn('Não foi possível salvar dados do PIX (faltam colunas?):', err.message);
     }
 
     res.json({
@@ -4522,7 +3745,7 @@ app.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
       return res.status(erro.httpStatus).json({ erro: erro.message });
     }
 
-    console.error('Erro ao gerar PIX:', erro);
+    logger.error('Erro ao gerar PIX:', erro);
     res.status(500).json({ erro: 'Não foi possível gerar o PIX. Tente novamente.' });
   }
 });
@@ -4687,7 +3910,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
               fallback_mock: fallback3dsMockPermitido
             }
           });
-          console.log(`\n${log1.texto}\n`);
+          logger.info(`\n${log1.texto}\n`);
         } catch (_logErr) {
           // log de homologação nunca deve impedir o fluxo
         }
@@ -4796,7 +4019,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
           statusInfo = extrairStatusPagamentoPagBank(detalhesOrder);
         }
       } catch (erroConsultaOrder) {
-        console.warn('⚠️ Não foi possível reconsultar order no PagBank após criação:', erroConsultaOrder?.message || erroConsultaOrder);
+        logger.warn('⚠️ Não foi possível reconsultar order no PagBank após criação:', erroConsultaOrder?.message || erroConsultaOrder);
       }
     }
 
@@ -4828,12 +4051,12 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
              WHERE id = ?`,
             [statusInterno, pedido.id]
           );
-          console.warn('Persistência parcial no pagamento cartão: colunas pix_* ausentes; status do pedido atualizado.');
+          logger.warn('Persistência parcial no pagamento cartão: colunas pix_* ausentes; status do pedido atualizado.');
         } catch (erroFallbackPersistencia) {
-          console.warn('Não foi possível salvar o status do pagamento cartão no fallback:', erroFallbackPersistencia?.message || erroFallbackPersistencia);
+          logger.warn('Não foi possível salvar o status do pagamento cartão no fallback:', erroFallbackPersistencia?.message || erroFallbackPersistencia);
         }
       } else {
-        console.warn('Não foi possível salvar dados do pagamento cartão:', mensagemErroPersistencia || err);
+        logger.warn('Não foi possível salvar dados do pagamento cartão:', mensagemErroPersistencia || err);
       }
     }
 
@@ -4930,7 +4153,7 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
       }
     });
 
-    console.error('Erro ao processar pagamento com cartão:', erro);
+    logger.error('Erro ao processar pagamento com cartão:', erro);
     return res.status(statusResposta).json({
       erro: mensagemUsuario,
       trace_id: traceId || undefined
@@ -4938,33 +4161,8 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
   }
 });
 
-// Simular frete por CEP
-app.get('/api/frete/simular', async (req, res) => {
-  try {
-    const cep = String(req.query?.cep || '').trim();
-    const numero = String(req.query?.numero || '').trim();
-    const veiculo = String(req.query?.veiculo || 'moto').trim().toLowerCase();
-
-    const entrega = await calcularEntregaPorCep({
-      cepDestino: cep,
-      veiculo,
-      numeroDestino: numero
-    });
-
-    return res.json({
-      mensagem: 'Frete calculado com sucesso',
-      ...entrega,
-      limite_bike_km: LIMITE_BIKE_KM
-    });
-  } catch (erro) {
-    if (erro?.httpStatus) {
-      return res.status(erro.httpStatus).json({ erro: erro.message });
-    }
-
-    console.error('Erro ao simular frete por CEP:', erro);
-    return res.status(500).json({ erro: 'Não foi possível calcular o frete no momento.' });
-  }
-});
+// Simular frete por CEP (routes/frete.js)
+app.use(require('./routes/frete')({ calcularEntregaPorCep }));
 
 // Criar pedido
 app.post('/api/pedidos', autenticarToken, async (req, res) => {
@@ -5261,11 +4459,11 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
               [pixId, pixCodigo, pixQrCode, 'WAITING', pedidoId]
             );
           } catch (errUpdate) {
-            console.warn('⚠️ Falha ao salvar dados PIX no pedido:', errUpdate.message);
+            logger.warn('⚠️ Falha ao salvar dados PIX no pedido:', errUpdate.message);
           }
         }
       } catch (erro) {
-        console.error('Erro ao gerar PIX PagBank:', erro.message);
+        logger.error('Erro ao gerar PIX PagBank:', erro.message);
         pixErro = erro.message;
 
         if (podeUsarPixMock) {
@@ -5288,7 +4486,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
           pixCodigo: pixCodigo
         });
       } catch (erro) {
-        console.error('Falha ao disparar WhatsApp do pedido:', erro.message);
+        logger.error('Falha ao disparar WhatsApp do pedido:', erro.message);
       }
     }
 
@@ -5326,200 +4524,20 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       return res.status(erro.httpStatus).json({ erro: erro.message });
     }
 
-    console.error('Erro ao criar pedido:', erro);
+    logger.error('Erro ao criar pedido:', erro);
     res.status(500).json({ erro: 'Não foi possível finalizar seu pedido. Tente novamente.' });
   } finally {
     connection.release();
   }
 });
 
-// Listar pedidos do usuário
-app.get('/api/pedidos', autenticarToken, async (req, res) => {
-  try {
-    const usarPaginacao = ['page', 'pagina', 'limit', 'limite']
-      .some((chave) => req.query?.[chave] !== undefined);
-
-    if (!usarPaginacao) {
-      const [pedidos] = await pool.query(
-        'SELECT id, usuario_id, total, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC',
-        [req.usuario.id]
-      );
-
-      const pedidosNormalizados = pedidos.map((pedido) => ({
-        ...pedido,
-        tipo_entrega: String(pedido?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
-          ? 'retirada'
-          : 'entrega'
-      }));
-
-      return res.json({
-        pedidos: pedidosNormalizados,
-        total: pedidosNormalizados.length
-      });
-    }
-
-    const limite = parsePositiveInt(req.query?.limit || req.query?.limite, 20, { min: 1, max: 100 });
-    const paginaSolicitada = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
-
-    const [[countRow]] = await pool.query(
-      'SELECT COUNT(*) AS total FROM pedidos WHERE usuario_id = ?',
-      [req.usuario.id]
-    );
-    const total = Number(countRow?.total || 0);
-    const paginacao = montarPaginacao(total, paginaSolicitada, limite);
-    const offset = (paginacao.pagina - 1) * paginacao.limite;
-
-    const [pedidos] = await pool.query(
-      'SELECT id, usuario_id, total, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC LIMIT ? OFFSET ?',
-      [req.usuario.id, paginacao.limite, offset]
-    );
-
-    const pedidosNormalizados = pedidos.map((pedido) => ({
-      ...pedido,
-      tipo_entrega: String(pedido?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
-        ? 'retirada'
-        : 'entrega'
-    }));
-
-    return res.json({
-      pedidos: pedidosNormalizados,
-      paginacao
-    });
-  } catch (erro) {
-    console.error('Erro ao buscar pedidos:', erro);
-    res.status(500).json({ erro: 'Não foi possível carregar seus pedidos.' });
-  }
-});
-
-// Detalhes de um pedido
-app.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
-  try {
-    const [pedidos] = await pool.query(
-      'SELECT id, usuario_id, total, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE id = ? AND usuario_id = ?',
-      [req.params.id, req.usuario.id]
-    );
-
-    if (pedidos.length === 0) {
-      return res.status(404).json({ erro: 'Pedido não encontrado.' });
-    }
-
-    // Buscar itens com informações do produto (incluindo emoji)
-    const [itens] = await pool.query(`
-      SELECT 
-        pi.*,
-        p.emoji,
-        p.nome
-      FROM pedido_itens pi
-      LEFT JOIN produtos p ON pi.produto_id = p.id
-      WHERE pi.pedido_id = ?
-    `, [req.params.id]);
-
-    res.json({
-      pedido: {
-        ...pedidos[0],
-        tipo_entrega: String(pedidos[0]?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
-          ? 'retirada'
-          : 'entrega'
-      },
-      itens: itens
-    });
-  } catch (erro) {
-    console.error('Erro ao buscar pedido:', erro);
-    res.status(500).json({ erro: 'Não foi possível carregar os detalhes do pedido.' });
-  }
-});
+// Listar/detalhar pedidos do usuário (routes/pedidos.js)
+app.use(require('./routes/pedidos')({ autenticarToken, parsePositiveInt, montarPaginacao }));
 
 // ============================================
-// ROTAS DE CUPONS
+// ROTAS DE CUPONS (routes/cupons.js)
 // ============================================
-
-// Validar cupom
-app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
-  try {
-    const { codigo, valorPedido } = req.body;
-
-    // Buscar cupom
-    const [cupons] = await pool.query(
-      `SELECT * FROM cupons 
-       WHERE codigo = ? 
-       AND ativo = TRUE 
-       AND (validade IS NULL OR validade >= CURDATE())
-       AND (uso_maximo IS NULL OR uso_atual < uso_maximo)`,
-      [codigo.toUpperCase()]
-    );
-
-    if (cupons.length === 0) {
-      return res.status(404).json({ erro: 'Cupom inválido ou expirado.' });
-    }
-
-    const cupom = cupons[0];
-
-    // Verificar valor mínimo
-    const valorMinimoCupom = Number(cupom.valor_minimo || 0);
-    if (valorPedido < valorMinimoCupom) {
-      return res.status(400).json({ 
-        erro: `Valor mínimo do pedido para este cupom: R$ ${valorMinimoCupom.toFixed(2)}` 
-      });
-    }
-
-    // Verificar se usuário já usou
-    const [usados] = await pool.query(
-      'SELECT id FROM cupons_usados WHERE cupom_id = ? AND usuario_id = ?',
-      [cupom.id, req.usuario.id]
-    );
-
-    if (usados.length > 0) {
-      return res.status(400).json({ erro: 'Este cupom já foi utilizado nesta conta.' });
-    }
-
-    // Calcular desconto
-    const valorPedidoNum = toMoney(Number(valorPedido || 0));
-    let desconto = 0;
-    if (cupom.tipo === 'percentual') {
-      desconto = toMoney(valorPedidoNum * (Number(cupom.valor || 0) / 100));
-    } else {
-      desconto = toMoney(Number(cupom.valor || 0));
-    }
-
-    // Garantir que desconto não seja maior que o valor do pedido
-    if (desconto > valorPedidoNum) {
-      desconto = valorPedidoNum;
-    }
-
-    res.json({
-      valido: true,
-      cupom_id: cupom.id,
-      codigo: cupom.codigo,
-      descricao: cupom.descricao,
-      tipo: cupom.tipo,
-      valor: Number(cupom.valor || 0),
-      desconto,
-      total_com_desconto: toMoney(valorPedidoNum - desconto)
-    });
-  } catch (erro) {
-    console.error('Erro ao validar cupom:', erro);
-    res.status(500).json({ erro: 'Não foi possível validar o cupom. Tente novamente.' });
-  }
-});
-
-// Listar cupons ativos (para mostrar na página)
-app.get('/api/cupons/disponiveis', async (req, res) => {
-  try {
-    const [cupons] = await pool.query(
-      `SELECT codigo, descricao, tipo, valor, valor_minimo, validade 
-       FROM cupons 
-       WHERE ativo = TRUE 
-       AND (validade IS NULL OR validade >= CURDATE())
-       AND (uso_maximo IS NULL OR uso_atual < uso_maximo)
-       ORDER BY valor DESC`
-    );
-
-    res.json({ cupons: cupons });
-  } catch (erro) {
-    console.error('Erro ao listar cupons:', erro);
-    res.status(500).json({ erro: 'Não foi possível carregar os cupons disponíveis.' });
-  }
-});
+app.use(require('./routes/cupons')({ autenticarToken, toMoney }));
 
 // ============================================
 // ROTAS ADMINISTRATIVAS
@@ -5638,7 +4656,7 @@ app.get('/api/admin/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, asyn
 
     return res.json({ pedidos });
   } catch (erro) {
-    console.error('Erro ao buscar pedidos (admin):', erro);
+    logger.error('Erro ao buscar pedidos (admin):', erro);
     res.status(500).json({ erro: 'Não foi possível carregar os pedidos no painel.' });
   }
 });
@@ -5983,7 +5001,7 @@ app.get('/api/admin/dashboard/resumo', exigirAcessoLocalAdmin, autenticarAdminTo
       alertas
     });
   } catch (erro) {
-    console.error('Erro no dashboard resumo:', erro);
+    logger.error('Erro no dashboard resumo:', erro);
     res.status(500).json({ erro: 'Não foi possível carregar o resumo do dashboard.' });
   }
 });
@@ -6059,7 +5077,7 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
         );
       } catch (errTs) {
         // Fallback: coluna pode não existir ainda (migration pendente)
-        console.warn(`⚠️ Timestamp ${colunaTimestamp} não gravado (migration pendente?):`, errTs.message);
+        logger.warn(`⚠️ Timestamp ${colunaTimestamp} não gravado (migration pendente?):`, errTs.message);
         await pool.query(
           'UPDATE pedidos SET status = ? WHERE id = ?',
           [status, pedidoId]
@@ -6105,7 +5123,7 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
           });
         }
       } catch (errNotifica) {
-        console.error('Falha ao notificar por WhatsApp:', errNotifica.message);
+        logger.error('Falha ao notificar por WhatsApp:', errNotifica.message);
       }
     }
 
@@ -6114,460 +5132,31 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
 
     res.json({ mensagem: 'Status do pedido atualizado com sucesso.', status: status });
   } catch (erro) {
-    console.error('Erro ao atualizar status:', erro);
+    logger.error('Erro ao atualizar status:', erro);
     res.status(500).json({ erro: 'Não foi possível atualizar o status do pedido.' });
   }
 });
 
 // ============================================
-// WEBHOOK EVOLUTION (WHATSAPP)
+// WEBHOOKS (routes/webhooks.js)
 // ============================================
-app.post('/api/webhooks/evolution', async (req, res) => {
-  try {
-    if (!validarWebhookEvolution(req)) {
-      return res.status(401).json({ erro: 'Webhook Evolution nao autorizado' });
-    }
-
-    if (!WHATSAPP_AUTO_REPLY_ENABLED || !WHATSAPP_AUTO_REPLY_TEXT) {
-      return res.sendStatus(200);
-    }
-
-    const payload = req.body || {};
-    const evento = String(payload?.event || payload?.type || '').toLowerCase();
-    const { remoteJid, fromMe, messageId, temConteudo } = extrairDadosMensagemEvolution(payload);
-
-    if (evento && !evento.includes('message')) {
-      return res.sendStatus(200);
-    }
-
-    if (!remoteJid || fromMe || isJidGrupoOuBroadcast(remoteJid) || !temConteudo) {
-      return res.sendStatus(200);
-    }
-
-    limparCacheEvolution();
-
-    if (messageId) {
-      if (evolutionProcessedMessageIds.has(messageId)) {
-        return res.sendStatus(200);
-      }
-      evolutionProcessedMessageIds.set(messageId, Date.now());
-    }
-
-    const telefone = formatarTelefoneWhatsapp(remoteJid);
-    if (!telefone) {
-      return res.sendStatus(200);
-    }
-
-    const cooldown = Number.isInteger(WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS)
-      ? Math.max(0, WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS)
-      : 0;
-    const agora = Date.now();
-    const ultimaResposta = evolutionLastReplyByNumber.get(telefone) || 0;
-    if (cooldown > 0 && (agora - ultimaResposta) < cooldown * 1000) {
-      return res.sendStatus(200);
-    }
-
-    const enviado = await enviarWhatsappTexto({
-      telefone,
-      mensagem: WHATSAPP_AUTO_REPLY_TEXT
-    });
-
-    if (enviado) {
-      evolutionLastReplyByNumber.set(telefone, agora);
-      console.log('✅ Auto-resposta WhatsApp enviada para:', telefone);
-    }
-
-    return res.sendStatus(200);
-  } catch (erro) {
-    console.error('Erro no webhook Evolution:', erro?.message || erro);
-    return res.sendStatus(500);
-  }
-});
+app.use(require('./routes/webhooks')({
+  validarWebhookEvolution, validarWebhookPagBank,
+  extrairDadosMensagemEvolution, isJidGrupoOuBroadcast,
+  formatarTelefoneWhatsapp, enviarWhatsappTexto, limparCacheEvolution,
+  evolutionProcessedMessageIds, evolutionLastReplyByNumber,
+  registrarLogPagBank, obterPedidoPagBank,
+}));
 
 // ============================================
-// WEBHOOK PAGBANK (PIX + CARTAO)
+// ROTAS DE TESTE/MONITORAMENTO (routes/health.js)
 // ============================================
-const WEBHOOK_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000; // 10 min
-const webhookPagBankProcessado = new BoundedCache({ maxSize: 2000, ttlMs: WEBHOOK_IDEMPOTENCY_TTL_MS, name: 'webhookDedup' });
-
-function limparCacheWebhookIdempotency() {
-  webhookPagBankProcessado.purgeExpired();
-}
-
-async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pagbank') {
-  try {
-    if (!validarWebhookPagBank(req)) {
-      registrarLogPagBank({
-        operacao: 'webhook.pagbank.rejeitado',
-        endpoint: endpointLog,
-        method: 'POST',
-        httpStatus: 401,
-        requestPayload: req.body,
-        responsePayload: {
-          erro: 'Webhook não autorizado'
-        },
-        extra: {
-          motivo: PAGBANK_WEBHOOK_TOKEN ? 'token_invalido' : 'webhook_token_nao_configurado',
-          ambiente: NODE_ENV
-        }
-      });
-
-      return res.status(401).json({ erro: 'Webhook não autorizado' });
-    }
-
-    const notificacao = req.body || {};
-    const eventType = String(notificacao?.event || notificacao?.type || '').trim().toUpperCase();
-
-    // Idempotência: evitar reprocessamento de webhook duplicado
-    const idempotencyKey = `${notificacao?.id || ''}_${eventType}_${notificacao?.charges?.[0]?.id || ''}`;
-    if (idempotencyKey && idempotencyKey !== '__' && webhookPagBankProcessado.has(idempotencyKey)) {
-      return res.sendStatus(200);
-    }
-    limparCacheWebhookIdempotency();
-
-    // PagBank envia notificacoes com estrutura:
-    // { id, reference_id, charges: [{ id, status, ... }] }
-    const dadosWebhook = await resolverDadosWebhookPagBank({
-      notificacao,
-      pagbankToken: PAGBANK_TOKEN,
-      isProduction: IS_PRODUCTION,
-      obterPedidoPagBank,
-      eventType
-    });
-
-    if (dadosWebhook?.erroResposta) {
-      registrarLogPagBank({
-        operacao: 'webhook.pagbank.invalido',
-        endpoint: endpointLog,
-        method: 'POST',
-        httpStatus: dadosWebhook.erroResposta.status,
-        requestPayload: notificacao,
-        responsePayload: {
-          erro: dadosWebhook.erroResposta.mensagem
-        },
-        extra: {
-          event_type: eventType || null,
-          consulta_pagbank_tentou: Boolean(dadosWebhook?.consultaPagBank?.tentou),
-          consulta_pagbank_sucesso: Boolean(dadosWebhook?.consultaPagBank?.sucesso),
-          consulta_pagbank_erro: dadosWebhook?.consultaPagBank?.erro || null
-        }
-      });
-
-      return res.status(dadosWebhook.erroResposta.status).json({
-        erro: dadosWebhook.erroResposta.mensagem
-      });
-    }
-
-    const {
-      orderId,
-      referenceId,
-      charges,
-      orderStatus,
-      detalhesOrder,
-      consultaPagBank
-    } = dadosWebhook;
-
-    const statusInfo = extrairStatusPagamentoPagBank(
-      {
-        status: orderStatus,
-        charges
-      },
-      eventType
-    );
-    const statusPagBank = String(statusInfo.statusResolvido || 'WAITING').toUpperCase();
-    const chargePrincipal = statusInfo.chargePrincipal || {};
-    const chargeId = chargePrincipal?.id || null;
-
-    const statusInterno = mapearStatusPedido(statusPagBank);
-
-    registrarLogPagBank({
-      operacao: 'webhook.pagbank.recebido',
-      endpoint: endpointLog,
-      method: 'POST',
-      requestPayload: notificacao,
-      extra: {
-        event_type: eventType || null,
-        order_id: orderId,
-        charge_id: chargeId,
-        reference_id: referenceId || null,
-        status_pagbank: statusPagBank,
-        status_fonte: statusInfo.fonteStatus,
-        status_order: statusInfo.orderStatus || null,
-        status_charge: statusInfo.chargeStatus || null,
-        dados_confirmados_pagbank: Boolean(detalhesOrder),
-        consulta_pagbank_tentou: Boolean(consultaPagBank?.tentou),
-        consulta_pagbank_sucesso: Boolean(consultaPagBank?.sucesso),
-        consulta_pagbank_erro: consultaPagBank?.erro || null
-      }
-    });
-
-    const pedidoId = extrairPedidoIdReferencePagBank(referenceId);
-    const resultadoPersistencia = await persistirAtualizacaoPedidoWebhookPagBank({
-      pool,
-      pedidoId,
-      orderId,
-      statusInterno,
-      statusPagBank,
-      chargeId,
-      endpointLog,
-      registrarLogPagBank
-    });
-
-    if (!resultadoPersistencia?.ok) {
-      registrarLogPagBank({
-        operacao: 'webhook.pagbank.persistencia.falha',
-        endpoint: endpointLog,
-        method: 'POST',
-        httpStatus: Number(resultadoPersistencia?.httpStatus || 503),
-        requestPayload: notificacao,
-        responsePayload: {
-          erro: resultadoPersistencia?.mensagem || 'Evento recebido, mas não foi possível persistir o webhook localmente.',
-          status_interno: statusInterno,
-          status_pagbank: statusPagBank
-        },
-        extra: {
-          order_id: orderId,
-          pedido_id: pedidoId,
-          retryable: Boolean(resultadoPersistencia?.retryable),
-          lookup: resultadoPersistencia?.lookup || null,
-          persist_mode: resultadoPersistencia?.modoPersistencia || null,
-          linhas_afetadas: Number(resultadoPersistencia?.linhasAfetadas || 0)
-        }
-      });
-
-      return res.status(Number(resultadoPersistencia?.httpStatus || 503)).json({
-        erro: resultadoPersistencia?.mensagem || 'Evento recebido, mas não foi possível persistir o webhook localmente.'
-      });
-    }
-
-    if (resultadoPersistencia.parcial) {
-      registrarLogPagBank({
-        operacao: 'webhook.pagbank.persistencia.parcial',
-        endpoint: endpointLog,
-        method: 'POST',
-        httpStatus: 202,
-        responsePayload: {
-          mensagem: resultadoPersistencia?.mensagem || 'Webhook persistido parcialmente.'
-        },
-        extra: {
-          order_id: orderId,
-          pedido_id: pedidoId,
-          lookup: resultadoPersistencia?.lookup || null,
-          persist_mode: resultadoPersistencia?.modoPersistencia || null,
-          linhas_afetadas: Number(resultadoPersistencia?.linhasAfetadas || 0)
-        }
-      });
-
-      return res.sendStatus(202);
-    }
-
-    webhookPagBankProcessado.set(idempotencyKey, Date.now());
-    return res.sendStatus(200);
-  } catch (erro) {
-    console.error('Erro no webhook do PagBank:', erro);
-
-    registrarLogPagBank({
-      operacao: 'webhook.pagbank.erro',
-      endpoint: endpointLog,
-      method: 'POST',
-      httpStatus: 500,
-      requestPayload: req.body,
-      responsePayload: {
-        erro: erro?.message || 'Erro interno no processamento do webhook PagBank'
-      }
-    });
-
-    return res.sendStatus(500);
-  }
-}
-
-// Endpoint canônico do webhook PagBank
-app.post('/api/webhooks/pagbank', (req, res) => {
-  return processarWebhookPagBank(req, res, '/api/webhooks/pagbank');
-});
-
-// Alias temporário para compatibilidade (depreciar em versão futura)
-app.post('/api/pagbank/webhook', (req, res) => {
-  return processarWebhookPagBank(req, res, '/api/pagbank/webhook');
-});
+app.use(require('./routes/health')({ protegerMetrics }));
 
 // ============================================
-// ROTA DE TESTE DA API
+// ROTAS DE AVALIAÇÕES (routes/avaliacoes.js)
 // ============================================
-app.get('/api', (req, res) => {
-  res.json({
-    mensagem: '🛒 API Bom Filho Supermercado',
-    versao: API_VERSION,
-    status: 'online'
-  });
-});
-
-// ============================================
-// ENDPOINTS DE MONITORAMENTO
-// ============================================
-app.get('/health', (req, res) => {
-  try {
-    return res.status(200).json({
-      status: 'ok',
-      service: SERVICE_NAME,
-      environment: process.env.NODE_ENV || 'development',
-      timestamp: new Date().toISOString()
-    });
-  } catch (erro) {
-    console.error('Erro no health check:', erro);
-    return res.status(500).json({
-      status: 'error',
-      service: SERVICE_NAME,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.get('/ready', async (req, res) => {
-  try {
-    await queryWithRetry('SELECT 1 AS ok');
-
-    return res.status(200).json({
-      status: 'ready',
-      service: SERVICE_NAME,
-      timestamp: new Date().toISOString()
-    });
-  } catch (erro) {
-    console.error('Erro no readiness check:', erro);
-    return res.status(503).json({
-      status: 'not-ready',
-      service: SERVICE_NAME,
-      timestamp: new Date().toISOString(),
-      erro: 'Falha na conexão com MySQL'
-    });
-  }
-});
-
-app.get('/metrics', protegerMetrics, (req, res) => {
-  try {
-    const memory = process.memoryUsage();
-
-    return res.status(200).json({
-      service: SERVICE_NAME,
-      uptime: Number(process.uptime().toFixed(2)),
-      memory: {
-        rss: memory.rss,
-        heapTotal: memory.heapTotal,
-        heapUsed: memory.heapUsed
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (erro) {
-    console.error('Erro ao coletar métricas:', erro);
-    return res.status(500).json({
-      status: 'error',
-      service: SERVICE_NAME,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.get('/version', (req, res) => {
-  try {
-    return res.status(200).json({
-      service: SERVICE_NAME,
-      version: API_VERSION,
-      timestamp: new Date().toISOString()
-    });
-  } catch (erro) {
-    console.error('Erro ao consultar versão:', erro);
-    return res.status(500).json({
-      status: 'error',
-      service: SERVICE_NAME,
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// ============================================
-// ROTAS DE AVALIAÇÕES
-// ============================================
-
-// Listar avaliações de um produto
-app.get('/api/avaliacoes/:produto_id', async (req, res) => {
-  try {
-    const [avaliacoes] = await pool.query(
-      `SELECT a.*, u.nome as usuario_nome 
-       FROM avaliacoes a 
-       LEFT JOIN usuarios u ON a.usuario_id = u.id 
-       WHERE a.produto_id = ? 
-       ORDER BY a.criado_em DESC`,
-      [req.params.produto_id]
-    );
-    
-    res.json({ avaliacoes });
-  } catch (error) {
-    console.error('Erro ao carregar avaliações:', error);
-    res.status(500).json({ erro: 'Não foi possível carregar as avaliações.' });
-  }
-});
-
-// Criar avaliação
-const avaliacoesLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  validate: rateLimitValidateOptions,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { erro: 'Muitas avaliações em sequência. Aguarde alguns minutos.' }
-});
-
-app.post('/api/avaliacoes', autenticarToken, avaliacoesLimiter, async (req, res) => {
-  try {
-    const { produto_id, nota, comentario } = req.body;
-    
-    const produtoIdNum = Number(produto_id);
-    const notaNum = Number(nota);
-    if (!Number.isInteger(produtoIdNum) || produtoIdNum <= 0 || !Number.isInteger(notaNum) || notaNum < 1 || notaNum > 5) {
-      return res.status(400).json({ erro: 'Informe uma nota válida entre 1 e 5.' });
-    }
-
-    // Verificar se o usuário comprou este produto (pedido entregue ou retirado)
-    const [compras] = await pool.query(
-      `SELECT pi.id FROM pedido_itens pi
-       JOIN pedidos p ON pi.pedido_id = p.id
-       WHERE p.usuario_id = ? AND pi.produto_id = ? AND p.status IN ('entregue', 'retirado')
-       LIMIT 1`,
-      [req.usuario.id, produtoIdNum]
-    );
-
-    if (compras.length === 0) {
-      return res.status(403).json({ erro: 'Você só pode avaliar produtos que já comprou e recebeu.' });
-    }
-
-    const comentarioLimpo = comentario ? String(comentario).trim().slice(0, 500) : null;
-    
-    // Verificar se já existe avaliação
-    const [existente] = await pool.query(
-      'SELECT id FROM avaliacoes WHERE usuario_id = ? AND produto_id = ?',
-      [req.usuario.id, produtoIdNum]
-    );
-    
-    if (existente.length > 0) {
-      // Atualizar avaliação existente
-      await pool.query(
-        'UPDATE avaliacoes SET nota = ?, comentario = ? WHERE id = ?',
-        [notaNum, comentarioLimpo, existente[0].id]
-      );
-    } else {
-      // Criar nova avaliação
-      await pool.query(
-        'INSERT INTO avaliacoes (usuario_id, produto_id, nota, comentario) VALUES (?, ?, ?, ?)',
-        [req.usuario.id, produtoIdNum, notaNum, comentarioLimpo]
-      );
-    }
-    
-    res.json({ mensagem: 'Avaliação registrada com sucesso.' });
-  } catch (error) {
-    console.error('Erro ao salvar avaliação:', error);
-    res.status(500).json({ erro: 'Não foi possível salvar sua avaliação.' });
-  }
-});
+app.use(require('./routes/avaliacoes')({ autenticarToken, rateLimit, rateLimitValidateOptions }));
 
 if (SHOULD_SERVE_REACT && fs.existsSync(REACT_DIST_INDEX)) {
   app.get(/^\/(?!api).*/, (req, res) => {
@@ -6600,9 +5189,9 @@ async function registrarAuditoria(pool, { acao, entidade, entidade_id, detalhes,
     // Registrar falha de auditoria de forma visível sem derrubar o fluxo principal
     const detalhesErro = { acao, entidade, entidade_id, erro: err?.message || 'desconhecido', code: err?.code };
     if (err?.code === 'ER_NO_SUCH_TABLE') {
-      console.warn('⚠️ Tabela admin_audit_log não existe. Execute as migrations: node migrate.js', detalhesErro);
+      logger.warn('⚠️ Tabela admin_audit_log não existe. Execute as migrations: node migrate.js', detalhesErro);
     } else {
-      console.error('❌ Falha ao registrar auditoria:', detalhesErro);
+      logger.error('❌ Falha ao registrar auditoria:', detalhesErro);
     }
   }
 }
@@ -6702,7 +5291,7 @@ app.get('/api/admin/fila-operacional', exigirAcessoLocalAdmin, autenticarAdminTo
 
     res.json(filas);
   } catch (erro) {
-    console.error('Erro fila operacional:', erro);
+    logger.error('Erro fila operacional:', erro);
     res.status(500).json({ erro: 'Falha ao carregar fila operacional.' });
   }
 });
@@ -6777,7 +5366,7 @@ app.get('/api/admin/clientes', exigirAcessoLocalAdmin, autenticarAdminToken, asy
       paginacao: { pagina, limite, total: totalClientes, total_paginas: Math.ceil(totalClientes / limite) }
     });
   } catch (erro) {
-    console.error('Erro ao listar clientes:', erro);
+    logger.error('Erro ao listar clientes:', erro);
     res.status(500).json({ erro: 'Não foi possível carregar os clientes.' });
   }
 });
@@ -6828,7 +5417,7 @@ app.get('/api/admin/clientes/:id', exigirAcessoLocalAdmin, autenticarAdminToken,
       enderecos
     });
   } catch (erro) {
-    console.error('Erro detalhe cliente:', erro);
+    logger.error('Erro detalhe cliente:', erro);
     res.status(500).json({ erro: 'Não foi possível carregar o cliente.' });
   }
 });
@@ -6896,7 +5485,7 @@ app.get('/api/admin/financeiro/conciliacao', exigirAcessoLocalAdmin, autenticarA
 
     res.json({ contadores, pendentes_longo: pendentesLongo, sem_confirmacao_pix: semConfirmacao, cancelados_pagos: canceladosPagos, pagos_nao_concluidos: pagosNaoConcluidos });
   } catch (erro) {
-    console.error('Erro conciliação:', erro);
+    logger.error('Erro conciliação:', erro);
     res.status(500).json({ erro: 'Falha ao carregar conciliação.' });
   }
 });
@@ -6970,7 +5559,7 @@ app.get('/api/admin/financeiro/fechamento', exigirAcessoLocalAdmin, autenticarAd
       pendencias_financeiras: Number(pendenciasRow?.qtd || 0)
     });
   } catch (erro) {
-    console.error('Erro fechamento diário:', erro);
+    logger.error('Erro fechamento diário:', erro);
     res.status(500).json({ erro: 'Falha ao gerar fechamento diário.' });
   }
 });
@@ -7005,7 +5594,7 @@ app.get('/api/admin/auditoria', exigirAcessoLocalAdmin, autenticarAdminToken, as
     if (erro.code === 'ER_NO_SUCH_TABLE') {
       return res.json({ logs: [], paginacao: { pagina: 1, limite: 50, total: 0, total_paginas: 0 }, aviso: 'Tabela de auditoria ainda não foi criada. Execute migrate_admin_fase2.sql.' });
     }
-    console.error('Erro auditoria:', erro);
+    logger.error('Erro auditoria:', erro);
     res.status(500).json({ erro: 'Falha ao carregar auditoria.' });
   }
 });
@@ -7058,7 +5647,7 @@ app.get('/api/admin/relatorios/vendas', exigirAcessoLocalAdmin, autenticarAdminT
 
     res.json({ pedidos: rows, total: rows.length, periodo: { inicio: ini.toISOString(), fim: fi.toISOString() } });
   } catch (erro) {
-    console.error('Erro relatório vendas:', erro);
+    logger.error('Erro relatório vendas:', erro);
     res.status(500).json({ erro: 'Falha ao gerar relatório.' });
   }
 });
@@ -7156,7 +5745,7 @@ app.get('/api/admin/central/vivo', exigirAcessoLocalAdmin, autenticarAdminToken,
       por_hora: porHora.map(h => ({ hora: h.hora, qtd: Number(h.qtd), valor: Number(h.valor) }))
     });
   } catch (erro) {
-    console.error('Erro central vivo:', erro);
+    logger.error('Erro central vivo:', erro);
     res.status(500).json({ erro: 'Falha ao carregar dados ao vivo.' });
   }
 });
@@ -7213,7 +5802,7 @@ app.get('/api/admin/feed', exigirAcessoLocalAdmin, autenticarAdminToken, async (
 
     res.json({ eventos: eventos.slice(0, limite) });
   } catch (erro) {
-    console.error('Erro feed:', erro);
+    logger.error('Erro feed:', erro);
     res.status(500).json({ erro: 'Falha ao carregar feed.' });
   }
 });
@@ -7274,7 +5863,7 @@ app.get('/api/admin/alertas', exigirAcessoLocalAdmin, autenticarAdminToken, asyn
 
     res.json({ alertas, total: alertas.length, criticos: alertas.filter(a => a.severidade === 'critico').length });
   } catch (erro) {
-    console.error('Erro alertas:', erro);
+    logger.error('Erro alertas:', erro);
     res.status(500).json({ erro: 'Falha ao carregar alertas.' });
   }
 });
@@ -7321,7 +5910,7 @@ app.get('/api/admin/catalogo/saude', exigirAcessoLocalAdmin, autenticarAdminToke
       score: Math.round((coberturaImagem * 0.4 + coberturaDescricao * 0.3 + (semPreco === 0 ? 30 : Math.max(0, 30 - semPreco * 3))) )
     });
   } catch (erro) {
-    console.error('Erro saúde catálogo:', erro);
+    logger.error('Erro saúde catálogo:', erro);
     res.status(500).json({ erro: 'Falha ao verificar saúde do catálogo.' });
   }
 });
@@ -7335,32 +5924,32 @@ app.use(sentryErrorHandler());
 // INICIAR SERVIDOR
 // ============================================
 const server = app.listen(PORT, () => {
-  console.log(`\n🚀 Servidor rodando na porta ${PORT}`);
-  console.log(`📍 URL: http://localhost:${PORT}`);
-  console.log(`🌍 CORS_ORIGINS: ${CORS_ORIGINS.join(', ') || '(nenhuma origem explícita)'}`);
-  console.log(`🍪 Cookies: secure=${COOKIE_SECURE} sameSite=${COOKIE_SAME_SITE} domain=${COOKIE_DOMAIN || '(sem domínio)'}`);
-  console.log(`\n📚 Endpoints disponíveis:`);
-  console.log(`   POST   /api/auth/cadastro`);
-  console.log(`   POST   /api/auth/login`);
-  console.log(`   GET    /api/auth/me`);
-  console.log(`   GET    /api/endereco`);
-  console.log(`   POST   /api/endereco`);
-  console.log(`   GET    /api/produtos`);
-  console.log(`   GET    /api/produtos/:id`);
-  console.log(`   GET    /api/frete/simular?cep=68740180&veiculo=moto`);
-  console.log(`   POST   /api/pedidos`);
-  console.log(`   GET    /api/pedidos`);
-  console.log(`   GET    /api/pedidos/:id`);
-  console.log(`   GET    /api/avaliacoes/:produto_id`);
-  console.log(`   POST   /api/avaliacoes`);
+  logger.info(`\n🚀 Servidor rodando na porta ${PORT}`);
+  logger.info(`📍 URL: http://localhost:${PORT}`);
+  logger.info(`🌍 CORS_ORIGINS: ${CORS_ORIGINS.join(', ') || '(nenhuma origem explícita)'}`);
+  logger.info(`🍪 Cookies: secure=${COOKIE_SECURE} sameSite=${COOKIE_SAME_SITE} domain=${COOKIE_DOMAIN || '(sem domínio)'}`);
+  logger.info(`\n📚 Endpoints disponíveis:`);
+  logger.info(`   POST   /api/auth/cadastro`);
+  logger.info(`   POST   /api/auth/login`);
+  logger.info(`   GET    /api/auth/me`);
+  logger.info(`   GET    /api/endereco`);
+  logger.info(`   POST   /api/endereco`);
+  logger.info(`   GET    /api/produtos`);
+  logger.info(`   GET    /api/produtos/:id`);
+  logger.info(`   GET    /api/frete/simular?cep=68740180&veiculo=moto`);
+  logger.info(`   POST   /api/pedidos`);
+  logger.info(`   GET    /api/pedidos`);
+  logger.info(`   GET    /api/pedidos/:id`);
+  logger.info(`   GET    /api/avaliacoes/:produto_id`);
+  logger.info(`   POST   /api/avaliacoes`);
   if (SHOULD_SERVE_REACT) {
     if (fs.existsSync(REACT_DIST_INDEX)) {
-      console.log(`\n🧩 Frontend React servido em: http://localhost:${PORT}`);
+      logger.info(`\n🧩 Frontend React servido em: http://localhost:${PORT}`);
     } else {
-      console.log(`\n⚠️ Build React não encontrada em frontend-react/dist (rode: cd frontend-react && npm run build)`);
+      logger.info(`\n⚠️ Build React não encontrada em frontend-react/dist (rode: cd frontend-react && npm run build)`);
     }
   }
-  console.log(`\n✅ Pronto para receber requisições!\n`);
+  logger.info(`\n✅ Pronto para receber requisições!\n`);
 });
 
 // Tratamento de erros não capturados com graceful shutdown
@@ -7368,26 +5957,26 @@ let shuttingDown = false;
 function gracefulShutdown(reason, err) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.error(`❌ ${reason}:`, err);
-  console.log('🛑 Iniciando encerramento gracioso...');
+  logger.error(`❌ ${reason}:`, err);
+  logger.info('🛑 Iniciando encerramento gracioso...');
 
   // Parar de aceitar novas conexões
   try {
     server.close(() => {
-      console.log('✅ Servidor HTTP encerrado.');
+      logger.info('✅ Servidor HTTP encerrado.');
     });
   } catch (_) {}
 
   // Aguardar requests em andamento e fechar pool
   const forceExitTimeout = setTimeout(() => {
-    console.error('⚠️ Timeout de graceful shutdown atingido. Forçando saída.');
+    logger.error('⚠️ Timeout de graceful shutdown atingido. Forçando saída.');
     process.exit(1);
   }, 10000);
   forceExitTimeout.unref();
 
   pool.end()
     .then(() => {
-      console.log('✅ Pool MySQL encerrado.');
+      logger.info('✅ Pool MySQL encerrado.');
       process.exit(1);
     })
     .catch(() => {
