@@ -27,7 +27,14 @@
     "enrichment:barcode:pad-left-zero:dry-run": "node scripts/enrichment-barcode-pad-left-zero-report.js --mode report",
     "enrichment:barcode:pad-left-zero:apply:dry-run": "node scripts/enrichment-barcode-pad-left-zero-apply.js --mode dry-run",
     "enrichment:barcode:pad-left-zero:apply:execute": "node scripts/enrichment-barcode-pad-left-zero-apply.js --mode execute",
-    "enrichment:barcode:stage-closeout": "node tools/generate-enrichment-stage-closeout.js"
+    "enrichment:barcode:stage-closeout": "node tools/generate-enrichment-stage-closeout.js",
+    "migrate": "node migrate.js",
+    "migrate:dry-run": "node migrate.js --dry-run",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{js,json}\" --ignore-path .eslintignore",
+    "test": "jest --forceExit --detectOpenHandles",
+    "test:watch": "jest --watch --forceExit --detectOpenHandles"
   },
   "keywords": [
     "supermercado",
@@ -54,6 +61,9 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "eslint": "^8.56.0",
+    "jest": "^30.3.0",
+    "nodemon": "^3.0.2",
+    "prettier": "^3.2.0"
   }
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import ReCAPTCHA from 'react-google-recaptcha';
 import {
   buscarEnderecoViaCep,
@@ -1610,6 +1610,7 @@ export default function PagamentoPage() {
   const [sessao3DS, setSessao3DS] = useState('');
   const [sessao3DSEnv, setSessao3DSEnv] = useState('SANDBOX');
   const [sessao3DSGeradaEm, setSessao3DSGeradaEm] = useState(0);
+  const [sessao3DSExpirando, setSessao3DSExpirando] = useState(false);
   const [status3DS, setStatus3DS] = useState('idle');
   const [resultado3DS, setResultado3DS] = useState(null);
   const [idAutenticacao3DS, setIdAutenticacao3DS] = useState('');
@@ -1637,6 +1638,24 @@ export default function PagamentoPage() {
   const growthCheckoutPaymentBadge = growthCheckoutPaymentEnabled
     ? String(growthCheckoutPaymentConfig.badgeLabel || '').trim()
     : '';
+
+  useEffect(() => {
+    if (!sessao3DSGeradaEm) {
+      setSessao3DSExpirando(false);
+      return undefined;
+    }
+    const AVISO_ANTECEDENCIA_MS = 2 * 60 * 1000;
+    const tempoRestante = SESSAO_3DS_TTL_MS - (Date.now() - sessao3DSGeradaEm);
+    if (tempoRestante <= AVISO_ANTECEDENCIA_MS) {
+      setSessao3DSExpirando(true);
+      return undefined;
+    }
+    setSessao3DSExpirando(false);
+    const timer = setTimeout(() => {
+      setSessao3DSExpirando(true);
+    }, tempoRestante - AVISO_ANTECEDENCIA_MS);
+    return () => clearTimeout(timer);
+  }, [sessao3DSGeradaEm]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -3497,6 +3516,10 @@ export default function PagamentoPage() {
     );
   }
 
+  if (itens.length === 0 && !resultadoPedido?.pedido_id) {
+    return <Navigate to="/produtos" replace />;
+  }
+
   return (
     <section className={`page checkout-page ${exibirBarraMobileCheckout ? 'has-mobile-action-bar' : ''}`.trim()}>
       <h1>Finalizar pedido</h1>
@@ -4120,6 +4143,12 @@ export default function PagamentoPage() {
                             {idAutenticacao3DS ? ` ID: ${idAutenticacao3DS}` : ''}
                           </p>
 
+                          {sessao3DSExpirando && sessao3DS ? (
+                            <p className="payment-action-feedback is-warning" role="alert">
+                              Sua sessão de autenticação 3DS está expirando. Finalize o pagamento em breve ou ela será renovada automaticamente.
+                            </p>
+                          ) : null}
+
                           {IS_DEVELOPMENT && resultado3DS?.trace_id ? (
                             <p className="muted-text">Trace 3DS: {resultado3DS.trace_id}</p>
                           ) : null}
@@ -4263,9 +4292,16 @@ export default function PagamentoPage() {
             ) : (
               <section className="checkout-pix-payment-panel" aria-label="Pagamento com cartão">
                 {debitoSelecionado ? (
-                  <p className={`payment-action-feedback ${status3DSTone}`.trim()} role="status">
-                    {status3DSLabel}
-                  </p>
+                  <>
+                    <p className={`payment-action-feedback ${status3DSTone}`.trim()} role="status">
+                      {status3DSLabel}
+                    </p>
+                    {sessao3DSExpirando && sessao3DS ? (
+                      <p className="payment-action-feedback is-warning" role="alert">
+                        Sua sessão de autenticação 3DS está expirando. Finalize o pagamento em breve ou ela será renovada automaticamente.
+                      </p>
+                    ) : null}
+                  </>
                 ) : null}
 
                 <button

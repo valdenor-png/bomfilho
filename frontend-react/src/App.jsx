@@ -91,6 +91,7 @@ export default function App() {
   const isPedidosRoute = location.pathname.startsWith('/pedidos');
   const isProdutosRoute = location.pathname.startsWith('/produtos');
   const isPagamentoRoute = location.pathname.startsWith('/pagamento');
+  const isContaRoute = location.pathname.startsWith('/conta');
   const podeMostrarCarrinhoFlutuante = resumo.itens > 0 && !isPedidosRoute && !isProdutosRoute && !isPagamentoRoute;
 
   useEffect(() => {
@@ -115,17 +116,13 @@ export default function App() {
 
   if (isAdminRoute) {
     return (
-      <div className="app-shell admin-shell">
-        <main className="content admin-content">
-          <Suspense fallback={<RouteLoadingFallback message="Carregando area administrativa..." />}>
-            <Routes>
-              <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/admin/gerencia" replace />} />
-              <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
-              <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
-            </Routes>
-          </Suspense>
-        </main>
-      </div>
+      <Suspense fallback={<RouteLoadingFallback message="Carregando area administrativa..." />}>
+        <Routes>
+          <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/admin/gerencia" replace />} />
+          <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
+          <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
+        </Routes>
+      </Suspense>
     );
   }
 
@@ -151,7 +148,7 @@ export default function App() {
 
       {podeMostrarCarrinhoFlutuante ? (
         <div
-          className="floating-cart-wrapper"
+          className={`floating-cart-wrapper ${isContaRoute ? 'is-conta-route' : ''}`.trim()}
           style={{ right: '12px', bottom: `${BOTTOM_NAV_SAFE_AREA + 10}px` }}
         >
           <Link

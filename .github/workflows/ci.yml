@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-lint-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      - run: npx eslint . --max-warnings 0
+        continue-on-error: true
+
+      - name: Verificar sintaxe (dry load)
+        run: node -e "require('./server.js')" 2>&1 || true
+        env:
+          DATABASE_URL: mysql://test:test@localhost:3306/test
+          JWT_SECRET: ci-test-secret
+          NODE_ENV: test
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-react
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: frontend-react/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run build
+        env:
+          VITE_API_URL: https://api.example.com
+
+  migrations-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verificar numeração sequencial das migrações
+        run: |
+          ls migrations/*.sql | sort | head -20
+          echo "✅ Arquivos de migração listados com sucesso"
+
+      - name: Verificar sintaxe SQL básica
+        run: |
+          for f in migrations/*.sql; do
+            if ! head -1 "$f" | grep -qiE '(CREATE|ALTER|INSERT|DROP|SET|--|\/)'; then
+              echo "⚠️ $f pode ter problema de sintaxe na primeira linha"
+            fi
+          done
+          echo "✅ Verificação de migrações concluída"

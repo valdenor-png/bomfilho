@@ -20,6 +20,9 @@ const mysql = require("mysql2/promise");
 const fetch = global.fetch || require('node-fetch');
 const crypto = require('crypto');
 const fs = require('fs');
+const logger = require('./lib/logger');
+const { BoundedCache } = require('./lib/cache');
+const { captureException, sentryErrorHandler } = require('./lib/sentry');
 const {
   EXTENSOES_IMPORTACAO_ACEITAS,
   MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO,
@@ -85,6 +88,12 @@ const {
 const {
   construirConfiguracaoPagBank
 } = require('./services/pagbankConfigService');
+const {
+  gerarLogsHomologacaoPagBank,
+  gerarLog3DSAuth,
+  gerarLogOrderRequest,
+  gerarLogOrderResponse
+} = require('./services/pagbankHomologacaoLogService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -309,11 +318,11 @@ const LIMITE_BIKE_KM = (() => {
   return Number.isFinite(valor) && valor > 0 ? valor : 1;
 })();
 const CEP_GEO_TTL_MS = 24 * 60 * 60 * 1000;
-const cepGeoCache = new Map();
+const cepGeoCache = new BoundedCache({ maxSize: 2000, ttlMs: CEP_GEO_TTL_MS, name: 'cepGeo' });
 const PRODUTOS_QUERY_CACHE_TTL_MS = Number(process.env.PRODUTOS_QUERY_CACHE_TTL_MS || 20000);
-const produtosQueryCache = new Map();
+const produtosQueryCache = new BoundedCache({ maxSize: 200, ttlMs: PRODUTOS_QUERY_CACHE_TTL_MS, name: 'produtosQuery' });
 const READ_QUERY_CACHE_TTL_MS = 30 * 1000;
-const readQueryCache = new Map();
+const readQueryCache = new BoundedCache({ maxSize: 500, ttlMs: READ_QUERY_CACHE_TTL_MS, name: 'readQuery' });
 const FRETE_DEBUG_LOGS = (() => {
   const raw = String(process.env.FRETE_DEBUG_LOGS || '').trim().toLowerCase();
   if (!raw) {
@@ -388,13 +397,13 @@ function calcularFreteEntregaDetalhado(veiculoKey, distanciaKm) {
     ? PRECO_COMBUSTIVEL_LITRO / veiculo.consumoKmLitro
     : 0;
   const custoOperacionalKm = (custoCombustivelKm + veiculo.custoManutencaoKm) * veiculo.fatorReparo;
-  const frete = Number((veiculo.taxaBase + (distanciaNormalizada * custoOperacionalKm)).toFixed(2));
+  const frete = toMoney(veiculo.taxaBase + (distanciaNormalizada * custoOperacionalKm));
 
   return {
     frete,
     distancia_bruta_km: Number((Number.isFinite(distanciaBruta) ? distanciaBruta : 0).toFixed(3)),
     distancia_cobrada_km: distanciaNormalizada,
-    taxa_base: Number(veiculo.taxaBase.toFixed(2)),
+    taxa_base: toMoney(veiculo.taxaBase),
     custo_combustivel_km: Number(custoCombustivelKm.toFixed(4)),
     custo_manutencao_km: Number(veiculo.custoManutencaoKm.toFixed(4)),
     fator_reparo: Number(veiculo.fatorReparo.toFixed(2)),
@@ -874,7 +883,10 @@ async function buscarCoordenadasNominatim({ cepNormalizado, dadosCep, numero, ti
   for (const consulta of consultas) {
     try {
       const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(consulta.texto)}&format=jsonv2&limit=5&addressdetails=1&countrycodes=br`;
-      const response = await fetch(url, { headers });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(url, { headers, signal: controller.signal });
+      clearTimeout(timeoutId);
       if (!response.ok) {
         continue;
       }
@@ -1411,6 +1423,11 @@ function parsePositiveInt(value, fallback, { min = 1, max = 1000 } = {}) {
   return Math.max(min, Math.min(max, parsed));
 }
 
+/** Arredonda valor monetário para 2 casas decimais usando centavos inteiros (evita erros de float). */
+function toMoney(value) {
+  return Math.round(Number(value || 0) * 100) / 100;
+}
+
 function parseBooleanInput(value, fallback = false) {
   const normalized = String(value || '').trim().toLowerCase();
   if (!normalized) {
@@ -1535,32 +1552,15 @@ function montarChaveCacheLeitura(prefixo, payload = {}) {
 }
 
 function obterCacheLeitura(chave) {
-  const cached = readQueryCache.get(chave);
-  if (!cached) {
-    return null;
-  }
-
-  if (Date.now() - cached.cachedAt > READ_QUERY_CACHE_TTL_MS) {
-    readQueryCache.delete(chave);
-    return null;
-  }
-
-  return cached.payload;
+  return readQueryCache.get(chave) ?? null;
 }
 
 function salvarCacheLeitura(chave, payload) {
-  readQueryCache.set(chave, {
-    cachedAt: Date.now(),
-    payload
-  });
+  readQueryCache.set(chave, payload);
 }
 
 function limparCacheLeituraPorPrefixo(prefixo) {
-  for (const chave of readQueryCache.keys()) {
-    if (chave.startsWith(prefixo)) {
-      readQueryCache.delete(chave);
-    }
-  }
+  readQueryCache.clearByPrefix(prefixo);
 }
 
 function limparCacheProdutos() {
@@ -1574,24 +1574,11 @@ function montarChaveCacheProdutos({ pagina, limite, busca, categoria, ordenacao 
 }
 
 function obterCacheProdutos(chave) {
-  const cached = produtosQueryCache.get(chave);
-  if (!cached) {
-    return null;
-  }
-
-  if (Date.now() - cached.cachedAt > PRODUTOS_QUERY_CACHE_TTL_MS) {
-    produtosQueryCache.delete(chave);
-    return null;
-  }
-
-  return cached.payload;
+  return produtosQueryCache.get(chave) ?? null;
 }
 
 function salvarCacheProdutos(chave, payload) {
-  produtosQueryCache.set(chave, {
-    cachedAt: Date.now(),
-    payload
-  });
+  produtosQueryCache.set(chave, payload);
 }
 
 function validarWebhookPagBank(req) {
@@ -1612,25 +1599,12 @@ function validarWebhookEvolution(req) {
   const tokenHeader = String(req.headers['x-webhook-token'] || req.headers['x-evolution-token'] || '').trim();
   const tokenQuery = String(req.query?.token || '').trim();
 
-  return tokenHeader === EVOLUTION_WEBHOOK_TOKEN || tokenQuery === EVOLUTION_WEBHOOK_TOKEN;
+  return compararTextoSegura(tokenHeader, EVOLUTION_WEBHOOK_TOKEN) || compararTextoSegura(tokenQuery, EVOLUTION_WEBHOOK_TOKEN);
 }
 
 function limparCacheEvolution() {
-  const agora = Date.now();
-  const ttlMensagemMs = 30 * 60 * 1000;
-  const ttlNumeroMs = 24 * 60 * 60 * 1000;
-
-  for (const [id, ts] of evolutionProcessedMessageIds.entries()) {
-    if (agora - ts > ttlMensagemMs) {
-      evolutionProcessedMessageIds.delete(id);
-    }
-  }
-
-  for (const [numero, ts] of evolutionLastReplyByNumber.entries()) {
-    if (agora - ts > ttlNumeroMs) {
-      evolutionLastReplyByNumber.delete(numero);
-    }
-  }
+  evolutionProcessedMessageIds.purgeExpired();
+  evolutionLastReplyByNumber.purgeExpired();
 }
 
 function extrairDadosMensagemEvolution(payload) {
@@ -1668,8 +1642,8 @@ let pagbankLastAuthCheck = {
   message: null
 };
 
-const evolutionProcessedMessageIds = new Map();
-const evolutionLastReplyByNumber = new Map();
+const evolutionProcessedMessageIds = new BoundedCache({ maxSize: 5000, ttlMs: 30 * 60 * 1000, name: 'evolutionMsgIds' });
+const evolutionLastReplyByNumber = new BoundedCache({ maxSize: 2000, ttlMs: 24 * 60 * 60 * 1000, name: 'evolutionReply' });
 
 if (PAGBANK_TOKEN) {
   console.log('✅ PagBank configurado com sucesso!');
@@ -1727,7 +1701,50 @@ app.use((req, res, next) => {
 app.use(haltOnTimedout);
 
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: [
+        "'self'",
+        "'unsafe-inline'",
+        "'unsafe-eval'",
+        'https://assets.pagseguro.com.br',
+        'https://sdk.pagseguro.com',
+        'https://stc.pagseguro.uol.com.br',
+        'https://www.google.com',
+        'https://www.gstatic.com',
+        'https://www.recaptcha.net'
+      ],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https:', 'http:'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      connectSrc: [
+        "'self'",
+        'https://api.pagseguro.com',
+        'https://sandbox.api.pagseguro.com',
+        'https://sdk.pagseguro.com',
+        'https://stc.pagseguro.uol.com.br',
+        'https://www.google.com',
+        'https://www.recaptcha.net',
+        'https://brasilapi.com.br',
+        'https://viacep.com.br',
+        'https://nominatim.openstreetmap.org',
+        ...(FRONTEND_APP_URL ? [FRONTEND_APP_URL] : []),
+        ...(IS_PRODUCTION ? [] : ['http://localhost:*', 'ws://localhost:*'])
+      ],
+      frameSrc: [
+        "'self'",
+        'https://assets.pagseguro.com.br',
+        'https://sandbox.api.pagseguro.com',
+        'https://api.pagseguro.com',
+        'https://www.google.com',
+        'https://www.recaptcha.net'
+      ],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"]
+    }
+  },
   crossOriginEmbedderPolicy: false
 }));
 app.use(haltOnTimedout);
@@ -2098,7 +2115,9 @@ const pool = mysql.createPool({
   database: dbUrl.pathname.replace("/", ""),
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 30000
 });
 
 const barcodeLookupService = createDefaultBarcodeLookupService({
@@ -2107,10 +2126,10 @@ const barcodeLookupService = createDefaultBarcodeLookupService({
 });
 
 console.log('🧭 MySQL config:', {
-  host: dbUrl.hostname,
-  port: dbUrl.port,
-  user: dbUrl.username,
-  database: dbUrl.pathname.replace("/", ""),
+  host: dbUrl.hostname ? `${dbUrl.hostname.slice(0, 4)}***` : '(vazio)',
+  port: dbUrl.port || '(padrão)',
+  user: dbUrl.username ? `${dbUrl.username.slice(0, 2)}***` : '(vazio)',
+  database: dbUrl.pathname ? dbUrl.pathname.replace('/', '').slice(0, 3) + '***' : '(vazio)',
   source: 'DATABASE_URL'
 });
 
@@ -2187,7 +2206,7 @@ async function preloadData() {
     }
 
     const [produtos] = await queryWithRetry(
-      `SELECT ${campos.join(', ')} FROM produtos WHERE ativo = TRUE ORDER BY categoria ASC, nome ASC`
+      `SELECT ${campos.join(', ')} FROM produtos WHERE ativo = TRUE ORDER BY categoria ASC, nome ASC LIMIT 500`
     );
     const chaveProdutos = montarChaveCacheLeitura('produtos:lista', {
       busca: '',
@@ -2529,6 +2548,33 @@ async function criarPagamentoPix({ pedidoId, total, descricao, email, nome, taxI
     }
   });
 
+  // --- Log de homologação padrão PagBank (Request + Response) para PIX ---
+  if (PAGBANK_DEBUG_LOGS && !IS_PRODUCTION) {
+    try {
+      gerarLogsHomologacaoPagBank({
+        orderRequest: {
+          endpoint,
+          method: 'POST',
+          payload,
+          headers: {
+            Authorization: `Bearer ${PAGBANK_TOKEN}`,
+            'x-idempotency-key': idempotencyKey,
+            accept: 'application/json',
+            'Content-Type': 'application/json'
+          },
+          idempotencyKey
+        },
+        orderResponse: {
+          httpStatus: response.status,
+          responsePayload,
+          traceId
+        }
+      });
+    } catch (_logErr) {
+      // log de homologação nunca deve impedir o fluxo
+    }
+  }
+
   if (!response.ok) {
     registrarFalhaOperacaoPagBank({
       operacao: 'orders.pix.error',
@@ -2610,7 +2656,7 @@ async function criarPagamentoCartao({
     let authParaUso = authenticationMethodNormalizado;
     let origemAuth = 'request';
 
-    if (!authParaUso && PAGBANK_ENV !== 'production' && ALLOW_DEBIT_3DS_MOCK) {
+    if (!authParaUso && PAGBANK_ENV !== 'production' && !IS_PRODUCTION && ALLOW_DEBIT_3DS_MOCK) {
       authParaUso = montarAuthenticationMethodMock3DS();
       origemAuth = 'mock';
     }
@@ -2716,6 +2762,33 @@ async function criarPagamentoCartao({
       trace_id: traceId || undefined
     }
   });
+
+  // --- Log de homologação padrão PagBank (Request + Response) ---
+  if (PAGBANK_DEBUG_LOGS && !IS_PRODUCTION) {
+    try {
+      gerarLogsHomologacaoPagBank({
+        orderRequest: {
+          endpoint,
+          method: 'POST',
+          payload,
+          headers: {
+            Authorization: `Bearer ${PAGBANK_TOKEN}`,
+            'x-idempotency-key': idempotencyKey,
+            accept: 'application/json',
+            'Content-Type': 'application/json'
+          },
+          idempotencyKey
+        },
+        orderResponse: {
+          httpStatus: response.status,
+          responsePayload,
+          traceId
+        }
+      });
+    } catch (_logErr) {
+      // log de homologação nunca deve impedir o fluxo
+    }
+  }
 
   if (!response.ok) {
     registrarFalhaOperacaoPagBank({
@@ -2828,8 +2901,16 @@ const autenticarToken = (req, res, next) => {
 };
 
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_PASSWORD_HASH = String(process.env.ADMIN_PASSWORD_HASH || '').trim();
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || '').trim();
 const ADMIN_LOCAL_ONLY = process.env.ADMIN_LOCAL_ONLY !== 'false';
+
+if (ADMIN_PASSWORD && !ADMIN_PASSWORD_HASH) {
+  console.warn('⚠️ [DEPRECIADO] ADMIN_PASSWORD em texto plano está ativo. Migre para ADMIN_PASSWORD_HASH (bcrypt) o mais rápido possível.');
+}
+if (!ADMIN_PASSWORD_HASH && !ADMIN_PASSWORD) {
+  console.warn('⚠️ Admin login desabilitado: nem ADMIN_PASSWORD_HASH nem ADMIN_PASSWORD estão configurados.');
+}
 
 function extrairIpRequisicao(req) {
   return normalizarIp(req.ip || req.socket?.remoteAddress || '');
@@ -3001,10 +3082,10 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
       return res.status(400).json({ erro: 'A senha deve ter no mínimo 8 caracteres.' });
     }
 
-    // Verificar se o email já existe
-    const [usuarios] = await pool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
-    if (usuarios.length > 0) {
-      return res.status(409).json({ erro: 'Já existe uma conta com este e-mail.' });
+    // Verificar se o email já existe (resposta genérica para evitar enumeração)
+    const [usuariosExistentes] = await pool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
+    if (usuariosExistentes.length > 0) {
+      return res.status(409).json({ erro: 'Não foi possível criar a conta. Verifique os dados ou tente fazer login.' });
     }
 
     // Criptografar senha
@@ -3029,7 +3110,6 @@ app.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     res.status(201).json({
       mensagem: 'Cadastro realizado com sucesso.',
       csrfToken,
-      accessToken: token,
       usuario: {
         id: resultado.insertId,
         nome: nome,
@@ -3064,7 +3144,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
 
     // Buscar usuário
-    const [usuarios] = await pool.query('SELECT * FROM usuarios WHERE email = ?', [email]);
+    const [usuarios] = await pool.query('SELECT id, nome, email, telefone, senha, whatsapp_opt_in FROM usuarios WHERE email = ?', [email]);
     if (usuarios.length === 0) {
       return res.status(401).json({ erro: 'E-mail ou senha não conferem.' });
     }
@@ -3090,7 +3170,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     res.json({
       mensagem: 'Login realizado com sucesso.',
       csrfToken,
-      accessToken: token,
       usuario: {
         id: usuario.id,
         nome: usuario.nome,
@@ -3114,7 +3193,7 @@ app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (re
   try {
     const { usuario, senha } = req.body || {};
 
-    if (!ADMIN_PASSWORD) {
+    if (!ADMIN_PASSWORD_HASH && !ADMIN_PASSWORD) {
       return res.status(503).json({ erro: 'A autenticação administrativa está indisponível no momento.' });
     }
 
@@ -3122,7 +3201,21 @@ app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (re
       return res.status(400).json({ erro: 'Informe usuário e senha de administrador.' });
     }
 
-    if (!compararTextoSegura(String(usuario).trim(), ADMIN_USER) || !compararTextoSegura(String(senha), ADMIN_PASSWORD)) {
+    if (!compararTextoSegura(String(usuario).trim(), ADMIN_USER)) {
+      return res.status(401).json({ erro: 'Usuário ou senha de administrador inválidos.' });
+    }
+
+    let senhaValida = false;
+    if (ADMIN_PASSWORD_HASH) {
+      senhaValida = await bcrypt.compare(String(senha), ADMIN_PASSWORD_HASH);
+    } else if (ADMIN_PASSWORD) {
+      senhaValida = compararTextoSegura(String(senha), ADMIN_PASSWORD);
+      if (senhaValida) {
+        console.warn('⚠️ [DEPRECIADO] Login admin via ADMIN_PASSWORD (texto plano). Migre para ADMIN_PASSWORD_HASH.');
+      }
+    }
+
+    if (!senhaValida) {
       return res.status(401).json({ erro: 'Usuário ou senha de administrador inválidos.' });
     }
 
@@ -3135,11 +3228,18 @@ app.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (re
     const csrfToken = emitirCsrfToken(res);
     definirCookieAuth(res, ADMIN_AUTH_COOKIE_NAME, token, ADMIN_AUTH_COOKIE_MAX_AGE);
 
+    registrarAuditoria(pool, {
+      acao: 'admin_login',
+      entidade: 'admin',
+      detalhes: { metodo: ADMIN_PASSWORD_HASH ? 'bcrypt' : 'legacy_plaintext' },
+      admin_usuario: ADMIN_USER,
+      ip: extrairIpRequisicao(req)
+    }).catch(() => {});
+
     return res.json({
       mensagem: 'Acesso administrativo liberado com sucesso.',
       usuario: ADMIN_USER,
-      csrfToken,
-      accessToken: token
+      csrfToken
     });
   } catch (erro) {
     console.error('Erro no login admin:', erro);
@@ -3219,7 +3319,7 @@ app.post('/api/usuario/whatsapp', autenticarToken, async (req, res) => {
 app.get('/api/endereco', autenticarToken, async (req, res) => {
   try {
     const [enderecos] = await pool.query(
-      'SELECT * FROM enderecos WHERE usuario_id = ?',
+      'SELECT id, usuario_id, cep, logradouro, numero, complemento, bairro, cidade, estado, atualizado_em FROM enderecos WHERE usuario_id = ?',
       [req.usuario.id]
     );
 
@@ -3313,9 +3413,6 @@ app.get('/api/produtos', async (req, res) => {
     };
     const ordenacaoSql = ordenacaoMap[ordenacaoRaw] || 'categoria ASC, nome ASC';
 
-    const usarPaginacao = ['page', 'pagina', 'limit', 'limite', 'busca', 'categoria', 'sort', 'ordenacao']
-      .some((chave) => req.query?.[chave] !== undefined);
-
     const limite = parsePositiveInt(req.query?.limit || req.query?.limite, 60, { min: 1, max: 200 });
     const paginaSolicitada = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
 
@@ -3348,36 +3445,6 @@ app.get('/api/produtos', async (req, res) => {
     }
 
     const whereSql = filtros.length ? `WHERE ${filtros.join(' AND ')}` : '';
-
-    if (!usarPaginacao) {
-      const chaveCacheLeitura = montarChaveCacheLeitura('produtos:lista', {
-        busca,
-        categoria,
-        ordenacao: ordenacaoSql,
-        where: whereSql,
-        params
-      });
-      const cacheLeitura = obterCacheLeitura(chaveCacheLeitura);
-      if (cacheLeitura) {
-        return res.json({
-          ...cacheLeitura,
-          cache: true
-        });
-      }
-
-      const [produtos] = await queryWithRetry(
-        `SELECT ${campos.join(', ')} FROM produtos ${whereSql} ORDER BY ${ordenacaoSql}`,
-        params
-      );
-
-      const payloadSemPaginacao = {
-        produtos,
-        total: produtos.length
-      };
-      salvarCacheLeitura(chaveCacheLeitura, payloadSemPaginacao);
-
-      return res.json(payloadSemPaginacao);
-    }
 
     const chaveCache = montarChaveCacheProdutos({
       pagina: paginaSolicitada,
@@ -4604,6 +4671,28 @@ app.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
         }
       });
 
+      // --- Log de homologação 3DS (LOG 1) ---
+      if (PAGBANK_DEBUG_LOGS && !IS_PRODUCTION) {
+        try {
+          const log1 = gerarLog3DSAuth({
+            operacao: '3ds.authenticate',
+            referenceId: `pedido_${pedidoIdNumerico}`,
+            status3DS: status3DS,
+            authenticationId: authenticationId3DS,
+            traceId: traceId3DS,
+            resultadoFinal: validacaoResultado3DS.ok ? 'APROVADO' : (validacaoResultado3DS.codigo || 'REJEITADO'),
+            extra: {
+              authentication_method_type: authenticationMethod?.type || null,
+              three_ds_result_status: threeDSResult?.status || null,
+              fallback_mock: fallback3dsMockPermitido
+            }
+          });
+          console.log(`\n${log1.texto}\n`);
+        } catch (_logErr) {
+          // log de homologação nunca deve impedir o fluxo
+        }
+      }
+
       if (!validacaoResultado3DS.ok && !fallback3dsMockPermitido) {
         const mensagensErro3DS = {
           MISSING_3DS_STATUS: 'Para concluir no debito, complete a autenticacao 3DS e tente novamente.',
@@ -4931,6 +5020,16 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       throw criarErroHttp(400, 'Há itens inválidos no carrinho.');
     }
 
+    // Validação adicional: todos os produto_id devem ser inteiros positivos
+    for (const item of itensNormalizados) {
+      if (!Number.isInteger(item.produto_id) || item.produto_id <= 0) {
+        throw criarErroHttp(400, 'Produto inválido no carrinho.');
+      }
+      if (!Number.isInteger(item.quantidade) || item.quantidade <= 0 || item.quantidade > 999) {
+        throw criarErroHttp(400, 'Quantidade inválida no carrinho.');
+      }
+    }
+
     const idsProdutos = [...new Set(itensNormalizados.map((item) => item.produto_id))];
     const placeholdersProdutos = idsProdutos.map(() => '?').join(', ');
     let itensCalculados = [];
@@ -5007,7 +5106,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
         throw criarErroHttp(409, `Estoque insuficiente para ${produto.nome}. Disponível: ${estoqueDisponivel}.`);
       }
 
-      const subtotal = Number((precoUnitario * item.quantidade).toFixed(2));
+      const subtotal = toMoney(precoUnitario * item.quantidade);
 
       return {
         produto_id: item.produto_id,
@@ -5018,7 +5117,7 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       };
     });
 
-    total = Number(itensCalculados.reduce((acumulado, item) => acumulado + item.subtotal, 0).toFixed(2));
+    total = toMoney(itensCalculados.reduce((acumulado, item) => acumulado + item.subtotal, 0));
     if (!Number.isFinite(total) || total <= 0) {
       throw criarErroHttp(400, 'Não foi possível calcular o total do pedido.');
     }
@@ -5062,21 +5161,27 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
       }
 
       if (cupom.tipo === 'percentual') {
-        descontoAplicado = total * (Number(cupom.valor || 0) / 100);
+        descontoAplicado = toMoney(total * (Number(cupom.valor || 0) / 100));
       } else {
-        descontoAplicado = Number(cupom.valor || 0);
+        descontoAplicado = toMoney(Number(cupom.valor || 0));
       }
 
       if (descontoAplicado > total) {
         descontoAplicado = total;
       }
-
-      descontoAplicado = Number(descontoAplicado.toFixed(2));
       cupomIdValidado = cupom.id;
     }
 
-    const totalProdutos = Number((total - descontoAplicado).toFixed(2));
-    const totalFinal = Number((totalProdutos + freteEntrega).toFixed(2));
+    const totalProdutos = toMoney(total - descontoAplicado);
+    const totalFinal = toMoney(totalProdutos + freteEntrega);
+
+    if (!Number.isFinite(totalProdutos) || totalProdutos <= 0) {
+      throw criarErroHttp(400, 'O valor dos produtos deve ser maior que zero após desconto.');
+    }
+
+    if (!Number.isFinite(totalFinal) || totalFinal <= 0) {
+      throw criarErroHttp(400, 'O total do pedido deve ser maior que zero.');
+    }
 
     // Criar pedido
     const [pedidoResultado] = await connection.query(
@@ -5086,13 +5191,20 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
 
     const pedidoId = pedidoResultado.insertId;
 
-    // Inserir itens do pedido
-    for (const item of itensCalculados) {
+    // Batch insert de itens do pedido
+    if (itensCalculados.length > 0) {
+      const valuesPlaceholders = itensCalculados.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+      const valuesParams = itensCalculados.flatMap((item) => [
+        pedidoId, item.produto_id, item.nome, item.preco, item.quantidade, item.subtotal
+      ]);
       await connection.query(
-        'INSERT INTO pedido_itens (pedido_id, produto_id, nome_produto, preco, quantidade, subtotal) VALUES (?, ?, ?, ?, ?, ?)',
-        [pedidoId, item.produto_id, item.nome, item.preco, item.quantidade, item.subtotal]
+        `INSERT INTO pedido_itens (pedido_id, produto_id, nome_produto, preco, quantidade, subtotal) VALUES ${valuesPlaceholders}`,
+        valuesParams
       );
+    }
 
+    // Atualizar estoque (sequencial para validação individual)
+    for (const item of itensCalculados) {
       const [resultadoEstoque] = await connection.query(
         'UPDATE produtos SET estoque = estoque - ? WHERE id = ? AND estoque >= ?',
         [item.quantidade, item.produto_id, item.quantidade]
@@ -5142,14 +5254,14 @@ app.post('/api/pedidos', autenticarToken, async (req, res) => {
           pixQrCode = resultadoPix.qr_codes[0].links?.[0]?.href; // URL da imagem QR Code
           pixId = resultadoPix.id; // ID do pagamento no PagBank
           
-          // Tentar atualizar pedido com informações do PIX (se colunas existirem)
+          // Atualizar pedido com informações do PIX fora da transação (já commitada)
           try {
-            await connection.query(
+            await pool.query(
               'UPDATE pedidos SET pix_id = ?, pix_codigo = ?, pix_qrcode = ?, pix_status = ? WHERE id = ?',
               [pixId, pixCodigo, pixQrCode, 'WAITING', pedidoId]
             );
           } catch (errUpdate) {
-            console.warn('⚠️ Colunas pix_id/pix_codigo não existem na tabela pedidos:', errUpdate.message);
+            console.warn('⚠️ Falha ao salvar dados PIX no pedido:', errUpdate.message);
           }
         }
       } catch (erro) {
@@ -5229,7 +5341,7 @@ app.get('/api/pedidos', autenticarToken, async (req, res) => {
 
     if (!usarPaginacao) {
       const [pedidos] = await pool.query(
-        'SELECT * FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC',
+        'SELECT id, usuario_id, total, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC',
         [req.usuario.id]
       );
 
@@ -5258,7 +5370,7 @@ app.get('/api/pedidos', autenticarToken, async (req, res) => {
     const offset = (paginacao.pagina - 1) * paginacao.limite;
 
     const [pedidos] = await pool.query(
-      'SELECT * FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC LIMIT ? OFFSET ?',
+      'SELECT id, usuario_id, total, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC LIMIT ? OFFSET ?',
       [req.usuario.id, paginacao.limite, offset]
     );
 
@@ -5283,7 +5395,7 @@ app.get('/api/pedidos', autenticarToken, async (req, res) => {
 app.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
   try {
     const [pedidos] = await pool.query(
-      'SELECT * FROM pedidos WHERE id = ? AND usuario_id = ?',
+      'SELECT id, usuario_id, total, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE id = ? AND usuario_id = ?',
       [req.params.id, req.usuario.id]
     );
 
@@ -5343,9 +5455,10 @@ app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
     const cupom = cupons[0];
 
     // Verificar valor mínimo
-    if (valorPedido < cupom.valor_minimo) {
+    const valorMinimoCupom = Number(cupom.valor_minimo || 0);
+    if (valorPedido < valorMinimoCupom) {
       return res.status(400).json({ 
-        erro: `Valor mínimo do pedido para este cupom: R$ ${cupom.valor_minimo.toFixed(2)}` 
+        erro: `Valor mínimo do pedido para este cupom: R$ ${valorMinimoCupom.toFixed(2)}` 
       });
     }
 
@@ -5360,16 +5473,17 @@ app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
     }
 
     // Calcular desconto
+    const valorPedidoNum = toMoney(Number(valorPedido || 0));
     let desconto = 0;
     if (cupom.tipo === 'percentual') {
-      desconto = valorPedido * (cupom.valor / 100);
+      desconto = toMoney(valorPedidoNum * (Number(cupom.valor || 0) / 100));
     } else {
-      desconto = cupom.valor;
+      desconto = toMoney(Number(cupom.valor || 0));
     }
 
     // Garantir que desconto não seja maior que o valor do pedido
-    if (desconto > valorPedido) {
-      desconto = valorPedido;
+    if (desconto > valorPedidoNum) {
+      desconto = valorPedidoNum;
     }
 
     res.json({
@@ -5378,9 +5492,9 @@ app.post('/api/cupons/validar', autenticarToken, async (req, res) => {
       codigo: cupom.codigo,
       descricao: cupom.descricao,
       tipo: cupom.tipo,
-      valor: cupom.valor,
-      desconto: desconto,
-      total_com_desconto: valorPedido - desconto
+      valor: Number(cupom.valor || 0),
+      desconto,
+      total_com_desconto: toMoney(valorPedidoNum - desconto)
     });
   } catch (erro) {
     console.error('Erro ao validar cupom:', erro);
@@ -5513,7 +5627,8 @@ app.get('/api/admin/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, asyn
         itens: itensPorPedido.get(pedidoId) || [],
         endereco: tipoEntrega === 'retirada'
           ? null
-          : (enderecosPorUsuario.get(usuarioId) || null)
+          : (enderecosPorUsuario.get(usuarioId) || null),
+        ...calcularMetricasTempoOperacional(pedido)
       };
     });
 
@@ -5528,6 +5643,400 @@ app.get('/api/admin/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, asyn
   }
 });
 
+// ============================================
+// DASHBOARD EXECUTIVO — Agregações server-side
+// ============================================
+
+function calcularPeriodoDashboard(periodo, inicioCustom, fimCustom) {
+  const agora = new Date();
+  const hojeFim = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 23, 59, 59, 999);
+  const hojeInicio = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+
+  let inicio, fim;
+
+  switch (periodo) {
+    case 'ontem': {
+      const ontem = new Date(hojeInicio);
+      ontem.setDate(ontem.getDate() - 1);
+      inicio = ontem;
+      fim = new Date(hojeInicio.getTime() - 1);
+      break;
+    }
+    case '7d': {
+      const d = new Date(hojeInicio);
+      d.setDate(d.getDate() - 6);
+      inicio = d;
+      fim = hojeFim;
+      break;
+    }
+    case '30d': {
+      const d = new Date(hojeInicio);
+      d.setDate(d.getDate() - 29);
+      inicio = d;
+      fim = hojeFim;
+      break;
+    }
+    case 'mes': {
+      inicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
+      fim = hojeFim;
+      break;
+    }
+    case 'custom': {
+      if (inicioCustom) {
+        inicio = new Date(inicioCustom + 'T00:00:00');
+      } else {
+        inicio = hojeInicio;
+      }
+      if (fimCustom) {
+        fim = new Date(fimCustom + 'T23:59:59.999');
+      } else {
+        fim = hojeFim;
+      }
+      break;
+    }
+    default: // hoje
+      inicio = hojeInicio;
+      fim = hojeFim;
+  }
+  // Período anterior de mesma duração
+  const duracao = fim.getTime() - inicio.getTime();
+  const anteriorFim = new Date(inicio.getTime() - 1);
+  const anteriorInicio = new Date(anteriorFim.getTime() - duracao);
+
+  return { inicio, fim, anteriorInicio, anteriorFim };
+}
+
+app.get('/api/admin/dashboard/resumo', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const periodo = String(req.query.periodo || 'hoje').trim();
+    const canal = String(req.query.canal || 'todos').trim();
+    const pagamento = String(req.query.pagamento || 'todos').trim();
+    const inicioCustom = req.query.inicio || null;
+    const fimCustom = req.query.fim || null;
+
+    const { inicio, fim, anteriorInicio, anteriorFim } = calcularPeriodoDashboard(periodo, inicioCustom, fimCustom);
+
+    // Build dynamic WHERE clause
+    const filtrosExtra = [];
+    const paramsExtra = [];
+    if (canal !== 'todos') {
+      filtrosExtra.push('p.tipo_entrega = ?');
+      paramsExtra.push(canal);
+    }
+    if (pagamento !== 'todos') {
+      filtrosExtra.push('p.forma_pagamento = ?');
+      paramsExtra.push(pagamento);
+    }
+    const filtroStr = filtrosExtra.length > 0 ? ' AND ' + filtrosExtra.join(' AND ') : '';
+
+    const paramsPeriodo = [inicio, fim, ...paramsExtra];
+    const paramsAnterior = [anteriorInicio, anteriorFim, ...paramsExtra];
+
+    // 1. KPIs do período atual
+    const [[kpisRow]] = await pool.query(
+      `SELECT
+        COUNT(*) AS total_pedidos,
+        SUM(CASE WHEN p.status NOT IN ('cancelado','pendente') THEN 1 ELSE 0 END) AS pedidos_pagos,
+        SUM(CASE WHEN p.status IN ('entregue','retirado') THEN 1 ELSE 0 END) AS pedidos_concluidos,
+        SUM(CASE WHEN p.status = 'cancelado' THEN 1 ELSE 0 END) AS pedidos_cancelados,
+        SUM(CASE WHEN p.status = 'pendente' THEN 1 ELSE 0 END) AS pedidos_pendentes,
+        COALESCE(SUM(CASE WHEN p.status NOT IN ('cancelado') THEN p.total ELSE 0 END), 0) AS faturamento_bruto,
+        AVG(CASE WHEN p.status NOT IN ('cancelado') THEN p.total ELSE NULL END) AS ticket_medio
+       FROM pedidos p
+       WHERE p.criado_em BETWEEN ? AND ?${filtroStr}`,
+      paramsPeriodo
+    );
+
+    // 2. KPIs do período anterior (comparativo)
+    const [[kpisAnteriorRow]] = await pool.query(
+      `SELECT
+        COUNT(*) AS total_pedidos,
+        COALESCE(SUM(CASE WHEN p.status NOT IN ('cancelado') THEN p.total ELSE 0 END), 0) AS faturamento_bruto
+       FROM pedidos p
+       WHERE p.criado_em BETWEEN ? AND ?${filtroStr}`,
+      paramsAnterior
+    );
+
+    // 3. Por forma de pagamento
+    const [porPagamento] = await pool.query(
+      `SELECT p.forma_pagamento AS forma, COUNT(*) AS quantidade,
+        COALESCE(SUM(p.total), 0) AS total_valor
+       FROM pedidos p
+       WHERE p.status NOT IN ('cancelado') AND p.criado_em BETWEEN ? AND ?${filtroStr}
+       GROUP BY p.forma_pagamento ORDER BY total_valor DESC`,
+      paramsPeriodo
+    );
+
+    // 4. Por canal
+    const [porCanal] = await pool.query(
+      `SELECT p.tipo_entrega AS canal, COUNT(*) AS quantidade,
+        COALESCE(SUM(p.total), 0) AS total_valor
+       FROM pedidos p
+       WHERE p.status NOT IN ('cancelado') AND p.criado_em BETWEEN ? AND ?${filtroStr}
+       GROUP BY p.tipo_entrega ORDER BY total_valor DESC`,
+      paramsPeriodo
+    );
+
+    // 5. Por status
+    const [porStatus] = await pool.query(
+      `SELECT p.status, COUNT(*) AS quantidade
+       FROM pedidos p
+       WHERE p.criado_em BETWEEN ? AND ?${filtroStr}
+       GROUP BY p.status ORDER BY quantidade DESC`,
+      paramsPeriodo
+    );
+
+    // 6. Vendas por hora
+    const [vendasPorHora] = await pool.query(
+      `SELECT HOUR(p.criado_em) AS hora, COUNT(*) AS quantidade,
+        COALESCE(SUM(CASE WHEN p.status != 'cancelado' THEN p.total ELSE 0 END), 0) AS total_valor
+       FROM pedidos p
+       WHERE p.criado_em BETWEEN ? AND ?${filtroStr}
+       GROUP BY HOUR(p.criado_em) ORDER BY hora`,
+      paramsPeriodo
+    );
+
+    // 7. Vendas por dia
+    const [vendasPorDia] = await pool.query(
+      `SELECT DATE(p.criado_em) AS dia, COUNT(*) AS quantidade,
+        COALESCE(SUM(CASE WHEN p.status != 'cancelado' THEN p.total ELSE 0 END), 0) AS total_valor
+       FROM pedidos p
+       WHERE p.criado_em BETWEEN ? AND ?${filtroStr}
+       GROUP BY DATE(p.criado_em) ORDER BY dia`,
+      paramsPeriodo
+    );
+
+    // 8. Top 10 produtos
+    const [topProdutos] = await pool.query(
+      `SELECT pi.nome_produto AS nome, SUM(pi.quantidade) AS qtd_vendida,
+        COALESCE(SUM(pi.subtotal), 0) AS faturamento
+       FROM pedido_itens pi
+       JOIN pedidos p ON pi.pedido_id = p.id
+       WHERE p.status NOT IN ('cancelado') AND p.criado_em BETWEEN ? AND ?${filtroStr}
+       GROUP BY pi.nome_produto ORDER BY faturamento DESC LIMIT 10`,
+      paramsPeriodo
+    );
+
+    // 9. Top categorias
+    const [topCategorias] = await pool.query(
+      `SELECT pr.categoria, SUM(pi.quantidade) AS qtd_vendida,
+        COALESCE(SUM(pi.subtotal), 0) AS faturamento
+       FROM pedido_itens pi
+       JOIN pedidos p ON pi.pedido_id = p.id
+       JOIN produtos pr ON pi.produto_id = pr.id
+       WHERE p.status NOT IN ('cancelado') AND p.criado_em BETWEEN ? AND ?${filtroStr}
+       GROUP BY pr.categoria ORDER BY faturamento DESC LIMIT 10`,
+      paramsPeriodo
+    );
+
+    // 10. Top bairros (from enderecos)
+    let topBairros = [];
+    try {
+      const [bairrosRows] = await pool.query(
+        `SELECT e.bairro, COUNT(*) AS quantidade,
+          COALESCE(SUM(p.total), 0) AS total_valor
+         FROM pedidos p
+         JOIN enderecos e ON e.usuario_id = p.usuario_id
+         WHERE p.status NOT IN ('cancelado') AND p.tipo_entrega = 'entrega'
+           AND p.criado_em BETWEEN ? AND ?${filtroStr}
+         GROUP BY e.bairro ORDER BY quantidade DESC LIMIT 8`,
+        paramsPeriodo
+      );
+      topBairros = bairrosRows;
+    } catch (_) { /* enderecos can be empty */ }
+
+    // 11. Métricas SLA (timestamp columns can be absent)
+    let sla = { tempo_medio_preparo_ms: null, tempo_medio_rota_ms: null, tempo_medio_total_ms: null, taxa_entrega_prazo: null };
+    try {
+      const [[slaRow]] = await pool.query(
+        `SELECT
+          AVG(CASE WHEN p.pronto_em IS NOT NULL AND COALESCE(p.pago_em, p.criado_em) IS NOT NULL
+            THEN TIMESTAMPDIFF(SECOND, COALESCE(p.pago_em, p.criado_em), p.pronto_em) * 1000 ELSE NULL END) AS tempo_medio_preparo_ms,
+          AVG(CASE WHEN p.entregue_em IS NOT NULL AND p.saiu_entrega_em IS NOT NULL
+            THEN TIMESTAMPDIFF(SECOND, p.saiu_entrega_em, p.entregue_em) * 1000 ELSE NULL END) AS tempo_medio_rota_ms,
+          AVG(CASE
+            WHEN p.tipo_entrega = 'retirada' AND p.retirado_em IS NOT NULL
+              THEN TIMESTAMPDIFF(SECOND, COALESCE(p.pago_em, p.criado_em), p.retirado_em) * 1000
+            WHEN p.tipo_entrega != 'retirada' AND p.entregue_em IS NOT NULL
+              THEN TIMESTAMPDIFF(SECOND, COALESCE(p.pago_em, p.criado_em), p.entregue_em) * 1000
+            ELSE NULL END) AS tempo_medio_total_ms,
+          SUM(CASE WHEN p.tipo_entrega != 'retirada' AND p.entregue_em IS NOT NULL
+            AND TIMESTAMPDIFF(MINUTE, COALESCE(p.pago_em, p.criado_em), p.entregue_em) <= 45 THEN 1 ELSE 0 END) AS entregas_no_prazo,
+          SUM(CASE WHEN p.tipo_entrega != 'retirada' AND p.entregue_em IS NOT NULL THEN 1 ELSE 0 END) AS total_entregas_concluidas
+         FROM pedidos p
+         WHERE p.status NOT IN ('cancelado','pendente') AND p.criado_em BETWEEN ? AND ?${filtroStr}`,
+        paramsPeriodo
+      );
+      if (slaRow) {
+        sla.tempo_medio_preparo_ms = slaRow.tempo_medio_preparo_ms != null ? Math.round(Number(slaRow.tempo_medio_preparo_ms)) : null;
+        sla.tempo_medio_rota_ms = slaRow.tempo_medio_rota_ms != null ? Math.round(Number(slaRow.tempo_medio_rota_ms)) : null;
+        sla.tempo_medio_total_ms = slaRow.tempo_medio_total_ms != null ? Math.round(Number(slaRow.tempo_medio_total_ms)) : null;
+        const prazo = Number(slaRow.entregas_no_prazo || 0);
+        const totalE = Number(slaRow.total_entregas_concluidas || 0);
+        sla.taxa_entrega_prazo = totalE > 0 ? Math.round((prazo / totalE) * 10000) / 100 : null;
+      }
+    } catch (_) { /* timestamp columns may not exist */ }
+
+    // 12. Alertas (real-time operational status)
+    let alertas = [];
+    try {
+      // Pedidos fora do SLA (em andamento agora)
+      const [[foraSlaNow]] = await pool.query(
+        `SELECT COUNT(*) AS qtd FROM pedidos
+         WHERE status IN ('preparando','pronto_para_retirada','enviado')
+           AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), NOW()) > 45`
+      );
+      if (Number(foraSlaNow?.qtd || 0) > 0) {
+        alertas.push({ tipo: 'perigo', titulo: `${foraSlaNow.qtd} pedido(s) acima do SLA agora`, descricao: 'Pedidos ativos com tempo total superior a 45 minutos.' });
+      }
+
+      // Prontos aguardando saída
+      const [[aguardSaida]] = await pool.query(
+        `SELECT COUNT(*) AS qtd FROM pedidos
+         WHERE status IN ('pronto_para_retirada','preparando')
+           AND pronto_em IS NOT NULL AND tipo_entrega = 'entrega'`
+      );
+      if (Number(aguardSaida?.qtd || 0) > 0) {
+        alertas.push({ tipo: 'atencao', titulo: `${aguardSaida.qtd} pedido(s) pronto(s) aguardando saída`, descricao: 'Aguardando entregador para coleta.' });
+      }
+
+      // Em rota acima do esperado
+      const [[rotaLonga]] = await pool.query(
+        `SELECT COUNT(*) AS qtd FROM pedidos
+         WHERE status = 'enviado'
+           AND saiu_entrega_em IS NOT NULL
+           AND TIMESTAMPDIFF(MINUTE, saiu_entrega_em, NOW()) > 25`
+      );
+      if (Number(rotaLonga?.qtd || 0) > 0) {
+        alertas.push({ tipo: 'perigo', titulo: `${rotaLonga.qtd} entrega(s) em rota longa`, descricao: 'Entregas em rota há mais de 25 minutos.' });
+      }
+    } catch (_) { /* fallback if columns don't exist */ }
+
+    // Alerta: aumento de cancelamento
+    const cancelAtual = Number(kpisRow?.pedidos_cancelados || 0);
+    const totalAtual = Number(kpisRow?.total_pedidos || 0);
+    const taxaCancelAtual = totalAtual > 0 ? cancelAtual / totalAtual : 0;
+    if (taxaCancelAtual > 0.15 && cancelAtual >= 3) {
+      alertas.push({ tipo: 'perigo', titulo: `Taxa de cancelamento alta: ${(taxaCancelAtual * 100).toFixed(1)}%`, descricao: `${cancelAtual} cancelamentos no período.` });
+    }
+
+    // Alerta: queda de faturamento
+    const fatAtual = Number(kpisRow?.faturamento_bruto || 0);
+    const fatAnterior = Number(kpisAnteriorRow?.faturamento_bruto || 0);
+    if (fatAnterior > 0 && fatAtual < fatAnterior * 0.7) {
+      const queda = Math.round((1 - fatAtual / fatAnterior) * 100);
+      alertas.push({ tipo: 'atencao', titulo: `Faturamento caiu ${queda}% vs período anterior`, descricao: `R$ ${fatAtual.toFixed(2)} atual vs R$ ${fatAnterior.toFixed(2)} anterior.` });
+    }
+
+    // 13. Produtos muito vendidos sem imagem
+    try {
+      const [prodsSemImg] = await pool.query(
+        `SELECT pi.nome_produto, SUM(pi.quantidade) AS qtd
+         FROM pedido_itens pi
+         JOIN pedidos p ON pi.pedido_id = p.id
+         JOIN produtos pr ON pi.produto_id = pr.id
+         WHERE p.status NOT IN ('cancelado') AND p.criado_em BETWEEN ? AND ?
+           AND (pr.imagem_url IS NULL OR pr.imagem_url = '')
+         GROUP BY pi.nome_produto, pi.produto_id
+         ORDER BY qtd DESC LIMIT 5`,
+        [inicio, fim]
+      );
+      if (prodsSemImg.length > 0) {
+        alertas.push({ tipo: 'atencao', titulo: `${prodsSemImg.length} produto(s) vendido(s) sem imagem`, descricao: prodsSemImg.map(p => p.nome_produto).slice(0, 3).join(', ') });
+      }
+    } catch (_) { /* imagem_url column may not exist */ }
+
+    // Build response
+    const kpis = {
+      faturamento_bruto: Number(kpisRow?.faturamento_bruto || 0),
+      pedidos_pagos: Number(kpisRow?.pedidos_pagos || 0),
+      pedidos_concluidos: Number(kpisRow?.pedidos_concluidos || 0),
+      pedidos_cancelados: Number(kpisRow?.pedidos_cancelados || 0),
+      pedidos_pendentes: Number(kpisRow?.pedidos_pendentes || 0),
+      ticket_medio: kpisRow?.ticket_medio != null ? Number(Number(kpisRow.ticket_medio).toFixed(2)) : 0,
+      taxa_cancelamento: totalAtual > 0 ? Math.round((cancelAtual / totalAtual) * 10000) / 100 : 0,
+      total_pedidos: Number(kpisRow?.total_pedidos || 0),
+      ...sla
+    };
+
+    const comparativo = {
+      faturamento_anterior: Number(kpisAnteriorRow?.faturamento_bruto || 0),
+      pedidos_anterior: Number(kpisAnteriorRow?.total_pedidos || 0),
+      variacao_faturamento: fatAnterior > 0 ? Math.round(((fatAtual - fatAnterior) / fatAnterior) * 10000) / 100 : null,
+      variacao_pedidos: Number(kpisAnteriorRow?.total_pedidos || 0) > 0
+        ? Math.round(((totalAtual - Number(kpisAnteriorRow.total_pedidos)) / Number(kpisAnteriorRow.total_pedidos)) * 10000) / 100
+        : null
+    };
+
+    res.json({
+      periodo: { inicio: inicio.toISOString(), fim: fim.toISOString() },
+      kpis,
+      comparativo,
+      por_forma_pagamento: porPagamento.map(r => ({ forma: r.forma || 'outros', quantidade: Number(r.quantidade), total: Number(r.total_valor) })),
+      por_canal: porCanal.map(r => ({ canal: r.canal || 'entrega', quantidade: Number(r.quantidade), total: Number(r.total_valor) })),
+      por_status: porStatus.map(r => ({ status: r.status, quantidade: Number(r.quantidade) })),
+      vendas_por_hora: vendasPorHora.map(r => ({ hora: Number(r.hora), quantidade: Number(r.quantidade), total: Number(r.total_valor) })),
+      vendas_por_dia: vendasPorDia.map(r => ({ dia: r.dia, quantidade: Number(r.quantidade), total: Number(r.total_valor) })),
+      top_produtos: topProdutos.map(r => ({ nome: r.nome, quantidade: Number(r.qtd_vendida), faturamento: Number(r.faturamento) })),
+      top_categorias: topCategorias.map(r => ({ categoria: r.categoria || 'Sem categoria', quantidade: Number(r.qtd_vendida), faturamento: Number(r.faturamento) })),
+      top_bairros: topBairros.map(r => ({ bairro: r.bairro || 'N/A', quantidade: Number(r.quantidade), total: Number(r.total_valor) })),
+      alertas
+    });
+  } catch (erro) {
+    console.error('Erro no dashboard resumo:', erro);
+    res.status(500).json({ erro: 'Não foi possível carregar o resumo do dashboard.' });
+  }
+});
+
+// Mapeamento status → coluna de timestamp (métricas operacionais)
+const STATUS_TIMESTAMP_COLUNA = Object.freeze({
+  pago: 'pago_em',
+  preparando: 'em_preparo_em',
+  pronto_para_retirada: 'pronto_em',
+  enviado: 'saiu_entrega_em',
+  entregue: 'entregue_em',
+  retirado: 'retirado_em',
+  cancelado: 'cancelado_em'
+});
+
+// Calcula métricas de tempo operacional a partir dos timestamps do pedido
+function calcularMetricasTempoOperacional(pedido) {
+  if (!pedido || typeof pedido !== 'object') return {};
+
+  const ts = (campo) => {
+    const val = pedido[campo];
+    if (!val) return null;
+    const d = new Date(val);
+    return Number.isNaN(d.getTime()) ? null : d.getTime();
+  };
+
+  const base = ts('pago_em') || ts('criado_em');
+  const prontoMs = ts('pronto_em');
+  const saiuMs = ts('saiu_entrega_em');
+  const entregueMs = ts('entregue_em');
+  const retiradoMs = ts('retirado_em');
+  const canceladoMs = ts('cancelado_em');
+
+  const diff = (a, b) => (a && b && a > b ? a - b : null);
+
+  const metricas = {};
+  metricas.tempo_ate_preparo_ms = diff(prontoMs, base);
+
+  // Entrega
+  metricas.tempo_aguardando_coleta_ms = diff(saiuMs, prontoMs);
+  metricas.tempo_de_rota_ms = diff(entregueMs, saiuMs);
+  metricas.tempo_total_entrega_ms = diff(entregueMs, base);
+
+  // Retirada
+  metricas.tempo_espera_retirada_ms = diff(retiradoMs, prontoMs);
+  metricas.tempo_total_retirada_ms = diff(retiradoMs, base);
+
+  // Cancelamento
+  metricas.tempo_ate_cancelamento_ms = diff(canceladoMs, base);
+
+  return metricas;
+}
+
 // Atualizar status do pedido (admin)
 app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
   try {
@@ -5540,10 +6049,28 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
       return res.status(400).json({ erro: 'Selecione um status de pedido válido.' });
     }
 
-    await pool.query(
-      'UPDATE pedidos SET status = ? WHERE id = ?',
-      [status, pedidoId]
-    );
+    // Gravar timestamp da etapa (sem sobrescrever se já existir)
+    const colunaTimestamp = STATUS_TIMESTAMP_COLUNA[status];
+    if (colunaTimestamp) {
+      try {
+        await pool.query(
+          `UPDATE pedidos SET status = ?, ${colunaTimestamp} = COALESCE(${colunaTimestamp}, NOW()) WHERE id = ?`,
+          [status, pedidoId]
+        );
+      } catch (errTs) {
+        // Fallback: coluna pode não existir ainda (migration pendente)
+        console.warn(`⚠️ Timestamp ${colunaTimestamp} não gravado (migration pendente?):`, errTs.message);
+        await pool.query(
+          'UPDATE pedidos SET status = ? WHERE id = ?',
+          [status, pedidoId]
+        );
+      }
+    } else {
+      await pool.query(
+        'UPDATE pedidos SET status = ? WHERE id = ?',
+        [status, pedidoId]
+      );
+    }
 
     // Notificar cliente via WhatsApp se estiver configurado e houver opt-in
     if (status === 'preparando' || status === 'enviado' || status === 'entregue' || status === 'pronto_para_retirada' || status === 'retirado') {
@@ -5581,6 +6108,9 @@ app.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdmin
         console.error('Falha ao notificar por WhatsApp:', errNotifica.message);
       }
     }
+
+    // Registrar auditoria da mudança de status
+    registrarAuditoria(pool, { acao: 'alterar_status_pedido', entidade: 'pedido', entidade_id: pedidoId, detalhes: { novo_status: status }, admin_usuario: 'admin', ip: req.ip });
 
     res.json({ mensagem: 'Status do pedido atualizado com sucesso.', status: status });
   } catch (erro) {
@@ -5657,6 +6187,13 @@ app.post('/api/webhooks/evolution', async (req, res) => {
 // ============================================
 // WEBHOOK PAGBANK (PIX + CARTAO)
 // ============================================
+const WEBHOOK_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000; // 10 min
+const webhookPagBankProcessado = new BoundedCache({ maxSize: 2000, ttlMs: WEBHOOK_IDEMPOTENCY_TTL_MS, name: 'webhookDedup' });
+
+function limparCacheWebhookIdempotency() {
+  webhookPagBankProcessado.purgeExpired();
+}
+
 async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pagbank') {
   try {
     if (!validarWebhookPagBank(req)) {
@@ -5680,6 +6217,13 @@ async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pa
 
     const notificacao = req.body || {};
     const eventType = String(notificacao?.event || notificacao?.type || '').trim().toUpperCase();
+
+    // Idempotência: evitar reprocessamento de webhook duplicado
+    const idempotencyKey = `${notificacao?.id || ''}_${eventType}_${notificacao?.charges?.[0]?.id || ''}`;
+    if (idempotencyKey && idempotencyKey !== '__' && webhookPagBankProcessado.has(idempotencyKey)) {
+      return res.sendStatus(200);
+    }
+    limparCacheWebhookIdempotency();
 
     // PagBank envia notificacoes com estrutura:
     // { id, reference_id, charges: [{ id, status, ... }] }
@@ -5817,6 +6361,7 @@ async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pa
       return res.sendStatus(202);
     }
 
+    webhookPagBankProcessado.set(idempotencyKey, Date.now());
     return res.sendStatus(200);
   } catch (erro) {
     console.error('Erro no webhook do PagBank:', erro);
@@ -5836,10 +6381,12 @@ async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pa
   }
 }
 
+// Endpoint canônico do webhook PagBank
 app.post('/api/webhooks/pagbank', (req, res) => {
   return processarWebhookPagBank(req, res, '/api/webhooks/pagbank');
 });
 
+// Alias temporário para compatibilidade (depreciar em versão futura)
 app.post('/api/pagbank/webhook', (req, res) => {
   return processarWebhookPagBank(req, res, '/api/pagbank/webhook');
 });
@@ -5961,31 +6508,57 @@ app.get('/api/avaliacoes/:produto_id', async (req, res) => {
 });
 
 // Criar avaliação
-app.post('/api/avaliacoes', autenticarToken, async (req, res) => {
+const avaliacoesLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  validate: rateLimitValidateOptions,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas avaliações em sequência. Aguarde alguns minutos.' }
+});
+
+app.post('/api/avaliacoes', autenticarToken, avaliacoesLimiter, async (req, res) => {
   try {
     const { produto_id, nota, comentario } = req.body;
     
-    if (!produto_id || !nota || nota < 1 || nota > 5) {
+    const produtoIdNum = Number(produto_id);
+    const notaNum = Number(nota);
+    if (!Number.isInteger(produtoIdNum) || produtoIdNum <= 0 || !Number.isInteger(notaNum) || notaNum < 1 || notaNum > 5) {
       return res.status(400).json({ erro: 'Informe uma nota válida entre 1 e 5.' });
     }
+
+    // Verificar se o usuário comprou este produto (pedido entregue ou retirado)
+    const [compras] = await pool.query(
+      `SELECT pi.id FROM pedido_itens pi
+       JOIN pedidos p ON pi.pedido_id = p.id
+       WHERE p.usuario_id = ? AND pi.produto_id = ? AND p.status IN ('entregue', 'retirado')
+       LIMIT 1`,
+      [req.usuario.id, produtoIdNum]
+    );
+
+    if (compras.length === 0) {
+      return res.status(403).json({ erro: 'Você só pode avaliar produtos que já comprou e recebeu.' });
+    }
+
+    const comentarioLimpo = comentario ? String(comentario).trim().slice(0, 500) : null;
     
     // Verificar se já existe avaliação
     const [existente] = await pool.query(
       'SELECT id FROM avaliacoes WHERE usuario_id = ? AND produto_id = ?',
-      [req.usuario.id, produto_id]
+      [req.usuario.id, produtoIdNum]
     );
     
     if (existente.length > 0) {
       // Atualizar avaliação existente
       await pool.query(
         'UPDATE avaliacoes SET nota = ?, comentario = ? WHERE id = ?',
-        [nota, comentario || null, existente[0].id]
+        [notaNum, comentarioLimpo, existente[0].id]
       );
     } else {
       // Criar nova avaliação
       await pool.query(
         'INSERT INTO avaliacoes (usuario_id, produto_id, nota, comentario) VALUES (?, ?, ?, ?)',
-        [req.usuario.id, produto_id, nota, comentario || null]
+        [req.usuario.id, produtoIdNum, notaNum, comentarioLimpo]
       );
     }
     
@@ -6013,9 +6586,755 @@ if (SHOULD_SERVE_REACT && fs.existsSync(REACT_DIST_INDEX)) {
 }
 
 // ============================================
+// ADMIN FASE 2 — Auditoria, Clientes, Fila, Conciliação, Relatórios
+// ============================================
+
+// Helper: registrar ação de auditoria
+async function registrarAuditoria(pool, { acao, entidade, entidade_id, detalhes, admin_usuario, ip }) {
+  try {
+    await pool.query(
+      `INSERT INTO admin_audit_log (acao, entidade, entidade_id, detalhes, admin_usuario, ip) VALUES (?, ?, ?, ?, ?, ?)`,
+      [acao, entidade || null, entidade_id || null, detalhes ? JSON.stringify(detalhes) : null, admin_usuario || 'admin', ip || null]
+    );
+  } catch (err) {
+    // Registrar falha de auditoria de forma visível sem derrubar o fluxo principal
+    const detalhesErro = { acao, entidade, entidade_id, erro: err?.message || 'desconhecido', code: err?.code };
+    if (err?.code === 'ER_NO_SUCH_TABLE') {
+      console.warn('⚠️ Tabela admin_audit_log não existe. Execute as migrations: node migrate.js', detalhesErro);
+    } else {
+      console.error('❌ Falha ao registrar auditoria:', detalhesErro);
+    }
+  }
+}
+
+// ---- Fila operacional ----
+app.get('/api/admin/fila-operacional', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const filas = {};
+
+    // Pendentes de pagamento
+    const [pendPag] = await pool.query(
+      `SELECT p.id, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.status,
+              u.nome AS cliente_nome, u.telefone AS cliente_telefone,
+              TIMESTAMPDIFF(MINUTE, p.criado_em, NOW()) AS minutos_parado
+       FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.status = 'pendente' ORDER BY p.criado_em ASC LIMIT 50`
+    );
+    filas.pendentes_pagamento = pendPag;
+
+    // Pagos aguardando preparo
+    const [pagosAguardando] = await pool.query(
+      `SELECT p.id, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.status,
+              u.nome AS cliente_nome,
+              TIMESTAMPDIFF(MINUTE, COALESCE(p.pago_em, p.criado_em), NOW()) AS minutos_parado
+       FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.status = 'pago' ORDER BY p.criado_em ASC LIMIT 50`
+    );
+    filas.pagos_aguardando_preparo = pagosAguardando;
+
+    // Prontos aguardando saída (entrega)
+    let prontosAguardandoSaida = [];
+    try {
+      const [rows] = await pool.query(
+        `SELECT p.id, p.total, p.tipo_entrega, p.criado_em, p.pronto_em, p.status,
+                u.nome AS cliente_nome,
+                TIMESTAMPDIFF(MINUTE, p.pronto_em, NOW()) AS minutos_parado
+         FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+         WHERE p.status IN ('pronto_para_retirada','preparando') AND p.pronto_em IS NOT NULL AND p.tipo_entrega = 'entrega'
+         ORDER BY p.pronto_em ASC LIMIT 50`
+      );
+      prontosAguardandoSaida = rows;
+    } catch (_) {}
+    filas.prontos_aguardando_saida = prontosAguardandoSaida;
+
+    // Em rota acima do SLA
+    let emRotaLonga = [];
+    try {
+      const [rows] = await pool.query(
+        `SELECT p.id, p.total, p.tipo_entrega, p.criado_em, p.saiu_entrega_em, p.status,
+                u.nome AS cliente_nome,
+                TIMESTAMPDIFF(MINUTE, p.saiu_entrega_em, NOW()) AS minutos_rota
+         FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+         WHERE p.status = 'enviado' AND p.saiu_entrega_em IS NOT NULL
+           AND TIMESTAMPDIFF(MINUTE, p.saiu_entrega_em, NOW()) > 25
+         ORDER BY p.saiu_entrega_em ASC LIMIT 50`
+      );
+      emRotaLonga = rows;
+    } catch (_) {}
+    filas.em_rota_acima_sla = emRotaLonga;
+
+    // Retiradas prontas aguardando cliente
+    let retiradasProntas = [];
+    try {
+      const [rows] = await pool.query(
+        `SELECT p.id, p.total, p.tipo_entrega, p.criado_em, p.pronto_em, p.status,
+                u.nome AS cliente_nome, u.telefone AS cliente_telefone,
+                TIMESTAMPDIFF(MINUTE, p.pronto_em, NOW()) AS minutos_parado
+         FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+         WHERE p.status = 'pronto_para_retirada' AND p.tipo_entrega = 'retirada'
+         ORDER BY p.pronto_em ASC LIMIT 50`
+      );
+      retiradasProntas = rows;
+    } catch (_) {}
+    filas.retiradas_prontas_aguardando = retiradasProntas;
+
+    // Pedidos travados (>60min no mesmo status sem ser terminal)
+    const [travados] = await pool.query(
+      `SELECT p.id, p.total, p.status, p.tipo_entrega, p.criado_em, p.atualizado_em,
+              u.nome AS cliente_nome,
+              TIMESTAMPDIFF(MINUTE, p.atualizado_em, NOW()) AS minutos_parado
+       FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.status NOT IN ('entregue','retirado','cancelado')
+         AND TIMESTAMPDIFF(MINUTE, p.atualizado_em, NOW()) > 60
+       ORDER BY p.atualizado_em ASC LIMIT 50`
+    );
+    filas.travados = travados;
+
+    // Contadores
+    filas.contadores = {
+      pendentes_pagamento: pendPag.length,
+      pagos_aguardando_preparo: pagosAguardando.length,
+      prontos_aguardando_saida: prontosAguardandoSaida.length,
+      em_rota_acima_sla: emRotaLonga.length,
+      retiradas_prontas_aguardando: retiradasProntas.length,
+      travados: travados.length
+    };
+
+    res.json(filas);
+  } catch (erro) {
+    console.error('Erro fila operacional:', erro);
+    res.status(500).json({ erro: 'Falha ao carregar fila operacional.' });
+  }
+});
+
+// ---- Clientes ----
+app.get('/api/admin/clientes', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const ordenar = String(req.query.ordenar || 'gasto_desc').trim();
+    const limite = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const pagina = Math.max(Number(req.query.page) || 1, 1);
+    const offset = (pagina - 1) * limite;
+    const busca = String(req.query.busca || '').trim();
+    const segmento = String(req.query.segmento || 'todos').trim();
+
+    let orderBy = 'total_gasto DESC';
+    if (ordenar === 'pedidos_desc') orderBy = 'total_pedidos DESC';
+    else if (ordenar === 'recente') orderBy = 'ultimo_pedido DESC';
+    else if (ordenar === 'antigo') orderBy = 'ultimo_pedido ASC';
+    else if (ordenar === 'ticket_desc') orderBy = 'ticket_medio DESC';
+
+    let filtroSegmento = '';
+    if (segmento === 'novos') filtroSegmento = 'HAVING total_pedidos = 1';
+    else if (segmento === 'recorrentes') filtroSegmento = 'HAVING total_pedidos >= 3';
+    else if (segmento === 'vip') filtroSegmento = 'HAVING total_gasto >= 500 AND total_pedidos >= 5';
+    else if (segmento === 'inativos') filtroSegmento = 'HAVING DATEDIFF(NOW(), ultimo_pedido) > 60';
+    else if (segmento === 'risco_churn') filtroSegmento = 'HAVING total_pedidos >= 2 AND DATEDIFF(NOW(), ultimo_pedido) > 30';
+
+    let filtroBusca = '';
+    const paramsBusca = [];
+    if (busca) {
+      filtroBusca = 'AND (u.nome LIKE ? OR u.telefone LIKE ? OR u.email LIKE ?)';
+      const like = `%${busca}%`;
+      paramsBusca.push(like, like, like);
+    }
+
+    const [[countRow]] = await pool.query(
+      `SELECT COUNT(DISTINCT u.id) AS total FROM usuarios u
+       JOIN pedidos p ON p.usuario_id = u.id
+       WHERE 1=1 ${filtroBusca}`, paramsBusca);
+    const totalClientes = Number(countRow?.total || 0);
+
+    const [clientes] = await pool.query(
+      `SELECT u.id, u.nome, u.email, u.telefone, u.criado_em AS cliente_desde,
+        COUNT(p.id) AS total_pedidos,
+        COALESCE(SUM(CASE WHEN p.status != 'cancelado' THEN p.total ELSE 0 END), 0) AS total_gasto,
+        ROUND(AVG(CASE WHEN p.status != 'cancelado' THEN p.total ELSE NULL END), 2) AS ticket_medio,
+        MAX(p.criado_em) AS ultimo_pedido,
+        SUM(CASE WHEN p.status = 'cancelado' THEN 1 ELSE 0 END) AS total_cancelamentos,
+        (SELECT p2.forma_pagamento FROM pedidos p2 WHERE p2.usuario_id = u.id AND p2.status != 'cancelado'
+         GROUP BY p2.forma_pagamento ORDER BY COUNT(*) DESC LIMIT 1) AS pagamento_favorito,
+        (SELECT p3.tipo_entrega FROM pedidos p3 WHERE p3.usuario_id = u.id AND p3.status != 'cancelado'
+         GROUP BY p3.tipo_entrega ORDER BY COUNT(*) DESC LIMIT 1) AS canal_favorito
+       FROM usuarios u
+       JOIN pedidos p ON p.usuario_id = u.id
+       WHERE 1=1 ${filtroBusca}
+       GROUP BY u.id
+       ${filtroSegmento}
+       ORDER BY ${orderBy}
+       LIMIT ? OFFSET ?`,
+      [...paramsBusca, limite, offset]
+    );
+
+    res.json({
+      clientes: clientes.map(c => ({
+        ...c,
+        total_gasto: Number(c.total_gasto),
+        ticket_medio: Number(c.ticket_medio || 0),
+        total_pedidos: Number(c.total_pedidos),
+        total_cancelamentos: Number(c.total_cancelamentos),
+        dias_desde_ultimo: c.ultimo_pedido ? Math.floor((Date.now() - new Date(c.ultimo_pedido).getTime()) / 86400000) : null
+      })),
+      paginacao: { pagina, limite, total: totalClientes, total_paginas: Math.ceil(totalClientes / limite) }
+    });
+  } catch (erro) {
+    console.error('Erro ao listar clientes:', erro);
+    res.status(500).json({ erro: 'Não foi possível carregar os clientes.' });
+  }
+});
+
+// ---- Detalhe do cliente ----
+app.get('/api/admin/clientes/:id', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const clienteId = Number(req.params.id);
+    if (!Number.isInteger(clienteId) || clienteId <= 0) {
+      return res.status(400).json({ erro: 'ID de cliente inválido.' });
+    }
+
+    const [[cliente]] = await pool.query(
+      `SELECT u.id, u.nome, u.email, u.telefone, u.criado_em AS cliente_desde,
+        COUNT(p.id) AS total_pedidos,
+        COALESCE(SUM(CASE WHEN p.status != 'cancelado' THEN p.total ELSE 0 END), 0) AS total_gasto,
+        ROUND(AVG(CASE WHEN p.status != 'cancelado' THEN p.total ELSE NULL END), 2) AS ticket_medio,
+        MAX(p.criado_em) AS ultimo_pedido,
+        SUM(CASE WHEN p.status = 'cancelado' THEN 1 ELSE 0 END) AS total_cancelamentos
+       FROM usuarios u
+       LEFT JOIN pedidos p ON p.usuario_id = u.id
+       WHERE u.id = ?
+       GROUP BY u.id`,
+      [clienteId]
+    );
+
+    if (!cliente) return res.status(404).json({ erro: 'Cliente não encontrado.' });
+
+    const [pedidos] = await pool.query(
+      `SELECT id, total, status, forma_pagamento, tipo_entrega, criado_em
+       FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC LIMIT 50`,
+      [clienteId]
+    );
+
+    const [enderecos] = await pool.query(
+      `SELECT bairro, cidade, rua, numero FROM enderecos WHERE usuario_id = ? ORDER BY atualizado_em DESC LIMIT 5`,
+      [clienteId]
+    );
+
+    res.json({
+      ...cliente,
+      total_gasto: Number(cliente.total_gasto),
+      ticket_medio: Number(cliente.ticket_medio || 0),
+      total_pedidos: Number(cliente.total_pedidos),
+      total_cancelamentos: Number(cliente.total_cancelamentos),
+      dias_desde_ultimo: cliente.ultimo_pedido ? Math.floor((Date.now() - new Date(cliente.ultimo_pedido).getTime()) / 86400000) : null,
+      pedidos,
+      enderecos
+    });
+  } catch (erro) {
+    console.error('Erro detalhe cliente:', erro);
+    res.status(500).json({ erro: 'Não foi possível carregar o cliente.' });
+  }
+});
+
+// ---- Conciliação financeira ----
+app.get('/api/admin/financeiro/conciliacao', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const dias = Math.min(Math.max(Number(req.query.dias) || 7, 1), 90);
+    const desde = new Date();
+    desde.setDate(desde.getDate() - dias);
+
+    // Pagamentos pendentes por mais de 30 minutos
+    const [pendentesLongo] = await pool.query(
+      `SELECT p.id, p.total, p.forma_pagamento, p.pix_status, p.criado_em, p.status,
+              u.nome AS cliente_nome,
+              TIMESTAMPDIFF(MINUTE, p.criado_em, NOW()) AS minutos_pendente
+       FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.status = 'pendente' AND TIMESTAMPDIFF(MINUTE, p.criado_em, NOW()) > 30
+       ORDER BY p.criado_em ASC LIMIT 50`
+    );
+
+    // Pedidos pago no sistema mas sem confirmação PIX
+    const [semConfirmacao] = await pool.query(
+      `SELECT p.id, p.total, p.forma_pagamento, p.pix_status, p.pix_id, p.criado_em, p.status,
+              u.nome AS cliente_nome
+       FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.status NOT IN ('pendente','cancelado') AND p.forma_pagamento = 'pix'
+         AND (p.pix_status IS NULL OR p.pix_status NOT IN ('PAID','CONCLUIDA'))
+         AND p.criado_em >= ?
+       ORDER BY p.criado_em DESC LIMIT 50`,
+      [desde]
+    );
+
+    // Pedidos cancelados que tinham pagamento confirmado
+    const [canceladosPagos] = await pool.query(
+      `SELECT p.id, p.total, p.forma_pagamento, p.pix_status, p.criado_em, p.status,
+              u.nome AS cliente_nome
+       FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.status = 'cancelado'
+         AND (p.pix_status IN ('PAID','CONCLUIDA') OR p.forma_pagamento IN ('credito','debito','dinheiro'))
+         AND p.criado_em >= ?
+       ORDER BY p.criado_em DESC LIMIT 50`,
+      [desde]
+    );
+
+    // Pedidos pagos ainda não concluídos (não entregues/retirados)
+    const [pagosNaoConcluidos] = await pool.query(
+      `SELECT p.id, p.total, p.status, p.forma_pagamento, p.tipo_entrega, p.criado_em,
+              u.nome AS cliente_nome,
+              TIMESTAMPDIFF(MINUTE, p.criado_em, NOW()) AS minutos_desde_criacao
+       FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.status NOT IN ('pendente','cancelado','entregue','retirado')
+         AND p.criado_em >= ?
+       ORDER BY p.criado_em ASC LIMIT 50`,
+      [desde]
+    );
+
+    // Resumo de contadores
+    const contadores = {
+      pendentes_longo: pendentesLongo.length,
+      sem_confirmacao_pix: semConfirmacao.length,
+      cancelados_pagos: canceladosPagos.length,
+      pagos_nao_concluidos: pagosNaoConcluidos.length
+    };
+
+    res.json({ contadores, pendentes_longo: pendentesLongo, sem_confirmacao_pix: semConfirmacao, cancelados_pagos: canceladosPagos, pagos_nao_concluidos: pagosNaoConcluidos });
+  } catch (erro) {
+    console.error('Erro conciliação:', erro);
+    res.status(500).json({ erro: 'Falha ao carregar conciliação.' });
+  }
+});
+
+// ---- Fechamento diário ----
+app.get('/api/admin/financeiro/fechamento', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const data = req.query.data || new Date().toISOString().slice(0, 10);
+    const inicio = data + ' 00:00:00';
+    const fim = data + ' 23:59:59';
+
+    const [[resumo]] = await pool.query(
+      `SELECT
+        COUNT(*) AS total_pedidos,
+        SUM(CASE WHEN status NOT IN ('cancelado','pendente') THEN 1 ELSE 0 END) AS pagos,
+        SUM(CASE WHEN status IN ('entregue','retirado') THEN 1 ELSE 0 END) AS concluidos,
+        SUM(CASE WHEN status = 'cancelado' THEN 1 ELSE 0 END) AS cancelados,
+        SUM(CASE WHEN status = 'pendente' THEN 1 ELSE 0 END) AS pendentes,
+        COALESCE(SUM(CASE WHEN status NOT IN ('cancelado') THEN total ELSE 0 END), 0) AS faturamento_bruto,
+        AVG(CASE WHEN status NOT IN ('cancelado') THEN total ELSE NULL END) AS ticket_medio
+       FROM pedidos WHERE criado_em BETWEEN ? AND ?`,
+      [inicio, fim]
+    );
+
+    const [porPagamento] = await pool.query(
+      `SELECT forma_pagamento AS forma, COUNT(*) AS quantidade, COALESCE(SUM(total), 0) AS valor
+       FROM pedidos WHERE status NOT IN ('cancelado') AND criado_em BETWEEN ? AND ?
+       GROUP BY forma_pagamento ORDER BY valor DESC`,
+      [inicio, fim]
+    );
+
+    const [porCanal] = await pool.query(
+      `SELECT tipo_entrega AS canal, COUNT(*) AS quantidade, COALESCE(SUM(total), 0) AS valor
+       FROM pedidos WHERE status NOT IN ('cancelado') AND criado_em BETWEEN ? AND ?
+       GROUP BY tipo_entrega ORDER BY valor DESC`,
+      [inicio, fim]
+    );
+
+    // SLA do dia
+    let sla = { dentro_prazo: null, total_concluidos: null, pct: null };
+    try {
+      const [[slaRow]] = await pool.query(
+        `SELECT
+          SUM(CASE WHEN tipo_entrega != 'retirada' AND entregue_em IS NOT NULL
+            AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), entregue_em) <= 45 THEN 1 ELSE 0 END) AS dentro_prazo,
+          SUM(CASE WHEN (tipo_entrega != 'retirada' AND entregue_em IS NOT NULL) OR (tipo_entrega = 'retirada' AND retirado_em IS NOT NULL) THEN 1 ELSE 0 END) AS total_concluidos
+         FROM pedidos WHERE criado_em BETWEEN ? AND ? AND status NOT IN ('cancelado','pendente')`,
+        [inicio, fim]
+      );
+      if (slaRow) {
+        sla.dentro_prazo = Number(slaRow.dentro_prazo || 0);
+        sla.total_concluidos = Number(slaRow.total_concluidos || 0);
+        sla.pct = sla.total_concluidos > 0 ? Math.round((sla.dentro_prazo / sla.total_concluidos) * 10000) / 100 : null;
+      }
+    } catch (_) {}
+
+    // Pendências financeiras do dia
+    const [[pendenciasRow]] = await pool.query(
+      `SELECT COUNT(*) AS qtd FROM pedidos WHERE status = 'pendente' AND criado_em BETWEEN ? AND ?`,
+      [inicio, fim]
+    );
+
+    res.json({
+      data,
+      ...resumo,
+      faturamento_bruto: Number(resumo?.faturamento_bruto || 0),
+      ticket_medio: resumo?.ticket_medio != null ? Number(Number(resumo.ticket_medio).toFixed(2)) : 0,
+      por_pagamento: porPagamento.map(r => ({ forma: r.forma, quantidade: Number(r.quantidade), valor: Number(r.valor) })),
+      por_canal: porCanal.map(r => ({ canal: r.canal, quantidade: Number(r.quantidade), valor: Number(r.valor) })),
+      sla,
+      pendencias_financeiras: Number(pendenciasRow?.qtd || 0)
+    });
+  } catch (erro) {
+    console.error('Erro fechamento diário:', erro);
+    res.status(500).json({ erro: 'Falha ao gerar fechamento diário.' });
+  }
+});
+
+// ---- Auditoria: listar log ----
+app.get('/api/admin/auditoria', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const limite = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const pagina = Math.max(Number(req.query.page) || 1, 1);
+    const offset = (pagina - 1) * limite;
+    const acao = String(req.query.acao || '').trim();
+    const entidade = String(req.query.entidade || '').trim();
+
+    let where = '1=1';
+    const params = [];
+    if (acao) { where += ' AND acao = ?'; params.push(acao); }
+    if (entidade) { where += ' AND entidade = ?'; params.push(entidade); }
+
+    const [[countRow]] = await pool.query(`SELECT COUNT(*) AS total FROM admin_audit_log WHERE ${where}`, params);
+    const total = Number(countRow?.total || 0);
+
+    const [logs] = await pool.query(
+      `SELECT * FROM admin_audit_log WHERE ${where} ORDER BY criado_em DESC LIMIT ? OFFSET ?`,
+      [...params, limite, offset]
+    );
+
+    res.json({
+      logs: logs.map(l => ({ ...l, detalhes: l.detalhes ? (typeof l.detalhes === 'string' ? JSON.parse(l.detalhes) : l.detalhes) : null })),
+      paginacao: { pagina, limite, total, total_paginas: Math.ceil(total / limite) }
+    });
+  } catch (erro) {
+    if (erro.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ logs: [], paginacao: { pagina: 1, limite: 50, total: 0, total_paginas: 0 }, aviso: 'Tabela de auditoria ainda não foi criada. Execute migrate_admin_fase2.sql.' });
+    }
+    console.error('Erro auditoria:', erro);
+    res.status(500).json({ erro: 'Falha ao carregar auditoria.' });
+  }
+});
+
+// ---- Relatórios / Exportação ----
+app.get('/api/admin/relatorios/vendas', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const periodo = String(req.query.periodo || 'hoje').trim();
+    const canal = String(req.query.canal || 'todos').trim();
+    const pagamento = String(req.query.pagamento || 'todos').trim();
+    const formato = String(req.query.formato || 'json').trim();
+
+    // Calcular datas: reuse logic from dashboard
+    const agora = new Date();
+    const hojeI = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+    const hojeF = new Date(hojeI); hojeF.setHours(23, 59, 59, 999);
+    let ini = hojeI, fi = hojeF;
+    if (periodo === '7d') { ini = new Date(hojeI); ini.setDate(ini.getDate() - 6); }
+    else if (periodo === '30d') { ini = new Date(hojeI); ini.setDate(ini.getDate() - 29); }
+    else if (periodo === 'mes') { ini = new Date(agora.getFullYear(), agora.getMonth(), 1); }
+    else if (periodo === 'custom' && req.query.inicio) { ini = new Date(req.query.inicio + 'T00:00:00'); if (req.query.fim) fi = new Date(req.query.fim + 'T23:59:59.999'); }
+
+    const filtros = [];
+    const params = [ini, fi];
+    if (canal !== 'todos') { filtros.push('p.tipo_entrega = ?'); params.push(canal); }
+    if (pagamento !== 'todos') { filtros.push('p.forma_pagamento = ?'); params.push(pagamento); }
+    const filtroStr = filtros.length > 0 ? ' AND ' + filtros.join(' AND ') : '';
+
+    const [rows] = await pool.query(
+      `SELECT p.id, p.total, p.status, p.forma_pagamento, p.tipo_entrega, p.criado_em,
+              u.nome AS cliente_nome, u.telefone AS cliente_telefone
+       FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.criado_em BETWEEN ? AND ?${filtroStr}
+       ORDER BY p.criado_em DESC LIMIT 2000`,
+      params
+    );
+
+    if (formato === 'csv') {
+      const header = 'Pedido,Data,Cliente,Telefone,Status,Pagamento,Canal,Valor\n';
+      const csv = rows.map(r =>
+        `${r.id},"${(r.criado_em || '').toString().slice(0, 19)}","${(r.cliente_nome || '').replace(/"/g, '""')}","${r.cliente_telefone || ''}","${r.status}","${r.forma_pagamento}","${r.tipo_entrega}",${Number(r.total || 0).toFixed(2)}`
+      ).join('\n');
+
+      await registrarAuditoria(pool, { acao: 'exportar_relatorio', entidade: 'pedidos', detalhes: { periodo, canal, pagamento, qtd: rows.length }, admin_usuario: 'admin', ip: req.ip });
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename=vendas_${periodo}_${Date.now()}.csv`);
+      return res.send('\uFEFF' + header + csv);
+    }
+
+    res.json({ pedidos: rows, total: rows.length, periodo: { inicio: ini.toISOString(), fim: fi.toISOString() } });
+  } catch (erro) {
+    console.error('Erro relatório vendas:', erro);
+    res.status(500).json({ erro: 'Falha ao gerar relatório.' });
+  }
+});
+
+// ============================================
+// ADMIN FASE 3 — Central de Comando, Feed, Saúde Catálogo, Operação Viva
+// ============================================
+
+// ---- Central de comando: resumo vivo ----
+app.get('/api/admin/central/vivo', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const agora = new Date();
+    const hojeI = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+    const hojeF = new Date(hojeI); hojeF.setHours(23, 59, 59, 999);
+    const ontemI = new Date(hojeI); ontemI.setDate(ontemI.getDate() - 1);
+    const ontemF = new Date(ontemI); ontemF.setHours(23, 59, 59, 999);
+
+    // KPIs hoje
+    const [[kpiHoje]] = await pool.query(
+      `SELECT COUNT(*) AS pedidos, COALESCE(SUM(CASE WHEN status NOT IN ('cancelado') THEN total ELSE 0 END),0) AS faturamento,
+        SUM(CASE WHEN status NOT IN ('cancelado','pendente') THEN 1 ELSE 0 END) AS pagos,
+        SUM(CASE WHEN status IN ('entregue','retirado') THEN 1 ELSE 0 END) AS concluidos,
+        SUM(CASE WHEN status = 'cancelado' THEN 1 ELSE 0 END) AS cancelados,
+        SUM(CASE WHEN status = 'pendente' THEN 1 ELSE 0 END) AS pendentes,
+        AVG(CASE WHEN status NOT IN ('cancelado') THEN total ELSE NULL END) AS ticket_medio
+       FROM pedidos WHERE criado_em BETWEEN ? AND ?`, [hojeI, hojeF]);
+
+    // KPIs ontem (comparação)
+    const [[kpiOntem]] = await pool.query(
+      `SELECT COUNT(*) AS pedidos, COALESCE(SUM(CASE WHEN status NOT IN ('cancelado') THEN total ELSE 0 END),0) AS faturamento,
+        SUM(CASE WHEN status NOT IN ('cancelado','pendente') THEN 1 ELSE 0 END) AS pagos,
+        SUM(CASE WHEN status = 'cancelado' THEN 1 ELSE 0 END) AS cancelados
+       FROM pedidos WHERE criado_em BETWEEN ? AND ?`, [ontemI, ontemF]);
+
+    // Em aberto agora (não-terminais)
+    const [[abertos]] = await pool.query(
+      `SELECT COUNT(*) AS total, SUM(CASE WHEN status='pendente' THEN 1 ELSE 0 END) AS pendentes,
+        SUM(CASE WHEN status='pago' OR status='preparando' THEN 1 ELSE 0 END) AS em_preparo,
+        SUM(CASE WHEN status='enviado' THEN 1 ELSE 0 END) AS em_rota,
+        SUM(CASE WHEN status='pronto_para_retirada' THEN 1 ELSE 0 END) AS aguardando_retirada
+       FROM pedidos WHERE status NOT IN ('entregue','retirado','cancelado')`);
+
+    // Atrasados (>45min sem conclusão)
+    let atrasados = 0;
+    try {
+      const [[atr]] = await pool.query(
+        `SELECT COUNT(*) AS total FROM pedidos WHERE status NOT IN ('entregue','retirado','cancelado','pendente')
+         AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), NOW()) > 45`);
+      atrasados = Number(atr?.total || 0);
+    } catch (_) {}
+
+    // SLA hoje
+    let sla = { dentro: 0, total_concl: 0, pct: null };
+    try {
+      const [[s]] = await pool.query(
+        `SELECT SUM(CASE WHEN entregue_em IS NOT NULL AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), entregue_em) <= 45 THEN 1
+          WHEN retirado_em IS NOT NULL AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), retirado_em) <= 20 THEN 1 ELSE 0 END) AS dentro,
+          SUM(CASE WHEN entregue_em IS NOT NULL OR retirado_em IS NOT NULL THEN 1 ELSE 0 END) AS total_concl
+         FROM pedidos WHERE criado_em BETWEEN ? AND ? AND status NOT IN ('cancelado','pendente')`, [hojeI, hojeF]);
+      sla.dentro = Number(s?.dentro || 0);
+      sla.total_concl = Number(s?.total_concl || 0);
+      sla.pct = sla.total_concl > 0 ? Math.round((sla.dentro / sla.total_concl) * 10000) / 100 : null;
+    } catch (_) {}
+
+    // Últimos 30 min — mini feed
+    const ultimos30min = new Date(agora.getTime() - 30 * 60000);
+    const [recentes] = await pool.query(
+      `SELECT p.id, p.status, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.atualizado_em,
+        u.nome AS cliente FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+       WHERE p.atualizado_em >= ? OR p.criado_em >= ? ORDER BY GREATEST(p.atualizado_em, p.criado_em) DESC LIMIT 20`,
+      [ultimos30min, ultimos30min]);
+
+    // Hora corrente — volume por hora
+    const [porHora] = await pool.query(
+      `SELECT HOUR(criado_em) AS hora, COUNT(*) AS qtd, COALESCE(SUM(CASE WHEN status!='cancelado' THEN total ELSE 0 END),0) AS valor
+       FROM pedidos WHERE criado_em BETWEEN ? AND ? GROUP BY HOUR(criado_em) ORDER BY hora`, [hojeI, hojeF]);
+
+    // Calcular variações
+    const varFat = kpiOntem.faturamento > 0 ? ((Number(kpiHoje.faturamento) - Number(kpiOntem.faturamento)) / Number(kpiOntem.faturamento) * 100) : null;
+    const varPed = kpiOntem.pedidos > 0 ? ((Number(kpiHoje.pedidos) - Number(kpiOntem.pedidos)) / Number(kpiOntem.pedidos) * 100) : null;
+
+    res.json({
+      kpis: {
+        faturamento: Number(kpiHoje.faturamento), pedidos: Number(kpiHoje.pedidos), pagos: Number(kpiHoje.pagos || 0),
+        concluidos: Number(kpiHoje.concluidos || 0), cancelados: Number(kpiHoje.cancelados || 0),
+        pendentes: Number(kpiHoje.pendentes || 0), ticket_medio: kpiHoje.ticket_medio ? Number(Number(kpiHoje.ticket_medio).toFixed(2)) : 0,
+        taxa_cancelamento: kpiHoje.pedidos > 0 ? Math.round(Number(kpiHoje.cancelados || 0) / Number(kpiHoje.pedidos) * 10000) / 100 : 0,
+        taxa_aprovacao: kpiHoje.pedidos > 0 ? Math.round(Number(kpiHoje.pagos || 0) / Number(kpiHoje.pedidos) * 10000) / 100 : 0,
+        var_faturamento: varFat != null ? Number(varFat.toFixed(1)) : null,
+        var_pedidos: varPed != null ? Number(varPed.toFixed(1)) : null
+      },
+      operacao: { ...abertos, atrasados, em_preparo: Number(abertos?.em_preparo || 0), em_rota: Number(abertos?.em_rota || 0), aguardando_retirada: Number(abertos?.aguardando_retirada || 0) },
+      sla,
+      recentes: recentes.map(r => ({ ...r, total: Number(r.total) })),
+      por_hora: porHora.map(h => ({ hora: h.hora, qtd: Number(h.qtd), valor: Number(h.valor) }))
+    });
+  } catch (erro) {
+    console.error('Erro central vivo:', erro);
+    res.status(500).json({ erro: 'Falha ao carregar dados ao vivo.' });
+  }
+});
+
+// ---- Feed de atividade recente ----
+app.get('/api/admin/feed', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const limite = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
+    const eventos = [];
+
+    // Pedidos recentes (últimas 2h)
+    const desde = new Date(Date.now() - 2 * 3600000);
+    const [pedRecentes] = await pool.query(
+      `SELECT p.id, p.status, p.total, p.forma_pagamento, p.criado_em, p.atualizado_em, u.nome AS cliente
+       FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id=u.id
+       WHERE p.criado_em >= ? OR p.atualizado_em >= ? ORDER BY GREATEST(p.criado_em, p.atualizado_em) DESC LIMIT ?`,
+      [desde, desde, limite]);
+
+    for (const p of pedRecentes) {
+      const ts = new Date(Math.max(new Date(p.criado_em).getTime(), new Date(p.atualizado_em || p.criado_em).getTime()));
+      let tipo = 'pedido_criado', icone = '🛒', cor = '#3b82f6';
+      if (p.status === 'cancelado') { tipo = 'pedido_cancelado'; icone = '❌'; cor = '#ef4444'; }
+      else if (p.status === 'entregue' || p.status === 'retirado') { tipo = 'pedido_concluido'; icone = '✅'; cor = '#22c55e'; }
+      else if (p.status === 'enviado') { tipo = 'pedido_em_rota'; icone = '🚗'; cor = '#06b6d4'; }
+      else if (p.status === 'preparando') { tipo = 'pedido_preparo'; icone = '👨‍🍳'; cor = '#f59e0b'; }
+      else if (p.status === 'pago') { tipo = 'pagamento_aprovado'; icone = '💰'; cor = '#22c55e'; }
+      else if (p.status === 'pronto_para_retirada') { tipo = 'pedido_pronto'; icone = '📦'; cor = '#8b5cf6'; }
+
+      eventos.push({
+        tipo, icone, cor, ts: ts.toISOString(),
+        titulo: tipo === 'pedido_criado' ? `Novo pedido #${p.id}` : `Pedido #${p.id} → ${p.status}`,
+        detalhe: `${p.cliente || 'Cliente'} • R$ ${Number(p.total).toFixed(2)} • ${p.forma_pagamento || ''}`,
+        entidade: 'pedido', entidade_id: p.id
+      });
+    }
+
+    // Auditoria recente
+    try {
+      const [auditRecente] = await pool.query(
+        `SELECT * FROM admin_audit_log WHERE criado_em >= ? ORDER BY criado_em DESC LIMIT 10`, [desde]);
+      for (const a of auditRecente) {
+        let det = a.detalhes;
+        if (typeof det === 'string') try { det = JSON.parse(det); } catch (_) {}
+        eventos.push({
+          tipo: 'admin_acao', icone: '⚙️', cor: '#64748b', ts: new Date(a.criado_em).toISOString(),
+          titulo: `Admin: ${a.acao}`, detalhe: a.entidade ? `${a.entidade} #${a.entidade_id || ''}` : '',
+          entidade: a.entidade, entidade_id: a.entidade_id
+        });
+      }
+    } catch (_) {}
+
+    // Ordenar por timestamp desc
+    eventos.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
+    res.json({ eventos: eventos.slice(0, limite) });
+  } catch (erro) {
+    console.error('Erro feed:', erro);
+    res.status(500).json({ erro: 'Falha ao carregar feed.' });
+  }
+});
+
+// ---- Alertas e incidentes ----
+app.get('/api/admin/alertas', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const alertas = [];
+    const agora = new Date();
+    const hojeI = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+
+    // Pedidos fora do SLA (>45min)
+    try {
+      const [[r]] = await pool.query(
+        `SELECT COUNT(*) AS total FROM pedidos WHERE status NOT IN ('entregue','retirado','cancelado','pendente')
+         AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), NOW()) > 45`);
+      if (r.total > 0) alertas.push({ id: 'sla_fora', severidade: 'critico', tipo: 'operacional', titulo: 'Pedidos fora do SLA', descricao: `${r.total} pedido(s) acima de 45min sem conclusão`, valor: r.total, cta: { tab: 'operacao' } });
+    } catch (_) {}
+
+    // Pedidos travados (>60min sem mudança)
+    const [[trav]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM pedidos WHERE status NOT IN ('entregue','retirado','cancelado')
+       AND TIMESTAMPDIFF(MINUTE, atualizado_em, NOW()) > 60`);
+    if (trav.total > 0) alertas.push({ id: 'travados', severidade: 'critico', tipo: 'operacional', titulo: 'Pedidos travados', descricao: `${trav.total} pedido(s) sem atualização há +60min`, valor: trav.total, cta: { tab: 'operacao' } });
+
+    // Cancelamentos acima do normal (>15% hoje)
+    const [[canc]] = await pool.query(
+      `SELECT COUNT(*) AS total, SUM(CASE WHEN status='cancelado' THEN 1 ELSE 0 END) AS cancelados
+       FROM pedidos WHERE criado_em >= ?`, [hojeI]);
+    const taxaCanc = canc.total > 3 ? (Number(canc.cancelados) / Number(canc.total) * 100) : 0;
+    if (taxaCanc > 15) alertas.push({ id: 'cancelamentos_alto', severidade: 'atencao', tipo: 'financeiro', titulo: 'Cancelamentos acima do normal', descricao: `${taxaCanc.toFixed(1)}% de cancelamento hoje (${canc.cancelados}/${canc.total})`, valor: taxaCanc, cta: { tab: 'fin-avancado' } });
+
+    // Pagamentos pendentes há +30min
+    const [[pend]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM pedidos WHERE status='pendente' AND TIMESTAMPDIFF(MINUTE, criado_em, NOW()) > 30`);
+    if (pend.total > 0) alertas.push({ id: 'pag_pendente_longo', severidade: 'atencao', tipo: 'financeiro', titulo: 'Pagamentos pendentes prolongados', descricao: `${pend.total} pagamento(s) pendentes há +30min`, valor: pend.total, cta: { tab: 'fin-avancado' } });
+
+    // Produtos sem preço ou inativos com vendas
+    try {
+      const [[semPreco]] = await pool.query(`SELECT COUNT(*) AS total FROM produtos WHERE (preco IS NULL OR preco<=0) AND ativo=1`);
+      if (semPreco.total > 0) alertas.push({ id: 'produto_sem_preco', severidade: 'atencao', tipo: 'catalogo', titulo: 'Produtos sem preço', descricao: `${semPreco.total} item(ns) ativo(s) sem preço definido`, valor: semPreco.total, cta: { tab: 'catalogo' } });
+    } catch (_) {}
+
+    // Produtos sem imagem
+    try {
+      const [[semImg]] = await pool.query(`SELECT COUNT(*) AS total FROM produtos WHERE (imagem_url IS NULL OR imagem_url='') AND ativo=1`);
+      if (semImg.total > 0 && semImg.total > 5) alertas.push({ id: 'produto_sem_imagem', severidade: 'info', tipo: 'catalogo', titulo: 'Produtos sem imagem', descricao: `${semImg.total} produto(s) ativo(s) sem imagem`, valor: semImg.total, cta: { tab: 'catalogo' } });
+    } catch (_) {}
+
+    // Fila parada — pagos sem preparo há +15min
+    try {
+      const [[fila]] = await pool.query(
+        `SELECT COUNT(*) AS total FROM pedidos WHERE status='pago' AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), NOW()) > 15`);
+      if (fila.total > 0) alertas.push({ id: 'fila_parada', severidade: 'critico', tipo: 'operacional', titulo: 'Fila parada — preparo atrasado', descricao: `${fila.total} pedido(s) pago(s) aguardando preparo há +15min`, valor: fila.total, cta: { tab: 'operacao' } });
+    } catch (_) {}
+
+    alertas.sort((a, b) => { const sev = { critico: 0, atencao: 1, info: 2 }; return (sev[a.severidade] || 9) - (sev[b.severidade] || 9); });
+
+    res.json({ alertas, total: alertas.length, criticos: alertas.filter(a => a.severidade === 'critico').length });
+  } catch (erro) {
+    console.error('Erro alertas:', erro);
+    res.status(500).json({ erro: 'Falha ao carregar alertas.' });
+  }
+});
+
+// ---- Saúde do catálogo ----
+app.get('/api/admin/catalogo/saude', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+  try {
+    const [[totais]] = await pool.query(
+      `SELECT COUNT(*) AS total, SUM(CASE WHEN ativo=1 THEN 1 ELSE 0 END) AS ativos, SUM(CASE WHEN ativo=0 THEN 1 ELSE 0 END) AS inativos FROM produtos`);
+
+    let semImagem = 0, semPreco = 0, semDescricao = 0;
+    try { const [[r]] = await pool.query(`SELECT COUNT(*) AS t FROM produtos WHERE (imagem_url IS NULL OR imagem_url='') AND ativo=1`); semImagem = Number(r.t); } catch (_) {}
+    try { const [[r]] = await pool.query(`SELECT COUNT(*) AS t FROM produtos WHERE (preco IS NULL OR preco<=0) AND ativo=1`); semPreco = Number(r.t); } catch (_) {}
+    try { const [[r]] = await pool.query(`SELECT COUNT(*) AS t FROM produtos WHERE (descricao IS NULL OR descricao='') AND ativo=1`); semDescricao = Number(r.t); } catch (_) {}
+
+    const ativos = Number(totais.ativos || 0);
+    const coberturaImagem = ativos > 0 ? Math.round((ativos - semImagem) / ativos * 100) : 100;
+    const coberturaDescricao = ativos > 0 ? Math.round((ativos - semDescricao) / ativos * 100) : 100;
+
+    // Top vendidos nos últimos 30 dias
+    const [topVendidos] = await pool.query(
+      `SELECT pi.produto_id AS id, pi.nome_produto AS nome, COUNT(DISTINCT pi.pedido_id) AS pedidos, SUM(pi.quantidade) AS quantidade,
+        SUM(pi.subtotal) AS receita, p2.imagem_url, p2.ativo
+       FROM pedido_itens pi JOIN pedidos ped ON pi.pedido_id=ped.id LEFT JOIN produtos p2 ON pi.produto_id=p2.id
+       WHERE ped.criado_em >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND ped.status NOT IN ('cancelado')
+       GROUP BY pi.produto_id ORDER BY receita DESC LIMIT 10`);
+
+    // Produtos sem saída (ativos mas sem vendas em 30 dias)
+    const [semSaida] = await pool.query(
+      `SELECT p.id, p.nome, p.preco, p.categoria FROM produtos p
+       WHERE p.ativo=1 AND p.id NOT IN (SELECT DISTINCT pi.produto_id FROM pedido_itens pi JOIN pedidos ped ON pi.pedido_id=ped.id WHERE ped.criado_em >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND ped.status NOT IN ('cancelado'))
+       LIMIT 20`);
+
+    // Campeões com cadastro fraco (top vendidos sem imagem ou sem descrição)
+    const campeoesFrageis = topVendidos.filter(t => !t.imagem_url || t.imagem_url === '').map(t => ({ id: t.id, nome: t.nome, receita: Number(t.receita), problema: 'sem_imagem' }));
+
+    res.json({
+      total: Number(totais.total), ativos, inativos: Number(totais.inativos || 0),
+      sem_imagem: semImagem, sem_preco: semPreco, sem_descricao: semDescricao,
+      cobertura_imagem: coberturaImagem, cobertura_descricao: coberturaDescricao,
+      top_vendidos: topVendidos.map(t => ({ ...t, receita: Number(t.receita), quantidade: Number(t.quantidade) })),
+      sem_saida: semSaida,
+      campeoes_frageis: campeoesFrageis,
+      score: Math.round((coberturaImagem * 0.4 + coberturaDescricao * 0.3 + (semPreco === 0 ? 30 : Math.max(0, 30 - semPreco * 3))) )
+    });
+  } catch (erro) {
+    console.error('Erro saúde catálogo:', erro);
+    res.status(500).json({ erro: 'Falha ao verificar saúde do catálogo.' });
+  }
+});
+
+// ============================================
+// SENTRY ERROR HANDLER (antes do listen)
+// ============================================
+app.use(sentryErrorHandler());
+
+// ============================================
 // INICIAR SERVIDOR
 // ============================================
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\n🚀 Servidor rodando na porta ${PORT}`);
   console.log(`📍 URL: http://localhost:${PORT}`);
   console.log(`🌍 CORS_ORIGINS: ${CORS_ORIGINS.join(', ') || '(nenhuma origem explícita)'}`);
@@ -6044,13 +7363,44 @@ app.listen(PORT, () => {
   console.log(`\n✅ Pronto para receber requisições!\n`);
 });
 
-// Tratamento de erros não capturados
+// Tratamento de erros não capturados com graceful shutdown
+let shuttingDown = false;
+function gracefulShutdown(reason, err) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.error(`❌ ${reason}:`, err);
+  console.log('🛑 Iniciando encerramento gracioso...');
+
+  // Parar de aceitar novas conexões
+  try {
+    server.close(() => {
+      console.log('✅ Servidor HTTP encerrado.');
+    });
+  } catch (_) {}
+
+  // Aguardar requests em andamento e fechar pool
+  const forceExitTimeout = setTimeout(() => {
+    console.error('⚠️ Timeout de graceful shutdown atingido. Forçando saída.');
+    process.exit(1);
+  }, 10000);
+  forceExitTimeout.unref();
+
+  pool.end()
+    .then(() => {
+      console.log('✅ Pool MySQL encerrado.');
+      process.exit(1);
+    })
+    .catch(() => {
+      process.exit(1);
+    });
+}
+
 process.on('unhandledRejection', (reason) => {
-  console.error('❌ Erro não tratado (Promise):', reason);
-  process.exit(1);
+  captureException(reason instanceof Error ? reason : new Error(String(reason)));
+  gracefulShutdown('Erro não tratado (Promise)', reason);
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('❌ Erro não capturado (Exception):', err);
-  process.exit(1);
+  captureException(err);
+  gracefulShutdown('Erro não capturado (Exception)', err);
 });

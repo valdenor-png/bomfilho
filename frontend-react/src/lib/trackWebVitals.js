@@ -10,6 +10,18 @@ function shouldTrackWebVitals() {
   return Boolean(import.meta.env.PROD);
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
 function normalizeMetric(metric) {
   return {
     name: metric?.name || '',

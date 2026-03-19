@@ -15,7 +15,17 @@ import {
   getProdutos,
   isAuthErrorMessage
 } from '../lib/api';
+import { extrairMetricasTempoPedido, montarTimelineEtapas, formatarDuracaoMs, classificarSla } from '../lib/metricasOperacionais';
 import SmartImage from '../components/ui/SmartImage';
+import DashboardExecutivo from '../components/admin/DashboardExecutivo';
+import FilaOperacional from '../components/admin/FilaOperacional';
+import ClientesAdmin from '../components/admin/ClientesAdmin';
+import FinanceiroAvancado from '../components/admin/FinanceiroAvancado';
+import AuditoriaAdmin from '../components/admin/AuditoriaAdmin';
+import RelatoriosAdmin from '../components/admin/RelatoriosAdmin';
+import AdminShell from '../components/admin/AdminShell';
+import CommandCenter from '../components/admin/CommandCenter';
+import CatalogoSaude from '../components/admin/CatalogoSaude';
 
 const STATUS_OPTIONS = ['pendente', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
 const STATUS_LABELS = {
@@ -969,7 +979,7 @@ export default function AdminPage() {
   const [adminUsuario, setAdminUsuario] = useState('admin');
   const [adminSenha, setAdminSenha] = useState('');
   const [adminAutenticado, setAdminAutenticado] = useState(null);
-  const [tab, setTab] = useState('pedidos');
+  const [tab, setTab] = useState('dashboard');
   const [pedidos, setPedidos] = useState([]);
   const [produtos, setProdutos] = useState([]);
   const [paginacaoPedidos, setPaginacaoPedidos] = useState(() => criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
@@ -1574,6 +1584,8 @@ export default function AdminPage() {
         requerAcao,
         urgente,
         critico,
+        metricasTempo: extrairMetricasTempoPedido(pedido),
+        timelineEtapas: montarTimelineEtapas(pedido),
         indiceBusca: normalizarTextoBusca([
           pedido?.id,
           clienteNome,
@@ -1611,6 +1623,14 @@ export default function AdminPage() {
     let concluidosHoje = 0;
     let pendentesPagamento = 0;
 
+    // Métricas operacionais de tempo
+    const preparoArr = [];
+    const rotaArr = [];
+    const totalArr = [];
+    let prontosAguardandoSaida = 0;
+    let emRotaAcimaSla = 0;
+    let retiradasProntasAguardando = 0;
+
     pedidosOperacionais.forEach((pedido) => {
       if (Object.prototype.hasOwnProperty.call(contagemPorStatus, pedido.statusNormalizado)) {
         contagemPorStatus[pedido.statusNormalizado] += 1;
@@ -1635,7 +1655,31 @@ export default function AdminPage() {
       if (['waiting', 'attention', 'error'].includes(pedido.pagamentoMeta.tone)) {
         pendentesPagamento += 1;
       }
+
+      // Agregar métricas de tempo
+      const mt = pedido.metricasTempo;
+      if (mt) {
+        if (mt.preparo?.ms != null) preparoArr.push(mt.preparo.ms);
+        if (mt.rota?.ms != null) rotaArr.push(mt.rota.ms);
+        if (mt.total?.ms != null) totalArr.push(mt.total.ms);
+      }
+      // Pedidos com preparo concluído aguardando saída do entregador
+      if (pedido.tipoEntregaNormalizado === 'entrega'
+        && ['pronto_para_retirada', 'preparando'].includes(pedido.statusNormalizado)
+        && pedido.pronto_em) {
+        prontosAguardandoSaida += 1;
+      }
+      // Retiradas prontas aguardando o cliente buscar
+      if (pedido.statusNormalizado === 'pronto_para_retirada'
+        && pedido.tipoEntregaNormalizado === 'retirada') {
+        retiradasProntasAguardando += 1;
+      }
+      if (pedido.statusNormalizado === 'enviado' && mt?.rota?.sla === 'atrasado') {
+        emRotaAcimaSla += 1;
+      }
     });
+
+    const media = (arr) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
 
     return {
       total: pedidosOperacionais.length,
@@ -1644,7 +1688,13 @@ export default function AdminPage() {
       emAndamento,
       concluidosHoje,
       pendentesPagamento,
-      contagemPorStatus
+      contagemPorStatus,
+      tempoMedioPreparo: media(preparoArr),
+      tempoMedioRota: media(rotaArr),
+      tempoMedioTotal: media(totalArr),
+      prontosAguardandoSaida,
+      emRotaAcimaSla,
+      retiradasProntasAguardando
     };
   }, [pedidosOperacionais]);
 
@@ -2369,33 +2419,38 @@ export default function AdminPage() {
 
   if (!isLocalHost) {
     return (
-      <section className="page">
-        <h1>Admin</h1>
-        <p>O acesso administrativo está disponível apenas no computador da loja.</p>
+      <section className="page" style={{ background: '#0f172a', color: '#e2e8f0', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <h1 style={{ color: '#ef4444' }}>Acesso Restrito</h1>
+        <p style={{ color: '#94a3b8' }}>O acesso administrativo está disponível apenas no computador da loja.</p>
       </section>
     );
   }
 
   if (adminAutenticado !== true) {
     return (
-      <section className="page">
-        <h1>Acesso administrativo</h1>
-        <p>Informe suas credenciais para acessar o painel de gestão da loja.</p>
+      <section className="page" style={{ background: '#0f172a', color: '#e2e8f0', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+          <span style={{ fontSize: '2.5rem' }}>🏪</span>
+          <h1 style={{ color: '#06b6d4', fontSize: '1.4rem', marginTop: '0.5rem' }}>BomFilho Admin</h1>
+          <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Informe suas credenciais para acessar o cockpit de gestão.</p>
+        </div>
 
-        <form className="form-box" onSubmit={handleAdminLogin}>
-          <label className="field-label" htmlFor="admin-usuario">Usuário</label>
+        <form className="form-box" onSubmit={handleAdminLogin} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.5rem', maxWidth: '360px', width: '100%' }}>
+          <label className="field-label" htmlFor="admin-usuario" style={{ color: '#94a3b8' }}>Usuário</label>
           <input
             id="admin-usuario"
             className="field-input"
+            style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0' }}
             value={adminUsuario}
             onChange={(event) => setAdminUsuario(event.target.value)}
             required
           />
 
-          <label className="field-label" htmlFor="admin-senha">Senha</label>
+          <label className="field-label" htmlFor="admin-senha" style={{ color: '#94a3b8' }}>Senha</label>
           <input
             id="admin-senha"
             className="field-input"
+            style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0' }}
             type="password"
             value={adminSenha}
             onChange={(event) => setAdminSenha(event.target.value)}
@@ -2404,8 +2459,8 @@ export default function AdminPage() {
 
           {erro ? <p className="error-text">{erro}</p> : null}
 
-          <button className="btn-primary" type="submit" disabled={carregando}>
-            {carregando ? 'Validando acesso...' : 'Entrar no painel'}
+          <button className="btn-primary" type="submit" disabled={carregando} style={{ background: '#06b6d4', borderColor: '#06b6d4' }}>
+            {carregando ? 'Validando acesso...' : 'Entrar no cockpit'}
           </button>
         </form>
       </section>
@@ -2413,72 +2468,18 @@ export default function AdminPage() {
   }
 
   return (
-    <section className="page">
-      <h1>Painel administrativo</h1>
-      <p>Gerencie pedidos, catálogo e indicadores operacionais da loja.</p>
+    <AdminShell
+      tab={tab}
+      setTab={setTab}
+      onLogout={handleAdminLogout}
+      onRefresh={() => { void carregarTudo(); }}
+      carregando={carregando}
+    >
+      {erro ? <p className="error-text" style={{ marginBottom: '0.5rem' }}>{erro}</p> : null}
 
-      <div className="admin-kpis">
-        <div className="kpi-card"><strong>Pedidos:</strong> {kpis.total}</div>
-        <div className="kpi-card"><strong>Pendentes:</strong> {kpis.pendentes}</div>
-        <div className="kpi-card"><strong>Em entrega:</strong> {kpis.emEntrega}</div>
-        <div className="kpi-card"><strong>Faturamento:</strong> R$ {kpis.faturamento.toFixed(2)}</div>
-      </div>
-
-      {paginacaoPedidos.total > pedidos.length ? (
-        <p className="muted-text" style={{ marginTop: '0.5rem' }}>
-          Indicadores acima refletem os pedidos da página atual ({paginacaoPedidos.pagina}/{paginacaoPedidos.total_paginas}).
-        </p>
-      ) : null}
-
-      <div className="auth-switch" style={{ marginTop: '1rem' }}>
-        <button
-          type="button"
-          className={`auth-switch-btn ${tab === 'pedidos' ? 'active' : ''}`}
-          onClick={() => setTab('pedidos')}
-        >
-          Pedidos
-        </button>
-        <button
-          type="button"
-          className={`auth-switch-btn ${tab === 'produtos' ? 'active' : ''}`}
-          onClick={() => setTab('produtos')}
-        >
-          Produtos
-        </button>
-        <button
-          type="button"
-          className={`auth-switch-btn ${tab === 'financeiro' ? 'active' : ''}`}
-          onClick={() => setTab('financeiro')}
-        >
-          Financeiro
-        </button>
-        <button
-          type="button"
-          className={`auth-switch-btn ${tab === 'importacao' ? 'active' : ''}`}
-          onClick={() => setTab('importacao')}
-        >
-          Importação
-        </button>
-      </div>
-
-      <button
-        className="btn-primary"
-        type="button"
-        style={{ marginTop: '0.8rem' }}
-        onClick={() => {
-          void carregarTudo();
-        }}
-        disabled={carregando}
-      >
-        {carregando ? 'Atualizando dados...' : 'Atualizar dados'}
-      </button>
-      <button className="btn-secondary" type="button" style={{ marginTop: '0.8rem', marginLeft: '0.5rem' }} onClick={handleAdminLogout}>
-        Encerrar sessão
-      </button>
-
-      {erro ? <p className="error-text">{erro}</p> : null}
-
-      {tab === 'pedidos' ? (
+      {tab === 'dashboard' ? (
+        <CommandCenter onNavigate={setTab} />
+      ) : tab === 'pedidos' ? (
         <>
           <section className={`admin-orders-panel ${modoFilaAltaAtivo ? 'is-fila-alta' : ''}`}>
             <div className="admin-orders-head">
@@ -2904,6 +2905,30 @@ export default function AdminPage() {
                         </div>
                       </div>
 
+                      {pedido.metricasTempo ? (
+                        <div className="admin-order-metricas-row" aria-label="Tempos operacionais">
+                          <span className={`admin-metrica-chip${pedido.metricasTempo.preparo.sla ? ` sla-${pedido.metricasTempo.preparo.sla}` : ''}`}>
+                            <small>Preparo</small>
+                            <strong>{pedido.metricasTempo.preparo.label}</strong>
+                          </span>
+                          {pedido.metricasTempo.rota ? (
+                            <span className={`admin-metrica-chip${pedido.metricasTempo.rota.sla ? ` sla-${pedido.metricasTempo.rota.sla}` : ''}`}>
+                              <small>Rota</small>
+                              <strong>{pedido.metricasTempo.rota.label}</strong>
+                            </span>
+                          ) : pedido.metricasTempo.esperaRetirada ? (
+                            <span className={`admin-metrica-chip${pedido.metricasTempo.esperaRetirada.sla ? ` sla-${pedido.metricasTempo.esperaRetirada.sla}` : ''}`}>
+                              <small>Retirada</small>
+                              <strong>{pedido.metricasTempo.esperaRetirada.label}</strong>
+                            </span>
+                          ) : null}
+                          <span className={`admin-metrica-chip${pedido.metricasTempo.total.sla ? ` sla-${pedido.metricasTempo.total.sla}` : ''}`}>
+                            <small>Total</small>
+                            <strong>{pedido.metricasTempo.total.label}</strong>
+                          </span>
+                        </div>
+                      ) : null}
+
                       <div className="admin-order-mid-row">
                         <p className="admin-order-summary">{pedido.resumoItensTexto}</p>
 
@@ -3125,29 +3150,46 @@ export default function AdminPage() {
                                 )}
                               </div>
 
-                              {pedido.statusNormalizado === 'cancelado' ? (
-                                <div className="orders-timeline is-canceled is-compact">
-                                  <span className="orders-timeline-canceled-text">Pedido cancelado.</span>
+                              <div className={`admin-timeline-box${pedido.statusNormalizado === 'cancelado' ? ' is-canceled' : ''}`}>
+                                <div className="admin-timeline-box-head">
+                                  <strong>Linha do tempo</strong>
+                                  {pedido.metricasTempo?.isCancelado && pedido.metricasTempo.cancelamento ? (
+                                    <span className="admin-timeline-cancel-badge">{pedido.metricasTempo.cancelamento.label}</span>
+                                  ) : null}
                                 </div>
-                              ) : (
-                                <div className="orders-timeline is-compact" aria-label="Andamento operacional do pedido">
-                                  {TIMELINE_ETAPAS_ADMIN.map((etapa, index) => {
-                                    const numeroEtapa = index + 1;
-                                    const done = numeroEtapa < pedido.statusMeta.timelineStep;
-                                    const current = numeroEtapa === pedido.statusMeta.timelineStep;
-
+                                <div className="admin-timeline-etapas" aria-label="Linha do tempo operacional">
+                                  {pedido.timelineEtapas.map((etapa) => {
+                                    const concluida = Boolean(etapa.dt);
+                                    const isCancelStep = etapa.id === 'cancelado';
                                     return (
                                       <div
-                                        className={`orders-timeline-step ${done ? 'is-done' : ''} ${current ? 'is-current' : ''}`}
-                                        key={`${pedidoId}-timeline-${etapa}`}
+                                        className={`admin-timeline-etapa ${concluida ? 'is-done' : ''} ${isCancelStep ? 'is-cancel' : ''}`}
+                                        key={`${pedidoId}-tl-${etapa.id}`}
                                       >
-                                        <span className="orders-timeline-dot" aria-hidden="true" />
-                                        <span className="orders-timeline-label">{etapa}</span>
+                                        <span className="admin-timeline-dot" aria-hidden="true" />
+                                        <div className="admin-timeline-info">
+                                          <span className="admin-timeline-label">{etapa.label}</span>
+                                          {etapa.hora ? (
+                                            <span className="admin-timeline-hora">{etapa.hora}</span>
+                                          ) : (
+                                            <span className="admin-timeline-hora is-pending">–</span>
+                                          )}
+                                          {etapa.descricao ? (
+                                            <span className="admin-timeline-descricao">{etapa.descricao}</span>
+                                          ) : etapa.duracaoDesdeAnteriorLabel ? (
+                                            <span className="admin-timeline-duracao">+{etapa.duracaoDesdeAnteriorLabel}</span>
+                                          ) : null}
+                                        </div>
                                       </div>
                                     );
                                   })}
                                 </div>
-                              )}
+                                {pedido.metricasTempo?.total?.ms != null && !pedido.metricasTempo?.isCancelado ? (
+                                  <div className={`admin-timeline-total sla-${pedido.metricasTempo.total.sla || 'ok'}`}>
+                                    Tempo total: {pedido.metricasTempo.total.label}
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
 
                             <div className="admin-order-details-side">
@@ -3454,114 +3496,161 @@ export default function AdminPage() {
         </>
       ) : tab === 'financeiro' ? (
         <>
-          <p className="muted-text" style={{ marginTop: '1rem' }}>
-            Financeiro calculado com base nos pedidos da página atual ({paginacaoPedidos.pagina}/{paginacaoPedidos.total_paginas}).
-          </p>
-
-          <div className="toolbar-box" style={{ marginTop: '0.6rem', alignItems: 'center' }}>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={carregandoPedidos || paginacaoPedidos.pagina <= 1}
-              onClick={() => {
-                void carregarPedidosPagina(paginacaoPedidos.pagina - 1);
-              }}
-            >
-              Página anterior de pedidos
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={carregandoPedidos || !paginacaoPedidos.tem_mais}
-              onClick={() => {
-                void carregarPedidosPagina(paginacaoPedidos.pagina + 1);
-              }}
-            >
-              Próxima página de pedidos
-            </button>
+          <div className="adm-page-header">
+            <div className="adm-page-header-main">
+              <h2 className="adm-page-title">Painel Financeiro</h2>
+              <p className="adm-page-subtitle">Visão consolidada de faturamento, pagamentos e movimentação.</p>
+            </div>
+            <div className="adm-page-meta">
+              <span className="adm-page-meta-pill">Página {paginacaoPedidos.pagina}/{paginacaoPedidos.total_paginas}</span>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={carregandoPedidos || paginacaoPedidos.pagina <= 1}
+                onClick={() => { void carregarPedidosPagina(paginacaoPedidos.pagina - 1); }}
+              >
+                ← Anterior
+              </button>
+              <button
+                className="btn-secondary"
+                type="button"
+                disabled={carregandoPedidos || !paginacaoPedidos.tem_mais}
+                onClick={() => { void carregarPedidosPagina(paginacaoPedidos.pagina + 1); }}
+              >
+                Próxima →
+              </button>
+            </div>
           </div>
 
-          <div className="admin-kpis" style={{ marginTop: '1rem' }}>
-            <div className="kpi-card"><strong>Faturamento total:</strong> R$ {financeiro.faturamentoTotal.toFixed(2)}</div>
-            <div className="kpi-card"><strong>Faturamento hoje:</strong> R$ {financeiro.faturamentoHoje.toFixed(2)}</div>
-            <div className="kpi-card"><strong>Faturamento mês:</strong> R$ {financeiro.faturamentoMes.toFixed(2)}</div>
-            <div className="kpi-card"><strong>Ticket médio:</strong> R$ {financeiro.ticketMedio.toFixed(2)}</div>
-            <div className="kpi-card"><strong>Pendentes:</strong> R$ {financeiro.pendentesTotal.toFixed(2)}</div>
-            <div className="kpi-card"><strong>Cancelados:</strong> R$ {financeiro.canceladosTotal.toFixed(2)}</div>
+          <div className="adm-metrics-grid">
+            <article className="adm-metric-card is-green">
+              <span className="adm-metric-label">Faturamento total</span>
+              <strong className="adm-metric-value">R$ {financeiro.faturamentoTotal.toFixed(2)}</strong>
+              <small className="adm-metric-sub">Todos os pedidos da página</small>
+            </article>
+            <article className="adm-metric-card is-accent">
+              <span className="adm-metric-label">Faturamento hoje</span>
+              <strong className="adm-metric-value">R$ {financeiro.faturamentoHoje.toFixed(2)}</strong>
+            </article>
+            <article className="adm-metric-card">
+              <span className="adm-metric-label">Faturamento mês</span>
+              <strong className="adm-metric-value">R$ {financeiro.faturamentoMes.toFixed(2)}</strong>
+            </article>
+            <article className="adm-metric-card">
+              <span className="adm-metric-label">Ticket médio</span>
+              <strong className="adm-metric-value">R$ {financeiro.ticketMedio.toFixed(2)}</strong>
+            </article>
+            <article className="adm-metric-card is-yellow">
+              <span className="adm-metric-label">Pendentes</span>
+              <strong className="adm-metric-value">R$ {financeiro.pendentesTotal.toFixed(2)}</strong>
+            </article>
+            <article className="adm-metric-card is-red">
+              <span className="adm-metric-label">Cancelados</span>
+              <strong className="adm-metric-value">R$ {financeiro.canceladosTotal.toFixed(2)}</strong>
+            </article>
           </div>
 
-          <div className="admin-kpis" style={{ marginTop: '0.7rem' }}>
-            <div className="kpi-card"><strong>Pedidos filtrados:</strong> {resumoFinanceiroFiltrado.quantidade}</div>
-            <div className="kpi-card"><strong>Faturamento filtrado:</strong> R$ {resumoFinanceiroFiltrado.faturamento.toFixed(2)}</div>
-            <div className="kpi-card"><strong>Ticket filtrado:</strong> R$ {resumoFinanceiroFiltrado.ticket.toFixed(2)}</div>
+          <div className="adm-metrics-grid" style={{ marginTop: '0.5rem' }}>
+            <article className="adm-metric-card">
+              <span className="adm-metric-label">Pedidos filtrados</span>
+              <strong className="adm-metric-value">{resumoFinanceiroFiltrado.quantidade}</strong>
+            </article>
+            <article className="adm-metric-card">
+              <span className="adm-metric-label">Faturamento filtrado</span>
+              <strong className="adm-metric-value">R$ {resumoFinanceiroFiltrado.faturamento.toFixed(2)}</strong>
+            </article>
+            <article className="adm-metric-card">
+              <span className="adm-metric-label">Ticket filtrado</span>
+              <strong className="adm-metric-value">R$ {resumoFinanceiroFiltrado.ticket.toFixed(2)}</strong>
+            </article>
           </div>
 
-          <div className="financeiro-actions">
-            <select
-              className="field-input"
-              value={filtroFinanceiroPeriodo}
-              onChange={(event) => setFiltroFinanceiroPeriodo(event.target.value)}
-            >
-              <option value="hoje">Hoje</option>
-              <option value="semana">Últimos 7 dias</option>
-              <option value="mes">Mês atual</option>
-              <option value="todos">Todo período</option>
-              <option value="custom">Período personalizado</option>
-            </select>
+          <div className="adm-filter-bar" style={{ marginTop: '0.75rem' }}>
+            <div className="adm-filter-group">
+              <span className="adm-filter-label">Período</span>
+              <select
+                className="field-input"
+                value={filtroFinanceiroPeriodo}
+                onChange={(event) => setFiltroFinanceiroPeriodo(event.target.value)}
+              >
+                <option value="hoje">Hoje</option>
+                <option value="semana">Últimos 7 dias</option>
+                <option value="mes">Mês atual</option>
+                <option value="todos">Todo período</option>
+                <option value="custom">Personalizado</option>
+              </select>
+            </div>
 
-            <select
-              className="field-input"
-              value={filtroFinanceiroStatus}
-              onChange={(event) => setFiltroFinanceiroStatus(event.target.value)}
-            >
-              <option value="todos">Todos os status</option>
-              {STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>{formatarStatusPedido(status)}</option>
-              ))}
-            </select>
+            {filtroFinanceiroPeriodo === 'custom' ? (
+              <>
+                <div className="adm-filter-group">
+                  <span className="adm-filter-label">Início</span>
+                  <input
+                    className="field-input"
+                    type="date"
+                    value={filtroFinanceiroInicio}
+                    onChange={(event) => setFiltroFinanceiroInicio(event.target.value)}
+                  />
+                </div>
+                <div className="adm-filter-group">
+                  <span className="adm-filter-label">Fim</span>
+                  <input
+                    className="field-input"
+                    type="date"
+                    value={filtroFinanceiroFim}
+                    onChange={(event) => setFiltroFinanceiroFim(event.target.value)}
+                  />
+                </div>
+              </>
+            ) : null}
 
-            <select
-              className="field-input"
-              value={filtroFinanceiroOrdem}
-              onChange={(event) => setFiltroFinanceiroOrdem(event.target.value)}
-            >
-              <option value="data_desc">Data mais recente</option>
-              <option value="data_asc">Data mais antiga</option>
-              <option value="valor_desc">Maior valor</option>
-              <option value="valor_asc">Menor valor</option>
-            </select>
+            <div className="adm-filter-group">
+              <span className="adm-filter-label">Status</span>
+              <select
+                className="field-input"
+                value={filtroFinanceiroStatus}
+                onChange={(event) => setFiltroFinanceiroStatus(event.target.value)}
+              >
+                <option value="todos">Todos os status</option>
+                {STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>{formatarStatusPedido(status)}</option>
+                ))}
+              </select>
+            </div>
 
-            <input
-              className="field-input"
-              placeholder="Buscar cliente ou #pedido"
-              value={filtroFinanceiroBusca}
-              onChange={(event) => setFiltroFinanceiroBusca(event.target.value)}
-            />
+            <div className="adm-filter-group">
+              <span className="adm-filter-label">Ordenar</span>
+              <select
+                className="field-input"
+                value={filtroFinanceiroOrdem}
+                onChange={(event) => setFiltroFinanceiroOrdem(event.target.value)}
+              >
+                <option value="data_desc">Mais recente</option>
+                <option value="data_asc">Mais antiga</option>
+                <option value="valor_desc">Maior valor</option>
+                <option value="valor_asc">Menor valor</option>
+              </select>
+            </div>
 
-            <button className="btn-secondary" type="button" onClick={exportarFinanceiroCsv}>
-              Exportar relatório (CSV)
-            </button>
-          </div>
-
-          {filtroFinanceiroPeriodo === 'custom' ? (
-            <div className="financeiro-actions" style={{ marginTop: '0.5rem' }}>
+            <div className="adm-filter-group wide">
+              <span className="adm-filter-label">Buscar</span>
               <input
                 className="field-input"
-                type="date"
-                value={filtroFinanceiroInicio}
-                onChange={(event) => setFiltroFinanceiroInicio(event.target.value)}
-              />
-              <input
-                className="field-input"
-                type="date"
-                value={filtroFinanceiroFim}
-                onChange={(event) => setFiltroFinanceiroFim(event.target.value)}
+                placeholder="Cliente ou #pedido"
+                value={filtroFinanceiroBusca}
+                onChange={(event) => setFiltroFinanceiroBusca(event.target.value)}
               />
             </div>
-          ) : null}
 
-          <div className="table-wrap" style={{ marginTop: '1rem' }}>
-            <table className="admin-table">
+            <div className="adm-filter-actions">
+              <button className="btn-secondary" type="button" onClick={exportarFinanceiroCsv}>
+                Exportar CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="adm-table-wrap" style={{ marginTop: '0.75rem' }}>
+            <table className="adm-table">
               <thead>
                 <tr>
                   <th>Pedido</th>
@@ -3569,23 +3658,31 @@ export default function AdminPage() {
                   <th>Cliente</th>
                   <th>Status</th>
                   <th>Pagamento</th>
-                  <th>Valor</th>
+                  <th style={{ textAlign: 'right' }}>Valor</th>
                 </tr>
               </thead>
               <tbody>
                 {linhasFinanceiro.length === 0 ? (
-                  <tr>
-                    <td colSpan={6}>Nenhum registro financeiro encontrado para os filtros aplicados.</td>
+                  <tr className="empty-row">
+                    <td colSpan={6}>Nenhum registro financeiro para os filtros aplicados.</td>
                   </tr>
                 ) : (
                   linhasFinanceiro.map((pedido) => (
                     <tr key={pedido.id}>
-                      <td>#{pedido.id}</td>
-                      <td>{pedido._data ? pedido._data.toLocaleString('pt-BR') : '-'}</td>
+                      <td className="col-id">#{pedido.id}</td>
+                      <td className="col-muted">{pedido._data ? pedido._data.toLocaleString('pt-BR') : '-'}</td>
                       <td>{pedido.cliente_nome || '-'}</td>
-                      <td>{formatarStatusPedido(pedido.status)}</td>
-                      <td>{pedido.forma_pagamento || 'pix'}</td>
-                      <td>R$ {Number(pedido._total || 0).toFixed(2)}</td>
+                      <td>
+                        <span className={`adm-status-pill st-${String(pedido.status || '').toLowerCase()}`}>
+                          {formatarStatusPedido(pedido.status)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="adm-pay-pill">
+                          {FORMAS_PAGAMENTO_LABELS[pedido.forma_pagamento] || pedido.forma_pagamento || 'PIX'}
+                        </span>
+                      </td>
+                      <td className="col-num">R$ {Number(pedido._total || 0).toFixed(2)}</td>
                     </tr>
                   ))
                 )}
@@ -3593,13 +3690,29 @@ export default function AdminPage() {
             </table>
           </div>
         </>
-      ) : (
+      ) : tab === 'importacao' ? (
         <>
-          <form className="form-box" style={{ marginTop: '1rem' }} onSubmit={handleImportarPlanilha}>
-            <p><strong>Importação de produtos por planilha</strong></p>
-            <p className="muted-text">
-              Importe arquivos do ERP em .xlsx ou .csv para atualizar preço, nome, descrição e foto.
-            </p>
+          <div className="adm-page-header">
+            <div className="adm-page-header-main">
+              <h2 className="adm-page-title">Importação de Produtos</h2>
+              <p className="adm-page-subtitle">Importe planilhas do ERP (.xlsx / .csv) para atualizar preço, nome, descrição e foto.</p>
+            </div>
+            <div className="adm-page-meta">
+              <a
+                className="btn-secondary"
+                href={modeloImportacaoUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                ↓ Baixar modelo CSV
+              </a>
+            </div>
+          </div>
+
+          <form className="adm-section" onSubmit={handleImportarPlanilha}>
+            <div className="adm-section-header">
+              <h3 className="adm-section-title">Upload de planilha</h3>
+            </div>
 
             <div
               className={`importacao-dropzone ${arrastandoImportacao ? 'dragover' : ''}`}
@@ -3617,7 +3730,7 @@ export default function AdminPage() {
               />
 
               <p><strong>Arraste e solte sua planilha aqui</strong></p>
-              <p className="muted-text">ou clique no botão para selecionar um arquivo local.</p>
+              <p className="muted-text">ou clique no botão abaixo para selecionar um arquivo.</p>
 
               <label htmlFor="admin-importacao-arquivo" className="btn-secondary importacao-select-btn">
                 Selecionar arquivo
@@ -3625,14 +3738,14 @@ export default function AdminPage() {
 
               {arquivoImportacao ? (
                 <p className="importacao-file-meta">
-                  Arquivo selecionado: <strong>{arquivoImportacao.name}</strong> ({formatarTamanhoArquivo(arquivoImportacao.size)})
+                  📎 <strong>{arquivoImportacao.name}</strong> ({formatarTamanhoArquivo(arquivoImportacao.size)})
                 </p>
               ) : (
                 <p className="muted-text">Formatos aceitos: .xlsx e .csv</p>
               )}
             </div>
 
-            <div className="toolbar-box importacao-toolbar">
+            <div className="adm-import-options">
               <label className="importacao-checkbox">
                 <input
                   type="checkbox"
@@ -3641,57 +3754,61 @@ export default function AdminPage() {
                 />
                 Criar produtos novos automaticamente quando não existir correspondência por código.
               </label>
-
-              <a
-                className="btn-secondary importacao-modelo-btn"
-                href={modeloImportacaoUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Baixar modelo CSV
-              </a>
             </div>
 
-            <div className="toolbar-box importacao-acoes-row" style={{ alignItems: 'center' }}>
+            <div className="adm-import-actions">
               <button className="btn-secondary" type="button" disabled={importandoPlanilha} onClick={handleSimularPlanilha}>
-                {importandoPlanilha ? 'Processando...' : 'Simular planilha'}
+                {importandoPlanilha ? 'Processando…' : 'Simular planilha'}
               </button>
-
               <button className="btn-primary" type="submit" disabled={importandoPlanilha}>
-                {importandoPlanilha ? 'Importando planilha...' : 'Importar de verdade'}
+                {importandoPlanilha ? 'Importando…' : 'Importar de verdade'}
               </button>
             </div>
           </form>
 
           {resultadoImportacao ? (
-            <div className="card-box importacao-resumo-box" style={{ marginTop: '1rem' }}>
-              <p>
-                <strong>
-                  {resultadoImportacao?.simulacao ? 'Resumo da última simulação' : 'Resumo da última importação'}
-                </strong>
-              </p>
+            <div className="adm-section" style={{ marginTop: '0.75rem' }}>
+              <div className="adm-section-header">
+                <h3 className="adm-section-title">
+                  {resultadoImportacao?.simulacao ? 'Resultado da simulação' : 'Resultado da importação'}
+                </h3>
+              </div>
 
               {resultadoImportacao?.simulacao ? (
-                <p className="muted-text">
-                  Esta prévia não altera o banco de dados. Use "Importar de verdade" para aplicar as mudanças.
+                <p className="muted-text" style={{ marginBottom: '0.75rem' }}>
+                  Simulação — nenhum dado foi alterado. Use "Importar de verdade" para aplicar.
                 </p>
               ) : null}
 
-              <div className="admin-kpis" style={{ marginTop: '0.5rem' }}>
-                <div className="kpi-card"><strong>Total linhas:</strong> {Number(resultadoImportacao.total_linhas || 0)}</div>
-                <div className="kpi-card"><strong>Atualizados:</strong> {Number(resultadoImportacao.total_atualizados || 0)}</div>
-                <div className="kpi-card"><strong>Criados:</strong> {Number(resultadoImportacao.total_criados || 0)}</div>
-                <div className="kpi-card"><strong>Ignorados:</strong> {Number(resultadoImportacao.total_ignorados || 0)}</div>
-                <div className="kpi-card"><strong>Erros:</strong> {Number(resultadoImportacao.total_erros || 0)}</div>
+              <div className="adm-metrics-grid compact">
+                <article className="adm-metric-card">
+                  <span className="adm-metric-label">Total linhas</span>
+                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_linhas || 0)}</strong>
+                </article>
+                <article className="adm-metric-card is-green">
+                  <span className="adm-metric-label">Atualizados</span>
+                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_atualizados || 0)}</strong>
+                </article>
+                <article className="adm-metric-card is-accent">
+                  <span className="adm-metric-label">Criados</span>
+                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_criados || 0)}</strong>
+                </article>
+                <article className="adm-metric-card is-yellow">
+                  <span className="adm-metric-label">Ignorados</span>
+                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_ignorados || 0)}</strong>
+                </article>
+                <article className="adm-metric-card is-red">
+                  <span className="adm-metric-label">Erros</span>
+                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_erros || 0)}</strong>
+                </article>
               </div>
 
-              <p className="muted-text">Arquivo: {resultadoImportacao.arquivo || '-'}</p>
-
+              <p className="muted-text" style={{ marginTop: '0.5rem' }}>Arquivo: {resultadoImportacao.arquivo || '-'}</p>
               <p className="muted-text">
-                Colunas mapeadas: {
+                Colunas: {
                   Object.entries(resultadoImportacao.colunas_mapeadas || {})
                     .map(([chave, valor]) => `${chave}: ${valor}`)
-                    .join(' | ') || 'Não informado'
+                    .join(' · ') || 'Não informado'
                 }
               </p>
 
@@ -3714,7 +3831,7 @@ export default function AdminPage() {
                   <ul className="importacao-log-list">
                     {resultadoImportacao.logs.ignorados.slice(0, 8).map((item, index) => (
                       <li key={`ignorado-importacao-${index}`}>
-                        Linha {item?.linha || '-'}: {item?.motivo || 'Item ignorado sem detalhe.'}
+                        Linha {item?.linha || '-'}: {item?.motivo || 'Sem detalhe.'}
                       </li>
                     ))}
                   </ul>
@@ -3723,53 +3840,53 @@ export default function AdminPage() {
             </div>
           ) : null}
 
-          <div className="card-box" style={{ marginTop: '1rem' }}>
-            <div className="toolbar-box" style={{ alignItems: 'center' }}>
-              <p style={{ margin: 0 }}><strong>Histórico de importações</strong></p>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={carregandoImportacoes}
-                onClick={() => {
-                  void carregarHistoricoImportacoes();
-                }}
-              >
-                {carregandoImportacoes ? 'Atualizando histórico...' : 'Atualizar histórico'}
-              </button>
+          <div className="adm-section" style={{ marginTop: '0.75rem' }}>
+            <div className="adm-section-header">
+              <h3 className="adm-section-title">Histórico de importações</h3>
+              <div className="adm-section-actions">
+                <button
+                  className="btn-secondary"
+                  type="button"
+                  disabled={carregandoImportacoes}
+                  onClick={() => { void carregarHistoricoImportacoes(); }}
+                >
+                  {carregandoImportacoes ? 'Atualizando…' : 'Atualizar'}
+                </button>
+              </div>
             </div>
 
-            <div className="table-wrap" style={{ marginTop: '0.7rem' }}>
-              <table className="admin-table">
+            <div className="adm-table-wrap">
+              <table className="adm-table">
                 <thead>
                   <tr>
                     <th>Data</th>
                     <th>Arquivo</th>
                     <th>Status</th>
-                    <th>Atualizados</th>
-                    <th>Criados</th>
-                    <th>Ignorados</th>
-                    <th>Erros</th>
+                    <th style={{ textAlign: 'right' }}>Atualizados</th>
+                    <th style={{ textAlign: 'right' }}>Criados</th>
+                    <th style={{ textAlign: 'right' }}>Ignorados</th>
+                    <th style={{ textAlign: 'right' }}>Erros</th>
                   </tr>
                 </thead>
                 <tbody>
                   {historicoImportacoes.length === 0 ? (
-                    <tr>
-                      <td colSpan={7}>Nenhuma importação registrada até o momento.</td>
+                    <tr className="empty-row">
+                      <td colSpan={7}>Nenhuma importação registrada.</td>
                     </tr>
                   ) : (
                     historicoImportacoes.map((importacao) => (
                       <tr key={importacao.id}>
-                        <td>{importacao.criado_em ? new Date(importacao.criado_em).toLocaleString('pt-BR') : '-'}</td>
+                        <td className="col-muted">{importacao.criado_em ? new Date(importacao.criado_em).toLocaleString('pt-BR') : '-'}</td>
                         <td>{importacao.nome_arquivo || '-'}</td>
                         <td>
-                          <span className={`importacao-status-badge status-${String(importacao.status || '').toLowerCase()}`}>
+                          <span className={`adm-status-pill st-${String(importacao.status || '').toLowerCase()}`}>
                             {formatarStatusImportacao(importacao.status)}
                           </span>
                         </td>
-                        <td>{Number(importacao.total_atualizados || 0)}</td>
-                        <td>{Number(importacao.total_criados || 0)}</td>
-                        <td>{Number(importacao.total_ignorados || 0)}</td>
-                        <td>{Number(importacao.total_erros || 0)}</td>
+                        <td className="col-num">{Number(importacao.total_atualizados || 0)}</td>
+                        <td className="col-num">{Number(importacao.total_criados || 0)}</td>
+                        <td className="col-num">{Number(importacao.total_ignorados || 0)}</td>
+                        <td className="col-num">{Number(importacao.total_erros || 0)}</td>
                       </tr>
                     ))
                   )}
@@ -3778,7 +3895,19 @@ export default function AdminPage() {
             </div>
           </div>
         </>
-      )}
-    </section>
+      ) : tab === 'operacao' ? (
+        <FilaOperacional />
+      ) : tab === 'clientes' ? (
+        <ClientesAdmin />
+      ) : tab === 'fin-avancado' ? (
+        <FinanceiroAvancado />
+      ) : tab === 'auditoria' ? (
+        <AuditoriaAdmin />
+      ) : tab === 'relatorios' ? (
+        <RelatoriosAdmin />
+      ) : tab === 'catalogo' ? (
+        <CatalogoSaude />
+      ) : null}
+    </AdminShell>
   );
 }

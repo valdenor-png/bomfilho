@@ -24,7 +24,7 @@ export default function BrandLogo({
 
         <div className="brand-logo-accent-row" aria-hidden="true">
           <span className="brand-logo-accent is-yellow" />
-          <span className="brand-logo-accent is-blue" />
+          <span className="brand-logo-accent is-green" />
         </div>
 
         {subtitle ? <p className="brand-logo-subtitle">{subtitle}</p> : null}

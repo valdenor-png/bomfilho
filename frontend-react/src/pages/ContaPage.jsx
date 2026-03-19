@@ -356,6 +356,7 @@ export default function ContaPage() {
   const [mensagemCepEndereco, setMensagemCepEndereco] = useState('');
   const [erroEnderecoForm, setErroEnderecoForm] = useState('');
   const [sucessoEnderecoForm, setSucessoEnderecoForm] = useState('');
+  const [enderecoEmEdicao, setEnderecoEmEdicao] = useState(false);
   const [erro, setErro] = useState('');
   const [mensagemInfo, setMensagemInfo] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -452,6 +453,7 @@ export default function ContaPage() {
       setMensagemCepEndereco('');
       setErroEnderecoForm('');
       setSucessoEnderecoForm('');
+      setEnderecoEmEdicao(false);
       cepConsultadoRef.current = '';
       return;
     }
@@ -621,6 +623,16 @@ export default function ContaPage() {
     cepConsultadoRef.current = normalizarCepEndereco(enderecoPrincipal.cep || '');
   }
 
+  function handleIniciarEdicaoEndereco() {
+    resetarFormularioEndereco();
+    setEnderecoEmEdicao(true);
+  }
+
+  function handleCancelarEdicaoEndereco() {
+    resetarFormularioEndereco();
+    setEnderecoEmEdicao(false);
+  }
+
   async function handleSalvarEndereco(event) {
     event.preventDefault();
     setErroEnderecoForm('');
@@ -658,6 +670,8 @@ export default function ContaPage() {
       }));
 
       setSucessoEnderecoForm('Endereço salvo com sucesso.');
+      setMensagemInfo('Endereço principal atualizado.');
+      setEnderecoEmEdicao(false);
     } catch (error) {
       setErroEnderecoForm(error.message || 'Não foi possível salvar o endereço. Tente novamente.');
     } finally {
@@ -857,6 +871,10 @@ export default function ContaPage() {
   const confirmacaoSenhaInvalida = modo === 'cadastro' && confirmacaoSenha.length > 0 && senha !== confirmacaoSenha;
   const iniciaisAvatar = obterIniciais(nomeExibicao);
   const resumoEndereco = useMemo(() => montarResumoEndereco(enderecoPrincipal), [enderecoPrincipal]);
+  const cidadeUfEndereco = [enderecoPrincipal?.cidade, enderecoPrincipal?.estado].filter(Boolean).join(' / ') || 'Não informado';
+  const cepEnderecoExibicao = enderecoPrincipal?.cep
+    ? formatarCepEndereco(enderecoPrincipal.cep)
+    : 'Não informado';
 
   const textoStatusConta = usuario?.whatsapp_opt_in
     ? 'Conta verificada e com canal WhatsApp ativo'
@@ -867,14 +885,8 @@ export default function ContaPage() {
       <header className="conta-header">
         <div>
           <h1>Minha conta</h1>
-          <p className="muted-text conta-subtitle">Gerencie perfil, preferências, segurança e acessibilidade em um único lugar.</p>
+          <p className="muted-text conta-subtitle">Seu perfil, endereço e preferências em um só lugar.</p>
         </div>
-
-        {usuario ? (
-          <Link to="/pedidos" className="btn-secondary conta-header-cta">
-            Ver meus pedidos
-          </Link>
-        ) : null}
       </header>
 
       {erro ? <p className="error-text">{erro}</p> : null}
@@ -893,30 +905,44 @@ export default function ContaPage() {
                 <p className="muted-text conta-profile-subtitle">{textoStatusConta}</p>
               </div>
 
-              <button
-                className="btn-secondary conta-profile-edit"
-                type="button"
-                disabled={carregando}
-                onClick={() => handleAcaoEmBreve('Edição de perfil')}
-              >
-                Editar perfil
-              </button>
+              <div className="conta-profile-actions">
+                <Link to="/pedidos" className="btn-primary conta-profile-orders">
+                  Ver meus pedidos
+                </Link>
+                <button
+                  className="btn-secondary conta-profile-edit is-subtle"
+                  type="button"
+                  disabled={carregando}
+                  onClick={() => handleAcaoEmBreve('Edição de perfil')}
+                >
+                  Editar perfil
+                </button>
+              </div>
             </div>
 
             <div className="conta-profile-lines">
               <p className="conta-line-item">
                 <span className="conta-line-icon"><IconMail /></span>
-                <span>{emailExibicao}</span>
+                <span className="conta-line-copy">
+                  <small>E-mail</small>
+                  <strong>{emailExibicao}</strong>
+                </span>
               </p>
 
               <p className="conta-line-item">
                 <span className="conta-line-icon"><IconPhone /></span>
-                <span>{telefoneExibicao}</span>
+                <span className="conta-line-copy">
+                  <small>Telefone</small>
+                  <strong>{telefoneExibicao}</strong>
+                </span>
               </p>
 
               <p className="conta-line-item">
                 <span className="conta-line-icon"><IconUser /></span>
-                <span>Cliente desde {new Date().getFullYear()}</span>
+                <span className="conta-line-copy">
+                  <small>Cadastro</small>
+                  <strong>Cliente desde {new Date().getFullYear()}</strong>
+                </span>
               </p>
             </div>
           </article>
@@ -927,15 +953,57 @@ export default function ContaPage() {
                 <span className="conta-section-icon"><IconPin /></span>
                 <div>
                   <h3>Endereços</h3>
-                  <p>Organize seus locais de entrega para finalizar pedidos mais rápido.</p>
+                  <p>Resumo do endereço principal com edição sob demanda.</p>
                 </div>
               </div>
 
               <div className="conta-address-content">
                 {carregandoEndereco ? (
                   <p className="muted-text">Carregando endereço principal...</p>
+                ) : !enderecoEmEdicao ? (
+                  <div className="conta-address-summary">
+                    <div className="conta-address-preview">
+                      <p className="conta-address-title">{resumoEndereco.titulo}</p>
+                      <p>{resumoEndereco.linha1}</p>
+                      <p className="muted-text conta-address-muted">{resumoEndereco.linha2}</p>
+                    </div>
+
+                    <dl className="conta-address-meta" aria-label="Resumo de cidade e CEP">
+                      <div className="conta-address-meta-item">
+                        <dt>Cidade/UF</dt>
+                        <dd>{cidadeUfEndereco}</dd>
+                      </div>
+                      <div className="conta-address-meta-item">
+                        <dt>CEP</dt>
+                        <dd>{cepEnderecoExibicao}</dd>
+                      </div>
+                    </dl>
+
+                    <div className="conta-address-summary-actions">
+                      <button className="btn-secondary" type="button" onClick={handleIniciarEdicaoEndereco}>
+                        {enderecoPrincipal ? 'Editar endereço' : 'Adicionar endereço'}
+                      </button>
+                    </div>
+
+                    {erroEnderecoForm ? <p className="error-text">{erroEnderecoForm}</p> : null}
+                    {sucessoEnderecoForm ? <p className="conta-info-text">{sucessoEnderecoForm}</p> : null}
+                  </div>
                 ) : (
                   <form className="conta-endereco-form" onSubmit={handleSalvarEndereco}>
+                    <div className="conta-endereco-form-head">
+                      <p className="conta-endereco-form-title">
+                        {enderecoPrincipal ? 'Editar endereço principal' : 'Adicionar endereço principal'}
+                      </p>
+
+                      <button
+                        className="btn-secondary conta-endereco-cancelar"
+                        type="button"
+                        onClick={handleCancelarEdicaoEndereco}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+
                     <div className="conta-address-preview">
                       <p className="conta-address-title">{resumoEndereco.titulo}</p>
                       <p>{resumoEndereco.linha1}</p>
@@ -1077,9 +1145,9 @@ export default function ContaPage() {
                     {erroEnderecoForm ? <p className="error-text">{erroEnderecoForm}</p> : null}
                     {sucessoEnderecoForm ? <p className="conta-info-text">{sucessoEnderecoForm}</p> : null}
 
-                    <div className="conta-inline-actions">
+                    <div className="conta-inline-actions conta-inline-actions-endereco">
                       <button className="btn-secondary" type="button" onClick={resetarFormularioEndereco}>
-                        Restaurar endereço salvo
+                        Restaurar dados
                       </button>
                       <button className="btn-primary" type="submit" disabled={salvandoEndereco || buscandoCepEndereco}>
                         {salvandoEndereco ? 'Salvando endereço...' : 'Salvar endereço'}
@@ -1092,43 +1160,18 @@ export default function ContaPage() {
 
             <article className="card-box conta-section-card">
               <div className="conta-section-head">
-                <span className="conta-section-icon"><IconShield /></span>
-                <div>
-                  <h3>Segurança</h3>
-                  <p>Gerencie acesso e proteção da sua conta.</p>
-                </div>
-              </div>
-
-              <div className="conta-stack-actions conta-security-actions">
-                <button className="btn-secondary" type="button" onClick={() => handleAcaoEmBreve('Troca de senha')}>
-                  Alterar senha
-                </button>
-                <button className="btn-secondary" type="button" onClick={() => handleAcaoEmBreve('Sessões ativas')}>
-                  Sessões ativas
-                </button>
-                <button className="btn-secondary" type="button" onClick={handleLogout} disabled={carregando}>
-                  Sair da conta
-                </button>
-                <button className="btn-danger" type="button" onClick={handleExcluirContaPlaceholder} disabled={carregando}>
-                  Excluir conta
-                </button>
-              </div>
-            </article>
-
-            <article className="card-box conta-section-card">
-              <div className="conta-section-head">
                 <span className="conta-section-icon"><IconPreferences /></span>
                 <div>
                   <h3>Preferências</h3>
-                  <p>Personalize comunicações e notificações da sua conta.</p>
+                  <p>Escolha como quer receber avisos e novidades.</p>
                 </div>
               </div>
 
               <div className="switch-list" aria-label="Preferências da conta">
                 <SwitchControl
                   id="pref-whatsapp-promocoes"
-                  label="Receber promoções por WhatsApp"
-                  description="Ofertas e novidades direto no seu número cadastrado."
+                  label="Promoções no WhatsApp"
+                  description="Ofertas e novidades no número cadastrado."
                   checked={preferencias.promocoesWhatsapp}
                   onChange={(checked) => {
                     void handleTogglePromocoesWhatsapp(checked);
@@ -1137,8 +1180,8 @@ export default function ContaPage() {
 
                 <SwitchControl
                   id="pref-email-promocoes"
-                  label="Receber promoções por e-mail"
-                  description="Cupons e campanhas especiais na sua caixa de entrada."
+                  label="Promoções por e-mail"
+                  description="Cupons e campanhas na sua caixa de entrada."
                   checked={preferencias.promocoesEmail}
                   onChange={(checked) => atualizarPreferencia('promocoesEmail', checked)}
                 />
@@ -1146,7 +1189,7 @@ export default function ContaPage() {
                 <SwitchControl
                   id="pref-notificacoes-pedidos"
                   label="Notificações de pedidos"
-                  description="Atualizações de preparo e entrega em tempo real."
+                  description="Atualizações de preparo e entrega."
                   checked={preferencias.notificacoesPedidos}
                   onChange={(checked) => atualizarPreferencia('notificacoesPedidos', checked)}
                 />
@@ -1154,12 +1197,58 @@ export default function ContaPage() {
                 <SwitchControl
                   id="pref-tema-escuro"
                   label="Tema escuro"
-                  description="Ajuste visual em desenvolvimento (em breve)."
+                  description="Disponível em breve."
                   checked={preferencias.temaEscuro}
                   onChange={(checked) => atualizarPreferencia('temaEscuro', checked)}
                   disabled
                 />
               </div>
+            </article>
+
+            <article className="card-box conta-section-card">
+              <div className="conta-section-head">
+                <span className="conta-section-icon"><IconShield /></span>
+                <div>
+                  <h3>Segurança</h3>
+                  <p>Ações de acesso da sua conta.</p>
+                </div>
+              </div>
+
+              <div className="conta-security-list" aria-label="Ações de segurança">
+                <button className="conta-security-item" type="button" onClick={() => handleAcaoEmBreve('Troca de senha')}>
+                  <span className="conta-security-item-copy">
+                    <strong>Alterar senha</strong>
+                    <small>Troque sua senha quando precisar.</small>
+                  </span>
+                  <span className="conta-security-item-tag" aria-hidden="true">Abrir</span>
+                </button>
+
+                <button className="conta-security-item" type="button" onClick={() => handleAcaoEmBreve('Sessões ativas')}>
+                  <span className="conta-security-item-copy">
+                    <strong>Sessões ativas</strong>
+                    <small>Veja onde sua conta está conectada.</small>
+                  </span>
+                  <span className="conta-security-item-tag" aria-hidden="true">Abrir</span>
+                </button>
+
+                <button className="conta-security-item" type="button" onClick={handleLogout} disabled={carregando}>
+                  <span className="conta-security-item-copy">
+                    <strong>Sair da conta</strong>
+                    <small>Encerrar sessão neste aparelho.</small>
+                  </span>
+                  <span className="conta-security-item-tag" aria-hidden="true">Agora</span>
+                </button>
+              </div>
+
+              <details className="conta-security-danger">
+                <summary>Opções delicadas</summary>
+                <div className="conta-security-danger-content">
+                  <p className="muted-text">Use apenas quando realmente necessário.</p>
+                  <button className="btn-danger" type="button" onClick={handleExcluirContaPlaceholder} disabled={carregando}>
+                    Excluir conta
+                  </button>
+                </div>
+              </details>
             </article>
 
             {/* Acessibilidade mantida, porém com menor peso visual no layout */}
@@ -1168,10 +1257,11 @@ export default function ContaPage() {
                 <span className="conta-section-icon"><IconAccessibility /></span>
                 <div>
                   <h3>Acessibilidade</h3>
-                  <p>Ajuste leitura e conforto visual conforme sua necessidade.</p>
+                  <p>Ajustes rápidos para leitura e conforto visual.</p>
                 </div>
               </div>
 
+              <p className="conta-font-hint">Tamanho do texto</p>
               <div className="conta-font-row" role="group" aria-label="Ajustar tamanho da fonte">
                 {FONT_SCALE_OPTIONS.map((option) => (
                   <button
@@ -1190,7 +1280,7 @@ export default function ContaPage() {
                 <SwitchControl
                   id="toggle-high-contrast"
                   label="Alto contraste"
-                  description="Melhora diferenciação de textos e elementos na tela."
+                  description="Aumenta contraste de textos e elementos."
                   checked={highContrast}
                   onChange={handleHighContrastChange}
                 />
@@ -1198,7 +1288,7 @@ export default function ContaPage() {
                 <SwitchControl
                   id="toggle-reduced-motion"
                   label="Reduzir animações"
-                  description="Diminui transições e efeitos de movimento da interface."
+                  description="Diminui efeitos e transições visuais."
                   checked={reducedMotion}
                   onChange={handleReducedMotionChange}
                 />
@@ -1210,22 +1300,22 @@ export default function ContaPage() {
                 <span className="conta-section-icon"><IconShortcut /></span>
                 <div>
                   <h3>Atalhos úteis</h3>
-                  <p>Acesse rapidamente áreas importantes da sua conta e dos seus hábitos de compra.</p>
+                  <p>Links rápidos para pedidos, recompra e suporte.</p>
                 </div>
               </div>
 
-              <p className="muted-text" style={{ marginTop: '-0.1rem' }}>
+              <p className="muted-text conta-shortcuts-resumo">
                 Favoritos: {recorrenciaStats.favoritos} • Recompra: {recorrenciaStats.recompra}
               </p>
 
               <div className="conta-shortcuts-grid">
-                <ShortcutCard to="/pedidos" title="Meus pedidos" description="Acompanhar status e histórico." />
-                <ShortcutCard to="/produtos?recorrencia=favoritos" title="Favoritos" description="Abrir seus produtos salvos." />
-                <ShortcutCard to="/produtos?recorrencia=recompra" title="Comprar novamente" description="Atalho para recompra rapida." />
-                <ShortcutCard disabled title="Cupons" description="Ver cupons disponíveis (em breve)." />
+                <ShortcutCard to="/pedidos" title="Meus pedidos" description="Ver histórico e andamento." />
+                <ShortcutCard to="/produtos?recorrencia=favoritos" title="Favoritos" description="Abrir produtos salvos." />
+                <ShortcutCard to="/produtos?recorrencia=recompra" title="Comprar novamente" description="Repetir compras frequentes." />
+                <ShortcutCard disabled title="Cupons" description="Disponível em breve." />
                 <ShortcutCard
                   title="Ajuda / suporte"
-                  description="Falar com atendimento da loja."
+                  description="Falar com o atendimento."
                   onClick={() => {
                     window.open('https://wa.me/5591999652790', '_blank', 'noopener,noreferrer');
                   }}
@@ -1460,10 +1550,11 @@ export default function ContaPage() {
               <span className="conta-section-icon"><IconAccessibility /></span>
               <div>
                 <h3>Acessibilidade</h3>
-                <p>Defina o formato de leitura antes de entrar na sua conta.</p>
+                <p>Ajustes rápidos para leitura antes de entrar.</p>
               </div>
             </div>
 
+            <p className="conta-font-hint">Tamanho do texto</p>
             <div className="conta-font-row" role="group" aria-label="Ajustar tamanho da fonte">
               {FONT_SCALE_OPTIONS.map((option) => (
                 <button
@@ -1482,7 +1573,7 @@ export default function ContaPage() {
               <SwitchControl
                 id="toggle-high-contrast"
                 label="Alto contraste"
-                description="Melhora diferenciação de textos e elementos na tela."
+                description="Aumenta contraste de textos e elementos."
                 checked={highContrast}
                 onChange={handleHighContrastChange}
               />
@@ -1490,7 +1581,7 @@ export default function ContaPage() {
               <SwitchControl
                 id="toggle-reduced-motion"
                 label="Reduzir animações"
-                description="Diminui transições e efeitos de movimento da interface."
+                description="Diminui efeitos e transições visuais."
                 checked={reducedMotion}
                 onChange={handleReducedMotionChange}
               />

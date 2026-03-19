@@ -831,6 +831,10 @@ export function adminGetPedidos(params = {}) {
   return request(`/api/admin/pedidos${buildQueryString(params)}`);
 }
 
+export function adminGetDashboardResumo(params = {}) {
+  return request(`/api/admin/dashboard/resumo${buildQueryString(params)}`);
+}
+
 export function adminAtualizarStatusPedido(pedidoId, status) {
   return request(`/api/admin/pedidos/${pedidoId}/status`, {
     method: 'PUT',
@@ -1038,4 +1042,59 @@ export function adminBaixarCatalogoExportacao(params = {}) {
   return requestArquivo(`/api/admin/catalogo/produtos/exportar.xlsx${buildQueryString(params)}`, {
     fallbackFileName: 'produtos_admin.xlsx'
   });
+}
+
+// ============================================
+// ADMIN FASE 2 — Fila, Clientes, Financeiro, Auditoria, Relatórios
+// ============================================
+
+export function adminGetFilaOperacional() {
+  return request('/api/admin/fila-operacional');
+}
+
+export function adminGetClientes(params = {}) {
+  return request(`/api/admin/clientes${buildQueryString(params)}`);
+}
+
+export function adminGetClienteDetalhe(clienteId) {
+  return request(`/api/admin/clientes/${clienteId}`);
+}
+
+export function adminGetConciliacao(params = {}) {
+  return request(`/api/admin/financeiro/conciliacao${buildQueryString(params)}`);
+}
+
+export function adminGetFechamentoDiario(params = {}) {
+  return request(`/api/admin/financeiro/fechamento${buildQueryString(params)}`);
+}
+
+export function adminGetAuditoria(params = {}) {
+  return request(`/api/admin/auditoria${buildQueryString(params)}`);
+}
+
+export function adminGetRelatorioVendas(params = {}) {
+  return request(`/api/admin/relatorios/vendas${buildQueryString(params)}`);
+}
+
+export function adminExportarRelatorioVendasCSV(params = {}) {
+  return requestArquivo(`/api/admin/relatorios/vendas${buildQueryString({ ...params, formato: 'csv' })}`, {
+    fallbackFileName: `vendas_${Date.now()}.csv`
+  });
+}
+
+// Fase 3 — Central de Comando
+export function adminGetCentralVivo() {
+  return request('/api/admin/central/vivo');
+}
+
+export function adminGetFeed(params = {}) {
+  return request(`/api/admin/feed${buildQueryString(params)}`);
+}
+
+export function adminGetAlertas() {
+  return request('/api/admin/alertas');
+}
+
+export function adminGetCatalogoSaude() {
+  return request('/api/admin/catalogo/saude');
 }

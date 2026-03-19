@@ -2,9 +2,8 @@
 -- BANCO DE DADOS - BOM FILHO SUPERMERCADO
 -- ============================================
 
--- Remover banco existente e criar novo
-DROP DATABASE IF EXISTS railway;
-CREATE DATABASE railway CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Criar banco se ainda não existir (NÃO usar DROP DATABASE)
+CREATE DATABASE IF NOT EXISTS railway CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE railway;
 
 -- ============================================
@@ -134,6 +133,65 @@ CREATE TABLE IF NOT EXISTS cupons_usados (
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
     FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
     INDEX idx_usuario (usuario_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- TABELA DE AVALIAÇÕES
+-- ============================================
+CREATE TABLE IF NOT EXISTS avaliacoes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    produto_id INT NOT NULL,
+    usuario_id INT NOT NULL,
+    nota INT NOT NULL CHECK (nota BETWEEN 1 AND 5),
+    comentario TEXT,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE CASCADE,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    INDEX idx_produto (produto_id),
+    INDEX idx_usuario (usuario_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- TABELA DE BANNERS
+-- ============================================
+CREATE TABLE IF NOT EXISTS banners (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    titulo VARCHAR(255) NOT NULL,
+    imagem_url TEXT NOT NULL,
+    link_url TEXT,
+    ordem INT DEFAULT 0,
+    ativo BOOLEAN DEFAULT TRUE,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_ativo_ordem (ativo, ordem)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- TABELA DE AUDITORIA ADMIN
+-- ============================================
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    acao VARCHAR(80) NOT NULL,
+    entidade VARCHAR(40) NULL,
+    entidade_id INT NULL,
+    detalhes JSON NULL,
+    admin_usuario VARCHAR(80) NOT NULL DEFAULT 'admin',
+    ip VARCHAR(45) NULL,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_acao (acao),
+    INDEX idx_entidade (entidade, entidade_id),
+    INDEX idx_criado (criado_em)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- TABELA DE CONTROLE DE MIGRATIONS
+-- ============================================
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    filename VARCHAR(255) NOT NULL UNIQUE,
+    checksum VARCHAR(64) NOT NULL,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    execution_time_ms INT DEFAULT 0,
+    INDEX idx_filename (filename)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================

@@ -256,13 +256,13 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
 
       try {
         const [resultadoCompleto] = await pool.query(
-          'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ? WHERE id = ?',
-          [statusInterno, statusPagBank, orderId, pedidoId]
+          'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ?, pago_em = COALESCE(pago_em, IF(? = \'pago\', NOW(), pago_em)) WHERE id = ?',
+          [statusInterno, statusPagBank, orderId, statusInterno, pedidoId]
         );
         resultadoUpdate = resultadoCompleto;
       } catch (erroUpdateCompleto) {
-        const colunaPixAusente = /unknown column\s+'(?:pix_status|pix_id)'/i.test(String(erroUpdateCompleto?.message || ''));
-        if (!colunaPixAusente) {
+        const colunaAusente = /unknown column\s+'(?:pix_status|pix_id|pago_em)'/i.test(String(erroUpdateCompleto?.message || ''));
+        if (!colunaAusente) {
           throw erroUpdateCompleto;
         }
 
@@ -272,7 +272,7 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
         );
         resultadoUpdate = resultadoFallback;
         modoPersistencia = 'fallback_sem_colunas_pix';
-        console.warn('⚠️ Coluna pix_status/pix_id ausente. Persistindo webhook PagBank em modo fallback por status.');
+        console.warn('⚠️ Coluna pix_status/pix_id/pago_em ausente. Persistindo webhook PagBank em modo fallback por status.');
       }
 
       const linhasAfetadas = Number(resultadoUpdate?.affectedRows || 0);
@@ -360,13 +360,13 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
 
     try {
       const [resultadoCompleto] = await pool.query(
-        'UPDATE pedidos SET status = ?, pix_status = ? WHERE pix_id = ?',
-        [statusInterno, statusPagBank, orderId]
+        'UPDATE pedidos SET status = ?, pix_status = ?, pago_em = COALESCE(pago_em, IF(? = \'pago\', NOW(), pago_em)) WHERE pix_id = ?',
+        [statusInterno, statusPagBank, statusInterno, orderId]
       );
       resultadoUpdate = resultadoCompleto;
     } catch (erroUpdateCompleto) {
-      const colunaPixAusente = /unknown column\s+'(?:pix_status|pix_id)'/i.test(String(erroUpdateCompleto?.message || ''));
-      if (!colunaPixAusente) {
+      const colunaAusente = /unknown column\s+'(?:pix_status|pix_id|pago_em)'/i.test(String(erroUpdateCompleto?.message || ''));
+      if (!colunaAusente) {
         throw erroUpdateCompleto;
       }
 
