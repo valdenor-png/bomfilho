@@ -24,7 +24,7 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
 
       if (!usarPaginacao) {
         const [pedidos] = await pool.query(
-          'SELECT id, usuario_id, total, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC',
+          'SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC',
           [req.usuario.id]
         );
 
@@ -53,7 +53,7 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
       const offset = (paginacao.pagina - 1) * paginacao.limite;
 
       const [pedidos] = await pool.query(
-        'SELECT id, usuario_id, total, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC LIMIT ? OFFSET ?',
+        'SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC LIMIT ? OFFSET ?',
         [req.usuario.id, paginacao.limite, offset]
       );
 
@@ -78,7 +78,7 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
   router.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     try {
       const [pedidos] = await pool.query(
-        'SELECT id, usuario_id, total, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE id = ? AND usuario_id = ?',
+        'SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE id = ? AND usuario_id = ?',
         [req.params.id, req.usuario.id]
       );
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { STORE_WHATSAPP_URL, STORE_WHATSAPP_DISPLAY, STORE_TELEFONE_URL, STORE_TELEFONE_DISPLAY } from '../config/store';
 
 export default function PoliticaPrivacidadePage() {
   return (
@@ -51,8 +52,8 @@ export default function PoliticaPrivacidadePage() {
         Para solicitacoes relacionadas a dados pessoais, utilize os canais oficiais da loja:
       </p>
       <ul>
-        <li>WhatsApp e telefone: <a href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener noreferrer">(91) 99965-2790</a></li>
-        <li>Telefone fixo: <a href="tel:+559137219780">(91) 3721-9780</a></li>
+        <li>WhatsApp e telefone: <a href={STORE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">{STORE_WHATSAPP_DISPLAY}</a></li>
+        <li>Telefone fixo: <a href={STORE_TELEFONE_URL}>{STORE_TELEFONE_DISPLAY}</a></li>
         <li>Endereco de atendimento: Travessa 07 de Setembro, CEP 68740-180</li>
       </ul>
 

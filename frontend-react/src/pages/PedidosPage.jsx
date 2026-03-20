@@ -1,6 +1,7 @@
 import React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import useDocumentHead from '../hooks/useDocumentHead';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
 import { getPedidoById, getPedidos, isAuthErrorMessage } from '../lib/api';
@@ -207,6 +208,7 @@ function OrdersSkeletonList() {
 }
 
 export default function PedidosPage() {
+  useDocumentHead({ title: 'Meus Pedidos', description: 'Acompanhe seus pedidos, histórico e status de entrega.' });
   const navigate = useNavigate();
   const { addItem } = useCart();
   const { registrarRecompraItens, registrarAcaoCarrinho } = useRecorrencia();
@@ -550,7 +552,7 @@ export default function PedidosPage() {
         </label>
       </section>
 
-      {erro ? <p className="error-text">{erro}</p> : null}
+      {erro ? <p className="error-text" role="alert">{erro}</p> : null}
       {mensagemSucesso ? (
         <div className="orders-feedback is-success">
           <p>{mensagemSucesso}</p>
@@ -676,7 +678,7 @@ export default function PedidosPage() {
                     {estaCarregando ? <p className="muted-text">Carregando itens do pedido...</p> : null}
 
                     {!estaCarregando && detalhesPedido?.erro ? (
-                      <p className="error-text">{detalhesPedido.erro}</p>
+                      <p className="error-text" role="alert">{detalhesPedido.erro}</p>
                     ) : null}
 
                     {!estaCarregando && !detalhesPedido?.erro && (detalhesPedido?.itens || []).length === 0 ? (

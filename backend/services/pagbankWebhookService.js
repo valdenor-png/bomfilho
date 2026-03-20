@@ -1,5 +1,7 @@
 'use strict';
 
+const logger = require('../lib/logger');
+
 function validarTokenWebhookPagBank({
   tokenHeader,
   tokenQuery,
@@ -170,7 +172,7 @@ async function resolverDadosWebhookPagBank({
       consultaPagBank.sucesso = Boolean(detalhesOrder);
     } catch (errConsulta) {
       consultaPagBank.erro = errConsulta?.message || 'Falha ao consultar pedido no PagBank';
-      console.error('Erro ao consultar pedido no PagBank:', consultaPagBank.erro);
+      logger.error('Erro ao consultar pedido no PagBank', { erro: consultaPagBank.erro });
     }
   }
 
@@ -272,7 +274,7 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
         );
         resultadoUpdate = resultadoFallback;
         modoPersistencia = 'fallback_sem_colunas_pix';
-        console.warn('⚠️ Coluna pix_status/pix_id/pago_em ausente. Persistindo webhook PagBank em modo fallback por status.');
+        logger.warn('Coluna pix_status/pix_id/pago_em ausente — persistindo webhook PagBank em modo fallback por status');
       }
 
       const linhasAfetadas = Number(resultadoUpdate?.affectedRows || 0);
@@ -310,7 +312,7 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
         });
       }
 
-      console.log(`✅ Pedido #${pedidoId} atualizado para status: ${statusInterno}`);
+      logger.info(`Pedido #${pedidoId} atualizado para status: ${statusInterno}`);
       return montarResultado({
         ok: true,
         persistido: true,
@@ -325,7 +327,7 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
         retryable: false
       });
     } catch (err) {
-      console.error('Erro ao atualizar pedido:', err.message);
+      logger.error('Erro ao atualizar pedido', { pedidoId, orderId, erro: err.message });
       registrarLog({
         operacao: 'webhook.pagbank.persistencia.erro',
         endpoint: endpointLog,
@@ -371,7 +373,7 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
       }
 
       modoPersistencia = 'fallback_sem_colunas_pix_sem_lookup';
-      console.warn('⚠️ Coluna pix_status/pix_id ausente e sem pedido_id no reference_id. Persistência do webhook não aplicada.');
+      logger.warn('Coluna pix_status/pix_id ausente e sem pedido_id no reference_id — persistência do webhook não aplicada');
       return montarResultado({
         ok: false,
         persistido: false,
@@ -419,7 +421,7 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
       });
     }
 
-    console.log(`✅ Pedido com pix_id ${orderId} atualizado para status: ${statusInterno}`);
+    logger.info(`Pedido com pix_id ${orderId} atualizado para status: ${statusInterno}`);
     return montarResultado({
       ok: true,
       persistido: true,
@@ -432,7 +434,7 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
       retryable: false
     });
   } catch (err) {
-    console.error('Erro ao atualizar pedido por pix_id:', err.message);
+    logger.error('Erro ao atualizar pedido por pix_id', { orderId, chargeId, erro: err.message });
     registrarLog({
       operacao: 'webhook.pagbank.persistencia.erro',
       endpoint: endpointLog,

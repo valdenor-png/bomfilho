@@ -1,4 +1,5 @@
 import React from 'react';
+import { STORE_WHATSAPP_URL, STORE_WHATSAPP_DISPLAY, STORE_TELEFONE_URL, STORE_TELEFONE_DISPLAY } from '../config/store';
 
 export default function PoliticaEntregaPage() {
   return (
@@ -32,8 +33,8 @@ export default function PoliticaEntregaPage() {
 
       <h2>4. Contato de entrega</h2>
       <ul>
-        <li>WhatsApp e telefone: <a href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener noreferrer">(91) 99965-2790</a></li>
-        <li>Telefone fixo: <a href="tel:+559137219780">(91) 3721-9780</a></li>
+        <li>WhatsApp e telefone: <a href={STORE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">{STORE_WHATSAPP_DISPLAY}</a></li>
+        <li>Telefone fixo: <a href={STORE_TELEFONE_URL}>{STORE_TELEFONE_DISPLAY}</a></li>
         <li>Horario de atendimento: segunda a sabado, 7h30 as 13h e 15h as 19h30; domingos e feriados, 8h as 12h30</li>
       </ul>
     </section>

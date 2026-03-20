@@ -1,3 +1,8 @@
+/**
+ * Camada de DOMÍNIO — auth, CSRF, tokens, mapeamento de mensagens e
+ * funções exportadas por feature (login, pedidos, admin, CEP…).
+ * Usa services/api.js como transporte; é a única API pública para as páginas.
+ */
 import API_BASE_URL from '../config/api';
 import { apiGet, apiRequest } from '../services/api';
 

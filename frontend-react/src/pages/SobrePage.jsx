@@ -1,6 +1,9 @@
 import React from 'react';
+import useDocumentHead from '../hooks/useDocumentHead';
+import { STORE_NAME, STORE_CNPJ, STORE_ENDERECO, STORE_WHATSAPP_DISPLAY, STORE_TELEFONE_DISPLAY, STORE_HORARIO_CURTO } from '../config/store';
 
 export default function SobrePage() {
+  useDocumentHead({ title: 'Sobre', description: 'Conheça o BomFilho Supermercado — um supermercado de bairro com atendimento próximo e entrega ágil.' });
   return (
     <section className="page">
       <h1>Sobre</h1>
@@ -14,12 +17,12 @@ export default function SobrePage() {
       </section>
 
       <div className="card-box">
-        <p><strong>Nome/Razao exibida:</strong> BomFilho</p>
-        <p><strong>CNPJ:</strong> 09.175.211/0001-30</p>
-        <p><strong>Endereco:</strong> Travessa 07 de Setembro, CEP 68740-180</p>
-        <p><strong>WhatsApp e telefone:</strong> (91) 99965-2790</p>
-        <p><strong>Telefone fixo:</strong> (91) 3721-9780</p>
-        <p><strong>Horario:</strong> segunda a sabado, 7h30 as 13h e 15h as 19h30; domingos e feriados, 8h as 12h30</p>
+        <p><strong>Nome/Razao exibida:</strong> {STORE_NAME}</p>
+        <p><strong>CNPJ:</strong> {STORE_CNPJ}</p>
+        <p><strong>Endereco:</strong> {STORE_ENDERECO}</p>
+        <p><strong>WhatsApp e telefone:</strong> {STORE_WHATSAPP_DISPLAY}</p>
+        <p><strong>Telefone fixo:</strong> {STORE_TELEFONE_DISPLAY}</p>
+        <p><strong>Horario:</strong> {STORE_HORARIO_CURTO}</p>
       </div>
     </section>
   );

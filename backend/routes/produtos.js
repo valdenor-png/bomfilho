@@ -36,9 +36,12 @@ module.exports = function createProdutosPublicRoutes({
     try {
       res.set('Cache-Control', 'public, max-age=30');
       const colunas = await obterColunasProdutos();
+      const nomeExpr = colunas.has('nome_externo')
+        ? "COALESCE(NULLIF(TRIM(nome_externo), ''), nome) AS nome"
+        : 'nome';
       const campos = [
         'id',
-        'nome',
+        nomeExpr,
         colunas.has('descricao') ? 'descricao' : 'NULL AS descricao',
         colunas.has('marca') ? 'marca' : 'NULL AS marca',
         'preco',
@@ -48,6 +51,10 @@ module.exports = function createProdutosPublicRoutes({
         colunas.has('estoque') ? 'estoque' : '0 AS estoque',
         colunas.has('validade') ? 'validade' : 'NULL AS validade'
       ];
+
+      if (colunas.has('nome_externo')) {
+        campos.push('nome_externo');
+      }
 
       if (colunas.has('codigo_barras')) {
         campos.push('codigo_barras');
@@ -87,6 +94,11 @@ module.exports = function createProdutosPublicRoutes({
           `LOWER(nome) LIKE ? ESCAPE '\\\\'`
         ];
         params.push(termo);
+
+        if (colunas.has('nome_externo')) {
+          filtrosBusca.push(`LOWER(COALESCE(nome_externo, '')) LIKE ? ESCAPE '\\\\'`);
+          params.push(termo);
+        }
 
         if (colunas.has('descricao')) {
           filtrosBusca.push(`LOWER(COALESCE(descricao, '')) LIKE ? ESCAPE '\\\\'`);

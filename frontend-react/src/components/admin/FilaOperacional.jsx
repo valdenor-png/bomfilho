@@ -9,8 +9,8 @@ const LABELS_FILA = {
   pagos_aguardando_preparo: { titulo: '🔥 Pagos — Iniciar Preparo', cor: '#3b82f6', proximoStatus: 'preparando' },
   prontos_aguardando_saida: { titulo: '📦 Prontos — Despachar', cor: '#8b5cf6', proximoStatus: 'enviado' },
   em_rota_acima_sla: { titulo: '🚨 Em Rota Acima do SLA', cor: '#ef4444', proximoStatus: 'entregue' },
-  retiradas_prontas_aguardando: { titulo: '🏪 Retiradas Aguardando Cliente', cor: '#06b6d4', proximoStatus: null },
-  travados: { titulo: '⚠️ Pedidos Travados (+60min)', cor: '#94a3b8', proximoStatus: null }
+  retiradas_prontas_aguardando: { titulo: '🏪 Retiradas Aguardando Cliente', cor: '#0891b2', proximoStatus: null },
+  travados: { titulo: '⚠️ Pedidos Travados (+60min)', cor: '#6b7280', proximoStatus: null }
 };
 
 const LABEL_STATUS_BTN = {
@@ -170,7 +170,7 @@ export default function FilaOperacional() {
           if (!cfg) return null;
           return (
             <div key={k} className="fila-contador" style={{ borderLeftColor: cfg.cor }}>
-              <span className="fila-contador-valor" style={{ color: v > 0 ? cfg.cor : '#94a3b8' }}>{v}</span>
+              <span className="fila-contador-valor" style={{ color: v > 0 ? cfg.cor : '#6b7280' }}>{v}</span>
               <span className="fila-contador-label">{cfg.titulo.replace(/^[^\s]+\s/, '')}</span>
             </div>
           );

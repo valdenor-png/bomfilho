@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ReCAPTCHA from 'react-google-recaptcha';
 import {
@@ -14,8 +13,8 @@ import {
   salvarEndereco
 } from '../lib/api';
 import { useRecorrencia } from '../context/RecorrenciaContext';
+import useDocumentHead from '../hooks/useDocumentHead';
 import {
-  FONT_SCALE_OPTIONS,
   getStoredFontScale,
   getStoredHighContrast,
   getStoredReducedMotion,
@@ -23,314 +22,30 @@ import {
   setStoredHighContrast,
   setStoredReducedMotion
 } from '../lib/accessibility';
-
-const PREFERENCIAS_STORAGE_KEY = 'bf_conta_preferencias';
-
-const ENDERECO_FORM_INICIAL = {
-  cep: '',
-  rua: '',
-  numero: '',
-  complemento: '',
-  bairro: '',
-  cidade: '',
-  estado: '',
-  referencia: ''
-};
-
-function normalizarCepEndereco(valor) {
-  return String(valor || '').replace(/\D/g, '').slice(0, 8);
-}
-
-function formatarCepEndereco(valor) {
-  const digits = normalizarCepEndereco(valor);
-  if (digits.length <= 5) {
-    return digits;
-  }
-
-  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
-}
-
-function lerPreferenciasLocais() {
-  if (typeof window === 'undefined') {
-    return {
-      promocoesWhatsapp: true,
-      promocoesEmail: true,
-      notificacoesPedidos: true,
-      temaEscuro: false
-    };
-  }
-
-  try {
-    const raw = window.localStorage.getItem(PREFERENCIAS_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return {
-      promocoesWhatsapp: parsed?.promocoesWhatsapp !== false,
-      promocoesEmail: parsed?.promocoesEmail !== false,
-      notificacoesPedidos: parsed?.notificacoesPedidos !== false,
-      temaEscuro: parsed?.temaEscuro === true
-    };
-  } catch {
-    return {
-      promocoesWhatsapp: true,
-      promocoesEmail: true,
-      notificacoesPedidos: true,
-      temaEscuro: false
-    };
-  }
-}
-
-function salvarPreferenciasLocais(preferencias) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(PREFERENCIAS_STORAGE_KEY, JSON.stringify(preferencias));
-  } catch {
-    // Ignora falhas de storage para não bloquear a tela.
-  }
-}
-
-function formatarTelefone(valor) {
-  const digits = String(valor || '').replace(/\D/g, '');
-
-  if (!digits) {
-    return 'Não informado';
-  }
-
-  if (digits.length === 11) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
-  }
-
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-  }
-
-  return String(valor || '').trim();
-}
-
-function normalizarTelefoneCadastro(valor) {
-  return String(valor || '').replace(/\D/g, '').slice(0, 11);
-}
-
-function formatarTelefoneCadastro(valor) {
-  const digits = normalizarTelefoneCadastro(valor);
-
-  if (digits.length <= 2) {
-    return digits;
-  }
-
-  if (digits.length <= 6) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-  }
-
-  if (digits.length <= 10) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-  }
-
-  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
-}
-
-function avaliarForcaSenha(valor) {
-  const senhaAtual = String(valor || '');
-  const checks = [
-    {
-      id: 'length',
-      label: 'Pelo menos 8 caracteres',
-      ok: senhaAtual.length >= 8
-    },
-    {
-      id: 'letters',
-      label: 'Letras maiúsculas e minúsculas',
-      ok: /[A-Z]/.test(senhaAtual) && /[a-z]/.test(senhaAtual)
-    },
-    {
-      id: 'number',
-      label: 'Ao menos 1 número',
-      ok: /\d/.test(senhaAtual)
-    },
-    {
-      id: 'symbol',
-      label: 'Ao menos 1 símbolo',
-      ok: /[^A-Za-z0-9]/.test(senhaAtual)
-    }
-  ];
-
-  const score = checks.reduce((accumulator, check) => accumulator + (check.ok ? 1 : 0), 0);
-
-  if (score <= 1) {
-    return {
-      checks,
-      score,
-      level: 'fraca',
-      tone: 'weak'
-    };
-  }
-
-  if (score <= 3) {
-    return {
-      checks,
-      score,
-      level: 'média',
-      tone: 'medium'
-    };
-  }
-
-  return {
-    checks,
-    score,
-    level: 'forte',
-    tone: 'strong'
-  };
-}
-
-function obterIniciais(nome) {
-  const normalizado = String(nome || '').trim();
-  if (!normalizado) {
-    return 'CL';
-  }
-
-  const partes = normalizado.split(/\s+/).filter(Boolean);
-  if (partes.length === 1) {
-    return partes[0].slice(0, 2).toUpperCase();
-  }
-
-  return `${partes[0][0]}${partes[1][0]}`.toUpperCase();
-}
-
-function montarResumoEndereco(endereco) {
-  if (!endereco) {
-    return {
-      titulo: 'Endereço principal',
-      linha1: 'Você ainda não cadastrou um endereço.',
-      linha2: 'Adicione seu endereço para agilizar o checkout e o cálculo de entrega.'
-    };
-  }
-
-  const ruaNumero = [endereco.rua, endereco.numero].filter(Boolean).join(', ');
-  const cidadeEstado = [endereco.cidade, endereco.estado].filter(Boolean).join(' - ');
-  const linha2 = [endereco.bairro, cidadeEstado, endereco.cep].filter(Boolean).join(' • ');
-
-  return {
-    titulo: 'Endereço principal',
-    linha1: ruaNumero || 'Endereço cadastrado sem rua e número.',
-    linha2: linha2 || 'Complete bairro, cidade, estado e CEP para facilitar a entrega.'
-  };
-}
-
-function IconUser() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="conta-icon-svg">
-      <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z" />
-    </svg>
-  );
-}
-
-function IconMail() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="conta-icon-svg">
-      <path d="M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Zm8 6 8-5H4l8 5Z" />
-    </svg>
-  );
-}
-
-function IconPhone() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="conta-icon-svg">
-      <path d="M6.62 10.79a15.46 15.46 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1-.24 11.7 11.7 0 0 0 3.69.59 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.47a1 1 0 0 1 1 1 11.7 11.7 0 0 0 .59 3.69 1 1 0 0 1-.25 1Z" />
-    </svg>
-  );
-}
-
-function IconPin() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="conta-icon-svg">
-      <path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Zm0 10a3 3 0 1 1 3-3 3 3 0 0 1-3 3Z" />
-    </svg>
-  );
-}
-
-function IconShield() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="conta-icon-svg">
-      <path d="M12 2 4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5l-8-3Zm-1 13-3-3 1.41-1.41L11 12.17l3.59-3.58L16 10l-5 5Z" />
-    </svg>
-  );
-}
-
-function IconPreferences() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="conta-icon-svg">
-      <path d="M10.59 3.41 9.17 4.83l1.41 1.41 1.42-1.41 1.41 1.41 1.42-1.41-1.42-1.42a2 2 0 0 0-2.82 0ZM5 9h14v2H5Zm2 4h10v2H7Z" />
-    </svg>
-  );
-}
-
-function IconAccessibility() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="conta-icon-svg">
-      <path d="M12 2a2 2 0 1 0 2 2 2 2 0 0 0-2-2Zm7 5H5v2h5v13h2V9h5Z" />
-    </svg>
-  );
-}
-
-function IconShortcut() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="conta-icon-svg">
-      <path d="M4 4h7v7H4Zm9 0h7v7h-7ZM4 13h7v7H4Zm13 0h3v7h-7v-3h4Z" />
-    </svg>
-  );
-}
-
-function SwitchControl({ id, label, description, checked, onChange, disabled = false }) {
-  return (
-    <label className={`switch-item ${disabled ? 'is-disabled' : ''}`} htmlFor={id}>
-      <span className="switch-item-copy">
-        <strong>{label}</strong>
-        <small>{description}</small>
-      </span>
-
-      <span className="switch-control" aria-hidden="true">
-        <input
-          id={id}
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-          disabled={disabled}
-        />
-        <span className="switch-slider" />
-      </span>
-    </label>
-  );
-}
-
-function ShortcutCard({ to, title, description, disabled = false, onClick }) {
-  const body = (
-    <>
-      <span className="conta-shortcut-icon"><IconShortcut /></span>
-      <span className="conta-shortcut-copy">
-        <strong>{title}</strong>
-        <small>{description}</small>
-      </span>
-    </>
-  );
-
-  if (!disabled && to) {
-    return (
-      <Link className="conta-shortcut-card" to={to}>
-        {body}
-      </Link>
-    );
-  }
-
-  return (
-    <button className="conta-shortcut-card is-button" type="button" disabled={disabled} onClick={onClick}>
-      {body}
-    </button>
-  );
-}
+import {
+  ENDERECO_FORM_INICIAL,
+  normalizarCepEndereco,
+  formatarCepEndereco,
+  lerPreferenciasLocais,
+  salvarPreferenciasLocais,
+  formatarTelefone,
+  normalizarTelefoneCadastro,
+  avaliarForcaSenha,
+  obterIniciais,
+  montarResumoEndereco
+} from '../lib/contaUtils';
+import {
+  ProfileSection,
+  AddressSection,
+  PreferencesSection,
+  SecuritySection,
+  AccessibilitySection,
+  ShortcutsSection,
+  AuthSection
+} from '../components/conta';
 
 export default function ContaPage() {
+  useDocumentHead({ title: 'Minha Conta', description: 'Gerencie seu perfil, endereço e preferências na sua conta BomFilho.' });
   const { stats: recorrenciaStats } = useRecorrencia();
   const recaptchaSiteKey = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
   const recaptchaEnabled = recaptchaSiteKey.length > 0;
@@ -633,6 +348,20 @@ export default function ContaPage() {
     setEnderecoEmEdicao(false);
   }
 
+  function handleCepChange(event) {
+    setErroEnderecoForm('');
+    setSucessoEnderecoForm('');
+    setMensagemCepEndereco('');
+    atualizarCampoEndereco('cep', formatarCepEndereco(event.target.value));
+  }
+
+  function handleCepBlur() {
+    const cepLimpo = normalizarCepEndereco(enderecoForm.cep);
+    if (cepLimpo && cepLimpo.length !== 8) {
+      setMensagemCepEndereco('CEP inválido');
+    }
+  }
+
   async function handleSalvarEndereco(event) {
     event.preventDefault();
     setErroEnderecoForm('');
@@ -862,6 +591,32 @@ export default function ContaPage() {
     setReducedMotion(normalizedEnabled);
   }
 
+  function handleModoChange(novoModo) {
+    setModo(novoModo);
+    setSenha('');
+    setConfirmacaoSenha('');
+    setMostrarSenha(false);
+    setErro('');
+    setMensagemInfo('');
+    resetRecaptcha();
+  }
+
+  function handleRecaptchaChange(token) {
+    setRecaptchaToken(String(token || '').trim());
+    if (token) {
+      setRecaptchaErroCarregamento('');
+    }
+  }
+
+  function handleRecaptchaExpired() {
+    setRecaptchaToken('');
+  }
+
+  function handleRecaptchaError() {
+    setRecaptchaToken('');
+    setRecaptchaErroCarregamento('Não foi possível validar o reCAPTCHA neste domínio. Acesse o endereço oficial da loja ou atualize os domínios permitidos no Google reCAPTCHA.');
+  }
+
   const nomeExibicao = String(usuario?.nome || 'Cliente').trim() || 'Cliente';
   const emailExibicao = String(usuario?.email || 'Sem e-mail cadastrado').trim() || 'Sem e-mail cadastrado';
   const telefoneExibicao = formatarTelefone(usuario?.telefone);
@@ -889,707 +644,115 @@ export default function ContaPage() {
         </div>
       </header>
 
-      {erro ? <p className="error-text">{erro}</p> : null}
+      {erro ? <p className="error-text" role="alert">{erro}</p> : null}
       {mensagemInfo ? <p className="conta-info-text">{mensagemInfo}</p> : null}
 
       {usuario ? (
         <>
-          {/* Bloco principal com identidade da conta e dados essenciais */}
-          <article className="card-box conta-profile-card">
-            <div className="conta-profile-top">
-              <div className="conta-avatar" aria-hidden="true">{iniciaisAvatar}</div>
-
-              <div className="conta-profile-copy">
-                <span className="conta-pill">Conta ativa</span>
-                <h2>{nomeExibicao}</h2>
-                <p className="muted-text conta-profile-subtitle">{textoStatusConta}</p>
-              </div>
-
-              <div className="conta-profile-actions">
-                <Link to="/pedidos" className="btn-primary conta-profile-orders">
-                  Ver meus pedidos
-                </Link>
-                <button
-                  className="btn-secondary conta-profile-edit is-subtle"
-                  type="button"
-                  disabled={carregando}
-                  onClick={() => handleAcaoEmBreve('Edição de perfil')}
-                >
-                  Editar perfil
-                </button>
-              </div>
-            </div>
-
-            <div className="conta-profile-lines">
-              <p className="conta-line-item">
-                <span className="conta-line-icon"><IconMail /></span>
-                <span className="conta-line-copy">
-                  <small>E-mail</small>
-                  <strong>{emailExibicao}</strong>
-                </span>
-              </p>
-
-              <p className="conta-line-item">
-                <span className="conta-line-icon"><IconPhone /></span>
-                <span className="conta-line-copy">
-                  <small>Telefone</small>
-                  <strong>{telefoneExibicao}</strong>
-                </span>
-              </p>
-
-              <p className="conta-line-item">
-                <span className="conta-line-icon"><IconUser /></span>
-                <span className="conta-line-copy">
-                  <small>Cadastro</small>
-                  <strong>Cliente desde {new Date().getFullYear()}</strong>
-                </span>
-              </p>
-            </div>
-          </article>
+          <ProfileSection
+            nomeExibicao={nomeExibicao}
+            emailExibicao={emailExibicao}
+            telefoneExibicao={telefoneExibicao}
+            iniciaisAvatar={iniciaisAvatar}
+            textoStatusConta={textoStatusConta}
+            carregando={carregando}
+            onAcaoEmBreve={handleAcaoEmBreve}
+          />
 
           <div className="conta-sections-grid">
-            <article className="card-box conta-section-card">
-              <div className="conta-section-head">
-                <span className="conta-section-icon"><IconPin /></span>
-                <div>
-                  <h3>Endereços</h3>
-                  <p>Resumo do endereço principal com edição sob demanda.</p>
-                </div>
-              </div>
+            <AddressSection
+              carregandoEndereco={carregandoEndereco}
+              enderecoEmEdicao={enderecoEmEdicao}
+              enderecoPrincipal={enderecoPrincipal}
+              resumoEndereco={resumoEndereco}
+              cidadeUfEndereco={cidadeUfEndereco}
+              cepEnderecoExibicao={cepEnderecoExibicao}
+              erroEnderecoForm={erroEnderecoForm}
+              sucessoEnderecoForm={sucessoEnderecoForm}
+              enderecoForm={enderecoForm}
+              mensagemCepEndereco={mensagemCepEndereco}
+              buscandoCepEndereco={buscandoCepEndereco}
+              salvandoEndereco={salvandoEndereco}
+              onIniciarEdicao={handleIniciarEdicaoEndereco}
+              onCancelarEdicao={handleCancelarEdicaoEndereco}
+              onSalvarEndereco={handleSalvarEndereco}
+              onResetarFormulario={resetarFormularioEndereco}
+              onAtualizarCampo={atualizarCampoEndereco}
+              onCepChange={handleCepChange}
+              onCepBlur={handleCepBlur}
+            />
 
-              <div className="conta-address-content">
-                {carregandoEndereco ? (
-                  <p className="muted-text">Carregando endereço principal...</p>
-                ) : !enderecoEmEdicao ? (
-                  <div className="conta-address-summary">
-                    <div className="conta-address-preview">
-                      <p className="conta-address-title">{resumoEndereco.titulo}</p>
-                      <p>{resumoEndereco.linha1}</p>
-                      <p className="muted-text conta-address-muted">{resumoEndereco.linha2}</p>
-                    </div>
+            <PreferencesSection
+              preferencias={preferencias}
+              onToggleWhatsapp={handleTogglePromocoesWhatsapp}
+              onAtualizarPreferencia={atualizarPreferencia}
+            />
 
-                    <dl className="conta-address-meta" aria-label="Resumo de cidade e CEP">
-                      <div className="conta-address-meta-item">
-                        <dt>Cidade/UF</dt>
-                        <dd>{cidadeUfEndereco}</dd>
-                      </div>
-                      <div className="conta-address-meta-item">
-                        <dt>CEP</dt>
-                        <dd>{cepEnderecoExibicao}</dd>
-                      </div>
-                    </dl>
+            <SecuritySection
+              carregando={carregando}
+              onLogout={handleLogout}
+              onAcaoEmBreve={handleAcaoEmBreve}
+              onExcluirConta={handleExcluirContaPlaceholder}
+            />
 
-                    <div className="conta-address-summary-actions">
-                      <button className="btn-secondary" type="button" onClick={handleIniciarEdicaoEndereco}>
-                        {enderecoPrincipal ? 'Editar endereço' : 'Adicionar endereço'}
-                      </button>
-                    </div>
+            <AccessibilitySection
+              fontScale={fontScale}
+              highContrast={highContrast}
+              reducedMotion={reducedMotion}
+              onFontScaleChange={handleFontScaleChange}
+              onHighContrastChange={handleHighContrastChange}
+              onReducedMotionChange={handleReducedMotionChange}
+            />
 
-                    {erroEnderecoForm ? <p className="error-text">{erroEnderecoForm}</p> : null}
-                    {sucessoEnderecoForm ? <p className="conta-info-text">{sucessoEnderecoForm}</p> : null}
-                  </div>
-                ) : (
-                  <form className="conta-endereco-form" onSubmit={handleSalvarEndereco}>
-                    <div className="conta-endereco-form-head">
-                      <p className="conta-endereco-form-title">
-                        {enderecoPrincipal ? 'Editar endereço principal' : 'Adicionar endereço principal'}
-                      </p>
-
-                      <button
-                        className="btn-secondary conta-endereco-cancelar"
-                        type="button"
-                        onClick={handleCancelarEdicaoEndereco}
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-
-                    <div className="conta-address-preview">
-                      <p className="conta-address-title">{resumoEndereco.titulo}</p>
-                      <p>{resumoEndereco.linha1}</p>
-                      <p className="muted-text conta-address-muted">{resumoEndereco.linha2}</p>
-                    </div>
-
-                    <div className="conta-endereco-grid">
-                      <div className="conta-endereco-field">
-                        <label className="field-label" htmlFor="conta-endereco-cep">CEP</label>
-                        <input
-                          id="conta-endereco-cep"
-                          className="field-input"
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="postal-code"
-                          maxLength={9}
-                          placeholder="00000-000"
-                          value={enderecoForm.cep}
-                          onChange={(event) => {
-                            setErroEnderecoForm('');
-                            setSucessoEnderecoForm('');
-                            setMensagemCepEndereco('');
-                            atualizarCampoEndereco('cep', formatarCepEndereco(event.target.value));
-                          }}
-                          onBlur={() => {
-                            const cepLimpo = normalizarCepEndereco(enderecoForm.cep);
-                            if (cepLimpo && cepLimpo.length !== 8) {
-                              setMensagemCepEndereco('CEP inválido');
-                            }
-                          }}
-                        />
-                      </div>
-
-                      <div className="conta-endereco-field conta-endereco-field-span-2">
-                        <label className="field-label" htmlFor="conta-endereco-rua">Logradouro</label>
-                        <input
-                          id="conta-endereco-rua"
-                          className="field-input"
-                          type="text"
-                          autoComplete="address-line1"
-                          value={enderecoForm.rua}
-                          onChange={(event) => atualizarCampoEndereco('rua', event.target.value)}
-                        />
-                      </div>
-
-                      <div className="conta-endereco-field">
-                        <label className="field-label" htmlFor="conta-endereco-numero">Número</label>
-                        <input
-                          id="conta-endereco-numero"
-                          className="field-input"
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="address-line2"
-                          value={enderecoForm.numero}
-                          onChange={(event) => atualizarCampoEndereco('numero', event.target.value)}
-                        />
-                      </div>
-
-                      <div className="conta-endereco-field">
-                        <label className="field-label" htmlFor="conta-endereco-complemento">Complemento</label>
-                        <input
-                          id="conta-endereco-complemento"
-                          className="field-input"
-                          type="text"
-                          autoComplete="off"
-                          value={enderecoForm.complemento}
-                          onChange={(event) => atualizarCampoEndereco('complemento', event.target.value)}
-                        />
-                      </div>
-
-                      <div className="conta-endereco-field">
-                        <label className="field-label" htmlFor="conta-endereco-bairro">Bairro</label>
-                        <input
-                          id="conta-endereco-bairro"
-                          className="field-input"
-                          type="text"
-                          autoComplete="address-level3"
-                          value={enderecoForm.bairro}
-                          onChange={(event) => atualizarCampoEndereco('bairro', event.target.value)}
-                        />
-                      </div>
-
-                      <div className="conta-endereco-field">
-                        <label className="field-label" htmlFor="conta-endereco-cidade">Cidade</label>
-                        <input
-                          id="conta-endereco-cidade"
-                          className="field-input"
-                          type="text"
-                          autoComplete="address-level2"
-                          value={enderecoForm.cidade}
-                          onChange={(event) => atualizarCampoEndereco('cidade', event.target.value)}
-                        />
-                      </div>
-
-                      <div className="conta-endereco-field">
-                        <label className="field-label" htmlFor="conta-endereco-estado">UF</label>
-                        <input
-                          id="conta-endereco-estado"
-                          className="field-input"
-                          type="text"
-                          autoComplete="address-level1"
-                          maxLength={2}
-                          value={enderecoForm.estado}
-                          onChange={(event) => atualizarCampoEndereco('estado', String(event.target.value || '').toUpperCase())}
-                        />
-                      </div>
-
-                      <div className="conta-endereco-field conta-endereco-field-span-2">
-                        <label className="field-label" htmlFor="conta-endereco-referencia">Referência</label>
-                        <input
-                          id="conta-endereco-referencia"
-                          className="field-input"
-                          type="text"
-                          autoComplete="off"
-                          value={enderecoForm.referencia}
-                          onChange={(event) => atualizarCampoEndereco('referencia', event.target.value)}
-                        />
-                      </div>
-                    </div>
-
-                    {mensagemCepEndereco ? (
-                      <p
-                        className={`conta-endereco-feedback ${
-                          buscandoCepEndereco
-                            ? 'is-loading'
-                            : mensagemCepEndereco === 'CEP não encontrado' || mensagemCepEndereco === 'CEP inválido'
-                              ? 'is-warning'
-                              : mensagemCepEndereco.includes('Não foi possível')
-                                ? 'is-error'
-                                : 'is-success'
-                        }`}
-                        role={mensagemCepEndereco === 'CEP não encontrado' || mensagemCepEndereco === 'CEP inválido' || mensagemCepEndereco.includes('Não foi possível') ? 'alert' : 'status'}
-                        aria-live="polite"
-                      >
-                        {mensagemCepEndereco}
-                      </p>
-                    ) : null}
-
-                    {erroEnderecoForm ? <p className="error-text">{erroEnderecoForm}</p> : null}
-                    {sucessoEnderecoForm ? <p className="conta-info-text">{sucessoEnderecoForm}</p> : null}
-
-                    <div className="conta-inline-actions conta-inline-actions-endereco">
-                      <button className="btn-secondary" type="button" onClick={resetarFormularioEndereco}>
-                        Restaurar dados
-                      </button>
-                      <button className="btn-primary" type="submit" disabled={salvandoEndereco || buscandoCepEndereco}>
-                        {salvandoEndereco ? 'Salvando endereço...' : 'Salvar endereço'}
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            </article>
-
-            <article className="card-box conta-section-card">
-              <div className="conta-section-head">
-                <span className="conta-section-icon"><IconPreferences /></span>
-                <div>
-                  <h3>Preferências</h3>
-                  <p>Escolha como quer receber avisos e novidades.</p>
-                </div>
-              </div>
-
-              <div className="switch-list" aria-label="Preferências da conta">
-                <SwitchControl
-                  id="pref-whatsapp-promocoes"
-                  label="Promoções no WhatsApp"
-                  description="Ofertas e novidades no número cadastrado."
-                  checked={preferencias.promocoesWhatsapp}
-                  onChange={(checked) => {
-                    void handleTogglePromocoesWhatsapp(checked);
-                  }}
-                />
-
-                <SwitchControl
-                  id="pref-email-promocoes"
-                  label="Promoções por e-mail"
-                  description="Cupons e campanhas na sua caixa de entrada."
-                  checked={preferencias.promocoesEmail}
-                  onChange={(checked) => atualizarPreferencia('promocoesEmail', checked)}
-                />
-
-                <SwitchControl
-                  id="pref-notificacoes-pedidos"
-                  label="Notificações de pedidos"
-                  description="Atualizações de preparo e entrega."
-                  checked={preferencias.notificacoesPedidos}
-                  onChange={(checked) => atualizarPreferencia('notificacoesPedidos', checked)}
-                />
-
-                <SwitchControl
-                  id="pref-tema-escuro"
-                  label="Tema escuro"
-                  description="Disponível em breve."
-                  checked={preferencias.temaEscuro}
-                  onChange={(checked) => atualizarPreferencia('temaEscuro', checked)}
-                  disabled
-                />
-              </div>
-            </article>
-
-            <article className="card-box conta-section-card">
-              <div className="conta-section-head">
-                <span className="conta-section-icon"><IconShield /></span>
-                <div>
-                  <h3>Segurança</h3>
-                  <p>Ações de acesso da sua conta.</p>
-                </div>
-              </div>
-
-              <div className="conta-security-list" aria-label="Ações de segurança">
-                <button className="conta-security-item" type="button" onClick={() => handleAcaoEmBreve('Troca de senha')}>
-                  <span className="conta-security-item-copy">
-                    <strong>Alterar senha</strong>
-                    <small>Troque sua senha quando precisar.</small>
-                  </span>
-                  <span className="conta-security-item-tag" aria-hidden="true">Abrir</span>
-                </button>
-
-                <button className="conta-security-item" type="button" onClick={() => handleAcaoEmBreve('Sessões ativas')}>
-                  <span className="conta-security-item-copy">
-                    <strong>Sessões ativas</strong>
-                    <small>Veja onde sua conta está conectada.</small>
-                  </span>
-                  <span className="conta-security-item-tag" aria-hidden="true">Abrir</span>
-                </button>
-
-                <button className="conta-security-item" type="button" onClick={handleLogout} disabled={carregando}>
-                  <span className="conta-security-item-copy">
-                    <strong>Sair da conta</strong>
-                    <small>Encerrar sessão neste aparelho.</small>
-                  </span>
-                  <span className="conta-security-item-tag" aria-hidden="true">Agora</span>
-                </button>
-              </div>
-
-              <details className="conta-security-danger">
-                <summary>Opções delicadas</summary>
-                <div className="conta-security-danger-content">
-                  <p className="muted-text">Use apenas quando realmente necessário.</p>
-                  <button className="btn-danger" type="button" onClick={handleExcluirContaPlaceholder} disabled={carregando}>
-                    Excluir conta
-                  </button>
-                </div>
-              </details>
-            </article>
-
-            {/* Acessibilidade mantida, porém com menor peso visual no layout */}
-            <article className="card-box conta-section-card conta-accessibility-card">
-              <div className="conta-section-head">
-                <span className="conta-section-icon"><IconAccessibility /></span>
-                <div>
-                  <h3>Acessibilidade</h3>
-                  <p>Ajustes rápidos para leitura e conforto visual.</p>
-                </div>
-              </div>
-
-              <p className="conta-font-hint">Tamanho do texto</p>
-              <div className="conta-font-row" role="group" aria-label="Ajustar tamanho da fonte">
-                {FONT_SCALE_OPTIONS.map((option) => (
-                  <button
-                    key={option.label}
-                    type="button"
-                    className={`btn-secondary conta-font-btn ${fontScale === option.value ? 'active' : ''}`}
-                    aria-pressed={fontScale === option.value}
-                    onClick={() => handleFontScaleChange(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="switch-list" aria-label="Recursos de acessibilidade">
-                <SwitchControl
-                  id="toggle-high-contrast"
-                  label="Alto contraste"
-                  description="Aumenta contraste de textos e elementos."
-                  checked={highContrast}
-                  onChange={handleHighContrastChange}
-                />
-
-                <SwitchControl
-                  id="toggle-reduced-motion"
-                  label="Reduzir animações"
-                  description="Diminui efeitos e transições visuais."
-                  checked={reducedMotion}
-                  onChange={handleReducedMotionChange}
-                />
-              </div>
-            </article>
-
-            <article className="card-box conta-section-card">
-              <div className="conta-section-head">
-                <span className="conta-section-icon"><IconShortcut /></span>
-                <div>
-                  <h3>Atalhos úteis</h3>
-                  <p>Links rápidos para pedidos, recompra e suporte.</p>
-                </div>
-              </div>
-
-              <p className="muted-text conta-shortcuts-resumo">
-                Favoritos: {recorrenciaStats.favoritos} • Recompra: {recorrenciaStats.recompra}
-              </p>
-
-              <div className="conta-shortcuts-grid">
-                <ShortcutCard to="/pedidos" title="Meus pedidos" description="Ver histórico e andamento." />
-                <ShortcutCard to="/produtos?recorrencia=favoritos" title="Favoritos" description="Abrir produtos salvos." />
-                <ShortcutCard to="/produtos?recorrencia=recompra" title="Comprar novamente" description="Repetir compras frequentes." />
-                <ShortcutCard disabled title="Cupons" description="Disponível em breve." />
-                <ShortcutCard
-                  title="Ajuda / suporte"
-                  description="Falar com o atendimento."
-                  onClick={() => {
-                    window.open('https://wa.me/5591999652790', '_blank', 'noopener,noreferrer');
-                  }}
-                />
-              </div>
-            </article>
+            <ShortcutsSection recorrenciaStats={recorrenciaStats} />
           </div>
         </>
       ) : (
         <>
-          <div className="conta-auth-layout">
-            <form className="form-box conta-auth-card" onSubmit={modo === 'login' ? handleLogin : handleCadastro}>
-              <div className="auth-switch">
-                <button
-                  type="button"
-                  className={`auth-switch-btn ${modo === 'login' ? 'active' : ''}`}
-                  onClick={() => {
-                    setModo('login');
-                    setSenha('');
-                    setConfirmacaoSenha('');
-                    setMostrarSenha(false);
-                    setErro('');
-                    setMensagemInfo('');
-                    resetRecaptcha();
-                  }}
-                >
-                  Entrar
-                </button>
-                <button
-                  type="button"
-                  className={`auth-switch-btn ${modo === 'cadastro' ? 'active' : ''}`}
-                  onClick={() => {
-                    setModo('cadastro');
-                    setSenha('');
-                    setConfirmacaoSenha('');
-                    setMostrarSenha(false);
-                    setErro('');
-                    setMensagemInfo('');
-                    resetRecaptcha();
-                  }}
-                >
-                  Criar conta
-                </button>
-              </div>
+          <AuthSection
+            modo={modo}
+            nome={nome}
+            email={email}
+            senha={senha}
+            confirmacaoSenha={confirmacaoSenha}
+            mostrarSenha={mostrarSenha}
+            telefone={telefone}
+            whatsappOptIn={whatsappOptIn}
+            carregando={carregando}
+            recaptchaEnabled={recaptchaEnabled}
+            recaptchaSiteKey={recaptchaSiteKey}
+            recaptchaRef={recaptchaRef}
+            recaptchaErroCarregamento={recaptchaErroCarregamento}
+            senhaStrength={senhaStrength}
+            senhaFracaCadastro={senhaFracaCadastro}
+            confirmacaoSenhaInvalida={confirmacaoSenhaInvalida}
+            telefoneCadastroNormalizado={telefoneCadastroNormalizado}
+            onModoChange={handleModoChange}
+            onNomeChange={setNome}
+            onEmailChange={setEmail}
+            onSenhaChange={setSenha}
+            onConfirmacaoSenhaChange={setConfirmacaoSenha}
+            onMostrarSenhaToggle={() => setMostrarSenha((current) => !current)}
+            onTelefoneChange={setTelefone}
+            onWhatsappOptInChange={setWhatsappOptIn}
+            onRecaptchaChange={handleRecaptchaChange}
+            onRecaptchaExpired={handleRecaptchaExpired}
+            onRecaptchaError={handleRecaptchaError}
+            onLogin={handleLogin}
+            onCadastro={handleCadastro}
+          />
 
-              <p className="conta-auth-description">
-                {modo === 'login'
-                  ? 'Entre para acompanhar pedidos e concluir pagamentos com segurança.'
-                  : 'Crie sua conta para salvar dados e agilizar suas próximas compras.'}
-              </p>
-
-              {modo === 'cadastro' ? (
-                <>
-                  <label className="field-label" htmlFor="nome">Nome completo</label>
-                  <input
-                    id="nome"
-                    className="field-input"
-                    type="text"
-                    value={nome}
-                    onChange={(event) => setNome(event.target.value)}
-                    required
-                  />
-
-                  <label className="field-label" htmlFor="telefone">Telefone</label>
-                  <input
-                    id="telefone"
-                    className="field-input"
-                    type="tel"
-                    inputMode="numeric"
-                    autoComplete="tel"
-                    maxLength={15}
-                    placeholder="(91) 99999-9999"
-                    value={telefone}
-                    onChange={(event) => setTelefone(formatarTelefoneCadastro(event.target.value))}
-                    required
-                  />
-
-                  <p className="conta-auth-field-note">
-                    Telefone com DDD para receber atualizações de entrega.
-                  </p>
-                </>
-              ) : null}
-
-              <label className="field-label" htmlFor="email">E-mail</label>
-              <input
-                id="email"
-                className="field-input"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
-
-              <label className="field-label" htmlFor="senha">Senha</label>
-              <div className="conta-password-field">
-                <input
-                  id="senha"
-                  className="field-input"
-                  type={mostrarSenha ? 'text' : 'password'}
-                  value={senha}
-                  onChange={(event) => setSenha(event.target.value)}
-                  required
-                />
-
-                <button
-                  className="conta-password-toggle"
-                  type="button"
-                  onClick={() => setMostrarSenha((current) => !current)}
-                  aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
-                >
-                  {mostrarSenha ? 'Ocultar' : 'Mostrar'}
-                </button>
-              </div>
-
-              {modo === 'cadastro' ? (
-                <>
-                  <div className="conta-password-strength-box" aria-live="polite">
-                    <div className="conta-password-meter" aria-hidden="true">
-                      <span
-                        className={`conta-password-meter-fill is-${senhaStrength.tone}`}
-                        style={{ width: `${(senhaStrength.score / 4) * 100}%` }}
-                      />
-                    </div>
-
-                    <p className={`conta-password-strength-label is-${senhaStrength.tone}`}>
-                      Força da senha: {senhaStrength.level}
-                    </p>
-
-                    <ul className="conta-password-checklist">
-                      {senhaStrength.checks.map((check) => (
-                        <li key={check.id} className={check.ok ? 'is-ok' : ''}>
-                          <span aria-hidden="true">{check.ok ? '✓' : '•'}</span>
-                          <span>{check.label}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <label className="field-label" htmlFor="confirmacao-senha">Confirmar senha</label>
-                  <input
-                    id="confirmacao-senha"
-                    className="field-input"
-                    type={mostrarSenha ? 'text' : 'password'}
-                    value={confirmacaoSenha}
-                    onChange={(event) => setConfirmacaoSenha(event.target.value)}
-                    required
-                  />
-
-                  {confirmacaoSenha ? (
-                    <p className={`conta-auth-field-note ${confirmacaoSenhaInvalida ? 'is-error' : 'is-success'}`}>
-                      {confirmacaoSenhaInvalida ? 'As senhas não coincidem.' : 'As senhas conferem.'}
-                    </p>
-                  ) : null}
-                </>
-              ) : null}
-
-              {senhaFracaCadastro ? (
-                <p className="conta-auth-field-note is-error">
-                  Reforce sua senha para seguir com o cadastro.
-                </p>
-              ) : null}
-
-              {modo === 'cadastro' && telefoneCadastroNormalizado.length > 0 && telefoneCadastroNormalizado.length < 10 ? (
-                <p className="conta-auth-field-note is-error">
-                  Telefone incompleto. Informe DDD e número.
-                </p>
-              ) : null}
-
-              {modo === 'cadastro' ? (
-                <label className="check-row">
-                  <input
-                    type="checkbox"
-                    checked={whatsappOptIn}
-                    onChange={(event) => setWhatsappOptIn(event.target.checked)}
-                  />
-                  Quero receber atualizações do pedido no WhatsApp
-                </label>
-              ) : null}
-
-              {recaptchaEnabled ? (
-                <div style={{ marginBottom: '12px' }}>
-                  <ReCAPTCHA
-                    ref={recaptchaRef}
-                    sitekey={recaptchaSiteKey}
-                    hl="pt-BR"
-                    onChange={(token) => {
-                      setRecaptchaToken(String(token || '').trim());
-                      if (token) {
-                        setRecaptchaErroCarregamento('');
-                      }
-                    }}
-                    onExpired={() => setRecaptchaToken('')}
-                    onErrored={() => {
-                      setRecaptchaToken('');
-                      setRecaptchaErroCarregamento('Não foi possível validar o reCAPTCHA neste domínio. Acesse o endereço oficial da loja ou atualize os domínios permitidos no Google reCAPTCHA.');
-                    }}
-                  />
-
-                  {recaptchaErroCarregamento ? (
-                    <p className="error-text" style={{ marginTop: '0.5rem' }}>
-                      {recaptchaErroCarregamento}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <button className="btn-primary" type="submit" disabled={carregando}>
-                {carregando
-                  ? modo === 'login'
-                    ? 'Entrando...'
-                    : 'Criando conta...'
-                  : modo === 'login'
-                    ? 'Entrar na conta'
-                    : 'Criar conta'}
-              </button>
-            </form>
-
-            <aside className="card-box conta-auth-side">
-              <p><strong>Vantagens da conta</strong></p>
-              <ul className="conta-benefits-list">
-                <li>Checkout mais rápido com dados salvos</li>
-                <li>Histórico completo de pedidos</li>
-                <li>Acompanhamento de status em tempo real</li>
-                <li>Preferências personalizadas de contato</li>
-              </ul>
-              <p className="muted-text conta-auth-note">Seu cadastro é protegido e usado apenas para melhorar sua experiência de compra.</p>
-            </aside>
-          </div>
-
-          <article className="card-box conta-section-card conta-accessibility-card">
-            <div className="conta-section-head">
-              <span className="conta-section-icon"><IconAccessibility /></span>
-              <div>
-                <h3>Acessibilidade</h3>
-                <p>Ajustes rápidos para leitura antes de entrar.</p>
-              </div>
-            </div>
-
-            <p className="conta-font-hint">Tamanho do texto</p>
-            <div className="conta-font-row" role="group" aria-label="Ajustar tamanho da fonte">
-              {FONT_SCALE_OPTIONS.map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  className={`btn-secondary conta-font-btn ${fontScale === option.value ? 'active' : ''}`}
-                  aria-pressed={fontScale === option.value}
-                  onClick={() => handleFontScaleChange(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="switch-list" aria-label="Recursos de acessibilidade">
-              <SwitchControl
-                id="toggle-high-contrast"
-                label="Alto contraste"
-                description="Aumenta contraste de textos e elementos."
-                checked={highContrast}
-                onChange={handleHighContrastChange}
-              />
-
-              <SwitchControl
-                id="toggle-reduced-motion"
-                label="Reduzir animações"
-                description="Diminui efeitos e transições visuais."
-                checked={reducedMotion}
-                onChange={handleReducedMotionChange}
-              />
-            </div>
-          </article>
+          <AccessibilitySection
+            fontScale={fontScale}
+            highContrast={highContrast}
+            reducedMotion={reducedMotion}
+            onFontScaleChange={handleFontScaleChange}
+            onHighContrastChange={handleHighContrastChange}
+            onReducedMotionChange={handleReducedMotionChange}
+            descricao="Ajustes rápidos para leitura antes de entrar."
+          />
         </>
       )}
     </section>
   );
 }
-

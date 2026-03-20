@@ -5,6 +5,7 @@ import App from './App';
 import './styles.css';
 import { CartProvider } from './context/CartContext';
 import { RecorrenciaProvider } from './context/RecorrenciaContext';
+import { ToastProvider } from './context/ToastContext';
 import { trackWebVitals } from './lib/trackWebVitals';
 import {
   applyFontScale,
@@ -22,12 +23,14 @@ void trackWebVitals();
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <CartProvider>
-      <RecorrenciaProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <App />
-        </BrowserRouter>
-      </RecorrenciaProvider>
-    </CartProvider>
+    <ToastProvider>
+      <CartProvider>
+        <RecorrenciaProvider>
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <App />
+          </BrowserRouter>
+        </RecorrenciaProvider>
+      </CartProvider>
+    </ToastProvider>
   </React.StrictMode>
 );

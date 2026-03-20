@@ -15,7 +15,7 @@ import {
   getProdutos,
   isAuthErrorMessage
 } from '../lib/api';
-import { extrairMetricasTempoPedido, montarTimelineEtapas, formatarDuracaoMs, classificarSla } from '../lib/metricasOperacionais';
+import { extrairMetricasTempoPedido, montarTimelineEtapas } from '../lib/metricasOperacionais';
 import SmartImage from '../components/ui/SmartImage';
 import DashboardExecutivo from '../components/admin/DashboardExecutivo';
 import FilaOperacional from '../components/admin/FilaOperacional';
@@ -3453,7 +3453,13 @@ export default function AdminPage() {
                       <td>{produto.emoji || '📦'} {produto.nome}</td>
                       <td>{produto.categoria || '-'}</td>
                       <td>R$ {Number(produto.preco || 0).toFixed(2)}</td>
-                      <td>{produto.estoque ?? 0}</td>
+                      <td>
+                        {(() => {
+                          const qty = Number(produto.estoque ?? 0);
+                          const cls = qty === 0 ? 'estoque-zerado' : qty <= 5 ? 'estoque-baixo' : 'estoque-ok';
+                          return <span className={`estoque-badge estoque-badge-sm ${cls}`}>{qty}</span>;
+                        })()}
+                      </td>
                       <td>
                         <button className="btn-secondary" type="button" onClick={() => handleExcluirProduto(produto.id)}>
                           Remover

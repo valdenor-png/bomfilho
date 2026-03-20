@@ -1,3 +1,8 @@
+/**
+ * Camada de TRANSPORTE — fetch puro com retry, timeout e AbortController.
+ * NÃO conhece auth, CSRF, tokens nem regras de negócio.
+ * Consumida exclusivamente por lib/api.js (camada de domínio).
+ */
 import API_BASE_URL, {
   API_CONFIG_ERROR_MESSAGE,
   API_TIMEOUT_MS,

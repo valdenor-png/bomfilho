@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getProdutos } from '../lib/api';
+import { getProdutoEstoqueInfo, getEstoqueBadge } from '../lib/produtosUtils';
 import BrandLogo from '../components/BrandLogo';
 import SmartImage from '../components/ui/SmartImage';
 import { useRecorrencia } from '../context/RecorrenciaContext';
 import usePreloadImage from '../hooks/usePreloadImage';
+import useDocumentHead from '../hooks/useDocumentHead';
+import { STORE_WHATSAPP_URL, STORE_WHATSAPP_DISPLAY, STORE_TELEFONE_URL, STORE_TELEFONE_DISPLAY, STORE_CNPJ, STORE_ENDERECO, STORE_HORARIO_CURTO } from '../config/store';
 
 const CATEGORY_IMAGES = {
   hortifruti: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=60',
@@ -122,6 +125,7 @@ function getProdutoImagemBlur(produto) {
 }
 
 export default function HomePage() {
+  useDocumentHead({ description: 'Supermercado online BomFilho — ofertas reais, entrega rápida e compra simples pelo celular.' });
   const navigate = useNavigate();
   const {
     favoritosProdutos,
@@ -249,6 +253,7 @@ export default function HomePage() {
     <section className="page home-page home-page-clean">
       <form className="home-quick-search home-quick-search-top" aria-label="Busca rapida no catalogo" onSubmit={handleBuscaRapidaSubmit}>
         <div className="home-quick-search-row">
+          <label htmlFor="home-quick-search-input" className="sr-only">Buscar no catálogo</label>
           <input
             id="home-quick-search-input"
             className="field-input home-quick-search-input"
@@ -300,6 +305,13 @@ export default function HomePage() {
                   <p className="home-opportunity-name">{produto.nome}</p>
                   <p className="home-opportunity-price">R$ {precoLabel}</p>
 
+                  {(() => {
+                    const badge = getEstoqueBadge(getProdutoEstoqueInfo(produto));
+                    return (
+                      <span className={`estoque-badge estoque-badge-sm ${badge.classe}`}>{badge.label}</span>
+                    );
+                  })()}
+
                   <button className="btn-primary home-card-cta" type="button" onClick={() => abrirProdutos({ busca: produto.nome })}>
                     Comprar
                   </button>
@@ -322,6 +334,7 @@ export default function HomePage() {
               type="button"
               style={{ '--bg': `url('${setor.imagem}')` }}
               onClick={() => abrirProdutos({ categoria: setor.categoria, busca: setor.busca })}
+              aria-label={`Ver produtos de ${setor.label}`}
             >
               <span className="sector-label">{setor.label}</span>
             </button>
@@ -353,7 +366,7 @@ export default function HomePage() {
         </section>
       ) : null}
 
-      {erro ? <p className="error-text">{erro}</p> : null}
+      {erro ? <p className="error-text" role="alert">{erro}</p> : null}
 
       <footer className="home-footer">
         <div className="footer-brand">
@@ -366,14 +379,14 @@ export default function HomePage() {
         </div>
         <div className="footer-info-simple" aria-label="Informações da loja">
           <div className="footer-info-line">
-            <a className="footer-link" href="https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido." target="_blank" rel="noopener noreferrer">
-              WhatsApp: (91) 99965-2790
+            <a className="footer-link" href={STORE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+              WhatsApp: {STORE_WHATSAPP_DISPLAY}
             </a>
             {' · '}
-            <a className="footer-link" href="tel:+559137219780">Fixo: (91) 3721-9780</a>
+            <a className="footer-link" href={STORE_TELEFONE_URL}>Fixo: {STORE_TELEFONE_DISPLAY}</a>
           </div>
-          <div className="footer-info-line">Horario: seg-sab 7h30–13h / 15h–19h30 · dom 8h–12h30</div>
-          <div className="footer-info-line">CNPJ: 09.175.211/0001-30 · Travessa 07 de Setembro, CEP 68740-180</div>
+          <div className="footer-info-line">Horario: {STORE_HORARIO_CURTO}</div>
+          <div className="footer-info-line">CNPJ: {STORE_CNPJ} · {STORE_ENDERECO}</div>
         </div>
         <small>© 2026 BomFilho. Todos os direitos reservados.</small>
       </footer>

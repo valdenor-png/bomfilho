@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import SmartImage from './ui/SmartImage';
+import { getEstoqueBadge } from '../lib/produtosUtils';
 
 function ProdutoFallbackPadrao({ icone = '📦' }) {
   return (
@@ -77,6 +78,12 @@ const ProdutoRecomendadoCard = React.memo(function ProdutoRecomendadoCard({
         <p className="product-reco-category">{categoriaLabel}</p>
         <h4 className="product-reco-title" title={nomeProduto}>{nomeProduto}</h4>
         <p className="product-reco-price">{formatCurrency(precoInfo.precoAtual)}</p>
+        {(() => {
+          const badge = getEstoqueBadge(produtoIndexado?.estoqueInfo);
+          return (
+            <span className={`estoque-badge estoque-badge-sm ${badge.classe}`}>{badge.label}</span>
+          );
+        })()}
       </div>
 
       <div className="product-reco-actions">
@@ -302,6 +309,13 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
               <p className="product-detail-status" role="status">
                 {podeComprar ? 'Disponivel para adicionar agora' : 'Indisponivel no momento'}
               </p>
+
+              {(() => {
+                const badge = getEstoqueBadge(produtoIndexado?.estoqueInfo);
+                return (
+                  <span className={`estoque-badge ${badge.classe}`}>{badge.label}</span>
+                );
+              })()}
 
               {chipsValorComercial.length > 0 ? (
                 <div className="product-detail-value-chips" aria-label="Vantagens comerciais do item">

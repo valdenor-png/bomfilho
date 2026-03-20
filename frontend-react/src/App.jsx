@@ -2,10 +2,20 @@ import React, { Suspense, lazy, useEffect } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import { useCart } from './context/CartContext';
+import ErrorBoundary from './components/ErrorBoundary';
+import {
+  STORE_NAME,
+  STORE_CNPJ,
+  STORE_CEP,
+  STORE_ENDERECO,
+  STORE_HORARIO,
+  STORE_WHATSAPP_DISPLAY,
+  STORE_WHATSAPP_URL,
+  STORE_TELEFONE_DISPLAY,
+  STORE_TELEFONE_URL
+} from './config/store';
 
 const BOTTOM_NAV_SAFE_AREA = 76;
-const WHATSAPP_ATENDIMENTO_URL = 'https://wa.me/5591999652790?text=Ol%C3%A1!%20Quero%20fazer%20um%20pedido.';
-const TELEFONE_FIXO_URL = 'tel:+559137219780';
 
 const loadProdutosPage = () => import('./pages/ProdutosPage');
 const loadPagamentoPage = () => import('./pages/PagamentoPage');
@@ -116,19 +126,23 @@ export default function App() {
 
   if (isAdminRoute) {
     return (
-      <Suspense fallback={<RouteLoadingFallback message="Carregando area administrativa..." />}>
-        <Routes>
-          <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/admin/gerencia" replace />} />
-          <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
-          <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
-        </Routes>
-      </Suspense>
+      <ErrorBoundary>
+        <Suspense fallback={<RouteLoadingFallback message="Carregando area administrativa..." />}>
+          <Routes>
+            <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/admin/gerencia" replace />} />
+            <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
+            <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
     );
   }
 
   return (
     <div className="app-shell">
-      <main className="content">
+      <a href="#main-content" className="skip-to-content">Pular para o conteúdo</a>
+      <main className="content" id="main-content">
+        <ErrorBoundary>
         <Suspense fallback={<RouteLoadingFallback />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -144,6 +158,7 @@ export default function App() {
             <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
           </Routes>
         </Suspense>
+        </ErrorBoundary>
       </main>
 
       {podeMostrarCarrinhoFlutuante ? (
@@ -168,15 +183,15 @@ export default function App() {
 
       <section className="site-trust-bar" aria-label="Canais de atendimento e links legais">
         <p className="site-trust-contact">
-          BomFilho | CNPJ 09.175.211/0001-30 | Endereco: Travessa 07 de Setembro, CEP 68740-180
+          {STORE_NAME} | CNPJ {STORE_CNPJ} | Endereco: {STORE_ENDERECO}
         </p>
         <p className="site-trust-contact">
           WhatsApp e telefone:{' '}
-          <a href={WHATSAPP_ATENDIMENTO_URL} target="_blank" rel="noopener noreferrer">
-            (91) 99965-2790
+          <a href={STORE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+            {STORE_WHATSAPP_DISPLAY}
           </a>
-          {' '}| Telefone fixo: <a href={TELEFONE_FIXO_URL}>(91) 3721-9780</a>
-          {' '}| Segunda a sabado: 7h30 as 13h e 15h as 19h30 | Domingos e feriados: 8h as 12h30
+          {' '}| Telefone fixo: <a href={STORE_TELEFONE_URL}>{STORE_TELEFONE_DISPLAY}</a>
+          {' '}| {STORE_HORARIO}
         </p>
         <div className="site-legal-links">
           <Link className="site-legal-link" to="/politica-de-privacidade">Politica de Privacidade</Link>

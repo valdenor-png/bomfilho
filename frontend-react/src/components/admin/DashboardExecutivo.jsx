@@ -24,9 +24,9 @@ const LABELS_STATUS = {
 const labelStatus = (s) => LABELS_STATUS[s] || s;
 
 const COR_STATUS = {
-  pendente: '#94a3b8', pago: '#3b82f6', preparando: '#f59e0b',
-  pronto_para_retirada: '#8b5cf6', enviado: '#06b6d4',
-  entregue: '#22c55e', retirado: '#10b981', cancelado: '#ef4444'
+  pendente: '#6b7280', pago: '#2563eb', preparando: '#d97706',
+  pronto_para_retirada: '#7c3aed', enviado: '#0891b2',
+  entregue: '#16a34a', retirado: '#059669', cancelado: '#dc2626'
 };
 
 const PERIODOS = [

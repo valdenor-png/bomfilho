@@ -254,10 +254,38 @@ Com a build gerada, o backend serve o frontend React no mesmo host/porta da API.
 
 O projeto inclui documentação e scripts de apoio para testes e manutenção em `docs/` e `scripts/`.
 
-Documentos operacionais importantes:
+### Testes backend
 
-- `docs/GO_LIVE_TECNICO_CHECKLIST.md`
-- `docs/OPERACAO_ADMIN_PEDIDOS_PAGAMENTOS.md`
+```bash
+cd backend && npm test
+```
+
+- 6 suites, 84 testes (config, cache, logger, sentry, helpers, pedido-pagamento)
+- Cobertura de: validação de config, logger estruturado, stubs do Sentry, fluxos de pedido/pagamento
+
+### Build frontend
+
+```bash
+cd frontend-react && npm run build
+```
+
+- 210 módulos, 0 erros (Vite 5.4)
+
+### Documentação operacional
+
+- `docs/GO_LIVE_TECNICO_CHECKLIST.md` — checklist completo de go-live
+- `docs/OPERACAO_ADMIN_PEDIDOS_PAGAMENTOS.md` — operação admin
+- `docs/GUIA_TESTES.md` — guia de testes
+- `docs/DEPLOY_VERCEL_RENDER.md` — deploy
+- `docs/SOLUCAO-PROBLEMAS.md` — troubleshooting
+
+### Observabilidade
+
+- **Logger estruturado** (`backend/lib/logger.js`): JSON em produção, legível em dev. 4 níveis (error, warn, info, debug).
+- **Sentry** (`backend/lib/sentry.js`): integração opcional. Ativar com `npm install @sentry/node` + `SENTRY_DSN`.
+- **ErrorBoundary** no frontend: fallback visual com retry.
+- **ToastContext**: feedback visual global (success/error/info).
+- **Web Vitals**: coleta opcional via `VITE_ENABLE_WEB_VITALS`.
 
 ## Roadmap (resumo)
 

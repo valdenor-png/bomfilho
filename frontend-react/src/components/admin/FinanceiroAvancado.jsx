@@ -161,7 +161,7 @@ function ConciliacaoFinanceira() {
                 style={{ borderLeftColor: s.cor }}
                 onClick={() => setSecaoAberta(secaoAberta === s.chave ? null : s.chave)}
               >
-                <span className="fin-alerta-valor" style={{ color: dados.contadores[s.chave] > 0 ? s.cor : '#94a3b8' }}>
+                <span className="fin-alerta-valor" style={{ color: dados.contadores[s.chave] > 0 ? s.cor : '#6b7280' }}>
                   {dados.contadores[s.chave] || 0}
                 </span>
                 <span className="fin-alerta-label">{s.titulo}</span>

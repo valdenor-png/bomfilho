@@ -98,7 +98,7 @@ function SegmentoBadge({ cliente }) {
   if (cliente.total_pedidos === 1) badges.push({ label: 'Novo', cor: '#3b82f6' });
   if (cliente.total_pedidos >= 3) badges.push({ label: 'Recorrente', cor: '#22c55e' });
   if (cliente.total_gasto >= 500 && cliente.total_pedidos >= 5) badges.push({ label: 'VIP', cor: '#f59e0b' });
-  if (cliente.dias_desde_ultimo > 60) badges.push({ label: 'Inativo', cor: '#94a3b8' });
+  if (cliente.dias_desde_ultimo > 60) badges.push({ label: 'Inativo', cor: '#6b7280' });
   else if (cliente.dias_desde_ultimo > 30 && cliente.total_pedidos >= 2) badges.push({ label: 'Risco', cor: '#ef4444' });
 
   if (badges.length === 0) return null;

@@ -4,6 +4,7 @@ import {
   buildProductEventPayload,
   captureCommerceEvent
 } from '../lib/commerceTracking';
+import { useToast } from './ToastContext';
 
 const CART_KEY = 'bomfilho_cart';
 
@@ -48,6 +49,7 @@ function readCart() {
 
 export function CartProvider({ children }) {
   const [itens, setItens] = useState(() => readCart());
+  const toast = useToast();
 
   useEffect(() => {
     localStorage.setItem(CART_KEY, JSON.stringify(itens));
@@ -119,6 +121,8 @@ export function CartProvider({ children }) {
     if (payloadEvento) {
       captureCommerceEvent('add_to_cart', payloadEvento);
     }
+
+    toast.success(`${String(produto.nome || 'Produto').trim()} adicionado ao carrinho`);
   }
 
   function updateItemQuantity(id, quantidade) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
   adminBaixarCatalogModeloImportacao,
   adminBaixarCatalogoExportacao,
@@ -15,347 +15,36 @@ import {
   adminLogin,
   adminLogout,
   adminReprocessarFalhasEnriquecimento,
-  adminAtualizarProdutoCatalogo,
-  isAuthErrorMessage
+  adminAtualizarProdutoCatalogo
 } from '../lib/api';
 import useDebouncedValue from '../hooks/useDebouncedValue';
-import SmartImage from '../components/ui/SmartImage';
-
-const PRODUTOS_POR_PAGINA = 60;
-
-const TABS = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'produtos', label: 'Produtos' },
-  { id: 'importar', label: 'Importar planilha' },
-  { id: 'exportar', label: 'Exportar planilha' },
-  { id: 'enriquecimento', label: 'Enriquecimento' },
-  { id: 'logs', label: 'Logs' }
-];
-
-const PASSOS_IMPORTACAO = [
-  { id: 1, label: 'Upload' },
-  { id: 2, label: 'Leitura' },
-  { id: 3, label: 'Mapeamento' },
-  { id: 4, label: 'Preview' },
-  { id: 5, label: 'Importacao' },
-  { id: 6, label: 'Resultado' }
-];
-
-const CAMPOS_MAPEAMENTO_ORDEM = [
-  'codigo_interno',
-  'codigo_barras',
-  'nome',
-  'descricao',
-  'imagem',
-  'preco',
-  'preco_promocional',
-  'estoque',
-  'categoria',
-  'unidade',
-  'ativo'
-];
-
-const EXTENSOES_IMPORTACAO_ACEITAS_PADRAO = Object.freeze(['.xls', '.xlsx', '.csv']);
-let importacaoPlanilhaModulePromise = null;
-
-async function carregarModuloImportacaoPlanilha() {
-  if (!importacaoPlanilhaModulePromise) {
-    importacaoPlanilhaModulePromise = import('../lib/importacaoPlanilha');
-  }
-
-  const modulo = await importacaoPlanilhaModulePromise;
-  return modulo?.default || modulo;
-}
-
-const ESTADOS_FLUXO_IMPORTACAO = Object.freeze({
-  IDLE: 'idle',
-  FILE_SELECTED: 'file_selected',
-  READING: 'reading',
-  READ_SUCCESS: 'read_success',
-  READ_ERROR: 'read_error',
-  MAPPING_READY: 'mapping_ready',
-  PREVIEW_READY: 'preview_ready',
-  IMPORTING: 'importing',
-  FINISHED: 'finished'
-});
-
-const POLITICAS_IMAGEM = [
-  { value: 'if_empty', label: 'Somente quando imagem estiver vazia (recomendado)' },
-  { value: 'always', label: 'Sempre sobrescrever com imagem externa' },
-  { value: 'never', label: 'Nunca sobrescrever imagem existente' }
-];
-
-function formatarMoeda(valor) {
-  return Number(valor || 0).toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL'
-  });
-}
-
-function formatarData(data) {
-  if (!data) return '-';
-  const d = new Date(data);
-  if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleString('pt-BR');
-}
-
-function normalizarStatusEnriquecimento(status) {
-  const value = String(status || '').trim().toLowerCase();
-  if (!value) return 'pendente';
-  return value;
-}
-
-function extrairMensagemErro(error) {
-  const mensagem = String(error?.message || '').trim();
-  return mensagem || 'Nao foi possivel concluir esta operacao agora.';
-}
-
-function isAuthApiError(error) {
-  const status = Number(error?.status || 0);
-  if (status === 401) {
-    return true;
-  }
-
-  if (status === 403) {
-    const mensagem = String(error?.message || '').toLowerCase();
-    return /sess[aã]o|token|credenciais|login|expirou|nao encontrada|não encontrada/.test(mensagem)
-      || isAuthErrorMessage(error?.message);
-  }
-
-  return isAuthErrorMessage(error?.message);
-}
-
-function dispararDownloadBrowser(blob, nomeArquivo) {
-  if (!(blob instanceof Blob)) {
-    throw new Error('Nao foi possivel preparar o download do arquivo.');
-  }
-
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
-    throw new Error('Download indisponivel neste ambiente.');
-  }
-
-  const nomeFinal = String(nomeArquivo || 'download.bin').trim() || 'download.bin';
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = nomeFinal;
-  link.style.display = 'none';
-
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-
-  setTimeout(() => {
-    window.URL.revokeObjectURL(url);
-  }, 300);
-}
-
-function formatarPercentual(valor) {
-  const numero = Number(valor || 0);
-  if (!Number.isFinite(numero)) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(100, Math.round(numero)));
-}
-
-function formatarTamanhoArquivoFallback(bytesRaw) {
-  const bytes = Number(bytesRaw || 0);
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return '0 KB';
-  }
-
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function gerarNomeRelatorioImportacao() {
-  const data = new Date();
-  const stamp = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}_${String(data.getHours()).padStart(2, '0')}${String(data.getMinutes()).padStart(2, '0')}`;
-  return `relatorio-importacao-${stamp}.csv`;
-}
-
-function normalizarNomeArquivoExibicao(nomeArquivo) {
-  const nome = String(nomeArquivo || '').trim().replace(/\s+/g, ' ');
-  if (!nome) {
-    return '';
-  }
-
-  return nome.replace(/(\.xlsx|\.xls|\.csv)(?:\s*\1)+$/i, '$1');
-}
-
-function temValorMapeamento(valor) {
-  return String(valor ?? '').trim() !== '';
-}
-
-function validarMapeamentoObrigatorioFallback(mapeamento = {}) {
-  const temIdentificador = temValorMapeamento(mapeamento.codigo_interno) || temValorMapeamento(mapeamento.codigo_barras);
-  const temNomeOuDescricao = temValorMapeamento(mapeamento.nome) || temValorMapeamento(mapeamento.descricao);
-  const temPreco = temValorMapeamento(mapeamento.preco);
-
-  const pendencias = [];
-
-  if (!temIdentificador) {
-    pendencias.push('Selecione ao menos Codigo interno ou Codigo de barras.');
-  }
-
-  if (!temNomeOuDescricao) {
-    pendencias.push('Selecione Nome do produto ou Descricao.');
-  }
-
-  if (!temPreco) {
-    pendencias.push('Selecione a coluna de Preco.');
-  }
-
-  return {
-    ok: pendencias.length === 0,
-    pendencias
-  };
-}
-
-function construirMapeamentoPayload(mapeamento = {}, extrairMapeamentoNormalizadoFn) {
-  const extrator = typeof extrairMapeamentoNormalizadoFn === 'function'
-    ? extrairMapeamentoNormalizadoFn
-    : (dados) => ({ ...(dados || {}) });
-
-  const normalizadoRaw = extrator(mapeamento);
-  const normalizado = normalizadoRaw && typeof normalizadoRaw === 'object'
-    ? { ...normalizadoRaw }
-    : {};
-
-  if (!normalizado.nome && normalizado.descricao) {
-    normalizado.nome = normalizado.descricao;
-  }
-
-  if (!normalizado.descricao && normalizado.nome) {
-    normalizado.descricao = normalizado.nome;
-  }
-
-  return normalizado;
-}
-
-function extrairMensagemErroImportacaoReal(error) {
-  const fromServer = String(error?.serverMessage || '').trim();
-  if (fromServer) {
-    return fromServer;
-  }
-
-  const fromPayload = String(error?.payload?.erro || '').trim();
-  if (fromPayload) {
-    return fromPayload;
-  }
-
-  const fromMessage = String(error?.message || '').trim();
-  if (fromMessage) {
-    return fromMessage;
-  }
-
-  return 'Nao foi possivel concluir a importacao da planilha.';
-}
-
-function gerarAssinaturaContextoImportacao({
-  arquivo,
-  mapeamento,
-  criarNovos,
-  atualizarEstoque
-} = {}) {
-  const arquivoInfo = arquivo
-    ? {
-      nome: String(arquivo.name || '').trim(),
-      tamanho: Number(arquivo.size || 0),
-      modificadoEm: Number(arquivo.lastModified || 0)
-    }
-    : null;
-
-  const mapeamentoNormalizado = Object.entries(mapeamento || {})
-    .map(([campo, coluna]) => [String(campo || '').trim(), String(coluna || '').trim()])
-    .filter(([, coluna]) => Boolean(coluna))
-    .sort(([campoA], [campoB]) => campoA.localeCompare(campoB));
-
-  return JSON.stringify({
-    arquivo: arquivoInfo,
-    mapeamento: mapeamentoNormalizado,
-    criar_novos: Boolean(criarNovos),
-    atualizar_estoque: Boolean(atualizarEstoque)
-  });
-}
-
-function montarResumoDetalhesFalhaImportacao(detalhes = {}) {
-  if (!detalhes || typeof detalhes !== 'object') {
-    return '';
-  }
-
-  const partes = [];
-
-  if (detalhes.etapa_falha) {
-    partes.push(`etapa=${detalhes.etapa_falha}`);
-  }
-
-  const lotesProcessados = Number(detalhes.lotes_processados);
-  if (Number.isFinite(lotesProcessados)) {
-    partes.push(`lotes=${lotesProcessados}`);
-  }
-
-  if (typeof detalhes.rollback_aplicado === 'boolean') {
-    partes.push(`rollback=${detalhes.rollback_aplicado ? 'total' : 'nao_aplicado'}`);
-  }
-
-  const duracaoMs = Number(detalhes.duracao_ms || detalhes.duracao_total_ms);
-  if (Number.isFinite(duracaoMs) && duracaoMs > 0) {
-    partes.push(`duracao=${duracaoMs}ms`);
-  }
-
-  return partes.join(' | ');
-}
-
-function clampInt(value, fallback, { min = 1, max = 1000 } = {}) {
-  const parsed = Number.parseInt(String(value || ''), 10);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-
-  return Math.max(min, Math.min(max, parsed));
-}
-
-const estadoInicialFiltro = {
-  search: '',
-  com_imagem: '',
-  enrichment_status: '',
-  com_erro: '',
-  com_preco: '',
-  orderBy: 'updated_at',
-  orderDir: 'desc'
-};
-
-const estadoInicialEdicao = {
-  id: null,
-  codigo_barras: '',
-  nome: '',
-  descricao: '',
-  preco_tabela: '',
-  imagem_url: ''
-};
-
-const estadoInicialMapeamento = {
-  codigo_interno: '',
-  codigo_barras: '',
-  nome: '',
-  descricao: '',
-  imagem: '',
-  preco: '',
-  preco_promocional: '',
-  estoque: '',
-  categoria: '',
-  unidade: '',
-  ativo: ''
-};
+import {
+  PRODUTOS_POR_PAGINA,
+  TABS,
+  EXTENSOES_IMPORTACAO_ACEITAS_PADRAO,
+  ESTADOS_FLUXO_IMPORTACAO,
+  POLITICAS_IMAGEM,
+  estadoInicialFiltro,
+  estadoInicialEdicao,
+  estadoInicialMapeamento,
+  carregarModuloImportacaoPlanilha,
+  formatarMoeda,
+  formatarData,
+  normalizarStatusEnriquecimento,
+  extrairMensagemErro,
+  isAuthApiError,
+  dispararDownloadBrowser,
+  formatarPercentual,
+  formatarTamanhoArquivoFallback,
+  gerarNomeRelatorioImportacao,
+  normalizarNomeArquivoExibicao,
+  construirMapeamentoPayload,
+  validarMapeamentoObrigatorioFallback,
+  gerarAssinaturaContextoImportacao,
+  montarResumoDetalhesFalhaImportacao,
+  clampInt
+} from '../lib/adminGerenciaUtils';
+import { GerenciaDashboardTab, GerenciaProdutosTab, GerenciaImportarTab, GerenciaExportarTab, GerenciaEnriquecimentoTab, GerenciaLogsTab } from '../components/admin/gerencia';
 
 export default function AdminGerenciaPage() {
   const [adminUsuario, setAdminUsuario] = useState('admin');
@@ -908,7 +597,7 @@ export default function AdminGerenciaPage() {
     }
 
     if (!leituraPlanilha) {
-      setErro('Nao foi possivel preparar o arquivo. Refaça o upload da planilha.');
+      setErro('Nao foi possivel preparar o arquivo. RefaÃ§a o upload da planilha.');
       return;
     }
 
@@ -1463,974 +1152,140 @@ export default function AdminGerenciaPage() {
         ))}
       </div>
 
-      {tab === 'dashboard' ? (
-        <div className="admin-gerencia-panel">
-          <div className="toolbar-box">
-            <button className="btn-secondary" type="button" onClick={() => { void carregarDashboard(); }} disabled={carregandoDashboard}>
-              {carregandoDashboard ? 'Atualizando...' : 'Atualizar indicadores'}
-            </button>
-          </div>
 
-          <div className="admin-kpis" style={{ marginTop: '0.8rem' }}>
-            {carregandoDashboard ? (
-              <p className="muted-text">Carregando indicadores...</p>
-            ) : (
-              <>
-                <div className="kpi-card"><strong>Total produtos:</strong> {Number(dashboard?.total_produtos || 0)}</div>
-                <div className="kpi-card"><strong>Com preco:</strong> {Number(dashboard?.produtos_com_preco || 0)}</div>
-                <div className="kpi-card"><strong>Sem preco:</strong> {Number(dashboard?.produtos_sem_preco || 0)}</div>
-                <div className="kpi-card"><strong>Com imagem:</strong> {Number(dashboard?.produtos_com_imagem || 0)}</div>
-                <div className="kpi-card"><strong>Sem imagem:</strong> {Number(dashboard?.produtos_sem_imagem || 0)}</div>
-                <div className="kpi-card"><strong>Enriquecidos:</strong> {Number(dashboard?.produtos_enriquecidos || 0)}</div>
-                <div className="kpi-card"><strong>Nao encontrados:</strong> {Number(dashboard?.produtos_nao_encontrados || 0)}</div>
-                <div className="kpi-card"><strong>Com erro:</strong> {Number(dashboard?.produtos_com_erro || 0)}</div>
-              </>
-            )}
-          </div>
-        </div>
+      {tab === 'dashboard' ? (
+        <GerenciaDashboardTab
+          dashboard={dashboard}
+          carregandoDashboard={carregandoDashboard}
+          onAtualizar={() => { void carregarDashboard(); }}
+        />
       ) : null}
 
       {tab === 'produtos' ? (
-        <div className="admin-gerencia-panel">
-          <div className="admin-gerencia-filtros">
-            <input
-              className="field-input"
-              placeholder="Buscar por nome ou codigo de barras"
-              value={filtros.search}
-              onChange={(event) => setFiltros((atual) => ({ ...atual, search: event.target.value }))}
-            />
-
-            <select className="field-input" value={filtros.com_imagem} onChange={(event) => setFiltros((atual) => ({ ...atual, com_imagem: event.target.value }))}>
-              <option value="">Imagem: todos</option>
-              <option value="true">Com imagem</option>
-              <option value="false">Sem imagem</option>
-            </select>
-
-            <select className="field-input" value={filtros.enrichment_status} onChange={(event) => setFiltros((atual) => ({ ...atual, enrichment_status: event.target.value }))}>
-              <option value="">Enriquecimento: todos</option>
-              <option value="enriquecido">Enriquecidos</option>
-              <option value="nao_encontrado">Nao encontrados</option>
-              <option value="erro">Com erro</option>
-              <option value="pendente">Pendentes</option>
-            </select>
-
-            <select className="field-input" value={filtros.com_erro} onChange={(event) => setFiltros((atual) => ({ ...atual, com_erro: event.target.value }))}>
-              <option value="">Erro: todos</option>
-              <option value="true">Com erro</option>
-              <option value="false">Sem erro</option>
-            </select>
-
-            <select className="field-input" value={filtros.com_preco} onChange={(event) => setFiltros((atual) => ({ ...atual, com_preco: event.target.value }))}>
-              <option value="">Preco: todos</option>
-              <option value="true">Com preco</option>
-              <option value="false">Sem preco</option>
-            </select>
-
-            <select className="field-input" value={`${filtros.orderBy}:${filtros.orderDir}`} onChange={(event) => {
-              const [orderBy, orderDir] = String(event.target.value).split(':');
-              setFiltros((atual) => ({ ...atual, orderBy, orderDir }));
-            }}>
-              <option value="updated_at:desc">Atualizacao (mais recente)</option>
-              <option value="updated_at:asc">Atualizacao (mais antiga)</option>
-              <option value="nome:asc">Nome A-Z</option>
-              <option value="nome:desc">Nome Z-A</option>
-              <option value="preco_tabela:desc">Preco maior</option>
-              <option value="preco_tabela:asc">Preco menor</option>
-            </select>
-          </div>
-
-          <div className="table-wrap" style={{ marginTop: '0.8rem' }}>
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>Foto</th>
-                  <th>Produto</th>
-                  <th>Codigo</th>
-                  <th>Preco tabela</th>
-                  <th>Status</th>
-                  <th>Atualizado</th>
-                  <th>Acoes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {carregandoProdutos ? (
-                  <tr>
-                    <td colSpan={7}>Carregando produtos...</td>
-                  </tr>
-                ) : produtos.length === 0 ? (
-                  <tr>
-                    <td colSpan={7}>Nenhum produto encontrado para os filtros selecionados.</td>
-                  </tr>
-                ) : (
-                  produtos.map((produto) => (
-                    <tr key={produto.id}>
-                      <td>
-                        {produto.imagem_url ? (
-                          <SmartImage className="admin-produto-thumb" src={produto.imagem_url} alt={produto.nome} loading="lazy" />
-                        ) : (
-                          <span className="muted-text">Sem foto</span>
-                        )}
-                      </td>
-                      <td>{produto.nome || '-'}</td>
-                      <td>{produto.codigo_barras || '-'}</td>
-                      <td>{formatarMoeda(produto.preco_tabela)}</td>
-                      <td>
-                        <span className={`importacao-status-badge status-${normalizarStatusEnriquecimento(produto.enrichment_status)}`}>
-                          {normalizarStatusEnriquecimento(produto.enrichment_status)}
-                        </span>
-                      </td>
-                      <td>{formatarData(produto.updated_at)}</td>
-                      <td>
-                        <div className="admin-row-actions">
-                          <button className="btn-secondary" type="button" onClick={() => abrirEdicaoProduto(produto)}>
-                            Editar
-                          </button>
-                          <button
-                            className="btn-secondary"
-                            type="button"
-                            disabled={enriquecendoProdutoId === produto.id}
-                            onClick={() => {
-                              void handleEnriquecerProduto(produto.id);
-                            }}
-                          >
-                            {enriquecendoProdutoId === produto.id ? 'Processando...' : 'Reprocessar'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="toolbar-box" style={{ marginTop: '0.8rem', alignItems: 'center' }}>
-            <p className="muted-text" style={{ margin: 0 }}>
-              Pagina {paginacaoProdutos.pagina} de {paginacaoProdutos.total_paginas} • {paginacaoProdutos.total} registro(s)
-            </p>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={carregandoProdutos || paginacaoProdutos.pagina <= 1}
-              onClick={() => {
-                void carregarProdutos(paginacaoProdutos.pagina - 1);
-              }}
-            >
-              Pagina anterior
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={carregandoProdutos || !paginacaoProdutos.tem_mais}
-              onClick={() => {
-                void carregarProdutos(paginacaoProdutos.pagina + 1);
-              }}
-            >
-              Proxima pagina
-            </button>
-          </div>
-
-          {edicaoProduto.id ? (
-            <div className="card-box" style={{ marginTop: '1rem' }}>
-              <p><strong>Editar produto #{edicaoProduto.id}</strong></p>
-              <div className="admin-gerencia-edit-grid">
-                <input className="field-input" placeholder="Codigo de barras" value={edicaoProduto.codigo_barras} onChange={(event) => setEdicaoProduto((atual) => ({ ...atual, codigo_barras: event.target.value }))} />
-                <input className="field-input" placeholder="Nome" value={edicaoProduto.nome} onChange={(event) => setEdicaoProduto((atual) => ({ ...atual, nome: event.target.value }))} />
-                <input className="field-input" placeholder="Preco tabela" type="number" step="0.01" min="0" value={edicaoProduto.preco_tabela} onChange={(event) => setEdicaoProduto((atual) => ({ ...atual, preco_tabela: event.target.value }))} />
-                <input className="field-input" placeholder="URL da imagem" value={edicaoProduto.imagem_url} onChange={(event) => setEdicaoProduto((atual) => ({ ...atual, imagem_url: event.target.value }))} />
-              </div>
-              <textarea className="field-input" rows={3} placeholder="Descricao" value={edicaoProduto.descricao} onChange={(event) => setEdicaoProduto((atual) => ({ ...atual, descricao: event.target.value }))} />
-
-              <div className="toolbar-box" style={{ marginTop: '0.6rem' }}>
-                <button className="btn-primary" type="button" disabled={salvandoProduto} onClick={() => { void salvarEdicaoProduto(); }}>
-                  {salvandoProduto ? 'Salvando...' : 'Salvar alteracoes'}
-                </button>
-                <button className="btn-secondary" type="button" onClick={() => setEdicaoProduto(estadoInicialEdicao)}>
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
+        <GerenciaProdutosTab
+          produtos={produtos}
+          carregandoProdutos={carregandoProdutos}
+          paginacaoProdutos={paginacaoProdutos}
+          filtros={filtros}
+          setFiltros={setFiltros}
+          edicaoProduto={edicaoProduto}
+          setEdicaoProduto={setEdicaoProduto}
+          salvandoProduto={salvandoProduto}
+          enriquecendoProdutoId={enriquecendoProdutoId}
+          onCarregarProdutos={carregarProdutos}
+          onAbrirEdicao={abrirEdicaoProduto}
+          onSalvarEdicao={() => { void salvarEdicaoProduto(); }}
+          onEnriquecerProduto={handleEnriquecerProduto}
+        />
       ) : null}
 
       {tab === 'importar' ? (
-        <div className="admin-gerencia-panel admin-import-panel">
-          <div className="admin-import-header">
-            <h2>Importacao de planilha com fluxo guiado</h2>
-            <p>
-              Upload seguro, leitura automatica, mapeamento assistido, preview e importacao final com controle operacional.
-            </p>
-          </div>
-
-          <ol className="admin-import-stepper" aria-label="Etapas da importacao">
-            {PASSOS_IMPORTACAO.map((passo) => {
-              const ativo = passoImportacaoAtivo === passo.id;
-              const concluido = passo.id < passoImportacaoAtivo || passo.id < passoImportacaoMaximoLiberado;
-              const bloqueado = passo.id > passoImportacaoMaximoLiberado;
-
-              return (
-                <li key={passo.id}>
-                  <button
-                    type="button"
-                    className={`admin-import-step-btn ${ativo ? 'is-active' : ''} ${concluido ? 'is-done' : ''}`}
-                    onClick={() => irParaPassoImportacao(passo.id)}
-                    disabled={bloqueado}
-                    aria-current={ativo ? 'step' : undefined}
-                  >
-                    <span className="admin-import-step-index">{passo.id}</span>
-                    <span>{passo.label}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-
-          <div className="admin-import-cards-grid">
-            <article className={`admin-import-card ${passoImportacaoAtivo === 1 ? 'is-active' : ''}`}>
-              <h3>Etapa 1 - Upload do arquivo</h3>
-              <p>Envie uma planilha de catalogo em formato Excel ou CSV.</p>
-
-              <div
-                className={`importacao-dropzone admin-import-dropzone ${dragUploadAtivo ? 'dragover' : ''}`}
-                onDragOver={handleDragOverImportacao}
-                onDragLeave={handleDragLeaveImportacao}
-                onDrop={handleDropImportacao}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    const input = document.getElementById('admin-import-file-input');
-                    if (input) {
-                      input.click();
-                    }
-                  }
-                }}
-              >
-                <strong>Arraste e solte aqui</strong>
-                <span>Formatos aceitos: {textoExtensoesImportacao}</span>
-                <input
-                  id="admin-import-file-input"
-                  className="importacao-file-input"
-                  type="file"
-                  accept={extensoesImportacaoAceitas.join(',')}
-                  onChange={handleArquivoSelecionadoInput}
-                />
-                <button
-                  className="btn-secondary importacao-select-btn"
-                  type="button"
-                  disabled={carregandoImportacaoUtils}
-                  onClick={() => {
-                    const input = document.getElementById('admin-import-file-input');
-                    if (input) {
-                      input.click();
-                    }
-                  }}
-                >
-                  Selecionar arquivo
-                </button>
-              </div>
-
-              {processandoLeituraPlanilha ? (
-                <p className="muted-text">Lendo arquivo e validando estrutura da planilha...</p>
-              ) : carregandoImportacaoUtils ? (
-                <p className="muted-text">Preparando leitor de planilha...</p>
-              ) : null}
-
-              {falhaCarregamentoImportacaoUtils ? (
-                <p className="error-text">Nao foi possivel preparar o leitor de planilha. Tente selecionar o arquivo novamente.</p>
-              ) : null}
-
-              {arquivoPlanilha ? (
-                <p className="admin-import-file-meta">
-                  Arquivo carregado: <strong>{nomeArquivoExibicao || arquivoPlanilha.name}</strong> ({formatarTamanhoArquivoImportacao(arquivoPlanilha.size)})
-                </p>
-              ) : (
-                <p className="muted-text">Nenhum arquivo selecionado no momento.</p>
-              )}
-            </article>
-
-            <article className={`admin-import-card ${passoImportacaoAtivo === 2 ? 'is-active' : ''}`}>
-              <h3>Etapa 2 - Leitura da planilha</h3>
-              <p>Conferencia tecnica da estrutura do arquivo antes de mapear colunas.</p>
-
-              {leituraPlanilha ? (
-                <div className="admin-import-read-summary">
-                  <div><span>Arquivo</span><strong>{nomeArquivoExibicao || leituraPlanilha.nomeArquivo}</strong></div>
-                  <div><span>Formato</span><strong>{leituraPlanilha.extensao}</strong></div>
-                  <div><span>Aba utilizada</span><strong>{leituraPlanilha.nomeAba}</strong></div>
-                  <div><span>Linhas estimadas</span><strong>{Number(leituraPlanilha.totalLinhas || 0)}</strong></div>
-                  <div><span>Colunas detectadas</span><strong>{Number(leituraPlanilha.colunasDetectadas || 0)}</strong></div>
-                  <div><span>Status da leitura</span><strong>Arquivo valido</strong></div>
-                </div>
-              ) : processandoLeituraPlanilha ? (
-                <p className="muted-text">Lendo planilha e montando diagnostico...</p>
-              ) : estadoFluxoImportacao === ESTADOS_FLUXO_IMPORTACAO.READ_ERROR ? (
-                <p className="error-text">Falha na leitura: {erroLeituraPlanilha || 'Nao foi possivel processar o arquivo selecionado.'}</p>
-              ) : arquivoPlanilha ? (
-                <p className="muted-text">Arquivo selecionado, aguardando conclusao da leitura.</p>
-              ) : (
-                <p className="muted-text">Carregue um arquivo para visualizar diagnostico de leitura.</p>
-              )}
-            </article>
-
-            <article className={`admin-import-card ${passoImportacaoAtivo === 3 ? 'is-active' : ''}`}>
-              <h3>Etapa 3 - Mapeamento de colunas</h3>
-              <p>Selecione quais colunas da planilha alimentam cada campo do sistema.</p>
-              <p className="muted-text" style={{ marginTop: '-0.2rem' }}>
-                Requisitos do backend: (Codigo interno ou Codigo de barras) + (Nome ou Descricao) + Preco.
-              </p>
-
-              {leituraPlanilha ? (
-                <>
-                  <div className="admin-import-map-grid">
-                    {CAMPOS_MAPEAMENTO_ORDEM.map((campo) => (
-                      <label key={campo} className="admin-import-map-field">
-                        <span>{camposImportacaoLabel[campo] || campo}</span>
-                        <select
-                          className="field-input"
-                          value={mapeamentoColunas[campo] || ''}
-                          onChange={(event) => handleAtualizarMapeamento(campo, event.target.value)}
-                        >
-                          <option value="">Nao mapear</option>
-                          {leituraPlanilha.cabecalhos.map((cabecalho, indice) => (
-                            <option key={`${campo}-col-${indice}`} value={cabecalho}>
-                              {cabecalho}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ))}
-                  </div>
-
-                  {!validacaoMapeamento.ok ? (
-                    <ul className="admin-import-validation-list" aria-label="Pendencias de campos obrigatorios do payload">
-                      {validacaoMapeamento.pendencias.map((pendencia, indice) => (
-                        <li key={`pendencia-${indice}`}>{pendencia}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="success-text" style={{ marginTop: '0.4rem' }}>Mapeamento minimo obrigatorio atendido.</p>
-                  )}
-                </>
-              ) : (
-                <p className="muted-text">
-                  {estadoFluxoImportacao === ESTADOS_FLUXO_IMPORTACAO.READ_ERROR
-                    ? 'Corrija o arquivo e tente novamente para habilitar o mapeamento.'
-                    : 'Conclua a leitura da planilha para habilitar o mapeamento.'}
-                </p>
-              )}
-            </article>
-
-            <article className={`admin-import-card ${passoImportacaoAtivo === 4 ? 'is-active' : ''}`}>
-              <h3>Etapa 4 - Pre-visualizacao</h3>
-              <p>Valide qualidade das linhas antes da simulacao/importacao final.</p>
-              <p className="muted-text" style={{ marginTop: '-0.18rem' }}>
-                Esta etapa mostra pre-analise local. A simulacao oficial do backend (etapa 5) e a validacao definitiva antes da importacao real.
-              </p>
-
-              {previewImportacao ? (
-                <>
-                  <div className="admin-kpis admin-import-preview-kpis">
-                    <div className="kpi-card"><strong>Total lidas:</strong> {Number(previewImportacao?.contadores?.total_lidas || 0)}</div>
-                    <div className="kpi-card"><strong>Validas:</strong> {Number(previewImportacao?.contadores?.validas || 0)}</div>
-                    <div className="kpi-card"><strong>Com erro:</strong> {Number(previewImportacao?.contadores?.com_erro || 0)}</div>
-                    <div className="kpi-card"><strong>Duplicadas:</strong> {Number(previewImportacao?.contadores?.duplicadas || 0)}</div>
-                    <div className="kpi-card"><strong>Prontas:</strong> {Number(previewImportacao?.contadores?.prontas_importar || 0)}</div>
-                  </div>
-
-                  <div className="table-wrap admin-import-preview-wrap">
-                    <table className="admin-table">
-                      <thead>
-                        <tr>
-                          <th>Linha</th>
-                          <th>Status previsto</th>
-                          <th>Produto</th>
-                          <th>Codigo barras</th>
-                          <th>Preco</th>
-                          <th>Observacoes</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {previewImportacao.rows.map((item) => (
-                          <tr key={`preview-row-${item.numeroLinha}`}>
-                            <td>{item.numeroLinha}</td>
-                            <td>
-                              <span className={`admin-import-row-status is-${item.status}`}>
-                                {item.statusLabel}
-                              </span>
-                            </td>
-                            <td>{item?.produto?.nome || '-'}</td>
-                            <td>{item?.produto?.codigo_barras || '-'}</td>
-                            <td>{item?.produto?.preco ? formatarMoeda(item.produto.preco) : '-'}</td>
-                            <td>{item.motivos?.length ? item.motivos[0] : '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : (
-                <p className="muted-text">Configure o mapeamento para gerar o preview.</p>
-              )}
-            </article>
-
-            <article className={`admin-import-card ${passoImportacaoAtivo === 5 ? 'is-active' : ''}`}>
-              <h3>Etapa 5 - Simulacao e importacao final</h3>
-              <p>Simule para reduzir risco operacional e depois execute a importacao real.</p>
-
-              <label className="importacao-checkbox">
-                <input
-                  type="checkbox"
-                  checked={importacaoCriarNovos}
-                  onChange={(event) => {
-                    setImportacaoCriarNovos(event.target.checked);
-                    setAssinaturaSimulacaoValida('');
-                    setResultadoImportacao(null);
-                  }}
-                />
-                Criar novos produtos quando nao houver correspondencia.
-              </label>
-
-              <label className="importacao-checkbox">
-                <input
-                  type="checkbox"
-                  checked={importacaoAtualizarEstoque}
-                  onChange={(event) => {
-                    setImportacaoAtualizarEstoque(event.target.checked);
-                    setAssinaturaSimulacaoValida('');
-                    setResultadoImportacao(null);
-                  }}
-                />
-                Atualizar estoque usando coluna mapeada da planilha.
-              </label>
-
-              <label className="field-label" style={{ marginTop: '0.65rem' }}>
-                Politica de imagem durante enriquecimento
-              </label>
-              <select
-                className="field-input"
-                value={overwriteImageMode}
-                onChange={(event) => {
-                  setOverwriteImageMode(event.target.value);
-                  setAssinaturaSimulacaoValida('');
-                  setResultadoImportacao(null);
-                }}
-              >
-                {POLITICAS_IMAGEM.map((politica) => (
-                  <option key={politica.value} value={politica.value}>{politica.label}</option>
-                ))}
-              </select>
-
-              <label className="importacao-checkbox" style={{ marginTop: '0.6rem' }}>
-                <input
-                  type="checkbox"
-                  checked={enriquecerPosImportacao}
-                  onChange={(event) => {
-                    setEnriquecerPosImportacao(event.target.checked);
-                    setAssinaturaSimulacaoValida('');
-                    setResultadoImportacao(null);
-                  }}
-                />
-                Rodar enriquecimento automatico ao final da importacao real.
-              </label>
-
-              {enriquecerPosImportacao ? (
-                <>
-                  <label className="importacao-checkbox" style={{ marginTop: '0.3rem' }}>
-                    <input
-                      type="checkbox"
-                      checked={enriquecerPosImportacaoSomenteSemImagem}
-                      onChange={(event) => {
-                        setEnriquecerPosImportacaoSomenteSemImagem(event.target.checked);
-                        setAssinaturaSimulacaoValida('');
-                        setResultadoImportacao(null);
-                      }}
-                    />
-                    Pos-importacao: processar somente itens sem imagem.
-                  </label>
-
-                  <div className="admin-gerencia-edit-grid" style={{ marginTop: '0.5rem' }}>
-                    <label className="field-label" style={{ margin: 0 }}>
-                      Limite
-                      <input
-                        className="field-input"
-                        type="number"
-                        min="1"
-                        max="800"
-                        value={loteLimite}
-                        onChange={(event) => setLoteLimite(clampInt(event.target.value, 80, { min: 1, max: 800 }))}
-                      />
-                    </label>
-
-                    <label className="field-label" style={{ margin: 0 }}>
-                      Concorrencia
-                      <input
-                        className="field-input"
-                        type="number"
-                        min="1"
-                        max="10"
-                        value={loteConcorrencia}
-                        onChange={(event) => setLoteConcorrencia(clampInt(event.target.value, 3, { min: 1, max: 10 }))}
-                      />
-                    </label>
-
-                    <label className="field-label" style={{ margin: 0 }}>
-                      Janela recente (min)
-                      <input
-                        className="field-input"
-                        type="number"
-                        min="5"
-                        max="43200"
-                        value={janelaImportacaoMinutos}
-                        onChange={(event) => setJanelaImportacaoMinutos(clampInt(event.target.value, 180, { min: 5, max: 43200 }))}
-                      />
-                    </label>
-                  </div>
-                </>
-              ) : null}
-
-              <div className="admin-import-actions">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={importandoPlanilha || !leituraPlanilha || !validacaoMapeamento.ok}
-                  onClick={() => {
-                    void executarImportacao({ simular: true });
-                  }}
-                >
-                  {importandoPlanilha && modoImportacaoAtual === 'simulacao' ? 'Simulando...' : 'Simular importacao'}
-                </button>
-
-                <button
-                  className="btn-primary"
-                  type="button"
-                  disabled={importandoPlanilha || !leituraPlanilha || !validacaoMapeamento.ok || !simulacaoOficialConcluida}
-                  onClick={() => {
-                    void executarImportacao({ simular: false });
-                  }}
-                >
-                  {importandoPlanilha && modoImportacaoAtual === 'importacao' ? 'Importando...' : 'Importar agora'}
-                </button>
-
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={baixandoModelo}
-                  onClick={() => {
-                    void handleBaixarModeloImportacao();
-                  }}
-                >
-                  {baixandoModelo ? 'Baixando modelo...' : 'Baixar modelo CSV'}
-                </button>
-              </div>
-
-              {simulacaoOficialConcluida ? (
-                <p className="success-text" style={{ marginTop: '0.45rem' }}>
-                  Simulacao oficial concluida para o contexto atual. Importacao final liberada.
-                </p>
-              ) : (
-                <p className="muted-text" style={{ marginTop: '0.45rem' }}>
-                  Execute a simulacao oficial antes de importar para garantir alinhamento completo entre preview e payload final.
-                </p>
-              )}
-
-              {importandoPlanilha || progressoImportacaoFormatado > 0 ? (
-                <div className="admin-import-progress" aria-live="polite">
-                  <div className="admin-import-progress-track">
-                    <span style={{ width: `${progressoImportacaoFormatado}%` }} />
-                  </div>
-                  <p>{progressoImportacaoFormatado}% concluido</p>
-                </div>
-              ) : null}
-
-              {resultadoImportacao ? (
-                <p className="admin-import-alert">
-                  {resultadoImportacao?.mensagem || 'Operacao de importacao processada.'}
-                </p>
-              ) : null}
-            </article>
-
-            <article className={`admin-import-card ${passoImportacaoAtivo === 6 ? 'is-active' : ''}`}>
-              <h3>Etapa 6 - Resultado e relatorio</h3>
-              <p>Resumo final da ultima execucao com possibilidade de baixar relatorio de inconsistencias.</p>
-
-              {resultadoImportacao ? (
-                <>
-                  <div className="admin-kpis">
-                    <div className="kpi-card"><strong>Total linhas:</strong> {Number(resultadoImportacao.total_linhas || 0)}</div>
-                    <div className="kpi-card"><strong>Validas:</strong> {Number(resultadoImportacao.total_validos || 0)}</div>
-                    <div className="kpi-card"><strong>Atualizadas:</strong> {Number(resultadoImportacao.total_atualizados || 0)}</div>
-                    <div className="kpi-card"><strong>Criadas:</strong> {Number(resultadoImportacao.total_criados || 0)}</div>
-                    <div className="kpi-card"><strong>Ignoradas:</strong> {Number(resultadoImportacao.total_ignorados || 0)}</div>
-                    <div className="kpi-card"><strong>Com erro:</strong> {Number(resultadoImportacao.total_erros || 0)}</div>
-                  </div>
-
-                  {resultadoImportacao?.enriquecimento_pos_importacao?.resumo ? (
-                    <div className="admin-kpis" style={{ marginTop: '0.6rem' }}>
-                      <div className="kpi-card"><strong>Pos-importacao:</strong> {Number(resultadoImportacao.enriquecimento_pos_importacao.resumo.total_processados || 0)} processados</div>
-                      <div className="kpi-card"><strong>Imagens atualizadas:</strong> {Number(resultadoImportacao.enriquecimento_pos_importacao.resumo.total_imagem_atualizada || 0)}</div>
-                      <div className="kpi-card"><strong>Atualizados:</strong> {Number(resultadoImportacao.enriquecimento_pos_importacao.resumo.total_atualizados || 0)}</div>
-                      <div className="kpi-card"><strong>Erros:</strong> {Number(resultadoImportacao.enriquecimento_pos_importacao.resumo.total_erros || 0)}</div>
-                    </div>
-                  ) : null}
-
-                  <div className="admin-import-actions" style={{ marginTop: '0.75rem' }}>
-                    <button className="btn-secondary" type="button" onClick={handleBaixarRelatorioImportacao}>
-                      Baixar relatorio de erros
-                    </button>
-                    <button className="btn-secondary" type="button" onClick={limparEstadoWizardImportacao}>
-                      Importar nova planilha
-                    </button>
-                  </div>
-
-                  {Array.isArray(resultadoImportacao?.logs?.erros) && resultadoImportacao.logs.erros.length > 0 ? (
-                    <div className="importacao-log-box">
-                      <p><strong>Principais erros por linha</strong></p>
-                      <ul className="importacao-log-list">
-                        {resultadoImportacao.logs.erros.slice(0, 12).map((item, index) => (
-                          <li key={`erro-linha-${index}`}>Linha {item?.linha || '-'}: {item?.motivo || 'Erro sem detalhe.'}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <p className="muted-text">Execute uma simulacao ou importacao para visualizar o resultado final.</p>
-              )}
-            </article>
-          </div>
-
-          <div className="admin-import-step-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={voltarPassoImportacao}
-              disabled={passoImportacaoAtivo <= 1}
-            >
-              Etapa anterior
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={avancarPassoImportacao}
-              disabled={!podeAvancarPassoImportacao}
-            >
-              Proxima etapa
-            </button>
-          </div>
-
-          <div className="admin-import-history card-box" style={{ marginTop: '0.9rem' }}>
-            <p><strong>Historico recente de importacoes</strong></p>
-
-            {carregandoHistoricoImportacao ? (
-              <p className="muted-text">Carregando historico...</p>
-            ) : historicoImportacoesRecentes.length === 0 ? (
-              <p className="muted-text">Nenhuma importacao recente encontrada.</p>
-            ) : (
-              <div className="table-wrap" style={{ marginTop: '0.5rem' }}>
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>Data</th>
-                      <th>Arquivo</th>
-                      <th>Formato</th>
-                      <th>Status</th>
-                      <th>Processadas</th>
-                      <th>Com erro</th>
-                      <th>Duracao</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historicoImportacoesRecentes.map((item) => (
-                      <tr key={`hist-import-${item.id}`}>
-                        <td>{formatarData(item.created_at)}</td>
-                        <td>{item.arquivo_nome || '-'}</td>
-                        <td>{item?.resumo?.formato || '-'}</td>
-                        <td>
-                          <span className={`importacao-status-badge status-${normalizarStatusEnriquecimento(item.status)}`}>
-                            {item.status || '-'}
-                          </span>
-                        </td>
-                        <td>{Number(item.linhas_validas || 0)}</td>
-                        <td>{Number(item.linhas_com_erro || 0)}</td>
-                        <td>{Number(item?.resumo?.performance?.duracao_total_ms || 0) > 0 ? `${Number(item.resumo.performance.duracao_total_ms)} ms` : '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
+        <GerenciaImportarTab
+          passoImportacaoAtivo={passoImportacaoAtivo}
+          passoImportacaoMaximoLiberado={passoImportacaoMaximoLiberado}
+          podeAvancarPassoImportacao={podeAvancarPassoImportacao}
+          onIrParaPasso={irParaPassoImportacao}
+          onAvancarPasso={avancarPassoImportacao}
+          onVoltarPasso={voltarPassoImportacao}
+          arquivoPlanilha={arquivoPlanilha}
+          dragUploadAtivo={dragUploadAtivo}
+          onDragOver={handleDragOverImportacao}
+          onDragLeave={handleDragLeaveImportacao}
+          onDrop={handleDropImportacao}
+          onArquivoSelecionadoInput={handleArquivoSelecionadoInput}
+          processandoLeituraPlanilha={processandoLeituraPlanilha}
+          carregandoImportacaoUtils={carregandoImportacaoUtils}
+          falhaCarregamentoImportacaoUtils={falhaCarregamentoImportacaoUtils}
+          extensoesImportacaoAceitas={extensoesImportacaoAceitas}
+          textoExtensoesImportacao={textoExtensoesImportacao}
+          nomeArquivoExibicao={nomeArquivoExibicao}
+          formatarTamanhoArquivoImportacao={formatarTamanhoArquivoImportacao}
+          leituraPlanilha={leituraPlanilha}
+          estadoFluxoImportacao={estadoFluxoImportacao}
+          erroLeituraPlanilha={erroLeituraPlanilha}
+          mapeamentoColunas={mapeamentoColunas}
+          camposImportacaoLabel={camposImportacaoLabel}
+          validacaoMapeamento={validacaoMapeamento}
+          onAtualizarMapeamento={handleAtualizarMapeamento}
+          previewImportacao={previewImportacao}
+          importacaoCriarNovos={importacaoCriarNovos}
+          setImportacaoCriarNovos={setImportacaoCriarNovos}
+          importacaoAtualizarEstoque={importacaoAtualizarEstoque}
+          setImportacaoAtualizarEstoque={setImportacaoAtualizarEstoque}
+          overwriteImageMode={overwriteImageMode}
+          setOverwriteImageMode={setOverwriteImageMode}
+          enriquecerPosImportacao={enriquecerPosImportacao}
+          setEnriquecerPosImportacao={setEnriquecerPosImportacao}
+          enriquecerPosImportacaoSomenteSemImagem={enriquecerPosImportacaoSomenteSemImagem}
+          setEnriquecerPosImportacaoSomenteSemImagem={setEnriquecerPosImportacaoSomenteSemImagem}
+          loteLimite={loteLimite}
+          setLoteLimite={setLoteLimite}
+          loteConcorrencia={loteConcorrencia}
+          setLoteConcorrencia={setLoteConcorrencia}
+          janelaImportacaoMinutos={janelaImportacaoMinutos}
+          setJanelaImportacaoMinutos={setJanelaImportacaoMinutos}
+          importandoPlanilha={importandoPlanilha}
+          modoImportacaoAtual={modoImportacaoAtual}
+          simulacaoOficialConcluida={simulacaoOficialConcluida}
+          progressoImportacaoFormatado={progressoImportacaoFormatado}
+          baixandoModelo={baixandoModelo}
+          setAssinaturaSimulacaoValida={setAssinaturaSimulacaoValida}
+          setResultadoImportacao={setResultadoImportacao}
+          onExecutarImportacao={executarImportacao}
+          onBaixarModelo={() => { void handleBaixarModeloImportacao(); }}
+          resultadoImportacao={resultadoImportacao}
+          onBaixarRelatorio={handleBaixarRelatorioImportacao}
+          onLimparWizard={limparEstadoWizardImportacao}
+          historicoImportacoesRecentes={historicoImportacoesRecentes}
+          carregandoHistoricoImportacao={carregandoHistoricoImportacao}
+        />
       ) : null}
 
       {tab === 'exportar' ? (
-        <div className="admin-gerencia-panel">
-          <div className="card-box" style={{ marginTop: '0.8rem' }}>
-            <p><strong>Exportacao de catalogo (Excel)</strong></p>
-            <p className="muted-text">
-              O arquivo sera gerado com codigo de barras, nome, descricao, preco de tabela, imagem, status de enriquecimento e ultima atualizacao.
-            </p>
-            <button
-              className="btn-primary"
-              type="button"
-              disabled={baixandoExportacao}
-              onClick={() => {
-                void handleExportarCatalogo();
-              }}
-            >
-              {baixandoExportacao ? 'Gerando exportacao...' : 'Exportar produtos em Excel'}
-            </button>
-            <p className="muted-text" style={{ marginTop: '0.6rem' }}>
-              A exportacao respeita os filtros atuais da aba Produtos.
-            </p>
-          </div>
-        </div>
+        <GerenciaExportarTab
+          baixandoExportacao={baixandoExportacao}
+          onExportarCatalogo={() => { void handleExportarCatalogo(); }}
+        />
       ) : null}
 
       {tab === 'enriquecimento' ? (
-        <div className="admin-gerencia-panel">
-          <div className="card-box" style={{ marginTop: '0.8rem' }}>
-            <p><strong>Configuracoes de lote</strong></p>
-            <div className="admin-gerencia-edit-grid" style={{ marginTop: '0.4rem' }}>
-              <label className="field-label" style={{ margin: 0 }}>
-                Limite por execucao
-                <input
-                  className="field-input"
-                  type="number"
-                  min="1"
-                  max="800"
-                  value={loteLimite}
-                  onChange={(event) => setLoteLimite(clampInt(event.target.value, 80, { min: 1, max: 800 }))}
-                />
-              </label>
-
-              <label className="field-label" style={{ margin: 0 }}>
-                Concorrencia
-                <input
-                  className="field-input"
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={loteConcorrencia}
-                  onChange={(event) => setLoteConcorrencia(clampInt(event.target.value, 3, { min: 1, max: 10 }))}
-                />
-              </label>
-
-              <label className="field-label" style={{ margin: 0 }}>
-                Janela de importacao recente (min)
-                <input
-                  className="field-input"
-                  type="number"
-                  min="5"
-                  max="43200"
-                  value={janelaImportacaoMinutos}
-                  onChange={(event) => setJanelaImportacaoMinutos(clampInt(event.target.value, 180, { min: 5, max: 43200 }))}
-                />
-              </label>
-            </div>
-
-            <label className="field-label" style={{ marginTop: '0.5rem' }}>
-              Politica de sobrescrita de imagem
-            </label>
-            <select
-              className="field-input"
-              value={overwriteImageMode}
-              onChange={(event) => setOverwriteImageMode(event.target.value)}
-            >
-              {POLITICAS_IMAGEM.map((politica) => (
-                <option key={politica.value} value={politica.value}>{politica.label}</option>
-              ))}
-            </select>
-
-            <label className="importacao-checkbox" style={{ marginTop: '0.5rem' }}>
-              <input
-                type="checkbox"
-                checked={forcarLookupLote}
-                onChange={(event) => setForcarLookupLote(event.target.checked)}
-              />
-              Forcar consulta externa (ignorar cache persistente no lote).
-            </label>
-
-            <label className="importacao-checkbox" style={{ marginTop: '0.4rem' }}>
-              <input
-                type="checkbox"
-                checked={somenteSemImagemImportacaoRecente}
-                onChange={(event) => setSomenteSemImagemImportacaoRecente(event.target.checked)}
-              />
-              Importacao recente: processar somente produtos sem imagem.
-            </label>
-          </div>
-
-          <div className="form-box" style={{ marginTop: '0.8rem' }}>
-            <p><strong>Consulta manual por codigo de barras</strong></p>
-            <div className="barcode-row">
-              <input className="field-input" placeholder="Digite EAN/GTIN" value={barcodeManual} onChange={(event) => setBarcodeManual(event.target.value)} />
-              <button className="btn-secondary" type="button" disabled={buscandoBarcode} onClick={() => { void handleBuscarBarcodeManual(); }}>
-                {buscandoBarcode ? 'Consultando...' : 'Consultar'}
-              </button>
-            </div>
-
-            {resultadoLookupManual?.produto ? (
-              <div className="card-box" style={{ marginTop: '0.6rem' }}>
-                <p><strong>Resultado da consulta</strong></p>
-                <p><strong>Fonte:</strong> {resultadoLookupManual?.provider || resultadoLookupManual?.fonte || '-'}</p>
-                <p><strong>Nome:</strong> {resultadoLookupManual.produto.nome || '-'}</p>
-                <p><strong>Marca:</strong> {resultadoLookupManual.produto.marca || '-'}</p>
-                <p><strong>Descricao:</strong> {resultadoLookupManual.produto.descricao || '-'}</p>
-                <p><strong>Imagem:</strong> {resultadoLookupManual.produto.imagem || '-'}</p>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="card-box" style={{ marginTop: '1rem' }}>
-            <p><strong>Enriquecer produtos sem imagem</strong></p>
-            <p className="muted-text">
-              Processa itens ativos com codigo de barras e imagem vazia usando fallback entre providers.
-            </p>
-            <button className="btn-primary" type="button" disabled={executandoLoteSemImagem} onClick={() => { void handleEnriquecerSemImagem(); }}>
-              {executandoLoteSemImagem ? 'Processando lote...' : 'Enriquecer sem imagem'}
-            </button>
-
-            {resultadoLoteSemImagem?.resumo ? (
-              <div className="admin-kpis" style={{ marginTop: '0.7rem' }}>
-                <div className="kpi-card"><strong>Selecionados:</strong> {Number(resultadoLoteSemImagem.resumo.total_selecionados || 0)}</div>
-                <div className="kpi-card"><strong>Processados:</strong> {Number(resultadoLoteSemImagem.resumo.total_processados || 0)}</div>
-                <div className="kpi-card"><strong>Atualizados:</strong> {Number(resultadoLoteSemImagem.resumo.total_atualizados || 0)}</div>
-                <div className="kpi-card"><strong>Imagem atualizada:</strong> {Number(resultadoLoteSemImagem.resumo.total_imagem_atualizada || 0)}</div>
-                <div className="kpi-card"><strong>Imagem preservada:</strong> {Number(resultadoLoteSemImagem.resumo.total_imagem_preservada || 0)}</div>
-                <div className="kpi-card"><strong>Erros:</strong> {Number(resultadoLoteSemImagem.resumo.total_erros || 0)}</div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="card-box" style={{ marginTop: '1rem' }}>
-            <p><strong>Enriquecer importacao recente</strong></p>
-            <p className="muted-text">
-              Reprocessa produtos importados recentemente para complementar imagens com controle de janela e concorrencia.
-            </p>
-            <button className="btn-primary" type="button" disabled={executandoLoteImportacaoRecente} onClick={() => { void handleEnriquecerImportacaoRecente(); }}>
-              {executandoLoteImportacaoRecente ? 'Processando importacao recente...' : 'Enriquecer importacao recente'}
-            </button>
-
-            {resultadoLoteImportacaoRecente?.resumo ? (
-              <div className="admin-kpis" style={{ marginTop: '0.7rem' }}>
-                <div className="kpi-card"><strong>Selecionados:</strong> {Number(resultadoLoteImportacaoRecente.resumo.total_selecionados || 0)}</div>
-                <div className="kpi-card"><strong>Processados:</strong> {Number(resultadoLoteImportacaoRecente.resumo.total_processados || 0)}</div>
-                <div className="kpi-card"><strong>Atualizados:</strong> {Number(resultadoLoteImportacaoRecente.resumo.total_atualizados || 0)}</div>
-                <div className="kpi-card"><strong>Imagem atualizada:</strong> {Number(resultadoLoteImportacaoRecente.resumo.total_imagem_atualizada || 0)}</div>
-                <div className="kpi-card"><strong>Nao encontrados:</strong> {Number(resultadoLoteImportacaoRecente.resumo.total_nao_encontrados || 0)}</div>
-                <div className="kpi-card"><strong>Erros:</strong> {Number(resultadoLoteImportacaoRecente.resumo.total_erros || 0)}</div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="card-box" style={{ marginTop: '1rem' }}>
-            <p><strong>Reprocessamento em lote (falhas)</strong></p>
-            <p className="muted-text">Reprocessa itens com status de erro ou nao encontrado, com controle de concorrencia.</p>
-            <button className="btn-primary" type="button" disabled={reprocessandoFalhas} onClick={() => { void handleReprocessarFalhas(); }}>
-              {reprocessandoFalhas ? 'Reprocessando...' : 'Reprocessar falhas agora'}
-            </button>
-
-            {resultadoReprocessamento?.resumo ? (
-              <div className="admin-kpis" style={{ marginTop: '0.7rem' }}>
-                <div className="kpi-card"><strong>Processados:</strong> {Number(resultadoReprocessamento.resumo.total_processados || 0)}</div>
-                <div className="kpi-card"><strong>Enriquecidos:</strong> {Number(resultadoReprocessamento.resumo.total_enriquecidos || 0)}</div>
-                <div className="kpi-card"><strong>Atualizados:</strong> {Number(resultadoReprocessamento.resumo.total_atualizados || 0)}</div>
-                <div className="kpi-card"><strong>Nao encontrados:</strong> {Number(resultadoReprocessamento.resumo.total_nao_encontrados || 0)}</div>
-                <div className="kpi-card"><strong>Erros:</strong> {Number(resultadoReprocessamento.resumo.total_erros || 0)}</div>
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <GerenciaEnriquecimentoTab
+          loteLimite={loteLimite}
+          setLoteLimite={setLoteLimite}
+          loteConcorrencia={loteConcorrencia}
+          setLoteConcorrencia={setLoteConcorrencia}
+          janelaImportacaoMinutos={janelaImportacaoMinutos}
+          setJanelaImportacaoMinutos={setJanelaImportacaoMinutos}
+          overwriteImageMode={overwriteImageMode}
+          setOverwriteImageMode={setOverwriteImageMode}
+          forcarLookupLote={forcarLookupLote}
+          setForcarLookupLote={setForcarLookupLote}
+          somenteSemImagemImportacaoRecente={somenteSemImagemImportacaoRecente}
+          setSomenteSemImagemImportacaoRecente={setSomenteSemImagemImportacaoRecente}
+          barcodeManual={barcodeManual}
+          setBarcodeManual={setBarcodeManual}
+          buscandoBarcode={buscandoBarcode}
+          resultadoLookupManual={resultadoLookupManual}
+          onBuscarBarcodeManual={() => { void handleBuscarBarcodeManual(); }}
+          executandoLoteSemImagem={executandoLoteSemImagem}
+          resultadoLoteSemImagem={resultadoLoteSemImagem}
+          onEnriquecerSemImagem={() => { void handleEnriquecerSemImagem(); }}
+          executandoLoteImportacaoRecente={executandoLoteImportacaoRecente}
+          resultadoLoteImportacaoRecente={resultadoLoteImportacaoRecente}
+          onEnriquecerImportacaoRecente={() => { void handleEnriquecerImportacaoRecente(); }}
+          reprocessandoFalhas={reprocessandoFalhas}
+          resultadoReprocessamento={resultadoReprocessamento}
+          onReprocessarFalhas={() => { void handleReprocessarFalhas(); }}
+        />
       ) : null}
 
       {tab === 'logs' ? (
-        <div className="admin-gerencia-panel">
-          <div className="toolbar-box" style={{ marginTop: '0.8rem' }}>
-            <button className="btn-secondary" type="button" disabled={carregandoLogs} onClick={() => { void carregarLogs(); }}>
-              {carregandoLogs ? 'Atualizando...' : 'Atualizar logs'}
-            </button>
-          </div>
-
-          <div className="card-box" style={{ marginTop: '0.8rem' }}>
-            <p><strong>Logs de importacao</strong></p>
-            <div className="table-wrap" style={{ marginTop: '0.5rem' }}>
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Data</th>
-                    <th>Arquivo</th>
-                    <th>Formato</th>
-                    <th>Status</th>
-                    <th>Validas</th>
-                    <th>Com erro</th>
-                    <th>Duracao</th>
-                    <th>Usuario</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {carregandoLogs ? (
-                    <tr><td colSpan={8}>Carregando logs de importacao...</td></tr>
-                  ) : importLogs.length === 0 ? (
-                    <tr><td colSpan={8}>Nenhum log de importacao registrado.</td></tr>
-                  ) : (
-                    importLogs.map((log) => (
-                      <tr key={log.id}>
-                        <td>{formatarData(log.created_at)}</td>
-                        <td>{log.arquivo_nome}</td>
-                        <td>{log?.resumo?.formato || '-'}</td>
-                        <td>{log.status}</td>
-                        <td>{Number(log.linhas_validas || 0)}</td>
-                        <td>{Number(log.linhas_com_erro || 0)}</td>
-                        <td>{Number(log?.resumo?.performance?.duracao_total_ms || log?.resumo?.duracao_ms || 0) > 0 ? `${Number(log.resumo.performance?.duracao_total_ms || log.resumo?.duracao_ms)} ms` : '-'}</td>
-                        <td>{log.criado_por || '-'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="card-box" style={{ marginTop: '1rem' }}>
-            <p><strong>Logs de enriquecimento</strong></p>
-            <div className="table-wrap" style={{ marginTop: '0.5rem' }}>
-              <table className="admin-table">
-                <thead>
-                  <tr>
-                    <th>Data</th>
-                    <th>Produto</th>
-                    <th>Barcode</th>
-                    <th>Provider</th>
-                    <th>Status</th>
-                    <th>Mensagem</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {carregandoLogs ? (
-                    <tr><td colSpan={6}>Carregando logs de enriquecimento...</td></tr>
-                  ) : enrichmentLogs.length === 0 ? (
-                    <tr><td colSpan={6}>Nenhum log de enriquecimento registrado.</td></tr>
-                  ) : (
-                    enrichmentLogs.map((log) => (
-                      <tr key={log.id}>
-                        <td>{formatarData(log.created_at)}</td>
-                        <td>{log.produto_id || '-'}</td>
-                        <td>{log.barcode || '-'}</td>
-                        <td>{log.provider || '-'}</td>
-                        <td>{log.status || '-'}</td>
-                        <td>{log.mensagem || '-'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <GerenciaLogsTab
+          importLogs={importLogs}
+          enrichmentLogs={enrichmentLogs}
+          carregandoLogs={carregandoLogs}
+          onCarregarLogs={() => { void carregarLogs(); }}
+        />
       ) : null}
     </section>
   );

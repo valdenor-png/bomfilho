@@ -214,6 +214,11 @@ const FRETE_DEBUG_LOGS = (() => {
   return ['1', 'true', 'yes', 'on', 'sim'].includes(raw);
 })();
 
+const TAXA_SERVICO_PERCENTUAL = (() => {
+  const valor = Number(process.env.TAXA_SERVICO_PERCENTUAL || 3);
+  return Number.isFinite(valor) && valor >= 0 && valor <= 100 ? valor : 3;
+})();
+
 // ============================================
 // EXPORT
 // ============================================
@@ -248,6 +253,7 @@ module.exports = {
   PRECO_COMBUSTIVEL_LITRO, CEP_MERCADO, NUMERO_MERCADO, LIMITE_BIKE_KM,
   CEP_GEO_TTL_MS, PRODUTOS_QUERY_CACHE_TTL_MS, READ_QUERY_CACHE_TTL_MS,
   FRETE_DEBUG_LOGS,
+  TAXA_SERVICO_PERCENTUAL,
   // helpers
   parseBooleanEnv, escapeRegex, normalizarOrigin,
 };
