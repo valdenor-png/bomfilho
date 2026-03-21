@@ -3,11 +3,11 @@ import { getPlaceholderIconePorCategoria } from '../../lib/produtosUtils';
 
 export const ProdutoImageFallback = React.memo(function ProdutoImageFallback({ produto }) {
   return (
-    <div className="produto-image-fallback" role="img" aria-label="Imagem em atualização">
+    <div className="produto-image-fallback" role="img" aria-label="Foto do produto">
       <span className="produto-image-fallback-icon" aria-hidden="true">
         {getPlaceholderIconePorCategoria(produto)}
       </span>
-      <span className="produto-image-fallback-text">Imagem em atualização</span>
+      <span className="produto-image-fallback-text">Foto em breve</span>
     </div>
   );
 });

@@ -143,7 +143,7 @@ export function CheckoutSummaryCard({
       </div>
 
       <div className="checkout-cart-summary-row">
-        <span>Taxa de servico (3%)</span>
+        <span>Taxa de serviço</span>
         <strong>{formatarMoeda(taxaServicoNumerico)}</strong>
       </div>
 
@@ -226,7 +226,7 @@ export function OrderSummaryCard({
       </div>
 
       <div className="checkout-order-summary-row">
-        <span>Taxa de servico (3%)</span>
+        <span>Taxa de serviço</span>
         <strong>{formatarMoeda(Number(taxaServico || 0))}</strong>
       </div>
 

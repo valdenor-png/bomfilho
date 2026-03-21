@@ -32,11 +32,14 @@ export function PaymentMethodCard({
       </div>
 
       <p className="payment-method-headline">{headline}</p>
-      <ul className="payment-method-list">
-        {details.map((detail) => (
-          <li key={detail}>{detail}</li>
-        ))}
-      </ul>
+
+      {selecionado ? (
+        <ul className="payment-method-list">
+          {details.map((detail) => (
+            <li key={detail}>{detail}</li>
+          ))}
+        </ul>
+      ) : null}
     </button>
   );
 }
@@ -72,8 +75,8 @@ export function PaymentOrderSummary({ itens, subtotal, frete, taxaServico = 0, t
   const linhaConferencia = freteNumerico === null
     ? 'Total parcial exibido. O frete sera somado apos a simulacao de entrega.'
     : retirada
-      ? `Conferencia: ${formatarMoeda(subtotalNumerico)} + ${formatarMoeda(taxaServicoNumerico)} (taxa) + sem frete = ${formatarMoeda(totalNumerico)}.`
-      : `Conferencia: ${formatarMoeda(subtotalNumerico)} + ${formatarMoeda(taxaServicoNumerico)} (taxa) + ${formatarMoeda(freteNumerico)} = ${formatarMoeda(totalNumerico)}.`;
+      ? `Conferencia: ${formatarMoeda(subtotalNumerico)} + ${formatarMoeda(taxaServicoNumerico)} (taxa de servico) + sem frete = ${formatarMoeda(totalNumerico)}.`
+      : `Conferencia: ${formatarMoeda(subtotalNumerico)} + ${formatarMoeda(taxaServicoNumerico)} (taxa de servico) + ${formatarMoeda(freteNumerico)} = ${formatarMoeda(totalNumerico)}.`;
 
   return (
     <aside className={`payment-order-summary ${className}`.trim()} aria-label="Resumo financeiro da etapa de pagamento">
@@ -96,7 +99,7 @@ export function PaymentOrderSummary({ itens, subtotal, frete, taxaServico = 0, t
       </div>
 
       <div className="payment-order-summary-row">
-        <span>Taxa de servico (3%)</span>
+        <span>Taxa de serviço</span>
         <strong>{formatarMoeda(taxaServicoNumerico)}</strong>
       </div>
 
@@ -119,6 +122,11 @@ export function PaymentOrderSummary({ itens, subtotal, frete, taxaServico = 0, t
         <strong>{metodo}</strong>
       </div>
 
+      <div className="payment-order-summary-row">
+        <span>Atendimento</span>
+        <strong>{retirada ? 'Retirada na loja' : 'Entrega no endereco'}</strong>
+      </div>
+
       <div className="payment-order-summary-divider" aria-hidden="true" />
 
       <div className="payment-order-summary-row is-total">
@@ -127,6 +135,8 @@ export function PaymentOrderSummary({ itens, subtotal, frete, taxaServico = 0, t
       </div>
 
       <p className="payment-order-summary-clarity">{linhaConferencia}</p>
+
+      <p className="payment-order-summary-trust">🔒 Pagamento seguro via PagBank. Seus dados estao protegidos.</p>
     </aside>
   );
 }

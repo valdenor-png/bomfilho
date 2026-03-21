@@ -326,11 +326,23 @@ export function getProdutoIdNormalizado(produtoOuId) {
   return Number.isFinite(id) && id > 0 ? id : null;
 }
 
+function toTitleCase(str) {
+  const lower = str.toLowerCase();
+  const small = new Set(['de', 'do', 'da', 'dos', 'das', 'com', 'em', 'e', 'p/', 'c/']);
+  return lower.replace(/\S+/g, (word, idx) =>
+    idx === 0 || !small.has(word)
+      ? word.charAt(0).toUpperCase() + word.slice(1)
+      : word
+  );
+}
+
 export function getProdutoNome(produto) {
   const nomeExterno = String(produto?.nome_externo || '').trim();
   if (nomeExterno) return nomeExterno;
   const nome = String(produto?.nome || '').trim();
-  return nome || 'Produto sem nome';
+  if (!nome) return 'Produto sem nome';
+  const isAllCaps = nome === nome.toUpperCase() && nome.length > 3;
+  return isAllCaps ? toTitleCase(nome) : nome;
 }
 
 export function getProdutoCategoriaLabel(produto) {
@@ -876,8 +888,8 @@ export function mergeProdutosById(listaAtual, novosProdutos) {
 
 export const VIRTUALIZATION_THRESHOLD = 64;
 export const VIRTUAL_GRID_GAP = 14;
-export const VIRTUAL_CARD_MIN_WIDTH_DESKTOP = 236;
-export const VIRTUAL_CARD_MIN_WIDTH_MOBILE = 174;
+export const VIRTUAL_CARD_MIN_WIDTH_DESKTOP = 218;
+export const VIRTUAL_CARD_MIN_WIDTH_MOBILE = 148;
 export const VIRTUAL_CARD_HEIGHT_DESKTOP = 448;
 export const VIRTUAL_CARD_HEIGHT_MOBILE = 324;
 export const VIRTUAL_GRID_MIN_HEIGHT = 300;

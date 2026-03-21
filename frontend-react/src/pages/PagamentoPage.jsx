@@ -35,7 +35,7 @@ import {
 } from '../lib/conversionGrowth';
 import { useCart } from '../context/CartContext';
 
-// â”€â”€ UtilitÃ¡rios e constantes extraÃ­dos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€ Utilitários e constantes extraídos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import {
   ETAPAS,
   CHECKOUT_STEPS,
@@ -266,7 +266,7 @@ export default function PagamentoPage() {
     }
 
     clearCart();
-    setFeedbackCarrinho('Carrinho esvaziado. VocÃª pode continuar comprando quando quiser.');
+    setFeedbackCarrinho('Carrinho esvaziado. Você pode continuar comprando quando quiser.');
   }, [clearCart, itens.length]);
 
   const retiradaSelecionada = tipoEntrega === 'retirada';
@@ -327,8 +327,8 @@ export default function PagamentoPage() {
   const tituloFormaPagamento = formaPagamento === 'pix'
     ? 'PIX'
     : formaPagamento === 'debito'
-      ? 'CartÃ£o de DÃ©bito'
-      : 'CartÃ£o de CrÃ©dito';
+      ? 'Cartão de Débito'
+      : 'Cartão de Crédito';
   const sessao3DSValida = Boolean(sessao3DS)
     && Number(sessao3DSGeradaEm) > 0
     && (Date.now() - Number(sessao3DSGeradaEm)) < SESSAO_3DS_TTL_MS;
@@ -364,7 +364,7 @@ export default function PagamentoPage() {
     return 'moto';
   }, [resumo.itens, resumo.total, simulacaoFrete?.distancia_km]);
 
-  // Consolida feedback da simulaÃ§Ã£o para manter mensagens consistentes na UX da entrega.
+  // Consolida feedback da simulação para manter mensagens consistentes na UX da entrega.
   const mensagemFrete = useMemo(() => {
     if (retiradaSelecionada) {
       return {
@@ -396,7 +396,7 @@ export default function PagamentoPage() {
 
     return {
       tone: 'neutral',
-      text: 'Digite um CEP vÃ¡lido e escolha o tipo de entrega para calcular o frete.'
+      text: 'Digite um CEP válido e escolha o tipo de entrega para calcular o frete.'
     };
   }, [economiaFreteRetirada, erroEntrega, freteAtual, retiradaSelecionada, simulacaoFrete, simulandoFrete]);
 
@@ -408,7 +408,7 @@ export default function PagamentoPage() {
       setEnderecoCepEntrega(null);
       setCepEnderecoConsultado('');
       if (mostrarErro && cepNormalizado.length > 0) {
-        setErroEnderecoCepEntrega('Informe um CEP vÃ¡lido com 8 dÃ­gitos.');
+        setErroEnderecoCepEntrega('Informe um CEP válido com 8 dígitos.');
       } else {
         setErroEnderecoCepEntrega('');
       }
@@ -419,7 +419,7 @@ export default function PagamentoPage() {
       return enderecoCepEntrega;
     }
 
-    // Evita que uma resposta antiga sobrescreva o endereÃ§o de um CEP mais novo.
+    // Evita que uma resposta antiga sobrescreva o endereço de um CEP mais novo.
     const requestId = ++buscaEnderecoRef.current;
     setBuscandoEnderecoCepEntrega(true);
     setErroEnderecoCepEntrega('');
@@ -444,12 +444,12 @@ export default function PagamentoPage() {
 
       if (mostrarErro) {
         const mensagem = String(error?.message || '').trim();
-        if (mensagem === 'CEP nÃ£o encontrado') {
-          setErroEnderecoCepEntrega('NÃ£o encontramos endereÃ§o para este CEP.');
-        } else if (mensagem === 'CEP invÃ¡lido') {
-          setErroEnderecoCepEntrega('Informe um CEP vÃ¡lido com 8 dÃ­gitos.');
+        if (mensagem === 'CEP não encontrado') {
+          setErroEnderecoCepEntrega('Não encontramos endereço para este CEP.');
+        } else if (mensagem === 'CEP inválido') {
+          setErroEnderecoCepEntrega('Informe um CEP válido com 8 dígitos.');
         } else {
-          setErroEnderecoCepEntrega(mensagem || 'NÃ£o foi possÃ­vel consultar o endereÃ§o deste CEP.');
+          setErroEnderecoCepEntrega(mensagem || 'Não foi possível consultar o endereço deste CEP.');
         }
       }
 
@@ -481,7 +481,7 @@ export default function PagamentoPage() {
     }
 
     const timer = setTimeout(() => {
-      // Busca automÃ¡tica do endereÃ§o assim que o CEP fica completo.
+      // Busca automática do endereço assim que o CEP fica completo.
       void consultarEnderecoCepEntrega(cepNormalizado, { mostrarErro: true });
     }, 260);
 
@@ -533,7 +533,7 @@ export default function PagamentoPage() {
           setAutenticado(false);
         } else {
           setAutenticado(false);
-          setErro(error.message || 'NÃ£o foi possÃ­vel validar sua sessÃ£o.');
+          setErro(error.message || 'Não foi possível validar sua sessão.');
         }
       })
       .finally(() => {
@@ -590,7 +590,7 @@ export default function PagamentoPage() {
 
     const cepNormalizado = normalizarCep(cepEntrega);
     if (cepNormalizado.length !== 8) {
-      const mensagem = 'Informe um CEP vÃ¡lido com 8 dÃ­gitos.';
+      const mensagem = 'Informe um CEP válido com 8 dígitos.';
       setSimulacaoFrete(null);
       if (mostrarErro) {
         setErroEntrega(mensagem);
@@ -616,7 +616,7 @@ export default function PagamentoPage() {
     } catch (error) {
       setSimulacaoFrete(null);
       if (mostrarErro) {
-        setErroEntrega(error.message || 'NÃ£o foi possÃ­vel calcular o frete pelo CEP.');
+        setErroEntrega(error.message || 'Não foi possível calcular o frete pelo CEP.');
       }
       return null;
     } finally {
@@ -699,7 +699,7 @@ export default function PagamentoPage() {
 
     throw new Error(
       recaptchaCheckoutErroCarregamento
-      || 'Confirme o reCAPTCHA de seguranÃ§a antes de continuar.'
+      || 'Confirme o reCAPTCHA de segurança antes de continuar.'
     );
   }
 
@@ -1001,7 +1001,7 @@ export default function PagamentoPage() {
       const data = await getPagBankPublicKey();
       const chave = String(data?.public_key || '').trim();
       if (!chave) {
-        throw new Error('NÃ£o foi possÃ­vel iniciar o pagamento com cartÃ£o no momento.');
+        throw new Error('Não foi possível iniciar o pagamento com cartão no momento.');
       }
 
       setPagBankPublicKey(chave);
@@ -1025,24 +1025,24 @@ export default function PagamentoPage() {
     const securityCode = formatarCvvCartao(cvvCartao);
 
     if (holder.length < 3) {
-      throw new Error('Informe o nome completo do titular do cartÃ£o.');
+      throw new Error('Informe o nome completo do titular do cartão.');
     }
 
     if (number.length < 13) {
-      throw new Error('NÃºmero do cartÃ£o invÃ¡lido.');
+      throw new Error('Número do cartão inválido.');
     }
 
     const mes = Number.parseInt(expMonth, 10);
     if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
-      throw new Error('MÃªs de expiraÃ§Ã£o invÃ¡lido.');
+      throw new Error('Mês de expiração inválido.');
     }
 
     if (expYear.length !== 4) {
-      throw new Error('Ano de expiraÃ§Ã£o invÃ¡lido.');
+      throw new Error('Ano de expiração inválido.');
     }
 
     if (![3, 4].includes(securityCode.length)) {
-      throw new Error('CVV invÃ¡lido.');
+      throw new Error('CVV inválido.');
     }
 
     setCriptografandoCartao(true);
@@ -1080,7 +1080,7 @@ export default function PagamentoPage() {
 
     if (autenticado !== true) {
       setAutenticado(false);
-      setErro('FaÃ§a login para concluir o pedido.');
+      setErro('Faça login para concluir o pedido.');
       return;
     }
 
@@ -1094,7 +1094,7 @@ export default function PagamentoPage() {
 
     if (!retiradaSelecionada) {
       if (cepNormalizado.length !== 8) {
-        setErroEntrega('Informe um CEP vÃ¡lido com 8 dÃ­gitos para calcular a entrega.');
+        setErroEntrega('Informe um CEP válido com 8 dígitos para calcular a entrega.');
         setEtapaAtual(ETAPAS.ENTREGA);
         return;
       }
@@ -1116,13 +1116,13 @@ export default function PagamentoPage() {
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
-      setErro(`Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartÃ£o'}.`);
+      setErro(`Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartão'}.`);
       setEtapaAtual(ETAPAS.PAGAMENTO);
       return;
     }
 
     if (formaPagamento === 'debito' && !validarDocumentoFiscalPagBank3DS(documentoDigits)) {
-      setErro('Para dÃ©bito com autenticaÃ§Ã£o 3DS, informe um CPF ou CNPJ vÃ¡lido.');
+      setErro('Para débito com autenticação 3DS, informe um CPF ou CNPJ válido.');
       setEtapaAtual(ETAPAS.PAGAMENTO);
       return;
     }
@@ -1131,7 +1131,7 @@ export default function PagamentoPage() {
       try {
         await carregarChavePublicaPagBank();
       } catch (error) {
-        setErro(error.message || 'NÃ£o foi possÃ­vel preparar o pagamento com cartÃ£o.');
+        setErro(error.message || 'Não foi possível preparar o pagamento com cartão.');
         setEtapaAtual(ETAPAS.PAGAMENTO);
         return;
       }
@@ -1141,7 +1141,7 @@ export default function PagamentoPage() {
     try {
       recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
     } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de seguranÃ§a para continuar.');
+      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar.');
       return;
     }
 
@@ -1232,7 +1232,7 @@ export default function PagamentoPage() {
 
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     if (!(documentoDigits.length === 11 || documentoDigits.length === 14)) {
-      setErro(`Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartÃ£o'}.`);
+      setErro(`Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartão'}.`);
       return;
     }
 
@@ -1249,14 +1249,14 @@ export default function PagamentoPage() {
     try {
       recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
     } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de seguranÃ§a para gerar o PIX.');
+      setErro(error.message || 'Confirme o reCAPTCHA de segurança para gerar o PIX.');
       return;
     }
 
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
-      setErro('Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para gerar o PIX.');
+      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para gerar o PIX.');
       return;
     }
 
@@ -1295,7 +1295,7 @@ export default function PagamentoPage() {
       const data = await getPedidos();
       const pedidoAtual = (data?.pedidos || []).find((item) => Number(item.id) === Number(resultadoPedido.pedido_id));
       if (!pedidoAtual) {
-        throw new Error('NÃ£o foi possÃ­vel localizar o pedido para verificar o pagamento.');
+        throw new Error('Não foi possível localizar o pedido para verificar o pagamento.');
       }
 
       const statusInterno = String(pedidoAtual.status || '').toLowerCase();
@@ -1323,7 +1323,7 @@ export default function PagamentoPage() {
       if (isAuthErrorMessage(error.message)) {
         setAutenticado(false);
       }
-      setErro(error.message || 'NÃ£o foi possÃ­vel atualizar o status do pagamento PIX.');
+      setErro(error.message || 'Não foi possível atualizar o status do pagamento PIX.');
     } finally {
       setVerificandoStatusPix(false);
     }
@@ -1349,9 +1349,9 @@ export default function PagamentoPage() {
         document.body.removeChild(campoTemporario);
       }
 
-      setFeedbackCopiaPix('CÃ³digo copiado com sucesso.');
+      setFeedbackCopiaPix('Código copiado com sucesso.');
     } catch {
-      setFeedbackCopiaPix('NÃ£o foi possÃ­vel copiar automaticamente. Selecione e copie manualmente.');
+      setFeedbackCopiaPix('Não foi possível copiar automaticamente. Selecione e copie manualmente.');
     }
   }
 
@@ -1419,12 +1419,12 @@ export default function PagamentoPage() {
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
-      setErro('Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para pagamento com cartÃ£o.');
+      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento com cartão.');
       return;
     }
 
     if (debitoSelecionado && !validarDocumentoFiscalPagBank3DS(documentoDigits)) {
-      setErro('Para dÃ©bito com autenticaÃ§Ã£o 3DS, informe um CPF ou CNPJ vÃ¡lido.');
+      setErro('Para débito com autenticação 3DS, informe um CPF ou CNPJ válido.');
       return;
     }
 
@@ -1432,7 +1432,7 @@ export default function PagamentoPage() {
     try {
       recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
     } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de seguranÃ§a para continuar no cartÃ£o.');
+      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar no cartão.');
       return;
     }
 
@@ -1443,7 +1443,7 @@ export default function PagamentoPage() {
       try {
         tokenNormalizado = await handleCriptografarCartao();
       } catch (error) {
-        setErro(error.message || 'NÃ£o foi possÃ­vel validar os dados do cartÃ£o.');
+        setErro(error.message || 'Não foi possível validar os dados do cartão.');
         pagandoCartaoRef.current = false;
         return;
       }
@@ -1574,7 +1574,7 @@ export default function PagamentoPage() {
   const documentoValidoPagamento = documentoDigits.length === 11 || documentoDigits.length === 14;
   const feedbackEvidencia3DSTone = feedbackEvidencia3DS
     ? (String(feedbackEvidencia3DS).toLowerCase().includes('nao foi possivel')
-      || String(feedbackEvidencia3DS).toLowerCase().includes('nÃ£o foi possÃ­vel')
+      || String(feedbackEvidencia3DS).toLowerCase().includes('não foi possível')
       ? 'is-warning'
       : 'is-success')
     : '';
@@ -1630,17 +1630,17 @@ export default function PagamentoPage() {
     || !recaptchaCheckoutPronto
     || (pagamentoCartaoSelecionado && !cartaoProntoParaContinuar);
   const mensagemBloqueioPagamento = pagamentoSemItens
-    ? 'Seu carrinho estÃ¡ vazio. Adicione produtos para seguir com o pagamento.'
+    ? 'Seu carrinho está vazio. Adicione produtos para seguir com o pagamento.'
     : pagamentoSemFreteCalculado
-      ? 'Frete ainda nÃ£o calculado. Volte para entrega e calcule o CEP para continuar.'
+      ? 'Frete ainda não calculado. Volte para entrega e calcule o CEP para continuar.'
       : documentoDigits.length === 0
-        ? 'Informe CPF/CNPJ para habilitar a continuaÃ§Ã£o.'
+        ? 'Informe CPF/CNPJ para habilitar a continuação.'
         : !documentoValidoPagamento
-          ? 'Documento invÃ¡lido. Use CPF com 11 dÃ­gitos ou CNPJ com 14 dÃ­gitos.'
+          ? 'Documento inválido. Use CPF com 11 dígitos ou CNPJ com 14 dígitos.'
           : !recaptchaCheckoutPronto
             ? 'Confirme o reCAPTCHA de seguranca para habilitar a continuacao.'
           : pagamentoCartaoSelecionado && !cartaoProntoParaContinuar
-            ? 'Complete os dados do cartÃ£o para habilitar a continuaÃ§Ã£o.'
+            ? 'Complete os dados do cartão para habilitar a continuação.'
         : '';
   const codigoPixAtual = String(resultadoPix?.qr_data || resultadoPix?.pix_codigo || resultadoPedido?.pix_codigo || '').trim();
   const qrCodeBase64Atual = String(resultadoPix?.qr_code_base64 || '').trim();
@@ -1672,7 +1672,7 @@ export default function PagamentoPage() {
     },
     {
       id: 'documento',
-      label: 'CPF/CNPJ vÃ¡lido',
+      label: 'CPF/CNPJ válido',
       ok: documentoValidoPagamento
     },
     {
@@ -1683,7 +1683,7 @@ export default function PagamentoPage() {
     pagamentoCartaoSelecionado
       ? {
         id: 'cartao',
-        label: tokenCartao ? 'Dados do cartÃ£o validados' : 'Dados do cartÃ£o preenchidos',
+        label: tokenCartao ? 'Dados do cartão validados' : 'Dados do cartão preenchidos',
         ok: cartaoProntoParaContinuar
       }
       : null
@@ -1703,9 +1703,9 @@ export default function PagamentoPage() {
   const pendenciasChecklistPagamento = checklistPagamento.filter((item) => !item.ok).length;
   const mensagemProcessamentoCheckout = etapaAtual === ETAPAS.PIX
     ? (formaPagamento === 'pix'
-      ? 'Processando informaÃ§Ãµes do PIX. Aguarde para evitar pagamentos duplicados.'
-      : `Processando ${tituloFormaPagamento.toLowerCase()}. Aguarde a confirmaÃ§Ã£o do gateway.`)
-    : 'Processando as informaÃ§Ãµes do seu pedido com seguranÃ§a.';
+      ? 'Processando informações do PIX. Aguarde para evitar pagamentos duplicados.'
+      : `Processando ${tituloFormaPagamento.toLowerCase()}. Aguarde a confirmação do gateway.`)
+    : 'Processando as informações do seu pedido com segurança.';
   const pagamentoAprovadoCheckout = pagamentoConfirmado || pixPagamentoAprovado || cartaoAprovado;
 
   const contextoCheckout = (() => {
@@ -1713,7 +1713,7 @@ export default function PagamentoPage() {
       if (carrinhoVazio) {
         return {
           tone: 'neutral',
-          title: 'Seu carrinho estÃ¡ pronto para comeÃ§ar.',
+          title: 'Seu carrinho está pronto para começar.',
           description: 'Escolha seus produtos e volte para finalizar com calma.',
           chips: ['Adicione produtos', 'Revise quantidades', 'Siga para entrega']
         };
@@ -1742,9 +1742,9 @@ export default function PagamentoPage() {
       if (semOpcaoEntregaDisponivel) {
         return {
           tone: 'warning',
-          title: 'Ainda nÃ£o encontramos cobertura para este CEP.',
-          description: 'Revise o CEP informado ou tente outro endereÃ§o para continuar.',
-          chips: ['CEP vÃ¡lido', 'EndereÃ§o conferido', 'Escolha de entrega']
+          title: 'Ainda não encontramos cobertura para este CEP.',
+          description: 'Revise o CEP informado ou tente outro endereço para continuar.',
+          chips: ['CEP válido', 'Endereço conferido', 'Escolha de entrega']
         };
       }
 
@@ -1760,8 +1760,8 @@ export default function PagamentoPage() {
       return {
         tone: 'neutral',
         title: 'Defina o CEP e calcule o frete.',
-        description: 'Depois de calcular o frete, vocÃª jÃ¡ pode seguir para o pagamento.',
-        chips: ['CEP de entrega', 'Conferir endereÃ§o', 'Selecionar tipo de entrega']
+        description: 'Depois de calcular o frete, você já pode seguir para o pagamento.',
+        chips: ['CEP de entrega', 'Conferir endereço', 'Selecionar tipo de entrega']
       };
     }
 
@@ -1770,15 +1770,15 @@ export default function PagamentoPage() {
         return {
           tone: 'warning',
           title: 'Faltam alguns itens para concluir esta etapa.',
-          description: `HÃ¡ ${pendenciasChecklistPagamento} pendÃªncia(s) no checklist antes da confirmaÃ§Ã£o.`,
-          chips: ['Documento vÃ¡lido', 'reCAPTCHA ativo', 'Forma de pagamento revisada']
+          description: `Há ${pendenciasChecklistPagamento} pendência(s) no checklist antes da confirmação.`,
+          chips: ['Documento válido', 'reCAPTCHA ativo', 'Forma de pagamento revisada']
         };
       }
 
       return {
         tone: 'success',
-        title: 'Tudo pronto para avanÃ§ar com o pagamento.',
-        description: `MÃ©todo selecionado: ${formaPagamentoAtual.title}. Total atual ${formatarMoeda(resumoTotalPagamento)}.`,
+        title: 'Tudo pronto para avançar com o pagamento.',
+        description: `Método selecionado: ${formaPagamentoAtual.title}. Total atual ${formatarMoeda(resumoTotalPagamento)}.`,
         chips: ['Dados conferidos', 'Resumo validado', 'Pronto para finalizar']
       };
     }
@@ -1789,7 +1789,7 @@ export default function PagamentoPage() {
           return {
             tone: 'success',
             title: 'Pagamento PIX confirmado.',
-            description: 'VocÃª jÃ¡ pode seguir para a confirmaÃ§Ã£o final do pedido.',
+            description: 'Você já pode seguir para a confirmação final do pedido.',
             chips: ['PIX aprovado', 'Pedido identificado', 'Pronto para confirmar']
           };
         }
@@ -1799,27 +1799,27 @@ export default function PagamentoPage() {
           title: pixDisponivelParaPagar ? 'PIX gerado. Falta confirmar o pagamento.' : 'Gere o QR Code para pagar com PIX.',
           description: pixDisponivelParaPagar
             ? 'Depois de pagar no app do banco, clique em verificar para atualizar o status.'
-            : 'VocÃª pode pagar escaneando o QR Code ou copiando o cÃ³digo PIX.',
-          chips: ['QR Code', 'CÃ³digo copia e cola', 'ValidaÃ§Ã£o de pagamento']
+            : 'Você pode pagar escaneando o QR Code ou copiando o código PIX.',
+          chips: ['QR Code', 'Código copia e cola', 'Validação de pagamento']
         };
       }
 
       if (cartaoRecusado) {
         return {
           tone: 'warning',
-          title: 'Pagamento no cartÃ£o nÃ£o foi aprovado.',
-          description: 'Revise os dados do cartÃ£o e tente novamente para continuar o pedido.',
+          title: 'Pagamento no cartão não foi aprovado.',
+          description: 'Revise os dados do cartão e tente novamente para continuar o pedido.',
           chips: ['Conferir dados', 'Tentar novamente', 'Acompanhar status']
         };
       }
 
       return {
         tone: cartaoAprovado ? 'success' : 'info',
-        title: cartaoAprovado ? 'Pagamento no cartÃ£o aprovado.' : 'Aguardando conclusÃ£o do pagamento no cartÃ£o.',
+        title: cartaoAprovado ? 'Pagamento no cartão aprovado.' : 'Aguardando conclusão do pagamento no cartão.',
         description: cartaoAprovado
-          ? 'Agora vocÃª jÃ¡ pode seguir para a confirmaÃ§Ã£o final do pedido.'
-          : 'Conclua o pagamento para liberar a etapa de confirmaÃ§Ã£o.',
-        chips: ['AutorizaÃ§Ã£o do cartÃ£o', 'Status do pedido', 'ConfirmaÃ§Ã£o final']
+          ? 'Agora você já pode seguir para a confirmação final do pedido.'
+          : 'Conclua o pagamento para liberar a etapa de confirmação.',
+        chips: ['Autorização do cartão', 'Status do pedido', 'Confirmação final']
       };
     }
 
@@ -1827,9 +1827,9 @@ export default function PagamentoPage() {
       tone: pagamentoConfirmado ? 'success' : 'info',
       title: pagamentoConfirmado ? 'Pedido confirmado com sucesso.' : 'Pedido em acompanhamento.',
       description: pagamentoConfirmado
-        ? 'Seguimos para preparaÃ§Ã£o e envio assim que o pagamento Ã© confirmado.'
-        : 'Acompanhe a atualizaÃ§Ã£o automÃ¡tica enquanto o pagamento Ã© processado.',
-      chips: ['Status em tempo real', 'Suporte disponÃ­vel', 'Acompanhamento do pedido']
+        ? 'Seguimos para preparação e envio assim que o pagamento é confirmado.'
+        : 'Acompanhe a atualização automática enquanto o pagamento é processado.',
+      chips: ['Status em tempo real', 'Suporte disponível', 'Acompanhamento do pedido']
     };
   })();
 
@@ -1839,7 +1839,7 @@ export default function PagamentoPage() {
       return {
         stepLabel: 'Etapa 1 de 4',
         totalLabel: `Total parcial: ${formatarMoeda(resumo.total)}`,
-        caption: carrinhoVazio ? 'Adicione itens para avanÃ§ar.' : `${resumoItensCarrinho} no carrinho`,
+        caption: carrinhoVazio ? 'Adicione itens para avançar.' : `${resumoItensCarrinho} no carrinho`,
         primaryLabel: 'Ir para entrega',
         onPrimaryClick: () => setEtapaAtual(ETAPAS.ENTREGA),
         primaryDisabled: carrinhoVazio,
@@ -1876,7 +1876,7 @@ export default function PagamentoPage() {
         caption: `Forma atual: ${formaPagamentoAtual.title}`,
         primaryLabel: carregando
           ? (retiradaSelecionada ? 'Reservando retirada...' : 'Finalizando pedido...')
-          : `${ctaFinalPedido} â€¢ Total ${formatarMoeda(resumoTotalPagamento)}`,
+          : `${ctaFinalPedido} • Total ${formatarMoeda(resumoTotalPagamento)}`,
         onPrimaryClick: () => {
           void handleContinuarPagamento();
         },
@@ -1893,9 +1893,9 @@ export default function PagamentoPage() {
           totalLabel: `Total do pedido: ${formatarMoeda(totalComEntregaPedido)}`,
           caption: podeContinuarConfirmacaoPix
             ? 'Pagamento aprovado. Siga para confirmar o pedido.'
-            : 'ApÃ³s pagar no banco, confirme o status aqui.',
+            : 'Após pagar no banco, confirme o status aqui.',
           primaryLabel: podeContinuarConfirmacaoPix
-            ? 'Ir para confirmaÃ§Ã£o'
+            ? 'Ir para confirmação'
             : (verificandoStatusPix ? 'Verificando pagamento PIX...' : 'Verificar pagamento PIX'),
           onPrimaryClick: () => {
             if (podeContinuarConfirmacaoPix) {
@@ -1922,9 +1922,9 @@ export default function PagamentoPage() {
         stepLabel: 'Etapa 3 de 4',
         totalLabel: `Total do pedido: ${formatarMoeda(totalComEntregaPedido)}`,
         caption: cartaoAprovado
-          ? 'Pagamento aprovado. Siga para a confirmaÃ§Ã£o.'
-          : 'Conclua o pagamento no cartÃ£o para continuar.',
-        primaryLabel: 'Ir para confirmaÃ§Ã£o',
+          ? 'Pagamento aprovado. Siga para a confirmação.'
+          : 'Conclua o pagamento no cartão para continuar.',
+        primaryLabel: 'Ir para confirmação',
         onPrimaryClick: () => {
           setPagamentoConfirmado(cartaoAprovado);
           setEtapaAtual(ETAPAS.STATUS);
@@ -2072,7 +2072,7 @@ export default function PagamentoPage() {
     return (
       <section className="page">
         <h1>Finalizar pedido</h1>
-        <p>Validando sua sessÃ£o...</p>
+        <p>Validando sua sessão...</p>
       </section>
     );
   }
@@ -2084,7 +2084,7 @@ export default function PagamentoPage() {
   return (
     <section className={`page checkout-page ${exibirBarraMobileCheckout ? 'has-mobile-action-bar' : ''}`.trim()}>
       <h1>Finalizar pedido</h1>
-      <p>Revise seu carrinho, confirme a entrega, escolha o pagamento e acompanhe a confirmaÃ§Ã£o do pedido.</p>
+      <p>Revise seu carrinho, confirme a entrega, escolha o pagamento e acompanhe a confirmação do pedido.</p>
 
       <CheckoutStepper currentIndex={etapaIndex} />
 
@@ -2097,7 +2097,7 @@ export default function PagamentoPage() {
 
       {erro ? (
         <article className="checkout-inline-feedback is-error" role="alert">
-          <p className="checkout-inline-feedback-title">NÃ£o foi possÃ­vel concluir esta aÃ§Ã£o.</p>
+          <p className="checkout-inline-feedback-title">Não foi possível concluir esta ação.</p>
           <p className="checkout-inline-feedback-text">{erro}</p>
         </article>
       ) : null}
@@ -2158,7 +2158,7 @@ export default function PagamentoPage() {
               <CheckoutGuidanceChips
                 items={[
                   'Confira quantidade e subtotal de cada item',
-                  'Remova o que nÃ£o vai levar',
+                  'Remova o que não vai levar',
                   'Siga para calcular frete e prazo'
                 ]}
               />
@@ -2166,16 +2166,16 @@ export default function PagamentoPage() {
               <p className="checkout-cart-live-feedback" role="status" aria-live="polite">
                 {feedbackCarrinho || (carrinhoVazio
                   ? 'Nenhum item no carrinho por enquanto.'
-                  : `${itensDistintosCarrinho} produtos diferentes â€¢ ${resumoItensCarrinho}.`)}
+                  : `${itensDistintosCarrinho} produtos diferentes • ${resumoItensCarrinho}.`)}
               </p>
             </div>
 
             {carrinhoVazio ? (
               <div className="checkout-cart-empty-state" role="status">
-                <span className="checkout-cart-empty-icon" aria-hidden="true">ðŸ›’</span>
+                <span className="checkout-cart-empty-icon" aria-hidden="true">🛒</span>
                 <div>
-                  <strong>Seu carrinho estÃ¡ vazio.</strong>
-                  <p>Adicione produtos para continuar com a finalizaÃ§Ã£o do pedido.</p>
+                  <strong>Seu carrinho está vazio.</strong>
+                  <p>Adicione produtos para continuar com a finalização do pedido.</p>
                   <Link className="btn-primary checkout-cart-empty-cta" to="/produtos">
                     Ir para produtos
                   </Link>
@@ -2210,7 +2210,7 @@ export default function PagamentoPage() {
 
             <div className="card-box checkout-cart-side-card">
               <p className="checkout-cart-side-title">Quer complementar sua compra?</p>
-              <p className="checkout-cart-side-copy">Volte para produtos para incluir novos itens, comparar preÃ§os e depois retomar o checkout.</p>
+              <p className="checkout-cart-side-copy">Volte para produtos para incluir novos itens, comparar preços e depois retomar o checkout.</p>
               <Link className="btn-secondary checkout-cart-shopping-btn" to="/produtos">
                 Voltar para produtos
               </Link>
@@ -2228,13 +2228,13 @@ export default function PagamentoPage() {
               <p className="muted-text">
                 {retiradaSelecionada
                   ? 'Retirada na loja ativa. Sem frete e com preparo rapido para voce buscar no balcao.'
-                  : 'Informe o CEP, confira o endereÃ§o retornado e escolha a modalidade de entrega mais adequada para seu pedido.'}
+                  : 'Informe o CEP, confira o endereço retornado e escolha a modalidade de entrega mais adequada para seu pedido.'}
               </p>
 
               <CheckoutGuidanceChips
                 items={[
-                  'Use um CEP vÃ¡lido de 8 dÃ­gitos',
-                  'Confira o endereÃ§o retornado',
+                  'Use um CEP válido de 8 dígitos',
+                  'Confira o endereço retornado',
                   'Escolha o tipo de entrega para definir o total'
                 ]}
               />
@@ -2276,12 +2276,12 @@ export default function PagamentoPage() {
               </>
             ) : (
               <>
-                <section className="checkout-delivery-section" aria-label="CÃ¡lculo de frete por CEP">
+                <section className="checkout-delivery-section" aria-label="Cálculo de frete por CEP">
                   <label htmlFor="cep-entrega"><strong>CEP de entrega</strong></label>
 
                   <div className="delivery-cep-row">
                     <div className="delivery-cep-input-wrap">
-                      <span className="delivery-cep-icon" aria-hidden="true">ðŸ“</span>
+                      <span className="delivery-cep-icon" aria-hidden="true">📍</span>
                       <input
                         id="cep-entrega"
                         className="field-input entrega-cep-input"
@@ -2331,11 +2331,11 @@ export default function PagamentoPage() {
                   ) : null}
 
                   <p className="delivery-cep-helper">
-                    Origem da loja: CEP {CEP_MERCADO}, nÂº {NUMERO_MERCADO}. Bike disponÃ­vel atÃ© {LIMITE_BIKE_KM.toFixed(1)} km.
+                    Origem da loja: CEP {CEP_MERCADO}, nº {NUMERO_MERCADO}. Bike disponível até {LIMITE_BIKE_KM.toFixed(1)} km.
                   </p>
 
                   <p className="delivery-cep-helper delivery-cep-helper-secondary">
-                    Dica: tenha nÃºmero, complemento e referÃªncia do endereÃ§o em mÃ£os para agilizar a confirmaÃ§Ã£o da entrega.
+                    Dica: tenha número, complemento e referência do endereço em mãos para agilizar a confirmação da entrega.
                   </p>
 
                   <p
@@ -2347,13 +2347,13 @@ export default function PagamentoPage() {
                   </p>
                 </section>
 
-                <section className="checkout-delivery-section" aria-label="OpÃ§Ãµes de veÃ­culo de entrega">
+                <section className="checkout-delivery-section" aria-label="Opções de veículo de entrega">
                   <div className="checkout-delivery-section-head">
                     <h3>Escolha o tipo de entrega</h3>
-                    <p>Selecione o veÃ­culo para estimar prazo operacional e custo do frete.</p>
+                    <p>Selecione o veículo para estimar prazo operacional e custo do frete.</p>
                   </div>
 
-                  <div className="delivery-options-grid" role="radiogroup" aria-label="SeleÃ§Ã£o de veÃ­culo de entrega">
+                  <div className="delivery-options-grid" role="radiogroup" aria-label="Seleção de veículo de entrega">
                     {Object.entries(VEICULOS_ENTREGA).map(([key, veiculo]) => (
                       <DeliveryOptionCard
                         key={key}
@@ -2372,10 +2372,10 @@ export default function PagamentoPage() {
 
                 {semOpcaoEntregaDisponivel ? (
                   <div className="delivery-empty-state" role="alert">
-                    <span aria-hidden="true">âš ï¸</span>
+                    <span aria-hidden="true">⚠️</span>
                     <div>
-                      <strong>Sem opÃ§Ã£o de entrega disponÃ­vel para este CEP.</strong>
-                      <p>Verifique o CEP informado ou tente outro endereÃ§o para continuar.</p>
+                      <strong>Sem opção de entrega disponível para este CEP.</strong>
+                      <p>Verifique o CEP informado ou tente outro endereço para continuar.</p>
                     </div>
                   </div>
                 ) : null}
@@ -2420,9 +2420,9 @@ export default function PagamentoPage() {
                   disabled={!podeAvancarParaPagamento}
                 >
                   {retiradaSelecionada
-                    ? `Continuar para pagamento â€¢ Total ${formatarMoeda(Number(resumo.total || 0))}`
+                    ? `Continuar para pagamento • Total ${formatarMoeda(Number(resumo.total || 0))}`
                     : simulacaoFrete
-                      ? `Continuar para pagamento â€¢ Total ${formatarMoeda(totalComFreteAtual)}`
+                      ? `Continuar para pagamento • Total ${formatarMoeda(totalComFreteAtual)}`
                       : 'Continuar para pagamento'}
                 </button>
               </div>
@@ -2438,7 +2438,7 @@ export default function PagamentoPage() {
               <p className="checkout-payment-kicker">Etapa 3</p>
               <h2>Pagamento</h2>
               <p className="muted-text">
-                Escolha o mÃ©todo, confirme seus dados e avance com seguranÃ§a para finalizar o pedido.
+                Escolha o método, confirme seus dados e avance com segurança para finalizar o pedido.
               </p>
 
               <CheckoutGuidanceChips
@@ -2452,10 +2452,10 @@ export default function PagamentoPage() {
 
             <p className={`payment-frete-info ${(retiradaSelecionada || simulacaoFrete || resultadoPedido?.pedido_id) ? 'is-ready' : 'is-warning'}`}>
               {retiradaSelecionada
-                ? `Retirada na loja selecionada. Sem frete${Number(economiaFreteRetirada || 0) > 0 ? ` â€¢ Economia ${formatarMoeda(economiaFreteRetirada)}` : ''}.`
+                ? `Retirada na loja selecionada. Sem frete${Number(economiaFreteRetirada || 0) > 0 ? ` • Economia ${formatarMoeda(economiaFreteRetirada)}` : ''}.`
                 : (simulacaoFrete || resultadoPedido?.pedido_id)
-                  ? `Frete ${atendimentoSelecionadoLabel}: ${formatarMoeda(resumoFretePagamento)} â€¢ DistÃ¢ncia ${distanciaSelecionadaTexto}`
-                  : 'Frete nÃ£o calculado. Volte para entrega e simule o CEP antes de continuar.'}
+                  ? `Frete ${atendimentoSelecionadoLabel}: ${formatarMoeda(resumoFretePagamento)} • Distância ${distanciaSelecionadaTexto}`
+                  : 'Frete não calculado. Volte para entrega e simule o CEP antes de continuar.'}
             </p>
 
             {growthCheckoutPaymentBadge ? (
@@ -2474,14 +2474,14 @@ export default function PagamentoPage() {
 
             {autenticado === true ? (
               <>
-                {/* Cards de mÃ©todo com destaque explÃ­cito para a opÃ§Ã£o ativa. */}
-                <section className="checkout-payment-section" aria-label="MÃ©todos de pagamento disponÃ­veis">
+                {/* Cards de método com destaque explícito para a opção ativa. */}
+                <section className="checkout-payment-section" aria-label="Métodos de pagamento disponíveis">
                   <div className="checkout-payment-section-head">
                     <h3>Forma de pagamento</h3>
-                    <p>Selecione o mÃ©todo mais adequado para concluir seu pedido.</p>
+                    <p>Selecione o método mais adequado para concluir seu pedido.</p>
                   </div>
 
-                  <div className="payment-methods-grid" role="radiogroup" aria-label="SeleÃ§Ã£o da forma de pagamento">
+                  <div className="payment-methods-grid" role="radiogroup" aria-label="Seleção da forma de pagamento">
                     <PaymentMethodCard
                       icon={FORMAS_PAGAMENTO_OPCOES.pix.icon}
                       title={FORMAS_PAGAMENTO_OPCOES.pix.title}
@@ -2500,7 +2500,7 @@ export default function PagamentoPage() {
                       title={FORMAS_PAGAMENTO_OPCOES.credito.title}
                       headline={FORMAS_PAGAMENTO_OPCOES.credito.headline}
                       details={buscandoChavePublica
-                        ? [...FORMAS_PAGAMENTO_OPCOES.credito.details, 'Temporariamente indisponÃ­vel: preparando conexÃ£o segura.']
+                        ? [...FORMAS_PAGAMENTO_OPCOES.credito.details, 'Temporariamente indisponível: preparando conexão segura.']
                         : FORMAS_PAGAMENTO_OPCOES.credito.details}
                       selecionado={formaPagamento === 'credito'}
                       disabled={buscandoChavePublica}
@@ -2516,7 +2516,7 @@ export default function PagamentoPage() {
                       title={FORMAS_PAGAMENTO_OPCOES.debito.title}
                       headline={FORMAS_PAGAMENTO_OPCOES.debito.headline}
                       details={buscandoChavePublica
-                        ? [...FORMAS_PAGAMENTO_OPCOES.debito.details, 'Temporariamente indisponÃ­vel: preparando conexÃ£o segura.']
+                        ? [...FORMAS_PAGAMENTO_OPCOES.debito.details, 'Temporariamente indisponível: preparando conexão segura.']
                         : FORMAS_PAGAMENTO_OPCOES.debito.details}
                       selecionado={formaPagamento === 'debito'}
                       disabled={buscandoChavePublica}
@@ -2531,7 +2531,7 @@ export default function PagamentoPage() {
 
                   {buscandoChavePublica ? (
                     <p className="payment-method-unavailable" role="status">
-                      MÃ©todos no cartÃ£o temporariamente indisponÃ­veis enquanto preparamos a conexÃ£o segura com o gateway.
+                      Métodos no cartão temporariamente indisponíveis enquanto preparamos a conexão segura com o gateway.
                     </p>
                   ) : null}
                 </section>
@@ -2556,21 +2556,21 @@ export default function PagamentoPage() {
                 />
 
                 {pagamentoCartaoSelecionado ? (
-                  <section className="payment-card-panel" aria-label="Dados do cartÃ£o">
+                  <section className="payment-card-panel" aria-label="Dados do cartão">
                     <div className="payment-card-panel-head">
-                      <h3>{formaPagamento === 'credito' ? 'Dados do cartÃ£o de crÃ©dito' : 'Dados do cartÃ£o de dÃ©bito'}</h3>
-                      <p>Preencha os dados exatamente como no cartÃ£o para reduzir chance de recusa.</p>
+                      <h3>{formaPagamento === 'credito' ? 'Dados do cartão de crédito' : 'Dados do cartão de débito'}</h3>
+                      <p>Preencha os dados exatamente como no cartão para reduzir chance de recusa.</p>
                     </div>
 
                     <div className="payment-card-grid">
                       <div className="payment-card-field payment-card-field-span-2">
-                        <label htmlFor="nome-titular-cartao">Nome impresso no cartÃ£o</label>
+                        <label htmlFor="nome-titular-cartao">Nome impresso no cartão</label>
                         <input
                           id="nome-titular-cartao"
                           className="field-input"
                           type="text"
                           autoComplete="off"
-                          placeholder="Nome igual ao cartÃ£o"
+                          placeholder="Nome igual ao cartão"
                           value={nomeTitularCartao}
                           onChange={(event) => {
                             setNomeTitularCartao(event.target.value);
@@ -2580,7 +2580,7 @@ export default function PagamentoPage() {
                       </div>
 
                       <div className="payment-card-field payment-card-field-span-2">
-                        <label htmlFor="numero-cartao">NÃºmero do cartÃ£o</label>
+                        <label htmlFor="numero-cartao">Número do cartão</label>
                         <input
                           id="numero-cartao"
                           className="field-input"
@@ -2597,7 +2597,7 @@ export default function PagamentoPage() {
                       </div>
 
                       <div className="payment-card-field">
-                        <label htmlFor="mes-expiracao-cartao">MÃªs</label>
+                        <label htmlFor="mes-expiracao-cartao">Mês</label>
                         <input
                           id="mes-expiracao-cartao"
                           className="field-input"
@@ -2672,11 +2672,11 @@ export default function PagamentoPage() {
                     {formaPagamento === 'credito' ? (
                       <p className="payment-card-note">
                         {parcelamentoCreditoDisponivel
-                          ? `Parcelamento liberado para este pedido (atÃ© ${PARCELAMENTO_MAXIMO_CREDITO}x).`
-                          : `Parcelamento disponÃ­vel apenas para pedidos a partir de R$ ${valorMinimoParcelamentoTexto}.`}
+                          ? `Parcelamento liberado para este pedido (até ${PARCELAMENTO_MAXIMO_CREDITO}x).`
+                          : `Parcelamento disponível apenas para pedidos a partir de R$ ${valorMinimoParcelamentoTexto}.`}
                       </p>
                     ) : (
-                      <p className="payment-card-note">No dÃ©bito, o pagamento Ã© sempre Ã  vista (1x).</p>
+                      <p className="payment-card-note">No débito, o pagamento é sempre à vista (1x).</p>
                     )}
 
                     <div className="payment-card-actions">
@@ -2686,17 +2686,17 @@ export default function PagamentoPage() {
                         disabled={criptografandoCartao || buscandoChavePublica}
                         onClick={() => {
                           void handleCriptografarCartao().catch((error) => {
-                            setErro(error.message || 'NÃ£o foi possÃ­vel validar os dados do cartÃ£o.');
+                            setErro(error.message || 'Não foi possível validar os dados do cartão.');
                           });
                         }}
                       >
-                        {criptografandoCartao ? 'Validando dados do cartÃ£o...' : 'Validar cartÃ£o com seguranÃ§a'}
+                        {criptografandoCartao ? 'Validando dados do cartão...' : 'Validar cartão com segurança'}
                       </button>
 
                       <p className={`payment-card-token-feedback ${tokenCartao ? 'is-success' : ''}`.trim()}>
                         {tokenCartao
-                          ? 'Dados do cartÃ£o validados com sucesso.'
-                          : 'Os dados do cartÃ£o sÃ£o protegidos antes do envio para pagamento.'}
+                          ? 'Dados do cartão validados com sucesso.'
+                          : 'Os dados do cartão são protegidos antes do envio para pagamento.'}
                       </p>
 
                       {debitoSelecionado ? (
@@ -2708,7 +2708,7 @@ export default function PagamentoPage() {
 
                           {sessao3DSExpirando && sessao3DS ? (
                             <p className="payment-action-feedback is-warning" role="alert">
-                              Sua sessÃ£o de autenticaÃ§Ã£o 3DS estÃ¡ expirando. Finalize o pagamento em breve ou ela serÃ¡ renovada automaticamente.
+                              Sua sessão de autenticação 3DS está expirando. Finalize o pagamento em breve ou ela será renovada automaticamente.
                             </p>
                           ) : null}
 
@@ -2723,7 +2723,7 @@ export default function PagamentoPage() {
               </>
             ) : (
               <div className="payment-login-state">
-                <p className="muted-text">FaÃ§a login para continuar com o pagamento e acompanhar seu pedido.</p>
+                <p className="muted-text">Faça login para continuar com o pagamento e acompanhar seu pedido.</p>
                 <div className="checkout-payment-actions">
                   <BotaoVoltarSeta
                     onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
@@ -2740,7 +2740,7 @@ export default function PagamentoPage() {
           </div>
 
           <aside className="checkout-payment-side">
-            {/* Resumo financeiro com maior visibilidade antes da confirmaÃ§Ã£o. */}
+            {/* Resumo financeiro com maior visibilidade antes da confirmação. */}
             <PaymentOrderSummary
               itens={resumoItensPagamento}
               subtotal={totalProdutosPedido}
@@ -2761,7 +2761,7 @@ export default function PagamentoPage() {
                   <ul className="payment-readiness-list">
                     {checklistPagamento.map((item) => (
                       <li key={item.id} className={item.ok ? 'is-ok' : 'is-pending'}>
-                        <span className="payment-readiness-icon" aria-hidden="true">{item.ok ? 'âœ“' : 'â€¢'}</span>
+                        <span className="payment-readiness-icon" aria-hidden="true">{item.ok ? '✓' : '•'}</span>
                         <span>{item.label}</span>
                       </li>
                     ))}
@@ -2773,7 +2773,7 @@ export default function PagamentoPage() {
                 ) : null}
 
                 {buscandoChavePublica ? (
-                  <p className="payment-action-feedback is-loading" role="status">Preparando conexÃ£o segura com o gateway de cartÃ£o...</p>
+                  <p className="payment-action-feedback is-loading" role="status">Preparando conexão segura com o gateway de cartão...</p>
                 ) : null}
 
                 <div className="checkout-payment-actions">
@@ -2794,7 +2794,7 @@ export default function PagamentoPage() {
                   >
                     {carregando
                       ? (retiradaSelecionada ? 'Reservando retirada...' : 'Finalizando pedido...')
-                      : `${ctaFinalPedido} â€¢ Total ${formatarMoeda(resumoTotalPagamento)}`}
+                      : `${ctaFinalPedido} • Total ${formatarMoeda(resumoTotalPagamento)}`}
                   </button>
                 </div>
               </div>
@@ -2811,14 +2811,14 @@ export default function PagamentoPage() {
               <h2>{formaPagamento === 'pix' ? 'Pagamento via PIX' : `Pagamento com ${tituloFormaPagamento}`}</h2>
               <p className="muted-text">
                 {formaPagamento === 'pix'
-                  ? 'Escaneie o QR Code ou copie o cÃ³digo PIX e confirme o status para liberar a confirmaÃ§Ã£o do pedido.'
-                  : `Finalize o pagamento com ${tituloFormaPagamento.toLowerCase()} para seguir para a confirmaÃ§Ã£o.`}
+                  ? 'Escaneie o QR Code ou copie o código PIX e confirme o status para liberar a confirmação do pedido.'
+                  : `Finalize o pagamento com ${tituloFormaPagamento.toLowerCase()} para seguir para a confirmação.`}
               </p>
 
               <CheckoutGuidanceChips
                 items={formaPagamento === 'pix'
                   ? ['Gerar QR Code', 'Pagar no app do banco', 'Verificar status e confirmar pedido']
-                  : ['Concluir pagamento no cartÃ£o', 'Conferir status do pedido', 'Seguir para confirmaÃ§Ã£o']}
+                  : ['Concluir pagamento no cartão', 'Conferir status do pedido', 'Seguir para confirmação']}
               />
             </div>
 
@@ -2833,7 +2833,7 @@ export default function PagamentoPage() {
 
             {formaPagamento === 'pix' ? (
               <>
-                {/* Estrutura principal do PIX com QR em destaque e cÃ³digo copia e cola. */}
+                {/* Estrutura principal do PIX com QR em destaque e código copia e cola. */}
                 <section className="checkout-pix-payment-panel" aria-label="Pagamento PIX">
                   <div className="checkout-pix-payment-grid">
                     <PixQrCodeCard qrCodeSrc={qrCodePixSrc} carregando={carregando} />
@@ -2854,7 +2854,7 @@ export default function PagamentoPage() {
                 <PixStatusCard statusVisual={statusPixVisual} />
               </>
             ) : (
-              <section className="checkout-pix-payment-panel" aria-label="Pagamento com cartÃ£o">
+              <section className="checkout-pix-payment-panel" aria-label="Pagamento com cartão">
                 {debitoSelecionado ? (
                   <>
                     <p className={`payment-action-feedback ${status3DSTone}`.trim()} role="status">
@@ -2862,7 +2862,7 @@ export default function PagamentoPage() {
                     </p>
                     {sessao3DSExpirando && sessao3DS ? (
                       <p className="payment-action-feedback is-warning" role="alert">
-                        Sua sessÃ£o de autenticaÃ§Ã£o 3DS estÃ¡ expirando. Finalize o pagamento em breve ou ela serÃ¡ renovada automaticamente.
+                        Sua sessão de autenticação 3DS está expirando. Finalize o pagamento em breve ou ela será renovada automaticamente.
                       </p>
                     ) : null}
                   </>
@@ -2885,10 +2885,10 @@ export default function PagamentoPage() {
                   <>
                     <p>Status do pagamento: {formatarStatusPagamento(resultadoCartao.status)}</p>
                     <p>Status do pedido: {formatarStatusPedido(resultadoCartao.status_interno || 'pendente')}</p>
-                    <p>ReferÃªncia do pedido no PagBank: {resultadoCartao.pagbank_order_id || '-'}</p>
-                    <p>ReferÃªncia lÃ³gica: {resultadoCartao.reference_id || '-'}</p>
-                    <p>ReferÃªncia da transaÃ§Ã£o: {resultadoCartao.payment_id || '-'}</p>
-                    <p>MÃ©todo: {resultadoCartao.tipo_cartao === 'debito' ? 'CartÃ£o de DÃ©bito' : 'CartÃ£o de CrÃ©dito'}</p>
+                    <p>Referência do pedido no PagBank: {resultadoCartao.pagbank_order_id || '-'}</p>
+                    <p>Referência lógica: {resultadoCartao.reference_id || '-'}</p>
+                    <p>Referência da transação: {resultadoCartao.payment_id || '-'}</p>
+                    <p>Método: {resultadoCartao.tipo_cartao === 'debito' ? 'Cartão de Débito' : 'Cartão de Crédito'}</p>
                     <p>Parcelas: {resultadoCartao.tipo_cartao === 'debito' ? '1x' : `${resultadoCartao.parcelas || parcelasCartaoEfetivas}x`}</p>
                     {debitoSelecionado ? (
                       <>
@@ -2899,16 +2899,16 @@ export default function PagamentoPage() {
                       </>
                     ) : null}
                     {cartaoRecusado ? (
-                      <p className="error-text">Pagamento nÃ£o aprovado. Revise os dados do cartÃ£o e tente novamente.</p>
+                      <p className="error-text">Pagamento não aprovado. Revise os dados do cartão e tente novamente.</p>
                     ) : null}
                   </>
                 ) : (
-                  <p className="muted-text">Revise os dados e conclua o pagamento para liberar a confirmaÃ§Ã£o do pedido.</p>
+                  <p className="muted-text">Revise os dados e conclua o pagamento para liberar a confirmação do pedido.</p>
                 )}
 
                 {debitoSelecionado && eventosHomologacao3DS.length > 0 ? (
                   <div className="payment-homologacao-logs" aria-label="Evidencia sanitizada de homologacao 3DS">
-                    <p className="payment-homologacao-logs-title">EvidÃªncia de homologaÃ§Ã£o 3DS (dados mascarados)</p>
+                    <p className="payment-homologacao-logs-title">Evidência de homologação 3DS (dados mascarados)</p>
 
                     <div className="payment-homologacao-logs-actions">
                       <button
@@ -2975,7 +2975,7 @@ export default function PagamentoPage() {
                         setEtapaAtual(ETAPAS.STATUS);
                       }}
                     >
-                      Continuar para confirmaÃ§Ã£o do pedido
+                      Continuar para confirmação do pedido
                     </button>
                   ) : (
                     <button
@@ -2991,7 +2991,7 @@ export default function PagamentoPage() {
                   )}
 
                   {!podeContinuarConfirmacaoPix ? (
-                    <p className="pix-action-helper">A confirmaÃ§Ã£o sÃ³ Ã© liberada apÃ³s aprovaÃ§Ã£o do pagamento PIX.</p>
+                    <p className="pix-action-helper">A confirmação só é liberada após aprovação do pagamento PIX.</p>
                   ) : null}
                 </>
               ) : (
@@ -3004,7 +3004,7 @@ export default function PagamentoPage() {
                     setEtapaAtual(ETAPAS.STATUS);
                   }}
                 >
-                  Continuar para confirmaÃ§Ã£o
+                  Continuar para confirmação
                 </button>
               )}
 
@@ -3021,25 +3021,25 @@ export default function PagamentoPage() {
 
       {etapaAtual === ETAPAS.STATUS ? (
         <div className="card-box">
-          <p><strong>Etapa 4: ConfirmaÃ§Ã£o e acompanhamento</strong></p>
+          <p><strong>Etapa 4: Confirmação e acompanhamento</strong></p>
           {resultadoPedido ? (
             <>
               <p>Pedido: #{resultadoPedido.pedido_id}</p>
               <p>Total com entrega estimado: {formatarMoeda(totalComEntregaPedido)}</p>
               <p>
-                SituaÃ§Ã£o atual: <span className="pedido-status-badge">{labelStatus}</span>
+                Situação atual: <span className="pedido-status-badge">{labelStatus}</span>
               </p>
               {pagamentoConfirmado ? (
                 <div className="pagamento-ok" aria-label="Pagamento confirmado com sucesso">
-                  <span className="pagamento-ok-icon">âœ…</span>
+                  <span className="pagamento-ok-icon">✅</span>
                   <span>Pagamento confirmado com sucesso.</span>
                 </div>
               ) : (
                 <p className="checkout-status-pending" role="status">
-                  Ainda estamos aguardando a confirmaÃ§Ã£o final do pagamento. Mantenha esta tela aberta para acompanhar.
+                  Ainda estamos aguardando a confirmação final do pagamento. Mantenha esta tela aberta para acompanhar.
                 </p>
               )}
-              <p className="muted-text">AtualizaÃ§Ã£o automÃ¡tica a cada 15 segundos.</p>
+              <p className="muted-text">Atualização automática a cada 15 segundos.</p>
             </>
           ) : (
             <p className="muted-text">Finalize um pedido para acompanhar o status.</p>
@@ -3049,10 +3049,10 @@ export default function PagamentoPage() {
             <p><strong>Precisa de ajuda?</strong></p>
             <p>
               {formaPagamento === 'pix'
-                ? 'Se o QR Code nÃ£o abrir no seu banco, copie o cÃ³digo PIX e cole manualmente no aplicativo.'
-                : 'Se o pagamento nÃ£o for aprovado, revise os dados do cartÃ£o e tente novamente.'}
+                ? 'Se o QR Code não abrir no seu banco, copie o código PIX e cole manualmente no aplicativo.'
+                : 'Se o pagamento não for aprovado, revise os dados do cartão e tente novamente.'}
             </p>
-            <p>ApÃ³s a confirmaÃ§Ã£o do pagamento, iniciamos a preparaÃ§Ã£o e o envio do pedido.</p>
+            <p>Após a confirmação do pagamento, iniciamos a preparação e o envio do pedido.</p>
           </div>
 
           <BotaoVoltarSeta

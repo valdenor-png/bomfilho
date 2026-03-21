@@ -144,7 +144,7 @@ export function PickupStoreCard({ economiaFrete = 0 }) {
           <strong>{RETIRADA_LOJA_INFO.horario}</strong>
         </div>
         <div>
-          <span>Tempo estimado</span>
+          <span>Tempo estimado para preparo</span>
           <strong>{RETIRADA_LOJA_INFO.tempo_estimado}</strong>
         </div>
         <div>
@@ -152,6 +152,8 @@ export function PickupStoreCard({ economiaFrete = 0 }) {
           <strong className="pickup-store-economia">{economiaTexto}</strong>
         </div>
       </div>
+
+      <p className="pickup-store-instrucao">Apresente o numero do pedido no balcao ao retirar.</p>
     </article>
   );
 }

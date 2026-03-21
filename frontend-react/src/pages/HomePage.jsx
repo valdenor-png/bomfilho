@@ -269,9 +269,14 @@ export default function HomePage() {
       <section className="home-hero home-hero-clean" aria-label="Boas-vindas Bomfilho">
         <BrandLogo subtitle="Seu supermercado online" />
         <p className="home-hero-description">
-          Ofertas reais, entrega rapida e compra simples pelo celular.
+          Faz suas compras pelo celular com entrega rapida no seu bairro. Precos de supermercado, sem surpresa.
         </p>
-        <Link to="/produtos" className="btn-primary home-hero-btn">Ver produtos e ofertas</Link>
+        <div className="home-hero-highlights">
+          <span className="home-hero-pill">🚚 Entrega rapida</span>
+          <span className="home-hero-pill">💲 Desconto no Pix</span>
+          <span className="home-hero-pill">🛒 +21 mil produtos</span>
+        </div>
+        <Link to="/produtos" className="btn-primary home-hero-btn">Comprar agora</Link>
       </section>
 
       <section className="home-opportunities home-section-clean" aria-label="Ofertas do dia">

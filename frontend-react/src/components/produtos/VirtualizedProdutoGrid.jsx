@@ -98,9 +98,7 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     growthExperimento,
     idsAltaConversaoSet,
     isMobileViewport,
-    isProdutoAdicionando,
-    recompraIdsSet,
-    produtoAdicionadoRecenteId
+    recompraIdsSet
   ]);
   const shellClassName = gridClassName.includes('brand-produto-grid')
     ? 'produto-grid-virtualized-shell brand-produto-grid-virtualized'

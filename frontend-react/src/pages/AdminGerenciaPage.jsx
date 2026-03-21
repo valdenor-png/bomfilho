@@ -597,7 +597,7 @@ export default function AdminGerenciaPage() {
     }
 
     if (!leituraPlanilha) {
-      setErro('Nao foi possivel preparar o arquivo. RefaÃ§a o upload da planilha.');
+      setErro('Nao foi possivel preparar o arquivo. Refaça o upload da planilha.');
       return;
     }
 

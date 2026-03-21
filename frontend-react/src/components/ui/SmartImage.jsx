@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
-const IMAGE_CACHE_MAX_ENTRIES = 1200;
+const IMAGE_CACHE_MAX_ENTRIES = 800;
 const loadedImageSrcCache = new Set();
 const loadedImageQueue = [];
 
@@ -26,10 +26,13 @@ function addImageToCache(src) {
   loadedImageSrcCache.add(normalizedSrc);
   loadedImageQueue.push(normalizedSrc);
 
-  while (loadedImageQueue.length > IMAGE_CACHE_MAX_ENTRIES) {
-    const oldest = loadedImageQueue.shift();
-    if (oldest) {
-      loadedImageSrcCache.delete(oldest);
+  if (loadedImageQueue.length > IMAGE_CACHE_MAX_ENTRIES) {
+    const removeCount = Math.min(50, loadedImageQueue.length - IMAGE_CACHE_MAX_ENTRIES);
+    for (let i = 0; i < removeCount; i++) {
+      const oldest = loadedImageQueue.shift();
+      if (oldest) {
+        loadedImageSrcCache.delete(oldest);
+      }
     }
   }
 }

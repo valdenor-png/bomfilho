@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SmartImage from '../ui/SmartImage';
 import { ProdutoImageFallback, ProdutoBadge } from './ProdutoHelpers';
 import {
@@ -13,7 +13,7 @@ const ProdutoCard = React.memo(function ProdutoCard({
   index = 0,
   isMobileViewport = false,
   nextImageSrc = '',
-  estaAdicionando = false,
+  estaAdicionando: estaAdicionandoExterno = false,
   quantidadeNoCarrinho,
   destaqueMaisVendido,
   destaqueNovo,
@@ -32,6 +32,42 @@ const ProdutoCard = React.memo(function ProdutoCard({
   const produto = produtoIndexado.produto;
   const imagem = produtoIndexado.imagemResponsiva;
   const [imagemIndisponivel, setImagemIndisponivel] = useState(() => !imagem.src);
+  const [adicionandoLocal, setAdicionandoLocal] = useState(false);
+  const adicionandoTimerRef = useRef(null);
+
+  const estaAdicionando = adicionandoLocal || estaAdicionandoExterno;
+
+  useEffect(() => {
+    return () => {
+      if (adicionandoTimerRef.current) {
+        clearTimeout(adicionandoTimerRef.current);
+      }
+    };
+  }, []);
+
+  const handleAddItemLocal = useCallback(() => {
+    setAdicionandoLocal(true);
+    onAddItem(produto);
+    if (adicionandoTimerRef.current) {
+      clearTimeout(adicionandoTimerRef.current);
+    }
+    adicionandoTimerRef.current = setTimeout(() => {
+      setAdicionandoLocal(false);
+      adicionandoTimerRef.current = null;
+    }, 520);
+  }, [onAddItem, produto]);
+
+  const handleIncreaseLocal = useCallback(() => {
+    setAdicionandoLocal(true);
+    onIncreaseItem(produto);
+    if (adicionandoTimerRef.current) {
+      clearTimeout(adicionandoTimerRef.current);
+    }
+    adicionandoTimerRef.current = setTimeout(() => {
+      setAdicionandoLocal(false);
+      adicionandoTimerRef.current = null;
+    }, 520);
+  }, [onIncreaseItem, produto]);
 
   useEffect(() => {
     setImagemIndisponivel(!imagem.src);
@@ -180,11 +216,22 @@ const ProdutoCard = React.memo(function ProdutoCard({
             />
           )}
         </button>
+
+        {podeComprar ? (
+          <button
+            type="button"
+            className={`produto-quick-add ${estaAdicionando ? 'is-loading' : ''}`.trim()}
+            onClick={handleAddItemLocal}
+            disabled={estaAdicionando}
+            aria-label={`Adicionar ${nomeProduto} ao carrinho`}
+          >
+            +
+          </button>
+        ) : null}
       </div>
 
       <div className="produto-card-body">
         <p className="produto-category">
-          <span aria-hidden="true">{produto.emoji || '🛒'}</span>
           {categoriaLabel}
         </p>
         <h3 className="produto-title" title={nomeProduto}>{nomeProduto}</h3>
@@ -239,7 +286,7 @@ const ProdutoCard = React.memo(function ProdutoCard({
             <button
               type="button"
               className="produto-qty-btn"
-              onClick={() => onIncreaseItem(produto)}
+              onClick={handleIncreaseLocal}
               aria-label={`Aumentar quantidade de ${nomeProduto}`}
               disabled={estaAdicionando}
             >
@@ -254,7 +301,7 @@ const ProdutoCard = React.memo(function ProdutoCard({
           <button
             className={`btn-primary produto-add-btn ${estaAdicionando ? 'is-loading' : ''}`.trim()}
             type="button"
-            onClick={() => onAddItem(produto)}
+            onClick={handleAddItemLocal}
             disabled={!podeComprar || estaAdicionando}
           >
             {ctaPrimaria}
