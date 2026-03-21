@@ -381,7 +381,15 @@ module.exports = function createWebhookRoutes(deps) {
       }
 
       // Consultar pagamento na API do Mercado Pago
-      const pagamento = await mercadoPagoService.consultarPagamento(dataId);
+      let pagamento;
+      try {
+        pagamento = await mercadoPagoService.consultarPagamento(dataId);
+      } catch (errConsulta) {
+        // Payloads de teste do MP enviam IDs falsos (ex: 123456) que não existem na API
+        logger.warn(`[MP Webhook] Não foi possível consultar pagamento ${dataId}: ${errConsulta.message}`);
+        return res.sendStatus(200);
+      }
+
       if (!pagamento || !pagamento.id) {
         logger.warn(`[MP Webhook] Pagamento ${dataId} não encontrado na API.`);
         return res.sendStatus(200);
