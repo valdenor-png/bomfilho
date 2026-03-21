@@ -60,6 +60,20 @@ const PAGBANK_API_URL = PAGBANK_CONFIG.ordersApiUrl;
 const PAGBANK_SDK_API_URL = PAGBANK_CONFIG.sdkApiUrl;
 const PAGBANK_3DS_SDK_ENV = PAGBANK_CONFIG.sdkEnv;
 
+// ============================================
+// MERCADO PAGO
+// ============================================
+const MP_ACCESS_TOKEN = String(process.env.MP_ACCESS_TOKEN || '').trim();
+const MP_PUBLIC_KEY = String(process.env.MP_PUBLIC_KEY || '').trim();
+const MP_WEBHOOK_SECRET = String(process.env.MP_WEBHOOK_SECRET || '').trim();
+
+if (!MP_ACCESS_TOKEN) {
+  console.warn('⚠️ MP_ACCESS_TOKEN não configurado. Pagamentos via Mercado Pago indisponíveis.');
+}
+if (IS_PRODUCTION && !MP_WEBHOOK_SECRET) {
+  console.warn('⚠️ MP_WEBHOOK_SECRET não configurado em produção. Webhooks do Mercado Pago não serão validados.');
+}
+
 const TAMANHO_MAXIMO_IMPORTACAO_MB = (() => {
   const valor = Number(process.env.TAMANHO_MAXIMO_IMPORTACAO_MB || 8);
   return Number.isFinite(valor) && valor > 0 ? Math.min(valor, 100) : 8;
@@ -92,6 +106,12 @@ if (IS_PRODUCTION && !PAGBANK_WEBHOOK_TOKEN) {
 if (!PAGBANK_WEBHOOK_TOKEN) {
   console.warn('⚠️ PAGBANK_WEBHOOK_TOKEN não configurado. Em produção o servidor não inicializa sem essa variável.');
 }
+if (IS_PRODUCTION && ALLOW_PIX_MOCK) {
+  throw new Error('ALLOW_PIX_MOCK nao pode ser true em producao.');
+}
+if (IS_PRODUCTION && ALLOW_DEBIT_3DS_MOCK) {
+  throw new Error('ALLOW_DEBIT_3DS_MOCK nao pode ser true em producao.');
+}
 
 // ============================================
 // RECAPTCHA
@@ -109,6 +129,9 @@ const RECAPTCHA_PAYMENT_ENABLED = parseBooleanEnv('RECAPTCHA_PAYMENT_ENABLED', f
 // SECURITY & AUTH
 // ============================================
 const JWT_SECRET = String(process.env.JWT_SECRET || '');
+if (IS_PRODUCTION && JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET deve ter no minimo 32 caracteres em producao.');
+}
 const DIAGNOSTIC_TOKEN = String(process.env.DIAGNOSTIC_TOKEN || '').trim();
 const ALLOW_REMOTE_DIAGNOSTIC = parseBooleanEnv('ALLOW_REMOTE_DIAGNOSTIC', false);
 const BASE_URL_ENV = String(process.env.BASE_URL || '').trim();
@@ -145,7 +168,7 @@ const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || '').trim();
 const ADMIN_LOCAL_ONLY = parseBooleanEnv('ADMIN_LOCAL_ONLY', true);
 
 if (IS_PRODUCTION && !ADMIN_PASSWORD_HASH && ADMIN_PASSWORD) {
-  console.warn('⚠️ ADMIN_PASSWORD em texto plano detectada em produção. Migre para ADMIN_PASSWORD_HASH (bcrypt) para maior segurança.');
+  throw new Error('ADMIN_PASSWORD em texto plano nao e permitida em producao. Configure ADMIN_PASSWORD_HASH (bcrypt).');
 }
 if (!ADMIN_PASSWORD_HASH && !ADMIN_PASSWORD) {
   console.warn('⚠️ Nenhuma senha de admin configurada (ADMIN_PASSWORD_HASH ou ADMIN_PASSWORD). O login admin ficará inacessível.');
@@ -194,6 +217,9 @@ const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
 const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').trim().toLowerCase();
 const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW) ? COOKIE_SAME_SITE_RAW : 'strict';
 if (IS_PRODUCTION && !COOKIE_SECURE) throw new Error('COOKIE_SECURE deve ser true em producao.');
+if (COOKIE_SAME_SITE === 'none' && !COOKIE_SECURE) {
+  throw new Error('COOKIE_SAME_SITE=none requer COOKIE_SECURE=true.');
+}
 
 // ============================================
 // DELIVERY / FRETE
@@ -231,6 +257,8 @@ module.exports = {
   PAGBANK_CONFIG, PAGBANK_ENV, PAGBANK_TOKEN, PAGBANK_PUBLIC_KEY,
   PAGBANK_WEBHOOK_TOKEN, PAGBANK_DEBUG_LOGS, ALLOW_PIX_MOCK, ALLOW_DEBIT_3DS_MOCK,
   PAGBANK_TIMEOUT_MS, PAGBANK_API_URL, PAGBANK_SDK_API_URL, PAGBANK_3DS_SDK_ENV,
+  // mercado pago
+  MP_ACCESS_TOKEN, MP_PUBLIC_KEY, MP_WEBHOOK_SECRET,
   TAMANHO_MAXIMO_IMPORTACAO_MB, TAMANHO_MAXIMO_IMPORTACAO_BYTES,
   // evolution
   EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE, EVOLUTION_WEBHOOK_TOKEN,

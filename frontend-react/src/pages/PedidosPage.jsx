@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import useDocumentHead from '../hooks/useDocumentHead';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
-import { getPedidoById, getPedidos, isAuthErrorMessage } from '../lib/api';
+import { getPedidoById, getPedidos, getPedidoStatus, confirmarRecebimentoPedido, isAuthErrorMessage } from '../lib/api';
 
 const PEDIDOS_POR_PAGINA = 20;
 const PRELOAD_RESUMO_LIMITE = 6;
@@ -16,7 +16,7 @@ const FILTROS_STATUS = [
   { id: 'cancelados', label: 'Cancelados' }
 ];
 
-const TIMELINE_ETAPAS = ['Recebido', 'Confirmado', 'Em preparo', 'Saiu para entrega', 'Entregue'];
+const TIMELINE_ETAPAS = ['Recebido', 'Pago', 'Separando', 'Preparado', 'Entregue'];
 
 const STATUS_PEDIDO_META = {
   pendente: {
@@ -26,26 +26,38 @@ const STATUS_PEDIDO_META = {
     timelineStep: 1
   },
   pago: {
-    label: 'Confirmado',
+    label: 'Pago',
     icon: '💳',
     tone: 'processing',
     timelineStep: 2
   },
   preparando: {
-    label: 'Em preparo',
-    icon: '🍳',
+    label: 'Separando',
+    icon: '📦',
     tone: 'preparing',
     timelineStep: 3
   },
+  pronto_para_retirada: {
+    label: 'Preparado',
+    icon: '✅',
+    tone: 'ready',
+    timelineStep: 4
+  },
   enviado: {
-    label: 'Saiu para entrega',
+    label: 'Saiu pra Entrega',
     icon: '🛵',
     tone: 'delivery',
     timelineStep: 4
   },
   entregue: {
     label: 'Entregue',
-    icon: '✅',
+    icon: '🏁',
+    tone: 'delivered',
+    timelineStep: 5
+  },
+  retirado: {
+    label: 'Retirado',
+    icon: '👋',
     tone: 'delivered',
     timelineStep: 5
   },
@@ -219,6 +231,7 @@ export default function PedidosPage() {
   const [carregando, setCarregando] = useState(false);
   const [carregandoMais, setCarregandoMais] = useState(false);
   const [pedidoRepetindoId, setPedidoRepetindoId] = useState(null);
+  const [confirmandoRecebimento, setConfirmandoRecebimento] = useState(null);
   const [autenticado, setAutenticado] = useState(null);
   const [erro, setErro] = useState('');
   const [mensagemSucesso, setMensagemSucesso] = useState('');
@@ -331,6 +344,45 @@ export default function PedidosPage() {
   useEffect(() => {
     void carregarPedidosIniciais();
   }, []);
+
+  // Polling automático: atualiza status de pedidos ativos a cada 20s
+  useEffect(() => {
+    if (autenticado !== true || pedidos.length === 0) return;
+
+    const statusAtivos = ['pendente', 'pago', 'preparando', 'pronto_para_retirada', 'enviado'];
+    const pedidosAtivos = pedidos.filter(p => statusAtivos.includes(p?.status));
+    if (pedidosAtivos.length === 0) return;
+
+    const intervalo = setInterval(async () => {
+      try {
+        for (const pedido of pedidosAtivos) {
+          const statusData = await getPedidoStatus(pedido.id);
+          if (statusData && statusData.status !== pedido.status) {
+            setPedidos(atuais => atuais.map(p =>
+              p.id === pedido.id ? { ...p, status: statusData.status, atualizado_em: statusData.atualizado_em } : p
+            ));
+          }
+        }
+      } catch (_) { /* silencioso */ }
+    }, 20000);
+
+    return () => clearInterval(intervalo);
+  }, [autenticado, pedidos]);
+
+  async function handleConfirmarRecebimento(pedidoId) {
+    setConfirmandoRecebimento(pedidoId);
+    try {
+      await confirmarRecebimentoPedido(pedidoId);
+      setPedidos(atuais => atuais.map(p =>
+        p.id === pedidoId ? { ...p, status: 'entregue' } : p
+      ));
+      setMensagemSucesso(`Recebimento do pedido #${pedidoId} confirmado!`);
+    } catch (error) {
+      setErro(error.message || 'Não foi possível confirmar o recebimento.');
+    } finally {
+      setConfirmandoRecebimento(null);
+    }
+  }
 
   useEffect(() => {
     if (autenticado !== true || pedidos.length === 0) {
@@ -641,6 +693,38 @@ export default function PedidosPage() {
                   <p className={`orders-summary ${detalhesPedido ? '' : 'is-placeholder'}`}>
                     {resumoItensTexto}
                   </p>
+
+                  {/* Botão de confirmar recebimento para pedidos em entrega */}
+                  {pedido.status === 'enviado' && (
+                    <div className="orders-confirmar-recebimento">
+                      <div className="orders-entrega-info">
+                        <span className="orders-entrega-icon" aria-hidden="true">🛵</span>
+                        <span>Seu pedido está a caminho!</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-confirmar-recebimento"
+                        disabled={confirmandoRecebimento === Number(pedido.id)}
+                        onClick={() => handleConfirmarRecebimento(Number(pedido.id))}
+                      >
+                        {confirmandoRecebimento === Number(pedido.id) ? 'Confirmando...' : '✅ Recebi meu pedido'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Indicador visual pra status ativos */}
+                  {['preparando', 'pronto_para_retirada'].includes(pedido.status) && (
+                    <div className="orders-status-ativo-info">
+                      <span className="orders-pulse-dot" />
+                      <span>
+                        {pedido.status === 'preparando'
+                          ? 'Seu pedido está sendo separado...'
+                          : pedido.tipo_entrega === 'retirada'
+                            ? 'Seu pedido está preparado! Pode buscar na loja.'
+                            : 'Seu pedido está preparado e aguardando entregador.'}
+                      </span>
+                    </div>
+                  )}
 
                   <div className="orders-actions">
                     <button

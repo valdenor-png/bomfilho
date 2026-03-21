@@ -29,6 +29,7 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
   growthExperimento,
   produtoAdicionadoRecenteId,
   isProdutoAdicionando = () => false,
+  categoriasRecompraSet = new Set(),
   gridClassName = 'produto-grid',
   listId
 }) {
@@ -78,6 +79,7 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     favoritosIdsSet,
     recompraIdsSet,
     idsAltaConversaoSet,
+    categoriasRecompraSet,
     growthExperimento,
     produtoAdicionadoRecenteId,
     isProdutoAdicionando,
@@ -97,6 +99,7 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     favoritosIdsSet,
     growthExperimento,
     idsAltaConversaoSet,
+    categoriasRecompraSet,
     isMobileViewport,
     recompraIdsSet
   ]);
@@ -121,6 +124,7 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
     favoritosIdsSet: favoritosSet,
     recompraIdsSet: recompraSet,
     idsAltaConversaoSet: altaConversaoSet,
+    categoriasRecompraSet: catRecompraSet,
     growthExperimento: growth,
     produtoAdicionadoRecenteId: adicionadoRecenteId,
     isProdutoAdicionando: isAddingProduto,
@@ -168,7 +172,14 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
             produtoIndexado.carrinhoId !== null
             && recompraSet.has(produtoIndexado.carrinhoId)
           }
-          sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
+          sinalRecomendado={
+            catRecompraSet.size > 0
+            && produtoIndexado.carrinhoId !== null
+            && !recompraSet.has(produtoIndexado.carrinhoId)
+            && !favoritosSet.has(produtoIndexado.carrinhoId)
+            && catRecompraSet.has(produtoIndexado.categoriaNormalizada)
+            && produtoIndexado.estoqueInfo?.semEstoque !== true
+          }
           destaqueConversao={
             produtoIndexado.carrinhoId !== null
             && altaConversaoSet.has(produtoIndexado.carrinhoId)
@@ -216,7 +227,14 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
               produtoIndexado.carrinhoId !== null
               && recompraIdsSet.has(produtoIndexado.carrinhoId)
             }
-            sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
+            sinalRecomendado={
+              categoriasRecompraSet.size > 0
+              && produtoIndexado.carrinhoId !== null
+              && !recompraIdsSet.has(produtoIndexado.carrinhoId)
+              && !favoritosIdsSet.has(produtoIndexado.carrinhoId)
+              && categoriasRecompraSet.has(produtoIndexado.categoriaNormalizada)
+              && produtoIndexado.estoqueInfo?.semEstoque !== true
+            }
             destaqueConversao={
               produtoIndexado.carrinhoId !== null
               && idsAltaConversaoSet.has(produtoIndexado.carrinhoId)
@@ -280,7 +298,14 @@ const VirtualizedProdutoGrid = React.memo(function VirtualizedProdutoGrid({
                 produtoIndexado.carrinhoId !== null
                 && recompraIdsSet.has(produtoIndexado.carrinhoId)
               }
-              sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
+              sinalRecomendado={
+                categoriasRecompraSet.size > 0
+                && produtoIndexado.carrinhoId !== null
+                && !recompraIdsSet.has(produtoIndexado.carrinhoId)
+                && !favoritosIdsSet.has(produtoIndexado.carrinhoId)
+                && categoriasRecompraSet.has(produtoIndexado.categoriaNormalizada)
+                && produtoIndexado.estoqueInfo?.semEstoque !== true
+              }
               destaqueConversao={
                 produtoIndexado.carrinhoId !== null
                 && idsAltaConversaoSet.has(produtoIndexado.carrinhoId)

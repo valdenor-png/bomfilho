@@ -5,9 +5,24 @@
 -- ===================================================================
 
 -- 1. ADICIONAR CAMPOS DE OFERTA NOS PRODUTOS
-ALTER TABLE produtos 
-ADD COLUMN IF NOT EXISTS desconto_percentual DECIMAL(5,2) DEFAULT 0,
-ADD COLUMN IF NOT EXISTS em_oferta BOOLEAN DEFAULT FALSE;
+-- MySQL não suporta ADD COLUMN IF NOT EXISTS — usar INFORMATION_SCHEMA
+SET @exist := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'produtos'
+               AND COLUMN_NAME = 'desconto_percentual');
+SET @sql := IF(@exist = 0, 'ALTER TABLE produtos ADD COLUMN desconto_percentual DECIMAL(5,2) DEFAULT 0', 'SELECT "Coluna desconto_percentual já existe"');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @exist := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'produtos'
+               AND COLUMN_NAME = 'em_oferta');
+SET @sql := IF(@exist = 0, 'ALTER TABLE produtos ADD COLUMN em_oferta BOOLEAN DEFAULT FALSE', 'SELECT "Coluna em_oferta já existe"');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- 2. CRIAR TABELA DE AVALIAÇÕES
 CREATE TABLE IF NOT EXISTS avaliacoes (

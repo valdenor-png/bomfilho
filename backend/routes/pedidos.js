@@ -112,5 +112,51 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
     }
   });
 
+  // Consultar status em tempo real (polling leve — sem itens, só status)
+  router.get('/api/pedidos/:id/status', autenticarToken, async (req, res) => {
+    try {
+      const [rows] = await pool.query(
+        `SELECT id, status, tipo_entrega, forma_pagamento,
+                pago_em, em_preparo_em, pronto_em, saiu_entrega_em, entregue_em, retirado_em, cancelado_em,
+                atualizado_em
+         FROM pedidos WHERE id = ? AND usuario_id = ? LIMIT 1`,
+        [req.params.id, req.usuario.id]
+      );
+      if (!rows.length) {
+        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+      }
+      res.json(rows[0]);
+    } catch (erro) {
+      logger.error('Erro ao buscar status do pedido:', erro);
+      res.status(500).json({ erro: 'Não foi possível consultar o status.' });
+    }
+  });
+
+  // Cliente confirma recebimento do pedido
+  router.put('/api/pedidos/:id/confirmar-recebimento', autenticarToken, async (req, res) => {
+    try {
+      const pedidoId = req.params.id;
+      const [rows] = await pool.query(
+        'SELECT id, status, usuario_id FROM pedidos WHERE id = ? AND usuario_id = ? LIMIT 1',
+        [pedidoId, req.usuario.id]
+      );
+      if (!rows.length) {
+        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+      }
+      if (rows[0].status !== 'enviado') {
+        return res.status(400).json({ erro: 'Só é possível confirmar recebimento de pedidos em entrega.' });
+      }
+      await pool.query(
+        'UPDATE pedidos SET status = ?, entregue_em = COALESCE(entregue_em, NOW()) WHERE id = ?',
+        ['entregue', pedidoId]
+      );
+      logger.info(`Cliente ${req.usuario.id} confirmou recebimento do pedido #${pedidoId}`);
+      res.json({ mensagem: 'Recebimento confirmado com sucesso!', status: 'entregue' });
+    } catch (erro) {
+      logger.error('Erro ao confirmar recebimento:', erro);
+      res.status(500).json({ erro: 'Não foi possível confirmar o recebimento.' });
+    }
+  });
+
   return router;
 };

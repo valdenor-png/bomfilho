@@ -709,8 +709,20 @@ export function getPedidoById(pedidoId) {
   return request(`/api/pedidos/${pedidoId}`);
 }
 
+export function getPedidoStatus(pedidoId) {
+  return request(`/api/pedidos/${pedidoId}/status`);
+}
+
+export function confirmarRecebimentoPedido(pedidoId) {
+  return request(`/api/pedidos/${pedidoId}/confirmar-recebimento`, { method: 'PUT' });
+}
+
 export function getProdutos(params = {}) {
   return request('/api/produtos' + buildQueryString(params));
+}
+
+export function getOfertasDia() {
+  return request('/api/ofertas-dia');
 }
 
 export function simularFretePorCep({ cep, veiculo = 'moto' }) {
@@ -844,6 +856,50 @@ export function adminAtualizarStatusPedido(pedidoId, status) {
   return request(`/api/admin/pedidos/${pedidoId}/status`, {
     method: 'PUT',
     body: { status }
+  });
+}
+
+// ── Mercado Pago ──────────────────────────────────────────────
+export function mpGerarPix(pedidoId, taxId) {
+  const body = { pedido_id: pedidoId };
+  const taxIdDigits = String(taxId || '').replace(/\D/g, '');
+  if (taxIdDigits) body.tax_id = taxIdDigits;
+  return request('/api/mercadopago/criar-pix', { method: 'POST', body });
+}
+
+export function mpPagarCartao(pedidoId, { token, parcelas = 1, taxId } = {}) {
+  const body = {
+    pedido_id: pedidoId,
+    token,
+    parcelas: Number(parcelas) || 1
+  };
+  const taxIdDigits = String(taxId || '').replace(/\D/g, '');
+  if (taxIdDigits) body.tax_id = taxIdDigits;
+  return request('/api/mercadopago/criar-cartao', { method: 'POST', body });
+}
+
+export function mpGetPublicKey() {
+  const envKey = import.meta.env.VITE_MP_PUBLIC_KEY || '';
+  if (envKey) return Promise.resolve({ public_key: envKey });
+  return request('/api/mercadopago/public-key');
+}
+
+export function mpGetStatus() {
+  return request('/api/mercadopago/status');
+}
+
+// ── Revisão de pedido (admin) ─────────────────────────────────
+export function adminAprovarRevisao(pedidoId, observacao = '') {
+  return request(`/api/admin/pedidos/${pedidoId}/aprovar-revisao`, {
+    method: 'PUT',
+    body: { observacao }
+  });
+}
+
+export function adminRejeitarRevisao(pedidoId, motivo = '') {
+  return request(`/api/admin/pedidos/${pedidoId}/rejeitar-revisao`, {
+    method: 'PUT',
+    body: { motivo }
   });
 }
 

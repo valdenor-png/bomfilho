@@ -9,6 +9,7 @@ import useDocumentHead from '../hooks/useDocumentHead';
 import useDebouncedValue from '../hooks/useDebouncedValue';
 import usePreloadImage from '../hooks/usePreloadImage';
 import SmartImage from '../components/ui/SmartImage';
+import { getOfertasDia } from '../lib/api';
 import {
   buildProductEventPayload,
   captureCommerceEvent
@@ -142,6 +143,7 @@ export default function ProdutosPage() {
   );
   const [feedbackRecorrencia, setFeedbackRecorrencia] = useState('');
   const [growthVersion, setGrowthVersion] = useState(0);
+  const [ofertasDia, setOfertasDia] = useState([]);
   const requisicaoProdutosIdRef = useRef(0);
   const limparFeedbackAdicaoRef = useRef(null);
   const limparFeedbackRecorrenciaRef = useRef(null);
@@ -228,6 +230,19 @@ export default function ProdutosPage() {
       setFiltroRecorrencia('todos');
     }
   }, [searchParams]);
+
+  // Buscar ofertas do dia (atualização semanal pelo admin)
+  useEffect(() => {
+    let cancelado = false;
+    getOfertasDia()
+      .then((data) => {
+        if (!cancelado && Array.isArray(data?.ofertas)) {
+          setOfertasDia(data.ofertas);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelado = true; };
+  }, []);
 
   useEffect(() => {
     if (!categoriaEhBebidas) {
@@ -683,9 +698,100 @@ export default function ProdutosPage() {
     return mapa;
   }, [produtosIndexados]);
 
+  // Indexar produtos das ofertas do dia (podem não estar na lista paginada)
+  const ofertasDiaIndexados = useMemo(() => {
+    if (!ofertasDia.length) return [];
+    return ofertasDia.map((oferta) => {
+      // Normalizar campo imagem → imagem_url para compatibilidade com utilitários
+      const produto = { ...oferta, imagem_url: oferta.imagem || oferta.imagem_url };
+      const nomeProduto = getProdutoNome(produto);
+      const categoriaLabel = getProdutoCategoriaLabel(produto);
+      const detalhesComerciais = getProdutoDetalheComercial(produto);
+      const medidaProduto = getProdutoMedida(produto);
+      const textoBusca = getTextoProduto(produto);
+      const categoriaOriginal = String(produto?.categoria || '').toLowerCase();
+      const categoriaNormalizada = normalizeText(categoriaOriginal);
+      const precoInfo = getProdutoPrecoInfo(produto);
+      const estoqueInfo = getProdutoEstoqueInfo(produto);
+      const imagemResponsiva = getProdutoImagemResponsiva(produto);
+      const carrinhoId = getProdutoCarrinhoId(produto);
+
+      const indexadoBase = {
+        chaveReact: getProdutoStableKey(produto),
+        produto,
+        nomeProduto,
+        categoriaLabel,
+        detalhesComerciais,
+        medidaProduto,
+        textoBusca,
+        categoriaOriginal,
+        categoriaNormalizada,
+        categoriaEhBebida: categoriaNormalizada.includes(TOKEN_BEBIDA),
+        estoqueInfo,
+        carrinhoId,
+        precoInfo,
+        emPromocao: precoInfo.emPromocao,
+        bebidaSubcategoriaId: getBebidaSubcategoriaIdByTexto(textoBusca),
+        imagemResponsiva,
+        conversaoProduto: null
+      };
+
+      return {
+        ...indexadoBase,
+        scoreMaisVendido: getScoreMaisVendido(indexadoBase),
+        scoreConversao: 0
+      };
+    });
+  }, [ofertasDia]);
+
   const favoritosRecorrencia = useMemo(() => {
     return favoritosProdutos.slice(0, 12);
   }, [favoritosProdutos]);
+
+  // Indexar favoritos para exibir como seção horizontal
+  const favoritosIndexados = useMemo(() => {
+    if (!favoritosRecorrencia.length) return [];
+    return favoritosRecorrencia.map((produto) => {
+      const p = { ...produto, imagem_url: produto.imagem_url || produto.imagem };
+      const nomeProduto = getProdutoNome(p);
+      const categoriaLabel = getProdutoCategoriaLabel(p);
+      const detalhesComerciais = getProdutoDetalheComercial(p);
+      const medidaProduto = getProdutoMedida(p);
+      const textoBusca = getTextoProduto(p);
+      const categoriaOriginal = String(p?.categoria || '').toLowerCase();
+      const categoriaNormalizada = normalizeText(categoriaOriginal);
+      const precoInfo = getProdutoPrecoInfo(p);
+      const estoqueInfo = getProdutoEstoqueInfo(p);
+      const imagemResponsiva = getProdutoImagemResponsiva(p);
+      const carrinhoId = getProdutoCarrinhoId(p);
+
+      const indexadoBase = {
+        chaveReact: getProdutoStableKey(p),
+        produto: p,
+        nomeProduto,
+        categoriaLabel,
+        detalhesComerciais,
+        medidaProduto,
+        textoBusca,
+        categoriaOriginal,
+        categoriaNormalizada,
+        categoriaEhBebida: categoriaNormalizada.includes(TOKEN_BEBIDA),
+        estoqueInfo,
+        carrinhoId,
+        precoInfo,
+        emPromocao: precoInfo.emPromocao,
+        bebidaSubcategoriaId: getBebidaSubcategoriaIdByTexto(textoBusca),
+        imagemResponsiva,
+        conversaoProduto: null
+      };
+
+      return {
+        ...indexadoBase,
+        scoreMaisVendido: getScoreMaisVendido(indexadoBase),
+        scoreConversao: 0
+      };
+    });
+  }, [favoritosRecorrencia]);
 
   const recompraRecorrencia = useMemo(() => {
     return recomprasProdutos.slice(0, 12);
@@ -1082,21 +1188,14 @@ export default function ProdutosPage() {
       itensIndexados: secoesMap.get(section.id) || []
     })).filter((secao) => secao.itensIndexados.length > 0);
 
-    if (outrasBebidas.length) {
-      secoes.push({
-        id: 'outras-bebidas',
-        label: 'Outras bebidas',
-        image: CATEGORY_IMAGES.bebidas,
-        itensIndexados: outrasBebidas
-      });
-    }
+    // Não mostra seção "Outras bebidas" pois inclui produtos mal classificados pelo ERP
+    // (absorventes, adaptadores, etc. que o ERP colocou em categoria='bebidas')
 
     return secoes;
   }, [categoriaEhBebidas, produtosFiltradosIndexados]);
 
   const mostrarLayoutCategorias = categoria === CATEGORIA_TODAS
     && !normalizeText(termoBuscaDigitado)
-    && filtroRecorrencia === 'todos'
     && !categoriaEhBebidas;
 
   const secoesCategorias = useMemo(() => {
@@ -1119,7 +1218,21 @@ export default function ProdutosPage() {
 
     return Array.from(secoesMap.values())
       .filter((secao) => secao.itensIndexados.length > 0)
-      .sort((a, b) => b.itensIndexados.length - a.itensIndexados.length);
+      .map((secao) => {
+        // Ordenar produtos dentro de cada categoria por estoque DESC
+        secao.itensIndexados.sort((a, b) => {
+          const estoqueA = Number(a.produto?.estoque || 0);
+          const estoqueB = Number(b.produto?.estoque || 0);
+          return estoqueB - estoqueA;
+        });
+        return secao;
+      })
+      // Ordenar categorias por estoque total (proxy de popularidade)
+      .sort((a, b) => {
+        const totalA = a.itensIndexados.reduce((s, i) => s + Number(i.produto?.estoque || 0), 0);
+        const totalB = b.itensIndexados.reduce((s, i) => s + Number(i.produto?.estoque || 0), 0);
+        return totalB - totalA;
+      });
   }, [mostrarLayoutCategorias, produtosFiltradosIndexados]);
 
   const produtosBebidasSubcategoriaIndexados = useMemo(() => {
@@ -1200,6 +1313,15 @@ export default function ProdutosPage() {
         .filter((id) => id !== null)
     );
   }, [recompraRecorrencia]);
+
+  const categoriasRecompraSet = useMemo(() => {
+    const cats = new Set();
+    recomprasProdutos.forEach((p) => {
+      const cat = normalizeText(String(p?.categoria || ''));
+      if (cat) cats.add(cat);
+    });
+    return cats;
+  }, [recomprasProdutos]);
 
   const deferredProdutoAdicionadoRecenteId = useDeferredValue(produtoAdicionadoRecenteId);
 
@@ -1393,6 +1515,7 @@ export default function ProdutosPage() {
         favoritosIdsSet={favoritosIdsSet}
         recompraIdsSet={recompraIdsSet}
         idsAltaConversaoSet={idsAltaConversaoSet}
+        categoriasRecompraSet={categoriasRecompraSet}
         growthExperimento={growthExperimento}
         produtoAdicionadoRecenteId={produtoAdicionadoRecenteId}
         isProdutoAdicionando={isProdutoAdicionando}
@@ -1411,6 +1534,7 @@ export default function ProdutosPage() {
     favoritosIdsSet,
     growthExperimento,
     idsAltaConversaoSet,
+    categoriasRecompraSet,
     recompraIdsSet,
     idsNovidades
   ]);
@@ -1442,7 +1566,14 @@ export default function ProdutosPage() {
               produtoIndexado.carrinhoId !== null
               && recompraIdsSet.has(produtoIndexado.carrinhoId)
             }
-            sinalRecomendado={produtoIndexado.scoreMaisVendido >= 6}
+            sinalRecomendado={
+              categoriasRecompraSet.size > 0
+              && produtoIndexado.carrinhoId !== null
+              && !recompraIdsSet.has(produtoIndexado.carrinhoId)
+              && !favoritosIdsSet.has(produtoIndexado.carrinhoId)
+              && categoriasRecompraSet.has(produtoIndexado.categoriaNormalizada)
+              && produtoIndexado.estoqueInfo?.semEstoque !== true
+            }
             destaqueConversao={
               produtoIndexado.carrinhoId !== null
               && idsAltaConversaoSet.has(produtoIndexado.carrinhoId)
@@ -1475,7 +1606,8 @@ export default function ProdutosPage() {
     idsNovidades,
     isProdutoAdicionando,
     produtoAdicionadoRecenteId,
-    recompraIdsSet
+    recompraIdsSet,
+    categoriasRecompraSet
   ]);
 
   const totalItensVitrine = totalProdutosBackend || produtos.length;
@@ -1579,9 +1711,7 @@ export default function ProdutosPage() {
 
   const filtrosAplicados = Boolean(normalizeText(termoBuscaDigitado))
     || categoria !== CATEGORIA_TODAS
-    || bebidaSubcategoria !== 'todas'
-    || ordenacao !== ORDENACOES_PRODUTOS[0].id
-    || filtroRecorrencia !== 'todos';
+    || bebidaSubcategoria !== 'todas';
 
   const podeFinalizarPedido = resumo.itens > 0;
   const itensResumoTexto = resumo.itens === 1 ? '1 item' : `${resumo.itens} itens`;
@@ -1678,6 +1808,24 @@ export default function ProdutosPage() {
   } else if (mostrarLayoutCategorias && secoesCategorias.length > 0) {
     return (
       <div className="categorias-horizontal-list" id="produtos-lista">
+        {favoritosIndexados.length > 0 && (
+          <section className="categoria-horizontal-section" aria-label="Seus Favoritos">
+            <div className="categoria-horizontal-header">
+              <h2 className="categoria-horizontal-titulo">❤️ Favoritos</h2>
+              <span className="categoria-horizontal-count">{favoritosIndexados.length} {favoritosIndexados.length === 1 ? 'produto' : 'produtos'}</span>
+            </div>
+            {renderCategoriaHorizontalRow(favoritosIndexados)}
+          </section>
+        )}
+        {ofertasDiaIndexados.length > 0 && (
+          <section className="categoria-horizontal-section" aria-label="Ofertas do Dia">
+            <div className="categoria-horizontal-header">
+              <h2 className="categoria-horizontal-titulo">🔥 Ofertas do Dia</h2>
+              <span className="categoria-horizontal-count">{ofertasDiaIndexados.length} {ofertasDiaIndexados.length === 1 ? 'oferta' : 'ofertas'}</span>
+            </div>
+            {renderCategoriaHorizontalRow(ofertasDiaIndexados)}
+          </section>
+        )}
         {secoesCategorias.map((secao) => (
           <section className="categoria-horizontal-section" key={secao.id} aria-label={`Categoria ${secao.label}`}>
             <div className="categoria-horizontal-header">
@@ -1697,11 +1845,13 @@ export default function ProdutosPage() {
     bebidaSubcategoria,
     categoriaEhBebidas,
     erro,
+    favoritosIndexados,
     gruposMarcaBebidas,
     handleAtualizarProdutos,
     mostrarErro,
     mostrarLayoutCategorias,
     mostrarSkeletonInicial,
+    ofertasDiaIndexados,
     produtosFiltradosIndexados,
     renderCategoriaHorizontalRow,
     renderProdutosGrid,
@@ -1713,25 +1863,22 @@ export default function ProdutosPage() {
 
   return (
     <section className="page page-produtos">
-      <section className="products-hero products-hero-clean" id="produtos" aria-label="Página de produtos">
-        <div className="products-hero-header products-hero-header-clean">
-          <h1>Produtos</h1>
-          <p className="products-hero-subtitle">
-            Encontre o que precisa, compare precos e monte seu carrinho.
-          </p>
-        </div>
+      <section className="products-hero products-hero-clean" id="produtos" aria-label="Pagina de produtos">
 
         <div className="products-search-wrap">
-          <label className="field-label" htmlFor="busca-produtos">Buscar produtos</label>
           <div className="products-search-input-wrap">
-            <span className="products-search-icon" aria-hidden="true">🔍</span>
+            <svg className="products-search-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
             <input
               id="busca-produtos"
               className="field-input products-search-input"
               type="search"
               value={busca}
               onChange={handleBuscaChange}
-              placeholder="Busque por arroz, leite, café, detergente..."
+              placeholder="Buscar produtos..."
+              aria-label="Buscar produtos"
             />
 
             {termoBuscaDigitado ? (
@@ -1745,199 +1892,52 @@ export default function ProdutosPage() {
               </button>
             ) : null}
           </div>
+        </div>
 
+        <nav className="products-quick-categories" aria-label="Categorias rapidas">
+          <button type="button" className="products-quick-cat-item" onClick={() => handleAplicarSugestaoBusca({ termo: '', categoria: CATEGORIA_PROMOCOES })}>
+            <span className="products-quick-cat-icon">🏷️</span>
+            <span className="products-quick-cat-label">Ofertas</span>
+          </button>
+          <button type="button" className="products-quick-cat-item" onClick={() => handleAplicarSugestaoBusca({ termo: 'arroz', categoria: CATEGORIA_TODAS })}>
+            <span className="products-quick-cat-icon">🍚</span>
+            <span className="products-quick-cat-label">Arroz</span>
+          </button>
+          <button type="button" className="products-quick-cat-item" onClick={() => handleAplicarSugestaoBusca({ termo: 'leite', categoria: CATEGORIA_TODAS })}>
+            <span className="products-quick-cat-icon">🥛</span>
+            <span className="products-quick-cat-label">Leite</span>
+          </button>
+          <button type="button" className="products-quick-cat-item" onClick={() => handleAplicarSugestaoBusca({ termo: 'cafe', categoria: CATEGORIA_TODAS })}>
+            <span className="products-quick-cat-icon">☕</span>
+            <span className="products-quick-cat-label">Cafe</span>
+          </button>
+          <button type="button" className="products-quick-cat-item" onClick={() => handleAplicarSugestaoBusca({ termo: 'bebida', categoria: CATEGORIA_BEBIDAS })}>
+            <span className="products-quick-cat-icon">🥤</span>
+            <span className="products-quick-cat-label">Bebidas</span>
+          </button>
+          <button type="button" className="products-quick-cat-item" onClick={() => handleAplicarSugestaoBusca({ termo: 'limpeza', categoria: 'limpeza' })}>
+            <span className="products-quick-cat-icon">🧹</span>
+            <span className="products-quick-cat-label">Limpeza</span>
+          </button>
+          <button type="button" className="products-quick-cat-item" onClick={() => handleAplicarSugestaoBusca({ termo: 'higiene', categoria: CATEGORIA_TODAS })}>
+            <span className="products-quick-cat-icon">🧴</span>
+            <span className="products-quick-cat-label">Higiene</span>
+          </button>
+          <button type="button" className="products-quick-cat-item" onClick={() => handleAplicarSugestaoBusca({ termo: 'feira', categoria: CATEGORIA_TODAS })}>
+            <span className="products-quick-cat-icon">🥬</span>
+            <span className="products-quick-cat-label">Feira</span>
+          </button>
+        </nav>
+
+        {buscaEmAtualizacao ? (
           <div className="products-search-meta" aria-live="polite">
-            {buscaEmAtualizacao ? (
-              <span className="products-results-pill">Atualizando busca...</span>
-            ) : termoBuscaEfetivo ? (
-              <p>
-                Exibindo resultados para <strong>"{termoBuscaEfetivo}"</strong>
-              </p>
-            ) : (
-              <p>Use os atalhos abaixo para encontrar produtos mais rapido.</p>
-            )}
+            <span className="products-results-pill">Atualizando busca...</span>
           </div>
-
-          <div className="products-search-suggestions" aria-label="Atalhos de busca">
-            {BUSCA_SUGESTOES_RAPIDAS.map((atalho) => (
-              <button
-                key={atalho.id}
-                type="button"
-                className="products-search-suggestion-btn"
-                onClick={() => handleAplicarSugestaoBusca({
-                  termo: atalho.termo,
-                  categoria: atalho.categoria
-                })}
-              >
-                {atalho.label}
-              </button>
-            ))}
+        ) : termoBuscaEfetivo ? (
+          <div className="products-search-meta" aria-live="polite">
+            <p>Resultados para <strong>"{termoBuscaEfetivo}"</strong></p>
           </div>
-        </div>
-
-        <div className="products-toolbar-grid">
-          <div className="products-toolbar-field">
-            <label className="field-label" htmlFor="produtos-categoria-select">Categoria</label>
-            <select
-              id="produtos-categoria-select"
-              className="field-input"
-              value={categoria}
-              onChange={handleCategoriaSelectChange}
-            >
-              {categorias.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="products-toolbar-field">
-            <label className="field-label" htmlFor="produtos-ordenacao-select">Ordenar por</label>
-            <select
-              id="produtos-ordenacao-select"
-              className="field-input"
-              value={ordenacao}
-              onChange={handleOrdenacaoChange}
-            >
-              {ORDENACOES_PRODUTOS.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="products-toolbar-actions">
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={handleLimparFiltros}
-              disabled={!filtrosAplicados}
-            >
-              Limpar filtros
-            </button>
-
-            <button
-              className="btn-secondary"
-              type="button"
-              onClick={handleAtualizarProdutos}
-              disabled={carregando}
-            >
-              {carregando ? 'Atualizando vitrine...' : 'Atualizar vitrine'}
-            </button>
-          </div>
-        </div>
-
-        <section className="products-recorrencia products-recorrencia-clean" aria-label="Atalhos de recorrencia e recompra">
-          <div className="products-recorrencia-head">
-            <h2>Sua rotina</h2>
-
-            <div className="products-recorrencia-filters" role="tablist" aria-label="Filtrar recorrencia">
-              {FILTROS_RECORRENCIA.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`products-recorrencia-filter-btn ${filtroRecorrencia === item.id ? 'active' : ''}`}
-                  aria-pressed={filtroRecorrencia === item.id}
-                  onClick={() => handleSelecionarFiltroRecorrencia(item.id)}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {feedbackRecorrencia ? (
-            <p className="products-recorrencia-feedback" role="status" aria-live="polite">
-              {feedbackRecorrencia}
-            </p>
-          ) : null}
-
-          {!temDadosRecorrencia ? (
-            <div className="products-recorrencia-empty" role="status" aria-live="polite">
-              <p>Favorite produtos e compre para montar seu painel personalizado.</p>
-            </div>
-          ) : null}
-
-          {temDadosRecorrencia && filtroRecorrencia === 'todos' ? (
-            <div className="products-recorrencia-groups">
-              {favoritosRecorrencia.length > 0 ? (
-                <section className="products-recorrencia-group" aria-label="Seus favoritos">
-                  <div className="products-recorrencia-group-head">
-                    <h3>❤️ Favoritos</h3>
-                    <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('favoritos')}>
-                      Ver todos
-                    </button>
-                  </div>
-                  <div className="products-recorrencia-grid">
-                    {favoritosRecorrencia.slice(0, 4).map((produto) => (
-                      <RecorrenciaMiniCard
-                        key={`rec-fav-${produto.id}`}
-                        produto={produto}
-                        favorito={isFavorito(produto.id)}
-                        onAbrir={abrirProdutoRecorrente}
-                        onAdicionar={adicionarRecorrenteAoCarrinho}
-                        onAlternarFavorito={handleToggleFavorito}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {recompraRecorrencia.length > 0 ? (
-                <section className="products-recorrencia-group products-recorrencia-group-recompra" aria-label="Comprar novamente">
-                  <div className="products-recorrencia-group-head">
-                    <h3>🔁 Comprar de novo</h3>
-                    <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('recompra')}>
-                      Ver todos
-                    </button>
-                  </div>
-                  <div className="products-recorrencia-grid">
-                    {recompraRecorrencia.slice(0, 4).map((produto) => (
-                      <RecorrenciaMiniCard
-                        key={`rec-recompra-${produto.id}`}
-                        produto={produto}
-                        favorito={isFavorito(produto.id)}
-                        onAbrir={abrirProdutoRecorrente}
-                        onAdicionar={adicionarRecorrenteAoCarrinho}
-                        onAlternarFavorito={handleToggleFavorito}
-                        destaqueRecompra
-                      />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-            </div>
-          ) : null}
-
-          {temDadosRecorrencia && filtroRecorrencia !== 'todos' ? (
-            <section className="products-recorrencia-group" aria-label={`Filtro ativo: ${filtroRecorrenciaAtivoLabel}`}>
-              <div className="products-recorrencia-group-head">
-                <h3>{filtroRecorrenciaAtivoLabel}</h3>
-                <button type="button" className="btn-secondary" onClick={() => handleSelecionarFiltroRecorrencia('todos')}>
-                  Mostrar tudo
-                </button>
-              </div>
-
-              {listaRecorrenciaAtiva.length > 0 ? (
-                <div className="products-recorrencia-grid">
-                  {listaRecorrenciaAtiva.slice(0, 12).map((produto) => (
-                    <RecorrenciaMiniCard
-                      key={`rec-ativo-${filtroRecorrencia}-${produto.id}`}
-                      produto={produto}
-                      favorito={isFavorito(produto.id)}
-                      onAbrir={abrirProdutoRecorrente}
-                      onAdicionar={adicionarRecorrenteAoCarrinho}
-                      onAlternarFavorito={handleToggleFavorito}
-                      destaqueRecompra={filtroRecorrencia === 'recompra'}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="products-recorrencia-empty" role="status" aria-live="polite">
-                  <p>Nenhum item neste atalho ainda. Continue navegando.</p>
-                </div>
-              )}
-            </section>
-          ) : null}
-        </section>
+        ) : null}
 
         {categoriaEhBebidas ? (
           <div className="bebidas-subcats" aria-label="Subcategorias de bebidas">
@@ -1970,7 +1970,7 @@ export default function ProdutosPage() {
           <div className="products-active-filters" aria-label="Filtros ativos">
             {termoBuscaDigitado ? (
               <button type="button" className="products-active-filter-chip" onClick={handleLimparBusca}>
-                Busca: "{termoBuscaDigitado}" <span aria-hidden="true">Ã—</span>
+                Busca: "{termoBuscaDigitado}" <span aria-hidden="true">×</span>
               </button>
             ) : null}
 
@@ -1980,7 +1980,7 @@ export default function ProdutosPage() {
                 className="products-active-filter-chip"
                 onClick={() => setCategoria(CATEGORIA_TODAS)}
               >
-                Categoria: {categoriaAtualLabel} <span aria-hidden="true">Ã—</span>
+                Categoria: {categoriaAtualLabel} <span aria-hidden="true">×</span>
               </button>
             ) : null}
 
@@ -1990,27 +1990,7 @@ export default function ProdutosPage() {
                 className="products-active-filter-chip"
                 onClick={() => setBebidaSubcategoria('todas')}
               >
-                Subcategoria: {bebidaSubcategoriaLabel} <span aria-hidden="true">Ã—</span>
-              </button>
-            ) : null}
-
-            {ordenacao !== ORDENACOES_PRODUTOS[0].id ? (
-              <button
-                type="button"
-                className="products-active-filter-chip"
-                onClick={() => setOrdenacao(ORDENACOES_PRODUTOS[0].id)}
-              >
-                Ordenacao: {ordenacaoAtualLabel} <span aria-hidden="true">Ã—</span>
-              </button>
-            ) : null}
-
-            {filtroRecorrencia !== 'todos' ? (
-              <button
-                type="button"
-                className="products-active-filter-chip"
-                onClick={() => setFiltroRecorrencia('todos')}
-              >
-                Recorrencia: {filtroRecorrenciaAtivoLabel} <span aria-hidden="true">Ã—</span>
+                Subcategoria: {bebidaSubcategoriaLabel} <span aria-hidden="true">×</span>
               </button>
             ) : null}
 

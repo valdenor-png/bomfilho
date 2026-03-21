@@ -30,9 +30,9 @@ import CatalogoSaude from '../components/admin/CatalogoSaude';
 const STATUS_OPTIONS = ['pendente', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
 const STATUS_LABELS = {
   pendente: 'Aguardando confirmação',
-  preparando: 'Em preparação',
-  pronto_para_retirada: 'Pronto para retirada',
-  enviado: 'Saiu para entrega',
+  preparando: 'Separando',
+  pronto_para_retirada: 'Preparado',
+  enviado: 'Saiu pra Entrega',
   retirado: 'Retirado na loja',
   entregue: 'Entregue',
   cancelado: 'Cancelado',
@@ -72,19 +72,19 @@ const STATUS_OPERACAO_META = {
     timelineStep: 2
   },
   preparando: {
-    label: 'Em preparação',
+    label: 'Separando',
     icon: '📦',
     tone: 'preparing',
     timelineStep: 3
   },
   pronto_para_retirada: {
-    label: 'Pronto para retirada',
-    icon: '🛍️',
+    label: 'Preparado',
+    icon: '✅',
     tone: 'pickup-ready',
     timelineStep: 4
   },
   enviado: {
-    label: 'Saiu para entrega',
+    label: 'Saiu pra Entrega',
     icon: '🛵',
     tone: 'delivery',
     timelineStep: 4
@@ -97,7 +97,7 @@ const STATUS_OPERACAO_META = {
   },
   entregue: {
     label: 'Entregue',
-    icon: '✅',
+    icon: '🏁',
     tone: 'delivered',
     timelineStep: 5
   },
@@ -109,7 +109,7 @@ const STATUS_OPERACAO_META = {
   }
 };
 const STATUS_CHIPS_OPERACIONAIS = ['todos', 'criticos', 'pendente', 'pago', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
-const TIMELINE_ETAPAS_ADMIN = ['Recebido', 'Pagamento', 'Separação', 'Saída', 'Concluído'];
+const TIMELINE_ETAPAS_ADMIN = ['Recebido', 'Pago', 'Separando', 'Preparado', 'Entregue'];
 const ORDENACAO_PEDIDOS_OPTIONS = [
   { id: 'prioridade', label: 'Prioridade operacional' },
   { id: 'urgencia', label: 'Urgência operacional' },
@@ -151,6 +151,32 @@ const STATUS_CHIPS_OPERACIONAIS_SET = new Set(STATUS_CHIPS_OPERACIONAIS);
 const ORDENACAO_PEDIDOS_SET = new Set(ORDENACAO_PEDIDOS_OPTIONS.map((item) => item.id));
 const FILTRO_PAGAMENTO_SET = new Set(FILTRO_PAGAMENTO_OPTIONS.map((item) => item.id));
 const FILTRO_TIPO_ENTREGA_SET = new Set(FILTRO_TIPO_ENTREGA_OPTIONS.map((item) => item.id));
+
+// Som de notificação para novos pedidos (Web Audio API - sem arquivo externo)
+function tocarSomNovoPedido() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const notas = [830, 1050, 1250]; // 3 tons ascendentes
+    notas.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.18, ctx.currentTime + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.15);
+      osc.stop(ctx.currentTime + i * 0.15 + 0.3);
+    });
+    // Liberar recursos após tocar
+    setTimeout(() => ctx.close().catch(() => {}), 1500);
+  } catch (_) {
+    // Navegador pode bloquear audio sem interação prévia — ignora silenciosamente
+  }
+}
 
 function formatarMoeda(valor) {
   return BRL_CURRENCY.format(Number(valor || 0));
@@ -1145,6 +1171,9 @@ export default function AdminPage() {
           .filter((id) => Number.isInteger(id) && id > 0)
           .filter((id) => !idsAtuais.has(id));
         setNovosPedidosDetectados(idsNovos.length);
+        if (idsNovos.length > 0) {
+          tocarSomNovoPedido();
+        }
       } else {
         setNovosPedidosDetectados(0);
       }

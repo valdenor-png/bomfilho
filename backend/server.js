@@ -202,6 +202,15 @@ const { verificarCredencialPagBank, getLastAuthCheck: getPagbankLastAuthCheck } 
 });
 // pagbankLastAuthCheck agora é gerenciado pelo serviço; getter via getPagbankLastAuthCheck()
 
+// ── Mercado Pago service instance ───────────────────────────────────────
+const { criarMercadoPagoService } = require('./services/mercadoPagoService');
+const { MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET } = config;
+const mercadoPagoService = criarMercadoPagoService({
+  accessToken: MP_ACCESS_TOKEN,
+  webhookSecret: MP_WEBHOOK_SECRET,
+  timeoutMs: 15000
+});
+
 const VEICULOS_ENTREGA = {
   bike: {
     consumoKmLitro: null,
@@ -1458,6 +1467,27 @@ app.use(globalLimiter);
 app.use('/api/produtos', publicLimiter);
 app.use('/api/pedidos', publicLimiter);
 
+// Limiters dedicados para endpoints financeiros (Q006, Q007)
+const paymentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  validate: rateLimitValidateOptions,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.usuario?.id ? `user_${req.usuario.id}` : req.ip,
+  message: { erro: 'Muitas tentativas de pagamento. Aguarde 1 minuto.' }
+});
+
+const orderCreateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 3,
+  validate: rateLimitValidateOptions,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.usuario?.id ? `user_${req.usuario.id}` : req.ip,
+  message: { erro: 'Muitas tentativas de criação de pedido. Aguarde 1 minuto.' }
+});
+
 const csrfIgnoredPaths = new Set([
   '/api/auth/login',
   '/api/auth/cadastro',
@@ -1813,6 +1843,11 @@ app.use(require('./routes/produtos')({
   obterCacheLeitura, salvarCacheLeitura
 }));
 
+// ============================================
+// ROTAS OFERTAS DO DIA (routes/ofertas-dia.js)
+// ============================================
+app.use(require('./routes/ofertas-dia')({ autenticarAdminToken }));
+
 
 // ============================================
 // ROTAS CATÁLOGO ADMIN + PRODUTOS CRUD (routes/admin-catalogo.js)
@@ -1831,6 +1866,8 @@ app.use(require('./routes/admin-catalogo')({
 // ============================================
 // ROTAS PAGBANK — diagnóstico + pagamento (routes/pagbank.js)
 // ============================================
+app.post('/api/pagamentos/pix', paymentLimiter);
+app.post('/api/pagamentos/cartao', paymentLimiter);
 app.use(require('./routes/pagbank')({
   autenticarToken,
   protegerDiagnostico,
@@ -1852,6 +1889,15 @@ app.use(require('./routes/pagbank')({
 }));
 
 // ============================================
+// ROTAS MERCADO PAGO (routes/mercadopago.js)
+// ============================================
+app.use(require('./routes/mercadopago')({
+  autenticarToken,
+  mercadoPagoService,
+  pool
+}));
+
+// ============================================
 // ROTAS DE PEDIDOS
 // ============================================
 
@@ -1859,11 +1905,11 @@ app.use(require('./routes/pagbank')({
 app.use(require('./routes/frete')({ calcularEntregaPorCep }));
 
 // Criar pedido (routes/pedidos-criar.js)
+app.post('/api/pedidos', orderCreateLimiter);
 app.use(require('./routes/pedidos-criar')({
   autenticarToken,
   validarRecaptcha,
   calcularEntregaPorCep,
-  criarPagamentoPix,
   enviarWhatsappPedido,
   normalizarCep,
   pool
@@ -1897,6 +1943,7 @@ app.use(require('./routes/webhooks')({
   formatarTelefoneWhatsapp, enviarWhatsappTexto, limparCacheEvolution,
   evolutionProcessedMessageIds, evolutionLastReplyByNumber,
   registrarLogPagBank, obterPedidoPagBank,
+  mercadoPagoService, enviarWhatsappPedido,
 }));
 
 // ============================================
@@ -1959,6 +2006,7 @@ const server = app.listen(PORT, () => {
   logger.info(`\n🚀 Servidor rodando na porta ${PORT}`);
   logger.info(`📍 URL: http://localhost:${PORT}`);
   logger.info(`🌍 CORS_ORIGINS: ${CORS_ORIGINS.join(', ') || '(nenhuma origem explícita)'}`);
+  logger.info(`💳 Mercado Pago: access_token=${config.MP_ACCESS_TOKEN ? '✅ configurado' : '❌ ausente'} | public_key=${config.MP_PUBLIC_KEY ? '✅' : '❌'} | webhook_secret=${config.MP_WEBHOOK_SECRET ? '✅' : '❌'}`);
   logger.info(`🍪 Cookies: secure=${COOKIE_SECURE} sameSite=${COOKIE_SAME_SITE} domain=${COOKIE_DOMAIN || '(sem domínio)'}`);
   logger.info(`\n📚 Endpoints disponíveis:`);
   logger.info(`   POST   /api/auth/cadastro`);
@@ -2024,4 +2072,14 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (err) => {
   captureException(err);
   gracefulShutdown('Erro não capturado (Exception)', err);
+});
+
+process.on('SIGTERM', () => {
+  logger.info('📥 SIGTERM recebido. Iniciando encerramento gracioso...');
+  gracefulShutdown('SIGTERM', new Error('Processo recebeu SIGTERM'));
+});
+
+process.on('SIGINT', () => {
+  logger.info('📥 SIGINT recebido. Encerrando...');
+  gracefulShutdown('SIGINT', new Error('Processo recebeu SIGINT'));
 });

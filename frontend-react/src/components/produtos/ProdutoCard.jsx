@@ -112,30 +112,18 @@ const ProdutoCard = React.memo(function ProdutoCard({
     sinalRecomendado,
     produtoIndexado
   ]);
+  const statusBadges = badges.filter(b => b.tone === 'mais-vendido' || b.tone === 'recomendado');
+  const promoBadges = badges.filter(b => b.tone !== 'mais-vendido' && b.tone !== 'recomendado');
   const podeComprar = produtoIndexado.carrinhoId !== null;
   const shouldPrioritizeImage = isMobileViewport ? index < 1 : index < 2;
   const urgenciaEstoqueAtiva = Boolean(podeComprar && estoqueInfo?.estoqueBaixo);
   const copyDisponibilidade = !podeComprar
     ? 'Indisponivel no momento'
     : (urgenciaEstoqueAtiva ? 'Restam poucas unidades' : '');
-  const microcopyConversao = !podeComprar
-    ? ''
-    : (sinalRecorrente
-      ? 'Baseado nas suas compras anteriores'
-      : (growthCatalogHelper
-        ? growthCatalogHelper
-        : (urgenciaEstoqueAtiva
-          ? 'Vale a pena levar agora'
-          : (precoInfo.economia >= 1
-            ? 'Economize hoje'
-            : (destaqueMaisVendido ? 'Preco baixo de verdade' : 'Decisao rapida no carrinho')))));
+  const microcopyConversao = '';
   const precoCta = formatCurrency(precoInfo.precoAtual);
   const temPrecoNoCta = Number(precoInfo.precoAtual || 0) > 0;
-  const ctaExperimentoCatalogo = !temPrecoNoCta || !growthCatalogEnabled
-    ? ''
-    : (growthCatalogConfig?.ctaMode === 'valor'
-      ? `Levar agora • ${precoCta}`
-      : (growthCatalogConfig?.ctaMode === 'urgencia' ? `Garantir hoje • ${precoCta}` : ''));
+  const ctaExperimentoCatalogo = '';
   const indicadorUrgencia = !podeComprar
     ? ''
     : (urgenciaEstoqueAtiva
@@ -147,12 +135,9 @@ const ProdutoCard = React.memo(function ProdutoCard({
     ? 'Indisponivel'
     : (estaAdicionando
       ? 'Adicionando...'
-      : (temPrecoNoCta
-        ? (quantidadeNoCarrinho > 0
-          ? `Adicionar +1 • ${precoCta}`
-          : (ctaExperimentoCatalogo
-            || (precoInfo.precoAnterior ? `Levar por ${precoCta}` : `Adicionar agora • ${precoCta}`)))
-        : 'Adicionar ao carrinho'));
+      : (quantidadeNoCarrinho > 0
+        ? 'Adicionar +1'
+        : 'Adicionar'));
   const priceAreaClassName = [
     'produto-price-area',
     growthCatalogEnabled ? `is-growth-${growthCatalogPriceHighlight}` : ''
@@ -183,9 +168,9 @@ const ProdutoCard = React.memo(function ProdutoCard({
           {favorito ? '♥' : '♡'}
         </button>
 
-        {badges.length > 0 ? (
+        {promoBadges.length > 0 ? (
           <div className="produto-badges" aria-label="Selos do produto">
-            {badges.map((badge) => (
+            {promoBadges.map((badge) => (
               <ProdutoBadge key={`${badge.tone}:${badge.label}`} tone={badge.tone} label={badge.label} />
             ))}
           </div>
@@ -231,23 +216,22 @@ const ProdutoCard = React.memo(function ProdutoCard({
       </div>
 
       <div className="produto-card-body">
-        <p className="produto-category">
-          {categoriaLabel}
-        </p>
         <h3 className="produto-title" title={nomeProduto}>{nomeProduto}</h3>
-        <p className="produto-details">{detalhesProduto}</p>
-        {copyDisponibilidade ? (
-          <p className={`produto-availability ${podeComprar ? 'is-available' : 'is-unavailable'} ${urgenciaEstoqueAtiva ? 'is-urgency' : ''}`.trim()}>
-            {copyDisponibilidade}
-          </p>
+        {detalhesProduto && detalhesProduto !== 'Unidade' && !detalhesProduto.startsWith('Sele') ? (
+          <p className="produto-details">{detalhesProduto}</p>
         ) : null}
 
-        {(() => {
-          const badge = getEstoqueBadge(estoqueInfo);
-          return (
-            <span className={`estoque-badge ${badge.classe}`}>{badge.label}</span>
-          );
-        })()}
+        <div className="produto-status-row">
+          {(() => {
+            const badge = getEstoqueBadge(estoqueInfo);
+            return (
+              <span className={`estoque-badge ${badge.classe}`}>{badge.label}</span>
+            );
+          })()}
+          {statusBadges.map((badge) => (
+            <ProdutoBadge key={`${badge.tone}:${badge.label}`} tone={badge.tone} label={badge.label} />
+          ))}
+        </div>
 
         <div className={priceAreaClassName}>
           {precoInfo.precoAnterior ? (
@@ -255,8 +239,8 @@ const ProdutoCard = React.memo(function ProdutoCard({
           ) : null}
           <p className={priceClassName}>{formatCurrency(precoInfo.precoAtual)}</p>
 
-          {medidaProduto ? (
-            <p className="produto-price-unit">Unidade: {medidaProduto}</p>
+          {medidaProduto && medidaProduto !== 'Unidade' ? (
+            <p className="produto-price-unit">{medidaProduto}</p>
           ) : null}
 
           {precoInfo.economia > 0 ? (
@@ -305,14 +289,6 @@ const ProdutoCard = React.memo(function ProdutoCard({
             disabled={!podeComprar || estaAdicionando}
           >
             {ctaPrimaria}
-          </button>
-
-          <button
-            className="btn-secondary produto-detail-btn"
-            type="button"
-            onClick={() => onOpenDetail(produtoIndexado.chaveReact)}
-          >
-            Ver detalhes
           </button>
         </div>
 

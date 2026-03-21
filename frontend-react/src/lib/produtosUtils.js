@@ -12,25 +12,55 @@ export const DRINK_SECTIONS_BEBIDAS = [
     id: 'agua',
     label: 'Água',
     image: 'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=1400&q=60',
-    matchers: ['agua', 'mineral', 'sem gas', 'com gas']
+    matchers: ['agua', 'mineral', 'sem gas', 'com gas', 'agua de coco', 'coco']
   },
   {
     id: 'refrigerante',
     label: 'Refrigerante',
     image: 'https://images.unsplash.com/photo-1581636625402-29b2a704ef13?auto=format&fit=crop&w=1400&q=60',
-    matchers: ['refrigerante', 'coca', 'pepsi', 'guarana', 'guaraná', 'fanta', 'sprite']
+    matchers: ['refrigerante', 'coca', 'pepsi', 'guarana', 'guaraná', 'fanta', 'sprite', 'kuat', 'sukita', 'dolly', 'tubaina', 'tubaína', 'h2o']
   },
   {
     id: 'cervejas',
     label: 'Cervejas',
     image: 'https://images.unsplash.com/photo-1566633806327-68e152aaf26d?auto=format&fit=crop&w=1400&q=60',
-    matchers: ['cerveja', 'beer', 'heineken', 'brahma', 'skol', 'antarctica', 'itaipava']
+    matchers: ['cerveja', 'beer', 'heineken', 'brahma', 'skol', 'antarctica', 'itaipava', 'chopp', 'pilsen', 'lager', 'ipa', 'ale']
+  },
+  {
+    id: 'sucos',
+    label: 'Sucos e Néctares',
+    image: 'https://images.unsplash.com/photo-1534353473418-4cfa6c56fd38?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['suco', 'nectar', 'tang', 'clight', 'del valle', 'kapo', 'ades', 'limonada', 'juice', 'natural one', 'laranjada']
+  },
+  {
+    id: 'energeticos',
+    label: 'Energéticos e Isotônicos',
+    image: 'https://images.unsplash.com/photo-1622543925917-763c34d1a86e?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['energetico', 'energético', 'isotonico', 'isotônico', 'gatorade', 'powerade', 'monster', 'red bull', 'redbull', 'tonica', 'tônica', 'burn', 'schweppes']
+  },
+  {
+    id: 'destilados',
+    label: 'Destilados e Licores',
+    image: 'https://images.unsplash.com/photo-1569529465841-dfecdab7503b?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['vodka', 'whisky', 'whiskey', 'rum', 'gin', 'cachaça', 'cachaca', 'tequila', 'licor', 'conhaque', 'cognac', 'amarula', 'absinto', 'smirnoff', 'ice', 'pitú', 'pitu', '51 ', 'espumante', 'champagne', 'sidra', 'sake']
   },
   {
     id: 'vinho',
     label: 'Vinho',
     image: 'https://images.unsplash.com/photo-1516594798947-e65505dbb29d?auto=format&fit=crop&w=1400&q=60',
-    matchers: ['vinho', 'wine', 'tinto', 'branco', 'rose', 'rosé']
+    matchers: ['vinho', 'wine', 'tinto', 'branco', 'rose', 'rosé', 'sangria']
+  },
+  {
+    id: 'chas-cafes',
+    label: 'Chás e Cafés',
+    image: 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['cha ', 'cha de', 'cafe', 'café', 'cappuccino', 'nescafe', 'nescafé', 'mate', 'kombucha', 'leao', 'leão']
+  },
+  {
+    id: 'achocolatados',
+    label: 'Achocolatados e Lácteos',
+    image: 'https://images.unsplash.com/photo-1517578239113-b03992dcdd25?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['achocolatado', 'toddy', 'nescau', 'toddynho', 'leite', 'iogurte', 'bebida lactea', 'bebida láctea']
   }
 ];
 
@@ -681,7 +711,7 @@ export function getProdutoBadges(
   }
 
   if (recomendado) {
-    badges.push({ tone: 'recomendado', label: 'Recomendado' });
+    badges.push({ tone: 'recomendado', label: 'Sugerido p/ voce' });
   }
 
   if (destaqueNovo) {

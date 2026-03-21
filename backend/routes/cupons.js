@@ -19,9 +19,10 @@ module.exports = function createCuponsRoutes({ autenticarToken, toMoney }) {
 
       // Buscar cupom
       const [cupons] = await pool.query(
-        `SELECT * FROM cupons 
-         WHERE codigo = ? 
-         AND ativo = TRUE 
+        `SELECT id, codigo, descricao, tipo, valor, valor_minimo, uso_atual, uso_maximo
+         FROM cupons
+         WHERE codigo = ?
+         AND ativo = TRUE
          AND (validade IS NULL OR validade >= CURDATE())
          AND (uso_maximo IS NULL OR uso_atual < uso_maximo)`,
         [codigo.toUpperCase()]

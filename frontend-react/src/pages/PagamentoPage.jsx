@@ -10,7 +10,10 @@ import {
   getMe,
   getPagBankPublicKey,
   getPedidos,
+  getPedidoStatus,
   isAuthErrorMessage,
+  mpGerarPix,
+  mpPagarCartao,
   pagarCartao,
   simularFretePorCep
 } from '../lib/api';
@@ -1192,20 +1195,9 @@ export default function PagamentoPage() {
       } else {
         setFormaPagamento('pix');
       }
-      setStatusPedidoAtual('pendente');
+      setStatusPedidoAtual('aguardando_revisao');
       clearCart();
-      setEtapaAtual(ETAPAS.PIX);
-
-      if (formaPagamento === 'pix' && (data?.pix_codigo || data?.pix_qrcode)) {
-        setResultadoPix({
-          status: data.pix_erro ? 'CANCELED' : 'WAITING',
-          status_interno: data?.pix_erro ? 'cancelado' : 'pendente',
-          qr_data: data?.pix_codigo || '',
-          qr_code_base64: data?.qr_code_base64 || null,
-          pix_codigo: data?.pix_codigo || '',
-          pix_qrcode: data?.pix_qrcode || ''
-        });
-      }
+      setEtapaAtual(ETAPAS.REVISAO);
     } catch (error) {
       if (isAuthErrorMessage(error.message)) {
         setAutenticado(false);
@@ -1221,7 +1213,12 @@ export default function PagamentoPage() {
 
   async function handleIrParaPagamento() {
     if (resultadoPedido?.pedido_id) {
-      setEtapaAtual(ETAPAS.PIX);
+      // Se já está pendente (aprovado), vai direto pro pagamento
+      if (statusPedidoAtual === 'pendente') {
+        setEtapaAtual(ETAPAS.PIX);
+      } else {
+        setEtapaAtual(ETAPAS.REVISAO);
+      }
       return;
     }
     await handleCriarPedido();
@@ -1238,6 +1235,110 @@ export default function PagamentoPage() {
 
     setErro('');
     await handleIrParaPagamento();
+  }
+
+  // ── Polling de revisão: verifica a cada 10s se o pedido foi aprovado ────
+  useEffect(() => {
+    if (etapaAtual !== ETAPAS.REVISAO || !resultadoPedido?.pedido_id) return undefined;
+    if (statusPedidoAtual !== 'aguardando_revisao') return undefined;
+
+    let ativo = true;
+    const intervalo = setInterval(async () => {
+      try {
+        const data = await getPedidoStatus(resultadoPedido.pedido_id);
+        const novoStatus = String(data?.status || '').toLowerCase();
+
+        if (!ativo) return;
+
+        if (novoStatus === 'pendente') {
+          setStatusPedidoAtual('pendente');
+          setEtapaAtual(ETAPAS.PIX);
+        } else if (novoStatus === 'cancelado') {
+          setStatusPedidoAtual('cancelado');
+          setErro('Seu pedido foi cancelado pela equipe. Por favor, tente novamente.');
+        }
+      } catch (_) {
+        // Silenciar — tentará novamente no próximo tick
+      }
+    }, 10000);
+
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
+  }, [etapaAtual, resultadoPedido?.pedido_id, statusPedidoAtual]);
+
+  // ── Auto-gerar PIX via Mercado Pago ao entrar na etapa de pagamento ──
+  useEffect(() => {
+    if (etapaAtual !== ETAPAS.PIX) return;
+    if (!resultadoPedido?.pedido_id) return;
+    if (resultadoPix) return; // Já tem PIX gerado
+    if (formaPagamento !== 'pix') return;
+
+    handleGerarPixMercadoPago(resultadoPedido.pedido_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etapaAtual, resultadoPedido?.pedido_id]);
+
+  // ── Gerar PIX via Mercado Pago ──────────────────────────────────────────
+  async function handleGerarPixMercadoPago(pedidoId) {
+    setResultadoPix(null);
+    setFeedbackCopiaPix('');
+    setErro('');
+
+    const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
+
+    setCarregando(true);
+    try {
+      const data = await mpGerarPix(pedidoId, documentoDigits);
+      setResultadoPix({
+        status: String(data?.status || 'pending').toUpperCase() === 'PENDING' ? 'WAITING' : String(data?.status || 'WAITING').toUpperCase(),
+        status_interno: 'pendente',
+        qr_data: String(data?.pix_codigo || '').trim(),
+        qr_code_base64: data?.qr_code_base64 || null,
+        pix_codigo: String(data?.pix_codigo || '').trim(),
+        pix_qrcode: String(data?.pix_qrcode || '').trim()
+      });
+    } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAutenticado(false);
+      }
+      setErro(error.message || 'Não foi possível gerar o PIX. Tente novamente.');
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  // ── Pagar com cartão via Mercado Pago ──────────────────────────────────
+  async function handlePagarCartaoMercadoPago(pedidoId) {
+    if (!tokenCartao) {
+      setErro('Preencha os dados do cartão para continuar.');
+      return;
+    }
+
+    setCarregando(true);
+    setErro('');
+    try {
+      const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
+      const data = await mpPagarCartao(pedidoId, {
+        token: tokenCartao,
+        parcelas: Number(parcelasCartao) || 1,
+        taxId: documentoDigits
+      });
+
+      if (data?.status === 'approved' || data?.status_interno === 'pago') {
+        setStatusPedidoAtual('pago');
+        setPagamentoConfirmado(true);
+        setEtapaAtual(ETAPAS.STATUS);
+      } else if (data?.status === 'rejected') {
+        setErro('Pagamento recusado. Verifique os dados do cartão e tente novamente.');
+      } else {
+        setErro('Pagamento em análise. Aguarde a confirmação.');
+      }
+    } catch (error) {
+      setErro(error.message || 'Não foi possível processar o pagamento.');
+    } finally {
+      setCarregando(false);
+    }
   }
 
   async function handleGerarPix(pedidoId) {
@@ -1557,9 +1658,10 @@ export default function PagamentoPage() {
   function getIndiceEtapa(etapa) {
     if (etapa === ETAPAS.CARRINHO) return 0;
     if (etapa === ETAPAS.ENTREGA) return 1;
-    // PIX permanece dentro da etapa de Pagamento no stepper.
-    if (etapa === ETAPAS.PAGAMENTO || etapa === ETAPAS.PIX) return 2;
-    return 3;
+    if (etapa === ETAPAS.PAGAMENTO) return 2;
+    if (etapa === ETAPAS.REVISAO) return 3;
+    if (etapa === ETAPAS.PIX) return 3;
+    return 4;
   }
 
   const etapaIndex = getIndiceEtapa(etapaAtual);
@@ -1783,6 +1885,23 @@ export default function PagamentoPage() {
       };
     }
 
+    if (etapaAtual === ETAPAS.REVISAO) {
+      if (statusPedidoAtual === 'cancelado') {
+        return {
+          tone: 'warning',
+          title: 'Pedido não aprovado pela equipe.',
+          description: 'Alguns itens podem estar indisponíveis. Tente novamente com outros produtos.',
+          chips: ['Indisponível', 'Voltar às compras', 'Suporte disponível']
+        };
+      }
+      return {
+        tone: 'info',
+        title: 'Pedido recebido! Aguardando revisão.',
+        description: 'A equipe do mercado está verificando a disponibilidade dos seus itens. Você será avisado quando puder pagar.',
+        chips: ['Verificação automática', 'Equipe revisando', 'Atualização em 10s']
+      };
+    }
+
     if (etapaAtual === ETAPAS.PIX) {
       if (formaPagamento === 'pix') {
         if (podeContinuarConfirmacaoPix) {
@@ -1837,7 +1956,7 @@ export default function PagamentoPage() {
   const mobileActionBarConfig = (() => {
     if (etapaAtual === ETAPAS.CARRINHO) {
       return {
-        stepLabel: 'Etapa 1 de 4',
+        stepLabel: 'Etapa 1 de 5',
         totalLabel: `Total parcial: ${formatarMoeda(resumo.total)}`,
         caption: carrinhoVazio ? 'Adicione itens para avançar.' : `${resumoItensCarrinho} no carrinho`,
         primaryLabel: 'Ir para entrega',
@@ -1850,7 +1969,7 @@ export default function PagamentoPage() {
 
     if (etapaAtual === ETAPAS.ENTREGA) {
       return {
-        stepLabel: 'Etapa 2 de 4',
+        stepLabel: 'Etapa 2 de 5',
         totalLabel: retiradaSelecionada
           ? `Total sem frete: ${formatarMoeda(resumo.total)}`
           : simulacaoFrete
@@ -1871,7 +1990,7 @@ export default function PagamentoPage() {
 
     if (etapaAtual === ETAPAS.PAGAMENTO) {
       return {
-        stepLabel: 'Etapa 3 de 4',
+        stepLabel: 'Etapa 3 de 5',
         totalLabel: `Total do pedido: ${formatarMoeda(resumoTotalPagamento)}`,
         caption: `Forma atual: ${formaPagamentoAtual.title}`,
         primaryLabel: carregando
@@ -1886,10 +2005,23 @@ export default function PagamentoPage() {
       };
     }
 
+    if (etapaAtual === ETAPAS.REVISAO) {
+      return {
+        stepLabel: 'Etapa 4 de 5',
+        totalLabel: `Total do pedido: ${formatarMoeda(totalComEntregaPedido)}`,
+        caption: statusPedidoAtual === 'cancelado'
+          ? 'Pedido cancelado pela equipe.'
+          : 'Aguardando revisão da equipe do mercado...',
+        primaryLabel: 'Aguardando...',
+        onPrimaryClick: () => {},
+        primaryDisabled: true
+      };
+    }
+
     if (etapaAtual === ETAPAS.PIX) {
       if (formaPagamento === 'pix') {
         return {
-          stepLabel: 'Etapa 3 de 4',
+          stepLabel: 'Etapa 4 de 5',
           totalLabel: `Total do pedido: ${formatarMoeda(totalComEntregaPedido)}`,
           caption: podeContinuarConfirmacaoPix
             ? 'Pagamento aprovado. Siga para confirmar o pedido.'
@@ -1911,7 +2043,7 @@ export default function PagamentoPage() {
           secondaryLabel: textoBotaoGerarPix,
           onSecondaryClick: () => {
             if (resultadoPedido?.pedido_id) {
-              void handleGerarPix(resultadoPedido.pedido_id);
+              void handleGerarPixMercadoPago(resultadoPedido.pedido_id);
             }
           },
           secondaryDisabled: bloqueioGeracaoPix
@@ -1919,7 +2051,7 @@ export default function PagamentoPage() {
       }
 
       return {
-        stepLabel: 'Etapa 3 de 4',
+        stepLabel: 'Etapa 4 de 5',
         totalLabel: `Total do pedido: ${formatarMoeda(totalComEntregaPedido)}`,
         caption: cartaoAprovado
           ? 'Pagamento aprovado. Siga para a confirmação.'
@@ -2803,6 +2935,65 @@ export default function PagamentoPage() {
         </div>
       ) : null}
 
+      {/* ── ETAPA REVISÃO: aguardando equipe confirmar disponibilidade ── */}
+      {etapaAtual === ETAPAS.REVISAO ? (
+        <div className="checkout-revisao-layout">
+          <div className="card-box checkout-revisao-main">
+            <div className="checkout-revisao-header">
+              <p className="checkout-pix-kicker">Etapa 4</p>
+              <h2>Pedido em revisão</h2>
+              <p className="muted-text">
+                Seu pedido #{resultadoPedido?.pedido_id} foi recebido e está sendo verificado pela nossa equipe.
+                Vamos confirmar se todos os itens estão disponíveis.
+              </p>
+            </div>
+
+            {statusPedidoAtual === 'aguardando_revisao' ? (
+              <div className="checkout-revisao-status">
+                <div className="checkout-revisao-icon" aria-hidden="true">📋</div>
+                <h3>Aguardando revisão da equipe</h3>
+                <p className="muted-text">
+                  A equipe do mercado está verificando a disponibilidade dos seus itens.
+                  Esta página atualiza automaticamente — você será direcionado para o pagamento assim que o pedido for aprovado.
+                </p>
+                <div className="checkout-revisao-loading">
+                  <div className="checkout-revisao-spinner"></div>
+                  <span>Verificando a cada 10 segundos...</span>
+                </div>
+              </div>
+            ) : statusPedidoAtual === 'cancelado' ? (
+              <div className="checkout-revisao-status is-rejected">
+                <div className="checkout-revisao-icon" aria-hidden="true">❌</div>
+                <h3>Pedido não aprovado</h3>
+                <p className="error-text">{erro || 'Infelizmente não foi possível confirmar a disponibilidade dos seus itens.'}</p>
+                <Link to="/produtos" className="btn-primary" style={{ marginTop: '1rem' }}>
+                  Voltar às compras
+                </Link>
+              </div>
+            ) : null}
+
+            {/* Resumo do pedido */}
+            {resumoPedidoSnapshot ? (
+              <div className="checkout-revisao-resumo">
+                <h4>Resumo do pedido</h4>
+                <ul className="checkout-revisao-itens">
+                  {itensPedidoSnapshot.map((item) => (
+                    <li key={item.produto_id}>
+                      <span>{item.quantidade}x {item.nome}</span>
+                      <span>{formatarMoeda(item.preco * item.quantidade)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="checkout-revisao-total">
+                  <strong>Total</strong>
+                  <strong>{formatarMoeda(resultadoPedido?.total || resumoPedidoSnapshot?.subtotal || 0)}</strong>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {etapaAtual === ETAPAS.PIX ? (
         <div className="checkout-pix-layout">
           <div className="card-box checkout-pix-main">
@@ -2872,7 +3063,7 @@ export default function PagamentoPage() {
                   className="btn-secondary"
                   type="button"
                   disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id || !recaptchaCheckoutPronto}
-                  onClick={() => handlePagarCartao(resultadoPedido.pedido_id)}
+                  onClick={() => handlePagarCartaoMercadoPago(resultadoPedido.pedido_id)}
                 >
                   {carregando
                     ? debitoSelecionado
@@ -2961,7 +3152,7 @@ export default function PagamentoPage() {
                     className={`${pixDisponivelParaPagar ? 'btn-secondary' : 'btn-primary'} checkout-pix-generate-btn`.trim()}
                     type="button"
                     disabled={bloqueioGeracaoPix}
-                    onClick={() => handleGerarPix(resultadoPedido.pedido_id)}
+                    onClick={() => handleGerarPixMercadoPago(resultadoPedido.pedido_id)}
                   >
                     {textoBotaoGerarPix}
                   </button>

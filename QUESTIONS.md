@@ -1,1015 +1,1094 @@
-# QUESTIONS.md — Revisão Técnica Completa do Projeto BomFilho
+# QUESTIONS.md — Revisão Técnica Completa do Projeto BomFilho (v2)
 
-> **Autor da revisão:** Tech Lead / Code Reviewer  
-> **Data:** 19/03/2026  
-> **Escopo:** Arquitetura, segurança, performance, refatoração, bugs e melhorias  
->  
-> Cada item é uma pergunta ou ponto de atenção independente.  
+> **Autor da revisão:** Tech Lead / Code Reviewer
+> **Data:** 21/03/2026
+> **Escopo:** Arquitetura, segurança, performance, refatoração, bugs e melhorias
+> **Base:** Leitura completa de todos os arquivos do projeto (backend, frontend, infra, DB)
+>
+> Cada item é uma pergunta ou ponto de atenção independente.
 > Responda diretamente abaixo de cada pergunta com `> RESPOSTA:` para que eu possa então aplicar as melhorias.
 
 ---
 
-## 🏗️ ARQUITETURA GERAL
+## 🔴 SEGURANÇA — CRÍTICO
 
-### Q001 — server.js monolítico com 7.287 linhas
-O arquivo `backend/server.js` concentra **toda** a lógica do backend: rotas, middlewares, helpers, geocodificação, cálculo de frete, autenticação, pagamentos, WhatsApp, admin, webhooks, etc.  
-Isso dificulta manutenção, testes, code review e onboarding.
+### Q001 — JWT_SECRET aceita string vazia em produção
+Em `backend/lib/config.js` linha ~119: `const JWT_SECRET = String(process.env.JWT_SECRET || '');`
+Diferente de `PAGBANK_TOKEN`, `BASE_URL`, etc., **não existe `throw` em produção se JWT_SECRET estiver vazio ou curto**. Uma string vazia significa que qualquer pessoa pode forjar tokens JWT válidos — bypass total de autenticação.
 
-**Pergunta:** Posso refatorar o server.js em módulos separados (ex: `routes/auth.js`, `routes/pedidos.js`, `routes/admin.js`, `routes/pagbank.js`, `middleware/auth.js`, `middleware/csrf.js`, `utils/frete.js`, `utils/geocoding.js`, etc.)? Qual o nível de decomposição aceitável — mínimo (5-8 arquivos) ou granular (15-20 arquivos)?
-
-> RESPOSTA:
-
----
-
-### Q002 — Ausência de testes automatizados
-Não existe nenhum framework de testes (Jest, Vitest, Mocha) configurado nem no backend nem no frontend. Nenhum arquivo de teste encontrado.
-
-**Pergunta:** Devo configurar testes? Se sim, qual prioridade? Sugiro:
-1. Testes unitários para helpers/services críticos (cálculo frete, validação barcode, helpers de pagamento)
-2. Testes de integração para endpoints (auth, pedidos, webhook PagBank)
-3. Testes de componentes React (PagamentoPage, CartContext)
+**Pergunta:** Posso adicionar validação obrigatória em produção (`if (IS_PRODUCTION && JWT_SECRET.length < 32) throw Error(...)`)? Existe alguma razão para aceitar JWT vazio?
 
 > RESPOSTA:
 
 ---
 
-### Q003 — Sem migration runner automatizado
-As migrações SQL são arquivos soltos executados manualmente (`migrate_*.sql`). Não há ferramenta de migration (Knex, Sequelize, Flyway) nem controle de versão de schema aplicado.
+### Q002 — Webhook PagBank com cache de idempotência em memória
+Em `backend/routes/webhooks.js`: a deduplicação de webhooks usa `BoundedCache` (in-memory Map com TTL de 10min). Se o processo reinicia (deploy, crash, OOM), o cache é perdido e o mesmo webhook pode ser processado duas vezes — marcando pedidos como pagos duplicadamente.
 
-**Pergunta:** Isso é intencional? Devo implementar um sistema de migrations com controle de versão (tabela `schema_migrations`) para garantir idempotência e rastreabilidade?
-
-> RESPOSTA:
-
----
-
-### Q004 — bot-whatsapp é um diretório vazio (sem código)
-O diretório `bot-whatsapp/` contém apenas `package.json` com dependências (express 5, axios, dotenv) mas nenhum arquivo de código (`index.js` referenciado como main não existe). Tem `node_modules/` commitado.
-
-**Pergunta:** Este diretório é um projeto abandonado/futuro? Devo removê-lo do repositório? E o `node_modules/` deveria ser removido do git (está sendo rastreado)?
+**Pergunta:** Isso é um risco aceitável dado o volume atual? Ou devo mover a deduplicação para o banco (tabela `webhook_events` com UNIQUE KEY no `notification_id`)?
 
 > RESPOSTA:
 
 ---
 
-### Q005 — Diretório `legacy/` com frontend HTML/JS antigo
-Existe um frontend completo em HTML puro + JS vanilla (`legacy/`) com admin, checkout, cart, auth, etc. O projeto já migrou para React.
+### Q003 — Race condition no estoque durante criação de pedido
+Em `backend/routes/pedidos-criar.js`: o estoque é verificado antes de `beginTransaction()`, mas atualizado dentro da transação. Entre a verificação e o UPDATE, outra requisição concorrente pode decrementar o mesmo estoque, resultando em **estoque negativo**.
 
-**Pergunta:** O diretório `legacy/` ainda serve algum propósito? Posso removê-lo ou mover para um branch separado? Se mantido, esses arquivos podem ser servidos acidentalmente?
-
-> RESPOSTA:
-
----
-
-### Q006 — Duplicação de lógica entre `lib/api.js` e `services/api.js` (frontend)
-O frontend tem dois módulos de API:
-- `src/services/api.js` — wrapper genérico de fetch com retry, timeout, log
-- `src/lib/api.js` — funções específicas (login, criarPedido, gerarPix, etc.)
-
-Ambos têm `mapMensagemHttp`/`mapHttpStatusMessage` duplicados e lógica de tratamento de erro redundante.
-
-**Pergunta:** Posso consolidar o mapeamento de mensagens de erro em um só lugar e eliminar a duplicação?
+**Pergunta:** Posso mover a verificação de estoque para dentro da transação usando `SELECT ... FOR UPDATE` (lock pessimista na linha do produto)?
 
 > RESPOSTA:
 
 ---
 
-### Q007 — Ausência de Error Boundaries no React
-Não há `ErrorBoundary` em nenhum nível da aplicação. Se qualquer componente lançar um erro durante render, toda a app crasha com tela branca.
+### Q004 — Race condition no uso de cupons
+Ao aplicar cupom no pedido, a contagem de uso (`uso_atual`) é verificada fora da transação e incrementada dentro. Duas requisições simultâneas podem ambas passar na validação e ultrapassar o `uso_maximo`.
 
-**Pergunta:** Devo implementar Error Boundaries ao menos no nível de rotas?
-
-> RESPOSTA:
-
----
-
-### Q008 — Sem variáveis de ambiente de exemplo (.env.example) no root
-O backend tem referências a dezenas de variáveis de ambiente, mas não existe um `.env.example` **documentado** no root (o que está na pasta backend não foi verificado se está completo).
-
-**Pergunta:** Devo criar/atualizar o `.env.example` com todas as variáveis necessárias, defaults e descrições?
+**Pergunta:** Posso mover a validação + incremento do cupom para dentro da transação com lock (`SELECT ... FOR UPDATE` na tabela cupons)?
 
 > RESPOSTA:
 
 ---
 
-## 🔒 SEGURANÇA
+### Q005 — ALLOW_PIX_MOCK pode chegar a produção
+Se a variável `ALLOW_PIX_MOCK=true` for acidentalmente configurada em produção (ex: cópia de .env), usuários podem gerar QR codes PIX falsos e criar pedidos sem pagamento real. O mesmo se aplica a `ALLOW_DEBIT_3DS_MOCK`.
 
-### Q009 — Admin login com senha em texto plano via env var
-O admin login (`POST /api/admin/login`) compara a senha contra `ADMIN_PASSWORD` definida como variável de ambiente em plain text. Não há hash para a senha admin.
-
-**Pergunta:** Isso é aceitável? Devo migrar para um hash bcrypt armazenado (ou uma tabela `admin_users` no BD)?
+**Pergunta:** Posso adicionar um guard em `config.js` que faz `throw` se mock está ativo em produção (`if (IS_PRODUCTION && ALLOW_PIX_MOCK) throw Error(...)`)? Ou existe cenário legítimo para mock em prod?
 
 > RESPOSTA:
 
 ---
 
-### Q010 — ADMIN_LOCAL_ONLY pode ser desligado por env var
-A flag `ADMIN_LOCAL_ONLY` protege endpoints admin por IP local. Porém, se alguém definir `ADMIN_LOCAL_ONLY=false` no ambiente de produção, o painel admin fica exposto remotamente.
+### Q006 — Sem rate limit em endpoints de pagamento
+Os endpoints `POST /api/pagamentos/cartao` e `POST /api/pagamentos/pix` não têm rate limiter específico. Um atacante autenticado pode gerar centenas de requisições de pagamento por minuto, sobrecarregando a API do PagBank e potencialmente gerando cobranças abusivas.
 
-**Pergunta:** Isso é intencional para o deploy em Render (onde acesso "local" não existe)? Se sim, qual é a proteção alternativa? Apenas JWT + cookie?
-
-> RESPOSTA:
-
----
-
-### Q011 — Validação de webhook Evolution API com comparação não-constante
-A função `validarWebhookEvolution` usa comparação direta (`===`) ao invés de `crypto.timingSafeEqual`, ficando potencialmente vulnerável a timing attacks.
-
-**Pergunta:** Devo migrar para `compararTextoSegura` (que já existe no código e usa `timingSafeEqual`)?
+**Pergunta:** Posso adicionar rate limiter específico (ex: 5 req/min por `usuario_id`) nesses endpoints? O `checkoutLimiter` (10/min) do server.js já cobre isso ou precisa de um limiter mais fino?
 
 > RESPOSTA:
 
 ---
 
-### Q012 — JWT Secret sem rotação
-O `JWT_SECRET` é estático. Não há mecanismo de rotação de chaves. Se comprometido, todos os tokens ficam vulneráveis até trocar manualmente o secret e reiniciar o servidor (o que invalida todas as sessões).
+### Q007 — Endpoint de criação de pedido sem rate limit dedicado
+`POST /api/pedidos` depende apenas do rate limiter global (100 req/15min por IP). Dado que cria registros no banco + reserva estoque, deveria ter limiter mais restritivo.
 
-**Pergunta:** Devo implementar um sistema de rotação de JWT keys (ex: suporte a múltiplas chaves simultâneas com `kid` no JWT header)?
-
-> RESPOSTA:
-
----
-
-### Q013 — Token JWT retornado no body do response (accessToken)
-Nas rotas de login e cadastro, o JWT é retornado no body do response (`accessToken`) além de ser setado como cookie HttpOnly. Se `VITE_ENABLE_TOKEN_STORAGE=true`, o token vai para localStorage, expondo-o a XSS.
-
-**Pergunta:** Devo remover o `accessToken` do body e confiar exclusivamente nos cookies HttpOnly? Ou o token no body é necessário para algum cenário específico (mobile app, extensão)?
+**Pergunta:** Posso aplicar o `checkoutLimiter` (ou criar um dedicado ~3 req/min por user) nesse endpoint?
 
 > RESPOSTA:
 
 ---
 
-### Q014 — Frete público sem autenticação
-O endpoint `GET /api/frete/simular` é público (sem `autenticarToken`). Alguém pode enumerar CEPs e mapear a área de entrega/preços da loja.
+### Q008 — Admin password em texto plano aceita em produção com warning
+Em `config.js` linha ~155: se `ADMIN_PASSWORD` está definido (texto plano) sem `ADMIN_PASSWORD_HASH`, o sistema emite `console.warn` mas **continua funcionando**. Em produção, isso permite que a senha admin trafegue em logs ou seja exposta se `.env` vazar.
 
-**Pergunta:** Isso é aceitável? Ou deveria exigir ao menos rate limiting mais agressivo ou autenticação?
-
-> RESPOSTA:
-
----
-
-### Q015 — Avaliações sem proteção anti-abuso
-O endpoint `POST /api/avaliacoes` não tem reCAPTCHA, rate limiting específico, nem verificação se o usuário comprou o produto. Um usuário autenticado pode avaliar qualquer produto com nota arbitrária.
-
-**Pergunta:** Devo adicionar validação de compra (só pode avaliar produtos que comprou) e/ou rate limiting específico?
+**Pergunta:** Posso tornar isso um `throw` em produção (forçar uso de bcrypt hash)?
 
 > RESPOSTA:
 
 ---
 
-### Q016 — Helmet com `contentSecurityPolicy: false`
-O helmet está configurado com CSP desabilitado. Isso remove uma camada importante de proteção contra XSS.
+### Q009 — Importação de produtos sem limite de linhas
+Em `POST /api/admin/catalogo/produtos/importar`: o upload via multer tem limite de tamanho (`TAMANHO_MAXIMO_IMPORTACAO_BYTES`), mas **não valida o número de linhas** da planilha. Uma planilha de 8MB pode ter 100k+ linhas, causando OOM ou timeout no processamento.
 
-**Pergunta:** Posso definir um CSP adequado? O motivo de estar desabilitado é por PagBank SDK ou recursos inline?
-
-> RESPOSTA:
-
----
-
-### Q017 — COOKIE_SAME_SITE=none no render.yaml
-No deploy Render, `COOKIE_SAME_SITE` está como `none`. Isso é necessário para cross-origin (frontend Vercel ↔ backend Render), mas abre possibilidade de CSRF em navegadores que não suportam SameSite corretamente.
-
-**Pergunta:** A proteção CSRF via header `x-csrf-token` + cookie é suficiente para compensar o `SameSite=None`? Ou deveria reconsiderar a arquitetura de deploy (same-origin)?
+**Pergunta:** Posso adicionar validação de máximo de linhas (ex: 5000)? Qual o tamanho típico de importação?
 
 > RESPOSTA:
 
 ---
 
-### Q018 — `SELECT *` em queries sensíveis
-Algumas queries usam `SELECT *` (ex: login retorna `SELECT * FROM usuarios`, pedidos `SELECT * FROM pedidos`). Isso pode expor campos sensíveis como `senha` no response.
+### Q010 — Exportação de produtos sem LIMIT na query
+Em `GET /api/admin/catalogo/produtos/exportar.xlsx`: executa `SELECT * FROM produtos` sem LIMIT. Com 21k+ produtos, isso pode gerar OOM ao montar o workbook em memória.
 
-**Pergunta:** Devo substituir todos os `SELECT *` por campos explícitos para evitar vazamento acidental de dados?
-
-> RESPOSTA:
-
----
-
-### Q019 — Credenciais MySQL logadas no console
-Na linha de inicialização, o hostname, port, user e database são impressos no console. Essa informação pode vazar em logs de produção.
-
-**Pergunta:** Devo remover ou mascarar essas informações em produção?
+**Pergunta:** Posso adicionar LIMIT (ex: 25000) e/ou streaming da resposta? Ou a exportação completa é necessária?
 
 > RESPOSTA:
 
 ---
 
-### Q020 — Sem proteção de enumeração de e-mail
-O endpoint de cadastro retorna `409 - Já existe uma conta com este e-mail` quando o e-mail já está registrado. Isso permite que um atacante enumere e-mails válidos.
+### Q011 — Resposta de erro na importação expõe detalhes internos
+Na rota de importação de catálogo, se ocorre erro, `erro.extra` (detalhes internos do stack) é retornado ao client via JSON. Isso pode revelar informações de estrutura interna.
 
-**Pergunta:** Devo uniformizar a resposta para não revelar se o e-mail já existe?
+**Pergunta:** Posso remover `erro.extra` da resposta e manter apenas a mensagem genérica?
 
 > RESPOSTA:
+
+---
+
+### Q012 — Recaptcha desabilitado em checkout e pagamento
+Em `render.yaml`: `RECAPTCHA_CHECKOUT_ENABLED=false`, `RECAPTCHA_PAYMENT_ENABLED=false`. O checkout fica totalmente exposto a bots e abuse automatizado.
+
+**Pergunta:** Há plano para ativar reCAPTCHA? Se sim, as keys do Google já estão configuradas? Posso preparar a ativação?
+
+> RESPOSTA:
+
+---
+
+### Q013 — `COOKIE_SAME_SITE=none` sem validação cruzada com SECURE
+Em `render.yaml` usa `COOKIE_SAME_SITE=none` (necessário para cross-origin). Porém, se `COOKIE_SECURE=false` for configurado por engano, os cookies param de funcionar silenciosamente (browsers rejeitam SameSite=None sem Secure).
+
+**Pergunta:** Posso adicionar validação em `config.js`: `if (COOKIE_SAME_SITE === 'none' && !COOKIE_SECURE) throw Error(...)`?
+
+> RESPOSTA:
+
+---
+
+### Q014 — Busca de admin (clientes/produtos) sem limite de tamanho no termo
+Em `GET /api/admin/clientes` e `GET /api/admin/catalogo/produtos`: o parâmetro `busca` é usado em `LIKE %...%` sem limite de tamanho. Um atacante pode enviar string de 10KB causando query lenta.
+
+**Pergunta:** Posso limitar `busca.length` a 200 caracteres nesses endpoints?
+
+> RESPOSTA:
+
+---
+
+### Q015 — Helmet com `contentSecurityPolicy: false`
+O Helmet está configurado com CSP desabilitado. Isso permite que scripts injetados (via XSS) executem livremente.
+
+**Pergunta:** É intencional por causa do SDK do PagBank (que injeta scripts externos)? Posso configurar um CSP permissivo que cubra ao menos styles/images, mesmo deixando scripts como `unsafe-inline` para o SDK?
+
+> RESPOSTA:
+
+---
+
+---
+
+## 🟠 SEGURANÇA — ALTA
+
+### Q016 — Token JWT retornado no body do response
+No login (`POST /api/auth/login`), o token JWT é retornado tanto no cookie httpOnly quanto no body da resposta (`{ accessToken: '...' }`). O body é acessível via JavaScript, o que anula parte da proteção do httpOnly cookie.
+
+**Pergunta:** O body é necessário para o frontend funcionar (mobile, webview)? Posso remover o token do body e usar apenas cookies?
+
+> RESPOSTA:
+
+---
+
+### Q017 — Frete público sem autenticação
+`GET /api/frete/simular` é público, sem auth. Permite que qualquer pessoa faça requisições de simulação de frete em massa, o que chama geocodificação (Nominatim/BrasilAPI).
+
+**Pergunta:** Posso exigir autenticação nesse endpoint, ou há caso de uso legítimo para visitantes não logados?
+
+> RESPOSTA:
+
+---
+
+### Q018 — Avaliações sem proteção anti-abuso
+`POST /api/avaliacoes` exige autenticação, mas não tem rate limit. Um usuário pode postar centenas de avaliações por minuto.
+
+**Pergunta:** Posso adicionar rate limit (ex: 5 avaliações/min por user)? Existe constraint UNIQUE no banco que previne duplicatas?
+
+> RESPOSTA:
+
+---
+
+### Q019 — `SELECT *` em queries com dados sensíveis
+Algumas queries usam `SELECT *` (ex: `SELECT * FROM usuarios`, `SELECT * FROM pedidos`), o que pode expor colunas como `senha_hash` no response se não filtrado adequadamente.
+
+**Pergunta:** Posso auditar e substituir todos os `SELECT *` por colunas explícitas nos endpoints que retornam dados ao client?
+
+> RESPOSTA:
+
+---
+
+### Q020 — Enumeração de e-mail no register/login
+As mensagens de erro de login diferenciam "e-mail não encontrado" vs "senha incorreta", permitindo que atacantes descubram quais e-mails estão cadastrados.
+
+**Pergunta:** Posso unificar a mensagem de erro para "Credenciais inválidas" em ambos os casos?
+
+> RESPOSTA:
+
+---
+
+### Q021 — Validação de CEP pode crashar com valor null
+Em `pedidos-criar.js`: `if (cepDestinoEntrega.length !== 8)` — se `cepDestinoEntrega` for `null` ou `undefined`, `.length` causa TypeError e retorna 500 em vez de 400.
+
+**Pergunta:** Posso adicionar check `typeof === 'string'` antes de acessar `.length`?
+
+> RESPOSTA:
+
+---
+
+### Q022 — Bulk insert de produtos sem transação com rollback
+Em `POST /api/admin/produtos/bulk`: insere itens em loop individual. Se item N falha, itens 1..N-1 já foram commitados (sem rollback). Também sem validação de tamanho do array.
+
+**Pergunta:** Posso envolver em transação com rollback e limitar array a 100 itens?
+
+> RESPOSTA:
+
+---
+
+---
+
+## 🏗️ ARQUITETURA
+
+### Q023 — ProdutosPage com ~1900 linhas (God Component)
+`ProdutosPage.jsx` tem ~1900 linhas, 50+ `useState`, 40+ `useMemo`, 15+ `useEffect`. É o componente mais complexo do sistema, responsável por: catálogo, filtros, busca, favoritos, recorrência, cross-sell, drawer de detalhe, virtualização, prefetch.
+
+**Pergunta:** Posso extrair sub-responsabilidades em hooks e componentes menores? Sugiro:
+1. `useProdutosFiltro()` — busca, categoria, ordenação, filtros
+2. `useProdutosRecorrencia()` — favoritos, recompra, cross-sell
+3. `useProdutosPrefetch()` — prefetch e cache
+4. `<ProdutoDecisionDrawer />` — já é componente separado, confirmar
+5. `<ProdutosBusca />` — barra de busca + filtros
+
+Qual nível de decomposição é aceitável?
+
+> RESPOSTA:
+
+---
+
+### Q024 — PagamentoPage com ~2700 linhas (God Component)
+`PagamentoPage.jsx` tem ~2700 linhas, 50+ `useState`, controlando 5 etapas do checkout: carrinho → entrega → pagamento → PIX/cartão → confirmação. Toda a lógica 3DS, CEP, frete e validação está em um único componente.
+
+**Pergunta:** Posso extrair em componentes/hooks menores? Sugiro:
+1. `useCheckoutFlow()` — máquina de estados do checkout
+2. `use3DSAuthentication()` — toda lógica 3DS
+3. `useFreteSimulacao()` — cálculo e simulação de frete
+4. `useCheckoutValidation()` — validações de documento, endereço, etc.
+5. Mover cada etapa para componente próprio (já existem `CheckoutCart`, `CheckoutPayment`, etc.)
+
+> RESPOSTA:
+
+---
+
+### Q025 — ContaPage com ~670 linhas
+`ContaPage.jsx` é relativamente grande mas já tem componentes extraídos em `components/conta/`. A complexidade principal está no gerenciamento de múltiplas sections (perfil, endereços, preferências, atalhos).
+
+**Pergunta:** Está em tamanho aceitável ou devo continuar extraindo? A lógica de endereços (CRUD) parece ser a mais pesada.
+
+> RESPOSTA:
+
+---
+
+### Q026 — AdminPage e AdminGerenciaPage — split funcional
+`AdminPage.jsx` (~?) e `AdminGerenciaPage.jsx` (~?) são os painéis administrativos. Já têm componentes em `admin/` e `admin/gerencia/`.
+
+**Pergunta:** Estas páginas estão suficientemente decompostas ou há God Component symptoms?
+
+> RESPOSTA:
+
+---
+
+### Q027 — RecorrenciaContext com normalização excessiva (150+ linhas)
+`RecorrenciaContext.jsx` dedica ~150 linhas à normalização defensiva de dados do localStorage (protege contra corrupção). Isso é robusto mas aumenta o tamanho do bundle e a complexidade.
+
+**Pergunta:** A normalização pesada é necessária pela experiência com dados corrompidos em produção? Ou posso simplificar com try/catch + reset?
+
+> RESPOSTA:
+
+---
+
+### Q028 — CartContext — payloadEvento usa closure anti-pattern
+Em `CartContext.jsx`, `addItem` define `let payloadEvento = null` fora de `setItens()` e atribui o valor dentro do setState callback. Depois lê `payloadEvento` fora do setState para disparar tracking. Funciona porque useState é síncrono em React 18, mas é anti-pattern que pode quebrar em React 19+ (transitions/concurrent mode).
+
+**Pergunta:** Posso refatorar para usar `useRef` ou mover o tracking para dentro de um `useEffect` que observa `itens`?
+
+> RESPOSTA:
+
+---
+
+### Q029 — 3 camadas de API no frontend — necessidade real?
+Existem 3 arquivos de API:
+- `config/api.js` — constantes (URL, timeout, flags)
+- `services/api.js` — transporte (fetch wrapper com retry, timeout)
+- `lib/api.js` — domínio (login, criarPedido, admin...)
+
+A separação é limpa, mas para um projeto deste tamanho, `services/api.js` e `lib/api.js` poderiam ser um só.
+
+**Pergunta:** A separação em 3 camadas agrega valor para o tamanho atual do projeto? Ou simplificar para 2 camadas (config + domain)?
+
+> RESPOSTA:
+
+---
+
+### Q030 — Sem Error Boundaries em seções críticas
+Existe `ErrorBoundary.jsx` e é usado em `App.jsx` ao redor de rotas. Mas se um componente dentro de `ProdutosPage` ou `PagamentoPage` falha, **todo o checkout ou catálogo cai**, não apenas a seção afetada.
+
+**Pergunta:** Posso adicionar Error Boundaries granulares ao redor de: drawer de detalhe de produto, seção de cross-sell, seção de favoritos, formulário de pagamento?
+
+> RESPOSTA:
+
+---
+
+### Q031 — styles.css com ~15800 linhas — arquivo monolítico
+Todo o CSS do projeto está em um único arquivo `styles.css` com ~15800 linhas. Isso dificulta manutenção, causa conflitos de merge, e torna difícil identificar CSS morto.
+
+**Pergunta:** Alguma estratégia de organização é desejada? Não sugiro migrar para Tailwind/modules, mas posso:
+1. Dividir em seções claras com comentários de separação
+2. Identificar e remover CSS morto
+3. Manter assim se funciona e a equipe já está habituada
+
+> RESPOSTA:
+
+---
 
 ---
 
 ## ⚡ PERFORMANCE
 
-### Q021 — Cache em memória sem limite de tamanho (Map)
-Os caches (`cepGeoCache`, `produtosQueryCache`, `readQueryCache`, `evolutionProcessedMessageIds`, `evolutionLastReplyByNumber`) são `Map` simples sem limite de entradas. Em cenários de alto tráfego, a memória pode crescer indefinidamente.
+### Q032 — 21k produtos indexados no client com O(n×15) por filtro
+Em `ProdutosPage.jsx`, `produtosIndexados` executa `useMemo` que itera todos os 21k produtos computando ~15 campos derivados por produto. Roda a cada mudança em `growthTopProductsById` ou `produtos`.
 
-**Pergunta:** Devo implementar um LRU cache com tamanho máximo? Ou o tráfego atual é baixo o suficiente para não ser problema?
-
-> RESPOSTA:
-
----
-
-### Q022 — Geocodificação Nominatim com múltiplas chamadas sequenciais
-A função `buscarCoordenadasNominatim` pode fazer até 5 chamadas HTTP sequenciais ao Nominatim (uma por consulta). Com a política de uso do Nominatim (1 req/s), uma simulação de frete pode levar >5s.
-
-**Pergunta:** Isso é um gargalo real? Devo considerar: (a) paralelizar com Promise.all, (b) usar um serviço pago de geocoding, ou (c) o cache de 24h é suficiente?
+**Pergunta:** Isso causa jank perceptível? Para 21k × 15 campos, são ~315k operações. Alternativas:
+1. Mover indexação para Web Worker
+2. Indexar incrementalmente (só produtos novos)
+3. Paginar server-side (reduzir payload)
+Qual abordagem faz mais sentido para o uso real?
 
 > RESPOSTA:
 
 ---
 
-### Q023 — Produtos listados sem paginação forçada
-Se nenhum parâmetro de paginação é passado em `GET /api/produtos`, **todos** os produtos ativos são retornados. Com 120K+ produtos, isso pode gerar responses de vários MB.
+### Q033 — Produtos enviados 100% do catálogo em uma request
+`GET /api/produtos` retorna todos os produtos ativos (21k) em uma única resposta. O frontend filtra em memória.
 
-**Pergunta:** Devo forçar paginação com default (ex: 60 itens) e remover o modo "sem paginação"? Ou o frontend precisa de todos os produtos de uma vez para alguma funcionalidade?
-
-> RESPOSTA:
-
----
-
-### Q024 — ProdutosPage com 3.087 linhas (God Component)
-O componente `ProdutosPage.jsx` tem ~3000 linhas com 20+ `useState`, 15+ `useMemo` encadeados, lógica de scoring comportamental, filtros, sorting, tracking de comércio e growth experiments misturados.
-
-**Pergunta:** Posso decompor em sub-componentes e custom hooks? Sugestão:
-- `useProductFiltering()` — filtros e busca
-- `useProductSorting()` — ordenação
-- `useBehavioralScoring()` — scoring de recorrência
-- `ProductGrid`, `ProductFilters`, `QuickFilterBar` — componentes visuais
+**Pergunta:** Isso é intencional para UX offline-first? Ou devo implementar paginação server-side? O payload de 21k produtos é aproximadamente quantos MB?
 
 > RESPOSTA:
 
 ---
 
-### Q025 — PagamentoPage com 3.992 linhas (God Component)
-O checkout inteiro (5 etapas, 3 métodos de pagamento, CEP lookup, cálculo de frete, state machine 3DS) está em um único componente.
+### Q034 — Image prefetch registry nunca limpa
+Em `produtosUtils.js`: `prefetchedProductImageSrc` (Set) e `prefetchedProductImageQueue` (Array) crescem indefinidamente. Após navegar 1000+ produtos, a memória acumula.
 
-**Pergunta:** Posso decompor em componentes por etapa?
-- `StageCarrinho`, `StageEntrega`, `StagePagamento`, `StagePix`, `StageStatus`
-- Hooks: `use3DSFlow`, `useFreteCalculation`, `useAddressLookup`
+**Pergunta:** Posso adicionar LRU eviction (ex: manter max 200 entries)? SmartImage já tem LRU com 800 entries, mas o prefetch é separado.
 
 > RESPOSTA:
 
 ---
 
-### Q026 — AdminGerenciaPage com 2.155 linhas
-Todo o admin (dashboard, catálogo, importação, enriquecimento, logs) vive em um componente.
+### Q035 — CEP lookup cache não cacheia erros
+Em `lib/api.js`: se a consulta de CEP falha (viaCEP offline, timeout), o erro é descartado e a próxima chamada faz nova requisição. Se viaCEP estiver fora, cada digitação gera nova requisição falhada.
 
-**Pergunta:** Cada tab/seção deveria ser um componente independente? Os componentes em `components/admin/` já existem para algumas seções — estão todos sendo usados?
-
-> RESPOSTA:
-
----
-
-### Q027 — ContaPage com 1.408 linhas
-Perfil, endereço, preferências de acessibilidade, configurações — tudo num arquivo.
-
-**Pergunta:** Posso dividir em seções (`ProfileSection`, `AddressSection`, `PreferencesSection`)?
+**Pergunta:** Posso cachear erros com TTL curto (30s) para evitar flood de requests?
 
 > RESPOSTA:
 
 ---
 
-### Q028 — Sem compressão de assets (gzip/brotli) no build Vite
-O `vite.config.js` não configura `vite-plugin-compression` para gerar `.gz` ou `.br`. Na Vercel isso pode ser feito automaticamente, mas vale confirmar.
+### Q036 — N+1 queries no dashboard admin
+Em `GET /api/admin/operacional/dashboard/resumo`: executa ~13 queries separadas (contagem por status, faturamento, etc.) em vez de consolidar em UNION ou subqueries.
 
-**Pergunta:** A compressão está sendo feita pelo CDN/Vercel? Ou devo adicionar no build?
-
-> RESPOSTA:
-
----
-
-### Q029 — Pool MySQL com connectionLimit=10
-O pool está com limite fixo de 10 conexões. No plano free do Render, o tráfego pode ser baixo, mas se escalar...
-
-**Pergunta:** O `connectionLimit=10` é adequado? O provedor MySQL (Railway?) tem um limite específico de conexões?
+**Pergunta:** Posso consolidar em 2-3 queries para reduzir latência? O dashboard é acessado com que frequência?
 
 > RESPOSTA:
 
 ---
 
-### Q030 — Pedido cria itens em loop com queries individuais
-Na criação de pedido, os itens são inseridos um a um (`INSERT INTO pedido_itens ... ` dentro de um `for`). Para pedidos com muitos itens, isso gera N queries dentro da transação.
+### Q037 — Pedido cria itens em loop com queries individuais
+Em `pedidos-criar.js`: os itens do pedido são inseridos um a um via loop. Para carrinho com 30 itens, isso gera 30 INSERTs separados.
 
-**Pergunta:** Devo converter para um `INSERT ... VALUES (...), (...), (...)` batch único? Ou o número de itens por pedido é geralmente baixo?
-
-> RESPOSTA:
-
----
-
-### Q031 — Preload de dados no startup sem controle de tamanho
-A função `preloadData()` carrega todos os produtos em memória no startup do servidor para popular o cache.
-
-**Pergunta:** Com 120K+ produtos, isso consome quanta memória? Deveria haver um limite ou o preload deveria ser removido?
+**Pergunta:** Posso usar bulk INSERT (`INSERT INTO pedido_itens VALUES ?, ?, ?`) em uma query?
 
 > RESPOSTA:
 
 ---
 
-## 🐛 BUGS E PROBLEMAS POTENCIAIS
+### Q038 — Pool MySQL com connectionLimit=10
+Em `lib/db.js`: o pool tem apenas 10 conexões. Em pico de pedidos (horário comercial de mercado de bairro), isso pode causar enfileiramento com `queueLimit: 0` (fila infinita).
 
-### Q032 — PIX update após connection.release()
-Na criação de pedido, o `connection.commit()` e `connection.release()` são chamados no bloco try. Depois, o código tenta `connection.query('UPDATE pedidos SET pix_id = ... ')` para salvar dados do PIX, mas a conexão da transação já foi liberada. Isso pode causar erro silencioso.
-
-**Pergunta:** Isso é um bug real? O `connection.query` após `connection.release()` deveria usar `pool.query` em vez disso?
+**Pergunta:** 10 conexões são suficientes para o volume atual? O que acontece em pico? O plano do banco suporta mais conexões?
 
 > RESPOSTA:
 
 ---
 
-### Q033 — Race condition em CEP lookup no PagamentoPage
-O `useEffect` que busca dados de CEP não cancela requests anteriores. Se o usuário digita rápidamente, múltiplas requisições simultâneas podem causar resultados inconsistentes (a última request retornada pode não ser do último CEP digitado).
+### Q039 — Geocodificação sequencial com múltiplas chamadas
+O cálculo de frete faz geocodificação via Nominatim/BrasilAPI de forma sequencial (endereço completo → CEP → parcial). Cada fallback adiciona ~500ms-1s de latência.
 
-**Pergunta:** Devo implementar cancelamento via `AbortController` ou usar o `consultaCepIdRef` existente? Parece que `consultaCepIdRef` já tenta resolver isso — está funcionando corretamente?
-
-> RESPOSTA:
-
----
-
-### Q034 — `unhandledRejection` e `uncaughtException` fazem `process.exit(1)`
-Os handlers de erro global fazem `process.exit(1)`, o que mata o servidor imediatamente. Em produção, isso pode causar requests em andamento serem perdidos.
-
-**Pergunta:** Devo implementar graceful shutdown (parar de aceitar novas conexões, aguardar requests em andamento, drenar pool MySQL) antes de sair?
+**Pergunta:** Os resultados de geocodificação têm cache (24h via `CEP_GEO_TTL_MS`). Isso é suficiente? Ou devo pré-geocodificar CEPs populares?
 
 > RESPOSTA:
 
 ---
 
-### Q035 — Sem validação de `produto_id` como inteiro na criação de pedido
-Os `itensNormalizados` passam por `normalizarItensPedidoInput` e `itensPedidoSaoValidos`, mas o `produto_id` é usado diretamente na query SQL com placeholder (`IN (${placeholdersProdutos})`).
+### Q040 — `obterColunasProdutos` cacheado indefinidamente
+Em `admin-catalogo.js` (ou helper): a lista de colunas da tabela `produtos` é consultada uma vez e cacheada para sempre. Se o schema muda (via migration), o cache fica stale até restart.
 
-**Pergunta:** Os placeholders são seguros contra SQL injection? Sim, pois usam parameterized queries. Mas os IDs são validados como inteiros positivos antes de usar?
-
-> RESPOSTA:
-
----
-
-### Q036 — desconto pode resultar em total negativo
-Se um cupom de `valor_fixo` tem valor maior que o total do pedido, `descontoAplicado` é limitado a `total`. Porém, o `totalProdutos` pode ser zero, e `totalFinal = totalProdutos + freteEntrega` pode resultar em um pedido de "apenas frete".
-
-**Pergunta:** Um pedido com total de produtos = R$ 0,00 + frete é válido? Deveria haver um valor mínimo de pedido?
+**Pergunta:** Posso adicionar TTL (ex: 1 hora) ou invalidar após migration?
 
 > RESPOSTA:
 
 ---
 
-### Q037 — Sessão 3DS expira sem aviso ao usuário
-A sessão 3DS PagBank dura 29 minutos (`SESSAO_3DS_TTL_MS`). Se o usuário demorar mais de 29 min no checkout, o pagamento com débito/crédito falhará sem mensagem explicativa.
+### Q041 — Sem compressão Brotli no build Vite
+O `vite.config.js` não configura plugin de compressão (gzip/brotli). O Vercel faz isso automaticamente, mas assets servidos localmente ou via CDN custom não seriam comprimidos.
 
-**Pergunta:** Devo adicionar um timer visível ou uma renovação automática de sessão 3DS?
-
-> RESPOSTA:
-
----
-
-### Q038 — Estoque não é restaurado quando pedido é cancelado
-Na rota `PUT /api/admin/pedidos/:id/status`, quando o status muda para "cancelado", não vejo lógica para reverter a reserva de estoque feita na criação do pedido.
-
-**Pergunta:** Isso é intencional (estoque manual) ou é um bug? Devo implementar restauração automática de estoque ao cancelar?
+**Pergunta:** Vercel/Render já comprimem automaticamente? Se sim, não precisa de plugin. Se não, devo adicionar `vite-plugin-compression`?
 
 > RESPOSTA:
 
 ---
 
-### Q039 — Carrinho vazio pode chegar ao checkout
-O `PagamentoPage` não valida se o carrinho está vazio ao montar. O usuário pode acessar `/pagamento` diretamente com carrinho vazio e ver uma tela inconsistente.
+---
 
-**Pergunta:** Devo adicionar um redirect automático para `/produtos` se o carrinho estiver vazio?
+## 🐛 BUGS E INCONSISTÊNCIAS
+
+### Q042 — Estoque não é restaurado quando pedido é cancelado
+Ao cancelar um pedido (mudar status para 'cancelado'), o estoque decrementado durante a criação **não é restaurado**. Isso causa "shrinkage virtual" — os produtos ficam permanentemente como indisponíveis.
+
+**Pergunta:** Devo implementar restauração de estoque ao cancelar? Há lógica de cancelamento automático (ex: PIX expirado)?
 
 > RESPOSTA:
 
 ---
 
-### Q040 — Inconsistência de coluna `pix_qrcode` vs `pix_qr_base64`
-O schema `database.sql` define `pix_qr_base64 LONGTEXT` e `pix_qrcode TEXT`, mas o código usa `pix_qrcode` para armazenar a URL do QR code. Parece haver confusão entre os campos `pix_qr_data`, `pix_qr_base64`, e `pix_qrcode`.
+### Q043 — Carrinho vazio pode chegar ao checkout
+No frontend, não há guard que impeça navegação para `/pagamento` com carrinho vazio. No backend, `pedidos-criar.js` retorna 400, mas o flow de UX mostra tela de checkout vazia.
 
-**Pergunta:** Qual campo é efetivamente usado? Devo limpar as colunas redundantes?
+**Pergunta:** Posso adicionar guard no frontend (redirect para `/produtos` se carrinho vazio)?
 
 > RESPOSTA:
 
 ---
 
-### Q041 — `obterColunasProdutos` cached indefinidamente
-A função que detecta colunas da tabela `produtos` faz cache permanente (`produtosColumnsCache`). Se uma migration adicionar coluna nova, o servidor precisaria de restart.
+### Q044 — Colunas PIX legado (`pix_qr_base64`, `pix_codigo`) ainda no schema
+As migrations criam colunas `pix_qr_base64` e `pix_codigo` que são deprecated. Código pode estar escrevendo nelas desnecessariamente.
 
-**Pergunta:** Devo adicionar TTL a esse cache ou é aceitável precisar de restart após migration?
+**Pergunta:** Posso verificar se algum código ainda escreve nessas colunas e criar migration para removê-las?
 
 > RESPOSTA:
+
+---
+
+### Q045 — Desconto pode resultar em total negativo
+Se um cupom concede desconto maior que o subtotal + frete, o total pode ficar negativo. O backend não tem guard floor de R$0,01.
+
+**Pergunta:** Posso adicionar `Math.max(0.01, totalFinal)` na criação do pedido?
+
+> RESPOSTA:
+
+---
+
+### Q046 — Sessão 3DS expira sem aviso ao usuário
+A sessão 3DS tem timeout (configurável), mas quando expira, o frontend não mostra mensagem clara. O pagamento simplesmente falha com erro genérico.
+
+**Pergunta:** Posso adicionar timer visual que avisa "Sessão de pagamento expirando em X minutos"?
+
+> RESPOSTA:
+
+---
+
+### Q047 — `toNumber` em produtosUtils não trata múltiplos decimais
+`toNumber("1.99.99")` retorna `1.9999` após `.replace(',', '.').replace(/[^\d.-]/g, '')`. Deveria retornar `NaN` ou `0`.
+
+**Pergunta:** Posso melhorar a validação para rejeitar strings com múltiplos pontos decimais?
+
+> RESPOSTA:
+
+---
+
+### Q048 — QR Code lazy import cacheia Promise rejeitada
+Em `checkoutUtils.js`: se `import('qrcode')` falha, a Promise rejeitada fica cacheada em `qrcodeModulePromise`. Próxima chamada retorna a mesma Promise rejeitada para sempre.
+
+**Pergunta:** Posso limpar `qrcodeModulePromise = null` no catch para permitir retry?
+
+> RESPOSTA:
+
+---
+
+### Q049 — Toast ID counter overflow teórico
+Em `ToastContext.jsx`: `let toastIdCounter = 0` é incrementado para cada toast. Após 2^53 toasts (Number.MAX_SAFE_INTEGER), os IDs ficam imprecisos.
+
+**Pergunta:** Extremamente improvável, mas posso trocar por `crypto.randomUUID()` ou reset periódico para higiene de código?
+
+> RESPOSTA:
+
+---
+
+### Q050 — PagBank SDK script — race condition no loading
+Em `lib/pagbank.js`: se o script do PagBank SDK já está no DOM mas `window.PagSeguro` é undefined (script carregando), o código adiciona event listeners. Mas se entre o `querySelector` e `addEventListener` o script termina de carregar, o evento `load` já disparou e nunca será capturado.
+
+**Pergunta:** Posso adicionar polling de `window.PagSeguro` como fallback (check a cada 100ms, max 10s)?
+
+> RESPOSTA:
+
+---
 
 ---
 
 ## 🗄️ BANCO DE DADOS
 
-### Q042 — `DROP DATABASE IF EXISTS railway` no schema base
-O arquivo `database.sql` começa com `DROP DATABASE IF EXISTS railway; CREATE DATABASE railway`. Isso é destrutivo — executar acidentalmente apaga tudo.
+### Q051 — Índice faltante em `avaliacoes.produto_id`
+A tabela `avaliacoes` tem UNIQUE em `(usuario_id, produto_id)`, mas não tem índice simples em `produto_id`. Queries "listar avaliações de um produto" fazem full scan na tabela.
 
-**Pergunta:** Devo remover o `DROP DATABASE` e usar `CREATE DATABASE IF NOT EXISTS`?
-
-> RESPOSTA:
-
----
-
-### Q043 — Tabela `avaliacoes` não existe no schema base
-O endpoint `POST /api/avaliacoes` referencia a tabela `avaliacoes`, mas ela não está definida em `database.sql`. Está em alguma migration?
-
-**Pergunta:** Devo adicionar a definição da tabela `avaliacoes` ao schema base ou confirmar em qual migration ela é criada?
+**Pergunta:** Posso criar migration adicionando `INDEX idx_avaliacoes_produto_id (produto_id)`?
 
 > RESPOSTA:
 
 ---
 
-### Q044 — Tabela `banners` não existe no schema base
-O endpoint `GET /api/banners` tenta fazer um `SELECT FROM banners` com try/catch para `ER_NO_SUCH_TABLE`. A tabela não está no schema base.
+### Q052 — Índices faltantes em `produtos` para busca LIKE
+Queries de busca usam `LIKE %termo%` em `nome`, `nome_externo`, `descricao`, `marca`. Sem índice FULLTEXT, cada busca é O(n) scan em 21k linhas.
 
-**Pergunta:** A tabela `banners` deveria existir no schema? Está em alguma migration? Ou é feature futura?
-
-> RESPOSTA:
-
----
-
-### Q045 — Tabela `admin_audit_log` pode não existir
-A função `registrarAuditoria` engole erros silenciosamente (`catch (_) { }`). Se a tabela não existir, toda auditoria é perdida sem aviso.
-
-**Pergunta:** A tabela existe? Deveria ser criada no schema base? A perda silenciosa de auditoria é aceitável?
+**Pergunta:** Posso adicionar FULLTEXT INDEX em `(nome, nome_externo, descricao, marca)` e usar `MATCH ... AGAINST` no backend? Ou o volume atual não justifica?
 
 > RESPOSTA:
 
 ---
 
-### Q046 — Campos de timestamp de etapas (`pago_em`, `pronto_em`, `saiu_entrega_em`)
-Vários endpoints admin usam colunas como `pago_em`, `pronto_em`, `saiu_entrega_em` que não existem no schema base. Devem estar na migration `migrate_timestamps_etapas.sql`.
+### Q053 — `DROP DATABASE IF EXISTS railway` no schema base
+Em `database.sql` linha 1: `DROP DATABASE IF EXISTS railway`. Se executado por engano contra banco de produção, **deleta tudo**.
 
-**Pergunta:** Essas migrations foram aplicadas? A documentação de quais migrations são obrigatórias está atualizada?
-
-> RESPOSTA:
-
----
-
-### Q047 — Sem soft delete para pedidos
-Pedidos usam status "cancelado" mas não são soft-deleted. Pedidos cancelados ficam no banco permanentemente.
-
-**Pergunta:** Isso é intencional para auditoria/histórico? Devo implementar archival de pedidos antigos?
+**Pergunta:** Posso remover essa linha? O migration runner (`migrate.js`) não usa `database.sql` diretamente, correto?
 
 > RESPOSTA:
 
 ---
 
-### Q048 — Sem índice composto em `pedido_itens (pedido_id, produto_id)`
-A tabela `pedido_itens` tem apenas índice em `pedido_id`. Queries que buscam por `produto_id` (ex: relatórios de vendas) farão full scan.
+### Q054 — Sem índice composto em `pedido_itens (pedido_id, produto_id)`
+A tabela `pedido_itens` tem FK para `pedido_id`, mas não tem índice composto. Queries de join frequentes se beneficiariam.
 
-**Pergunta:** Devo adicionar índices em `produto_id` e/ou compostos?
-
-> RESPOSTA:
-
----
-
-### Q049 — `preco DECIMAL(10,2)` pode causar problemas de arredondamento
-Para e-commerce, `DECIMAL(10,2)` é adequado, mas o código JavaScript faz cálculos com `Number` (float) antes de salvar, podendo introduzir erros de arredondamento de ponto flutuante.
-
-**Pergunta:** Os cálculos monetários em JS (multiplicação, soma) deveriam usar uma library de precisão decimal? Ou o `toFixed(2)` é suficiente para o caso de uso?
+**Pergunta:** Posso criar migration com `INDEX idx_pedido_itens_pedido_produto (pedido_id, produto_id)`?
 
 > RESPOSTA:
 
 ---
 
-## 💰 PAGAMENTOS (PagBank)
+### Q055 — `preco DECIMAL(10,2)` — arredondamento em centavos
+`DECIMAL(10,2)` armazena até 2 casas decimais. Se um preço original tem 3+ casas (ex: divisão de frete), o banco arredonda silenciosamente. Isso pode causar discrepância de centavos.
 
-### Q050 — Dois endpoints de webhook PagBank
-Existem dois endpoints para o mesmo webhook:
-- `POST /api/webhooks/pagbank`
-- `POST /api/pagbank/webhook`
-
-Ambos chamam `processarWebhookPagBank()`.
-
-**Pergunta:** Por que dois endpoints? É para compatibilidade com configurações diferentes? Posso remover um?
+**Pergunta:** Isso já causou problemas? Devo mudar para `DECIMAL(10,4)` com arredondamento explícito na aplicação?
 
 > RESPOSTA:
 
 ---
 
-### Q051 — PIX mock em dev não simula webhook de confirmação
-No modo dev com `ALLOW_PIX_MOCK=true`, o PIX mock gera um código falso mas não simula o webhook de confirmação. O pedido fica eternamente "pendente".
+### Q056 — Tabelas `banners` e `admin_audit_log` podem não existir
+O código referencia estas tabelas, mas elas são criadas em migrations específicas. Se o migration runner não foi executado completamente, queries falham silenciosamente.
 
-**Pergunta:** Devo adicionar um endpoint de simulação de webhook para dev/staging?
-
-> RESPOSTA:
-
----
-
-### Q052 — PagBank SDK versão não fixada
-O `lib/pagbank.js` carrega o SDK PagBank via URL sem versão fixa. Se o PagBank atualizar o SDK com breaking changes, o checkout pode quebrar sem aviso.
-
-**Pergunta:** Posso fixar a versão do SDK ou hospedar localmente? Ou o PagBank não oferece URLs versionadas?
+**Pergunta:** O código faz check defensivo (`CREATE TABLE IF NOT EXISTS`) antes de usar? Ou depende de migration completa?
 
 > RESPOSTA:
 
 ---
 
-### Q053 — 3DS fallback para mock sem enforcement em produção
-A flag `ALLOW_DEBIT_3DS_MOCK` permite skippar autenticação 3DS. No render.yaml está como `false`, mas se alguém alterar para `true` em produção, pagamentos de débito sem 3DS seriam aceitos (o que é proibido por regulamentação).
+### Q057 — Migrations com UPDATE usando WHERE LIKE sem índice
+Migration 001 faz `UPDATE produtos SET ... WHERE nome LIKE '%Banana%' LIMIT 1` — full table scan em 21k produtos sem índice em `nome`.
 
-**Pergunta:** Devo adicionar um hard check que impede mock 3DS em produção independente da env var?
-
-> RESPOSTA:
-
----
-
-### Q054 — Sem retry automático para webhook PagBank
-Se o processamento do webhook falhar (ex: BD fora), o PagBank espera um HTTP 200. Retornar 500 faz o PagBank retentar, mas não há controle de idempotência — o mesmo webhook pode ser processado duas vezes.
-
-**Pergunta:** Devo implementar idempotência no webhook (ex: tabela `webhook_events` com `order_id` + `charge_id` como chave única)?
+**Pergunta:** Isso roda uma vez só, então performance é aceitável? Ou devo otimizar migrations futuras?
 
 > RESPOSTA:
 
 ---
 
-### Q055 — Logs de homologação PagBank em produção
-Os serviços de log de homologação (`pagbankHomologacaoLogService.js`) geram logs detalhados para fins de certificação.
+---
 
-**Pergunta:** Esses logs devem ser desabilitados em produção para não poluir stdout?
+## 📦 DEPENDÊNCIAS E INFRAESTRUTURA
+
+### Q058 — `node-fetch` no backend quando Node 18+ tem fetch nativo
+`package.json` inclui `node-fetch@2.7`. Node 18+ tem `globalThis.fetch`. A dependência é redundante.
+
+**Pergunta:** Posso auditar uso de `node-fetch` e migrar para fetch nativo? Algum service depende de features específicas do node-fetch (como `AbortController' handling)?
 
 > RESPOSTA:
 
 ---
 
-## 📦 FRONTEND REACT
+### Q059 — SheetJS (xlsx) — licença para uso comercial
+`xlsx@0.18` está no frontend e backend. A licença SheetJS CE é Apache 2.0 mas com limitações no uso de certos features. Para e-commerce de produção, confirmar que todas as features usadas estão na versão open source.
 
-### Q056 — Dados hardcoded (CNPJ, endereço, telefone, WhatsApp)
-Em `App.jsx`, `HomePage.jsx`, `ContaPage.jsx` e `PagamentoPage.jsx`, informações da loja como CNPJ (09.175.211/0001-30), endereço, telefone, WhatsApp estão hardcoded no JSX.
-
-**Pergunta:** Devo extrair para variáveis de ambiente (`VITE_STORE_*`) ou um arquivo de configuração centralizado?
+**Pergunta:** As funcionalidades usadas (leitura CSV/XLSX, geração XLSX) estão cobertas pela licença CE? Ou preciso avaliar alternativas?
 
 > RESPOSTA:
 
 ---
 
-### Q057 — RecorrenciaContext persiste em localStorage sem criptografia
-Dados de favoritos, recentes e recompras são salvos em `localStorage` com versioning mas sem qualquer proteção. Qualquer script no domínio pode ler/modificar esses dados.
+### Q060 — Render free plan com cold start
+Se o backend está no plano free do Render, há cold start de ~30s quando inativo. Para mercado de bairro, isso significa que o primeiro cliente do dia espera 30s.
 
-**Pergunta:** Isso é aceitável? Os dados de recorrência são sensíveis? Devo ao menos adicionar assinatura HMAC para detectar adulteração?
-
-> RESPOSTA:
-
----
-
-### Q058 — Sem preflight de estoque antes do checkout
-O checkout não verifica estoque antes de chegar na etapa de pagamento. O usuário só descobre estoque insuficiente após tentar finalizar o pedido.
-
-**Pergunta:** Devo adicionar verificação de estoque na etapa Carrinho ou no início da etapa Pagamento?
+**Pergunta:** Qual o plano Render atual? Se free, há cron/health-check para manter warm?
 
 > RESPOSTA:
 
 ---
 
-### Q059 — Sem internacionalização (i18n)
-Todas as strings estão hardcoded em português no código. Não há framework de i18n.
+### Q061 — CI/CD — migration check superficial
+Em `.github/workflows/ci.yml`: o job de migration faz apenas regex check simples. Não valida SQL real nem roda `migrate --dry-run` contra DB de teste.
 
-**Pergunta:** Há planos de suporte multi-idioma? Ou o mercado é exclusivamente brasileiro e isso é desnecessário?
-
-> RESPOSTA:
-
----
-
-### Q060 — `react-window` como virtualização para grid de produtos
-O componente `ProdutosPage` usa `react-window` para virtualização. A versão `2.2.7` é relativamente nova.
-
-**Pergunta:** A virtualização está funcionando bem com o layout de grid responsivo? Existe algum problema de scroll ou rendering?
+**Pergunta:** Posso adicionar um job que roda `npm run migrate -- --dry-run` em CI com MySQL de teste (Docker service)?
 
 > RESPOSTA:
 
 ---
 
-### Q061 — HomePage com 336 linhas — bem enxuta
-A HomePage é consideravelmente menor que as outras pages. Parece ter seções de prateleira, favoritos e promoções.
+### Q062 — Sem lockfile no backend
+Se `package-lock.json` não está commitado no backend, `npm install` pode instalar versões diferentes em cada deploy.
 
-**Pergunta:** A HomePage carrega produtos suficientes para ter uma boa experiência de primeiro acesso? Ou deveria ter mais seções (ex: banners, categorias em destaque)?
-
-> RESPOSTA:
-
----
-
-### Q062 — Sem Service Worker / PWA
-Não há manifest.json nem service worker configurado. O app não funciona offline e não pode ser "instalado" como PWA.
-
-**Pergunta:** Devo implementar PWA básico? Seria valioso para o público-alvo (supermercado delivery poderia se beneficiar de notificações push e cache offline do catálogo)?
+**Pergunta:** O `package-lock.json` está no `.gitignore`? Posso garantir que está commitado?
 
 > RESPOSTA:
 
 ---
 
-### Q063 — AdminPage acessível apenas em localhost
-Em `App.jsx`, a rota `/admin` renderiza `AdminPage` apenas se `isLocalHost`, senão redireciona para `/admin/gerencia`.
+### Q063 — Evolution API URL hardcoded como localhost
+Em `config.js`: `EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080'`. Em produção no Render, não há Evolution API rodando em localhost.
 
-**Pergunta:** Qual é a diferença entre `AdminPage` e `AdminGerenciaPage`? `AdminPage` é a versão dev/debug?
-
-> RESPOSTA:
-
----
-
-### Q064 — SmartImage sem srcset/responsive images
-O `SmartImage` component tem fallback, lazy-load e blur placeholder, mas não gera `srcset` para diferentes resoluções de tela.
-
-**Pergunta:** As imagens de produtos vêm de um CDN que suporta transformações (resize, webp)? Devo implementar responsive images?
+**Pergunta:** A Evolution API está ativa em produção? Se não, as rotas de WhatsApp (auto-reply, notificações) falham silenciosamente?
 
 > RESPOSTA:
 
 ---
 
-### Q065 — Importação planilha no frontend (`lib/importacaoPlanilha.js`)
-O parsing de XLSX/CSV é feito no frontend (browser) usando a lib `xlsx`. Arquivos grandes podem travar o browser.
+---
 
-**Pergunta:** O parsing deveria ser movido inteiramente para o backend? Ou o frontend faz apenas preview e o backend faz o import real?
+## 🎨 FRONTEND — UX E ACESSIBILIDADE
+
+### Q064 — Drawer de detalhe de produto sem focus trap
+Quando o drawer de detalhe abre, o foco (tab) pode sair do drawer e ir para elementos por trás. Isso viola WCAG 2.1 (focus management em modais).
+
+**Pergunta:** Posso adicionar focus trap (`aria-modal="true"` + interceptar Tab/Shift+Tab)?
 
 > RESPOSTA:
 
 ---
 
-## 🚚 FRETE E GEOCODIFICAÇÃO
+### Q065 — Sem skeleton loading em carregamento inicial de produtos
+Quando a página de produtos carrega pela primeira vez, os produtos aparecem de uma vez. Não há skeleton placeholders durante o carregamento.
 
-### Q066 — Haversine (linha reta) vs distância real de rota
-O cálculo de distância usa Haversine (linha reta), que pode subestimar significativamente a distância real de rota (ruas, trânsito, rios).
-
-**Pergunta:** Isso é aceitável? Devo integrar um serviço de routing (OSRM, Google Directions) para distância real? O `fatorReparo` nos veículos tenta compensar isso?
+**Pergunta:** Posso adicionar skeleton cards enquanto `produtos.length === 0 && carregando`?
 
 > RESPOSTA:
 
 ---
 
-### Q067 — Nominatim User-Agent fixo
-O User-Agent usado para Nominatim é `BomFilhoFrete/1.0 (fallback-cep)`. Nominatim exige User-Agent identificável e rate limit de 1 req/s.
+### Q066 — Sem preflight de estoque antes do checkout
+O carrinho pode conter produtos que ficaram sem estoque entre a adição e o checkout. O usuário só descobre ao tentar finalizar o pedido (erro 400 do backend).
 
-**Pergunta:** O rate limit está sendo respeitado? Em alto tráfego, múltiplas requisições simultâneas podem causar ban do IP.
-
-> RESPOSTA:
-
----
-
-### Q068 — CEP do mercado hardcoded (`68740-180`)
-O CEP de origem do frete é configurável via env var `CEP_MERCADO`, mas o default `68740-180` está hardcoded no backend E replicado no frontend (`PagamentoPage.jsx`).
-
-**Pergunta:** O frontend deveria receber o CEP do mercado via API ao invés de ter hardcoded? E se a loja mudar de endereço?
+**Pergunta:** Posso adicionar verificação de estoque ao entrar no checkout (antes de mostrar a página de pagamento)?
 
 > RESPOSTA:
 
 ---
 
-### Q069 — Sem limite de distância máxima de entrega
-O frete é calculado para até 80km (`normalizarDistanciaEntregaKm` limita a 80). Mas não há validação de "área de entrega" — qualquer CEP do Brasil pode solicitar entrega.
+### Q067 — SmartImage sem responsive srcset
+`SmartImage.jsx` aceita `src` e `fallbackSrc` mas não gera `srcset` automaticamente. As imagens são carregadas em tamanho fixo independente da viewportwidth.
 
-**Pergunta:** Devo implementar um raio máximo de entrega configurável? A loja entrega apenas na cidade/região?
-
-> RESPOSTA:
-
----
-
-## 🔧 OPERACIONAL / DEPLOY
-
-### Q070 — Render free plan com cold start
-O deploy usa plano free do Render, que tem cold start de 30-60s. Isso pode causar timeouts no primeiro request após inatividade.
-
-**Pergunta:** Isso é um problema para o negócio? Devo configurar um uptime monitor (UptimeRobot, health check cron) ou migrar para plano pago?
+**Pergunta:** `produtosUtils.js` já tem `getProdutoImagemResponsiva` que gera `srcset`. SmartImage usa isso? Ou está hardcoded?
 
 > RESPOSTA:
 
 ---
 
-### Q071 — Sem CI/CD pipeline
-Não há GitHub Actions, CircleCI, ou qualquer pipeline de CI/CD configurado. O deploy é feito diretamente pelo Render/Vercel via git push.
+### Q068 — Canonical URL perde query params
+Em `useDocumentHead.js`: `canonical.href = window.location.origin + pathname` — perde query params como `?categoria=bebidas&recorrencia=favoritos`. Impacta SEO para páginas filtradas.
 
-**Pergunta:** Devo configurar um pipeline mínimo (lint, type-check, tests) antes do deploy?
-
-> RESPOSTA:
-
----
-
-### Q072 — Sem linting/formatting configurado
-Não há ESLint, Prettier, ou qualquer ferramenta de lint configurada no backend ou frontend.
-
-**Pergunta:** Devo configurar ESLint + Prettier com regras padrão?
+**Pergunta:** As URLs filtradas são relevantes para SEO? Se não, canonical sem params está correto. Se sim, posso incluir params selecionados.
 
 > RESPOSTA:
 
 ---
 
-### Q073 — `connect-timeout` com 10s default
-O timeout padrão de 10s para requests pode ser insuficiente para operações que dependem de APIs externas (BrasilAPI + Nominatim + PagBank encadeadas).
+### Q069 — Sem Service Worker / PWA
+O app não tem service worker. Para mercado de bairro com conexão instável (interior), PWA com cache offline básico seria grande diferencial.
 
-**Pergunta:** Devo aumentar o timeout para rotas que chamam APIs externas? Ou o 10s com 600s para importação é suficiente?
-
-> RESPOSTA:
-
----
-
-### Q074 — Sem monitoramento de erros (Sentry, etc.)
-Erros são logados com `console.error` apenas. Não há serviço de monitoramento de erros em produção.
-
-**Pergunta:** Devo implementar Sentry ou similar? O `trackWebVitals.js` sugere que há preocupação com observabilidade no frontend.
+**Pergunta:** Há interesse em PWA? Mesmo um service worker básico (cache de assets estáticos + fallback offline) melhoraria a experiência em conexão ruim.
 
 > RESPOSTA:
 
 ---
 
-### Q075 — `process.exit(1)` em falha não capturada
-Como mencionado em Q034, erros não tratados matam o processo. No Render, o serviço será reiniciado automaticamente, mas requests em andamento são perdidos.
+### Q070 — Sem meta tags de SEO dinâmicas
+`useDocumentHead` define `<title>` e `<meta description>`, mas sem Open Graph completo (og:image, og:type). Compartilhamentos em WhatsApp/Facebook não mostram preview rico.
 
-**Pergunta:** Devo implementar graceful shutdown? Ou o behavior de restart do Render é adequado?
-
-> RESPOSTA:
-
----
-
-## 📊 TRACKING E ANALYTICS
-
-### Q076 — PostHog não está configurado
-O `commerceTracking.js` e `conversionGrowth.js` definem eventos de e-commerce, mas não vejo integração real com PostHog (não há PostHog nos package.json nem inicialização).
-
-**Pergunta:** O tracking está sendo efetivamente enviado para algum serviço? Ou é apenas instrumentação preparatória?
+**Pergunta:** Posso adicionar OG tags dinâmicas (especialmente para links de produto compartilhados)?
 
 > RESPOSTA:
 
 ---
 
-### Q077 — Web Vitals sem destino
-O `trackWebVitals.js` coleta CLS, LCP, INP mas não parece ter uma URL/API para enviar esses dados.
+### Q071 — Acessibilidade — contraste e labels incompletos
+Revisão parcial identificou:
+- `<input>` sem `<label>` em alguns formulários (usa `aria-label` mas `<label>` é preferido)
+- Heading levels nem sempre semânticos (h2 → h4 sem h3)
+- Sem indicador visual de foco em alguns botões customizados
 
-**Pergunta:** Os Web Vitals estão sendo enviados para algum backend de analytics? Ou só são logados no console?
-
-> RESPOSTA:
-
----
-
-## 📋 QUALIDADE DE CÓDIGO
-
-### Q078 — Funções duplicadas entre backend e frontend
-Funções como `normalizarCep`, `formatarCep`, `parseBooleanInput`, `parsePositiveInt` existem tanto no backend quanto no frontend com implementações similares.
-
-**Pergunta:** Posso extrair um pacote `shared/` com utils comuns? Ou a duplicação é aceitável pela simplicidade?
+**Pergunta:** Posso fazer uma passada de a11y (audit com Lighthouse) e corrigir os itens críticos?
 
 > RESPOSTA:
 
 ---
 
-### Q079 — Console.log com emojis em produção
-O backend usa extensivamente `console.log` com emojis (`✅`, `⚠️`, `❌`, `🚀`). Em produção, esses logs vão para stdout/stderr do container.
+---
 
-**Pergunta:** Devo implementar um logger estruturado (Winston, Pino) com níveis de log e formato JSON para produção?
+## 💳 PAGBANK / PAGAMENTO
+
+### Q072 — Dois endpoints de webhook PagBank
+O sistema registra webhooks em `/api/webhooks/pagbank` (Express route) e pode haver referência a `/api/pagbank/webhook` (legacy). Se PagBank envia para URL errada, notificação se perde.
+
+**Pergunta:** Qual URL está configurada no painel PagBank? Posso consolidar em um único endpoint e criar redirect no outro?
 
 > RESPOSTA:
 
 ---
 
-### Q080 — Queries SQL inline extensas no server.js
-Queries SQL de múltiplas linhas (10-20 linhas em `pool.query`) estão inline nos handlers. Especialmente nos endpoints admin, as queries são complexas.
+### Q073 — PIX mock em dev não simula confirmação via webhook
+Quando `ALLOW_PIX_MOCK=true`, o QR code é gerado localmente, mas não há simulação de webhook de confirmação. O pedido fica "aguardando pagamento" para sempre.
 
-**Pergunta:** Devo extrair as queries para arquivos/módulos separados? Ou manter inline pela proximidade com a lógica?
-
-> RESPOSTA:
-
----
-
-### Q081 — Sem TypeScript
-Todo o projeto é JavaScript puro (tanto backend quanto frontend). Não há JSDoc types nem TypeScript.
-
-**Pergunta:** Há interesse em migrar para TypeScript? Ao menos tipos JSDoc para as funções críticas?
+**Pergunta:** Posso criar rota dev-only (`POST /api/dev/simular-webhook-pix/:pedidoId`) para simular confirmação?
 
 > RESPOSTA:
 
 ---
 
-### Q082 — `body-parser` redundante com Express 4.18
-Express 4.18 já inclui `express.json()` e `express.urlencoded()`. A dependência `body-parser` separada é redundante.
+### Q074 — 3DS fallback para mock sem guard explícito em prod
+Se 3DS falha, o código pode cair em fallback mock. Em produção, o guard `ALLOW_DEBIT_3DS_MOCK` deveria ser `false`, mas não há `throw` se estiver `true` em prod.
 
-**Pergunta:** Posso remover `body-parser` do package.json e usar `express.json()` diretamente?
-
-> RESPOSTA:
-
----
-
-### Q083 — `node-fetch` redundante com Node 18+
-O projeto exige Node >= 18, que já tem `fetch` nativo. O código faz `const fetch = global.fetch || require('node-fetch')` como fallback.
-
-**Pergunta:** Posso remover `node-fetch` e usar apenas `fetch` nativo?
+**Pergunta:** Mesmo fix que Q005 — adicionar guard em produção?
 
 > RESPOSTA:
 
 ---
 
-## 📱 WHATSAPP / EVOLUTION API
+### Q075 — Sem retry automático para webhook PagBank
+Se o backend falha ao processar um webhook (DB offline, timeout), o PagBank envia retry. Mas se o retry chega após o cache de idempotência expirar (10min), será processado novamente.
 
-### Q084 — Evolution API URL hardcoded como localhost
-O default `EVOLUTION_API_URL` é `http://localhost:8080`. Em produção, precisa ser configurado. Mas se esquecido, o backend tenta conectar em localhost.
-
-**Pergunta:** Devo adicionar validação para impedir tentativas de conexão Evolution API quando não configurada explicitamente?
+**Pergunta:** O PagBank faz retry em que janela de tempo? O cache de 10min é suficiente?
 
 > RESPOSTA:
 
 ---
 
-### Q085 — Auto-reply sem personalização por contexto
-A resposta automática do WhatsApp é uma mensagem fixa (`WHATSAPP_AUTO_REPLY_TEXT`). Não tem contexto do pedido ou do cliente.
+### Q076 — Logs de homologação 3DS em produção
+`eventosHomologacao3DS` e sua lógica de registro existem independente do ambiente. Em produção, acumula dados desnecessários em memória.
 
-**Pergunta:** Devo implementar respostas contextuais (ex: "Oi João, seu pedido #123 está sendo preparado")? Ou a auto-reply fixa é suficiente?
-
-> RESPOSTA:
-
----
-
-### Q086 — Sem verificação de opt-in antes de enviar WhatsApp
-A função `enviarWhatsappPedido` verifica `whatsapp_opt_in` antes de enviar. Mas a auto-reply no webhook Evolution responde a qualquer mensagem, sem verificar opt-in.
-
-**Pergunta:** A auto-reply deveria respeitar opt-in? Ou auto-reply para mensagens recebidas é diferente de mensagens proativas?
+**Pergunta:** Posso condicionar ao modo dev (`IS_DEVELOPMENT`) ou a uma flag `PAGBANK_HOMOLOGACAO_LOGS`?
 
 > RESPOSTA:
 
 ---
 
-## 🗃️ DOCUMENTAÇÃO
+### Q077 — PagBank SDK versão não fixada
+Em `lib/pagbank.js`: a URL do SDK é construída dinamicamente (`https://stc.pagseguro.uol.com.br/...`). Se PagBank atualiza o SDK com breaking change, o checkout pode quebrar.
 
-### Q087 — Múltiplos READMEs e docs redundantes
-Existem vários arquivos de documentação: `README.md`, `DEPLOY_VERCEL_RENDER.md`, `RELEASE_ADMIN_GERENCIA_FINAL.md`, e uma pasta `docs/` com 15+ arquivos.
-
-**Pergunta:** Devo consolidar a documentação? Muito está desatualizado? Qual é o doc principal que deveria ser mantido?
+**Pergunta:** Posso fixar a versão do SDK ou adicionar fallback para versão conhecida?
 
 > RESPOSTA:
 
 ---
 
-### Q088 — Checklist de go-live (`GO_LIVE_TECNICO_CHECKLIST.md`)
-Existe um checklist técnico de go-live na pasta docs.
+---
 
-**Pergunta:** O go-live já aconteceu? O checklist está atualizado? Itens pendentes?
+## 🧹 LIMPEZA E ORGANIZAÇÃO
+
+### Q078 — Diretório `legacy/` com frontend HTML/JS antigo
+Existe frontend completo em HTML puro (`legacy/`) com admin, checkout, cart, auth. O projeto migrou para React.
+
+**Pergunta:** Posso remover `legacy/` do repositório? Ou mover para branch separado? Algum código nele ainda é referenciado?
 
 > RESPOSTA:
 
 ---
 
-## 🎨 UI/UX
+### Q079 — `bot-whatsapp/` sem código funcional
+O diretório `bot-whatsapp/` tem apenas `package.json` (Express 5 beta + axios). Nenhum arquivo de código. `node_modules/` pode estar commitado.
 
-### Q089 — Sem skeleton loading em produtos
-O `ProdutosPage` mostra um "Carregando..." genérico enquanto os produtos carregam. Os componentes admin têm `LoadingSkeleton`, mas as páginas públicas não.
-
-**Pergunta:** Devo implementar skeleton loading para a lista de produtos e o checkout?
+**Pergunta:** Remover do repositório? É projeto futuro ou abandonado?
 
 > RESPOSTA:
 
 ---
 
-### Q090 — Sem feedback visual para operações como adicionar ao carrinho
-O `CartContext.addItem` atualiza o estado, mas não dispara nenhum feedback visual (toast, animação, badge bounce).
+### Q080 — `node_modules/` commitado no bot-whatsapp
+Se `bot-whatsapp/node_modules/` está no git, isso adiciona centenas de MB ao repositório.
 
-**Pergunta:** Devo implementar um sistema de toasts/notificações? Ou o indicador no carrinho flutuante é suficiente?
-
-> RESPOSTA:
-
----
-
-### Q091 — Acessibilidade (a11y) parcial
-O `accessibility.js` implementa font scale e high contrast. Mas não há ARIA labels em vários componentes interativos, as avaliações por estrelas podem não ser acessíveis, e a navegação por teclado não é verificada.
-
-**Pergunta:** Devo fazer um audit de acessibilidade mais completo?
+**Pergunta:** Posso adicionar ao `.gitignore` e remover do tracking?
 
 > RESPOSTA:
 
 ---
 
-### Q092 — Sem meta tags de SEO
-O `index.html` tem um title genérico. Não há componente de Head/Helmet React para meta tags dinâmicas por rota.
+### Q081 — Arquivos SQL avulsos no backend root
+`Consulta #2.sql`, `database.sql`, `update_produtos_existentes.sql`, `va.sql` estão no root do backend. Sem documentação de propósito.
 
-**Pergunta:** SEO é importante para o projeto? Devo implementar meta tags dinâmicas por página (Open Graph, description, canonical)?
-
-> RESPOSTA:
-
----
-
-## 🔄 CÓDIGO MORTO E REDUNDÂNCIA
-
-### Q093 — Funções de barcode lookup duplicadas
-Existem `buscarProdutoOpenFoodFacts` e `buscarProdutoUpcItemDb` inline no `server.js`, mas também há a service layer `services/barcode/BarcodeLookupService.js` com providers separados.
-
-**Pergunta:** As funções inline no server.js ainda são usadas? Ou foram substituídas pelo BarcodeLookupService?
+**Pergunta:** Posso mover para `migrations/` ou `docs/sql/` para organização? Ou são scripts descartáveis que podem ser removidos?
 
 > RESPOSTA:
 
 ---
 
-### Q094 — Endpoint duplicado de importação
-Existem dois conjuntos de endpoints similares para importação de produtos:
-- `/api/admin/catalogo/produtos/importar`
-- `/api/admin/produtos/importar`
+### Q082 — Pastas de log vazias commitadas
+`backend/logs/` contém múltiplas subpastas vazias trackadas pelo git (enrichment-barcode-*, enrichment-drain, etc.).
 
-E dois modelos:
-- `/api/admin/catalogo/produtos/importacao/modelo`
-- `/api/admin/produtos/importacao/modelo`
-
-**Pergunta:** Um deles é legado? Posso remover o duplicado?
+**Pergunta:** Posso adicionar `backend/logs/` ao `.gitignore` e manter apenas com `.gitkeep`?
 
 > RESPOSTA:
 
 ---
 
-### Q095 — Endpoint duplicado de barcode lookup admin
-- `/api/admin/catalogo/produtos/barcode/:codigo`
-- `/api/admin/produtos/barcode/:codigo`
+### Q083 — Scripts PowerShell e .bat duplicados
+`scripts/` tem `setup-git.bat` + `setup-git.ps1`, `start-servicos.bat` + `start-servicos.ps1`. Duplicação desnecessária.
 
-Ambos usam `responderBuscaProdutoPorCodigoBarrasAdmin`.
-
-**Pergunta:** Posso consolidar em um único endpoint?
+**Pergunta:** Posso manter apenas os `.ps1` (ambiente Windows) e remover os `.bat`?
 
 > RESPOSTA:
 
 ---
 
-### Q096 — Múltiplos arquivos SQL de migration sem ordem clara
-Existem 13 arquivos de migration sem prefixo numérico de ordem. Não está claro em qual sequência devem ser executados.
+### Q084 — Múltiplos READMEs e docs redundantes
+Existem: `README.md`, `backend/README.md`, `DEPLOY_VERCEL_RENDER.md`, `docs/DEPLOY_VERCEL_RENDER.md` (duplicado), `RELEASE_ADMIN_GERENCIA_FINAL.md`, `docs/RELEASE_ADMIN_GERENCIA_FINAL.md` (duplicado), além de ~15 docs em `docs/`.
 
-**Pergunta:** Devo renumerar as migrations (ex: `001_initial.sql`, `002_produtos_detalhes.sql`) e documentar a ordem?
-
-> RESPOSTA:
-
----
-
-## 🔌 DEPENDÊNCIAS
-
-### Q097 — `xlsx` (SheetJS) sem tipo de licença clara para uso comercial
-O package `xlsx` (SheetJS community edition) teve mudanças de licença recentes. A versão 0.18.5 pode ter restrições.
-
-**Pergunta:** A licença atual permite uso comercial? Devo verificar e considerar alternativas como `exceljs`?
+**Pergunta:** Posso consolidar documentação redundante? Mover tudo de doc-related do root para `docs/` e remover duplicatas?
 
 > RESPOSTA:
 
 ---
 
-### Q098 — Express 5 no bot-whatsapp
-O `bot-whatsapp/package.json` referencia Express 5.2.1 (que é alpha/beta). O backend principal usa Express 4.18 (estável).
+### Q085 — `whatsapp-qrcode.html` no backend
+Arquivo HTML de debug para QR code WhatsApp está no root do backend.
 
-**Pergunta:** O Express 5 no bot é intencional? Ele é estável para uso?
-
-> RESPOSTA:
-
----
-
-### Q099 — Sem lockfile no backend
-Não encontrei `package-lock.json` no backend (pode estar no .gitignore). Sem lockfile, instalações em ambientes diferentes podem gerar versões diferentes de dependências.
-
-**Pergunta:** O `package-lock.json` está commitado? Deveria estar.
+**Pergunta:** Pode ser removido? Ou é ferramenta operacional utilizada?
 
 > RESPOSTA:
 
 ---
 
-## 🧹 LIMPEZA GERAL
+### Q086 — `docker-compose-evolution.yml` no backend
+Arquivo Docker Compose para Evolution API. Se Evolution não está em uso em produção, é arquivo morto.
 
-### Q100 — Arquivos SQL avulsos no backend root
-Arquivos como `Consulta #2.sql`, `va.sql`, `update_produtos_existentes.sql` estão soltos no root do backend.
-
-**Pergunta:** Esses são queries temporárias/debug? Devo mover para uma pasta `sql/` ou remover?
+**Pergunta:** Evolution API está ativa? Se não, posso mover para `docs/` como referência?
 
 > RESPOSTA:
 
 ---
 
-### Q101 — `whatsapp-qrcode.html` no backend
-Um arquivo HTML para QR code do WhatsApp está no root do backend.
+### Q087 — Diretório `img/ads/` no root
+Diretório para imagens de banner/propaganda.
 
-**Pergunta:** Isso é utilizado? É para exibir o QR de conexão da Evolution API? Deveria ser uma rota protegida?
-
-> RESPOSTA:
-
----
-
-### Q102 — `node_modules/` commitado no bot-whatsapp
-O diretório `node_modules/` do bot-whatsapp parece estar rastreado pelo git.
-
-**Pergunta:** Devo adicionar ao `.gitignore` e remover do git?
+**Pergunta:** Está em uso pelo frontend? As imagens são servidas de onde (Vercel, CDN, backend)?
 
 > RESPOSTA:
 
 ---
 
-### Q103 — Scripts PowerShell e .bat redundantes
-Existem scripts `.ps1` e `.bat` duplicados (`setup-git.bat` + `setup-git.ps1`, `start-servicos.bat` + `start-servicos.ps1`).
+---
 
-**Pergunta:** Posso manter apenas os `.ps1` (já que o ambiente é Windows) e remover os `.bat`?
+## 🔄 NEGÓCIO E FUNCIONALIDADE
+
+### Q088 — Sem soft delete para pedidos
+Pedidos cancelados mantêm status 'cancelado' mas não há flag `deleted_at` ou soft delete. Se admin quiser "limpar" pedidos antigos, não há mecanismo.
+
+**Pergunta:** Soft delete é necessário? Ou o status 'cancelado' + 'entregue' é suficiente para filtro operacional?
 
 > RESPOSTA:
 
 ---
 
-### Q104 — Pastas de log vazias commitadas
-O diretório `backend/logs/` contém múltiplas subpastas de log vazias rastreadas pelo git.
+### Q089 — Sem internacionalização (i18n)
+Todos os textos estão hardcoded em português. Se houver expansão para região com outro idioma, é retrabalho total.
 
-**Pergunta:** Logs deveriam estar no `.gitignore`? Ou os diretórios vazios são mantidos intencionalmente (com `.gitkeep`)?
+**Pergunta:** Há plano de expansão geográfica? Se não, i18n é overhead desnecessário para mercado de bairro.
 
 > RESPOSTA:
 
 ---
 
-### Q105 — Diretórios `img/ads/` sem conteúdo aparente
-Existe um diretório `img/ads/` no root.
+### Q090 — Dados do mercado hardcoded (CNPJ, endereço, WhatsApp)
+Em `config/store.js` (frontend) e possivelmente no backend: CNPJ, endereço, CEP, telefone WhatsApp estão hardcoded no código.
 
-**Pergunta:** Há imagens de banner/propaganda neste diretório? Qual o propósito?
+**Pergunta:** Posso mover para variáveis de ambiente ou config centralizzada? Ou é aceitável por ser single-tenant (um único mercado)?
+
+> RESPOSTA:
+
+---
+
+### Q091 — Frete calculado por Haversine (linha reta) vs distância real
+O cálculo de frete usa distância em linha reta (Haversine). Em áreas urbanas com ruas sinuosas, a distância real pode ser 1.5-2x maior.
+
+**Pergunta:** Isso é aceitável? O fator de correção atual (se houver) compensa a diferença? Devo integrar com API de roteamento (OSRM, Google Directions)?
+
+> RESPOSTA:
+
+---
+
+### Q092 — Sem limite de distância máxima para entrega
+O cálculo de frete retorna valor para qualquer distância. Não há guard para rejeitar entregas impossíveis (ex: cliente a 100km do mercado).
+
+**Pergunta:** Qual a distância máxima de entrega? Posso adicionar threshold (ex: 15km) que bloqueia pedido com mensagem "Fora da área de entrega"?
+
+> RESPOSTA:
+
+---
+
+### Q093 — Taxa de serviço como percentual fixo
+`TAXA_SERVICO_PERCENTUAL = 3%` é fixo. Não varia por faixa de preço, pagamento (PIX vs cartão), ou horário.
+
+**Pergunta:** A taxa deve variar? Ex: 0% para PIX, 3% para cartão? Ou 3% fixo é a regra de negócio?
+
+> RESPOSTA:
+
+---
+
+### Q094 — Cupons sem restrição por categoria ou valor mínimo
+O sistema de cupons parece básico (desconto fixo ou percentual). Não suporta: valor mínimo de pedido, categoria específica, primeira compra, data de expiração.
+
+**Pergunta:** Quais tipos de cupons são necessários? Posso revisar o schema e ampliar funcionalidades?
+
+> RESPOSTA:
+
+---
+
+### Q095 — Sem notificação de status de pedido para o cliente
+Quando o operador muda status do pedido (preparando → saiu para entrega → entregue), o cliente não recebe notificação (push, email, WhatsApp).
+
+**Pergunta:** Há plano para notificações? O webhook WhatsApp (Evolution API) seria usado para isso?
+
+> RESPOSTA:
+
+---
+
+---
+
+## 🔍 MONITORAMENTO E OBSERVABILIDADE
+
+### Q096 — Sentry integrado mas sem coverage completa
+`lib/sentry.js` está configurado condicionalmente. Mas nem todos os handlers de erro chamam `captureException`.
+
+**Pergunta:** Posso auditar e garantir que todos os `catch` em routes e services chamam Sentry? Ou o error handler global do Express já cobre?
+
+> RESPOSTA:
+
+---
+
+### Q097 — Sem correlation IDs nos logs
+Cada request não tem ID único para rastrear logs distribuídos. Se dois clientes fazem pedido simultâneo, os logs se misturam.
+
+**Pergunta:** Posso adicionar middleware que gera `X-Request-ID` (UUID) e injeta no logger context?
+
+> RESPOSTA:
+
+---
+
+### Q098 — PostHog/Analytics não configurado
+O frontend tem código para PostHog (`commerceTracking.js`) mas a chave não está configurada. Analytics de comportamento do usuário estão inativas.
+
+**Pergunta:** Há plano de ativar PostHog? Posso preparar a integração (evento de página, add-to-cart, checkout)?
+
+> RESPOSTA:
+
+---
+
+### Q099 — Web Vitals sem destino
+`trackWebVitals()` é chamado no `main.jsx`, mas os dados de Core Web Vitals podem estar indo para `console.log` apenas, sem envio para serviço de coleta.
+
+**Pergunta:** Posso verificar para onde os Web Vitals são enviados? Se não vão para analytics, é código morto.
+
+> RESPOSTA:
+
+---
+
+### Q100 — Console.log com emojis em produção
+Muitos logs usam emojis (`⚠️`, `✅`, `🔄`, etc.) que funcionam no terminal local mas podem causar problemas em serviços de log que não suportam UTF-8 multibyte.
+
+**Pergunta:** Os logs em produção (Render) suportam emojis? Devo substituir por prefixos textuais (`[WARN]`, `[OK]`, `[SYNC]`)?
+
+> RESPOSTA:
+
+---
+
+---
+
+## 🧪 TESTES
+
+### Q101 — Cobertura de testes limitada
+Os testes existentes cobrem: `config`, `helpers`, `logger`, `cache`, `sentry`, `pedido-pagamento` (smoke). **Faltam:**
+- Testes de integração para endpoints (auth, pedidos, webhook)
+- Testes do checkout flow (PIX + cartão)
+- Testes de componentes React
+- Testes de regressão para cálculo de frete e cupons
+
+**Pergunta:** Qual a prioridade de testes? Sugiro ordem:
+1. Endpoints de pagamento (critical path)
+2. Cálculo de frete e cupons (business logic)
+3. Auth flow (segurança)
+4. Componentes React (PagamentoPage, CartContext)
+
+> RESPOSTA:
+
+---
+
+### Q102 — Sem TypeScript — type safety ausente
+Todo o código é JavaScript puro. Não há type checking, o que permite bugs como `undefined.length` ou tipos errados em props.
+
+**Pergunta:** Migração para TypeScript está fora de escopo (conforme copilot-instructions.md). Mas posso adicionar JSDoc types em funções críticas para melhorar IDE support sem mudar a stack?
+
+> RESPOSTA:
+
+---
+
+---
+
+## 📊 MEMORY LEAKS E RUNTIME
+
+### Q103 — Preload image registry (global Set) cresce indefinidamente
+Em `usePreloadImage.js`: `preloadRegistry` (Map) nunca é limpo. Após milhares de imagens, acumula memória.
+
+**Pergunta:** Posso adicionar max size e eviction? Qual número razoável (200? 500?)?
+
+> RESPOSTA:
+
+---
+
+### Q104 — RecorrenciaContext `estado.produtos` nunca é limpo
+O dicionário de produtos interagidos cresce indefinidamente. Limite de `LIMITE_INTERACOES` aplica-se a interações, mas o Map de produtos pode acumular dados antigos.
+
+**Pergunta:** Posso adicionar TTL ou max size para `estado.produtos`?
+
+> RESPOSTA:
+
+---
+
+### Q105 — `crossSellAposAdicao` cria array slice em cada render
+Em `ProdutosPage.jsx`: `produtosIndexados.slice(0, 200)` dentro de `useMemo` cria nova alocação a cada execução do memo.
+
+**Pergunta:** Posso mover `slice` para fora do memo ou cachear em `useRef`?
+
+> RESPOSTA:
+
+---
+
+### Q106 — Hooks de resize sem debounce
+`useElementWidth` e `useViewportHeight` usam `ResizeObserver` mas disparam re-render a cada pixel de resize.
+
+**Pergunta:** Posso adicionar debounce (150ms) nesses hooks?
+
+> RESPOSTA:
+
+---
+
+---
+
+## 🔧 DEVELOPER EXPERIENCE
+
+### Q107 — Sem .env.example documentado no root
+Backend tem `.env.example`, mas não há documentação no root do projeto sobre todas as variáveis necessárias para setup local.
+
+**Pergunta:** Posso criar `.env.example` no root que referencia backend e frontend?
+
+> RESPOSTA:
+
+---
+
+### Q108 — Funções duplicadas entre backend e frontend
+Funções como `escapeLike`, `normalizeText`, `toNumber`, `formatarPreco` existem em ambos os lados. Qualquer correção precisa ser aplicada em 2 lugares.
+
+**Pergunta:** Alguma estratégia de compartilhamento é desejada (shared/utils package)? Ou manter duplicado é aceitável?
+
+> RESPOSTA:
+
+---
+
+### Q109 — `Consulta #2.sql` e `va.sql` — arquivos de debug no repositório
+Esses arquivos parecem consultas SQL ad-hoc usadas durante desenvolvimento. Estão poluindo o root do backend.
+
+**Pergunta:** Posso remover ou mover para `docs/sql-queries/`?
+
+> RESPOSTA:
+
+---
+
+### Q110 — `process.exit(1)` em unhandled rejection/uncaught exception
+Em `server.js`: erros não capturados causam `process.exit(1)`. Isso é correto para Node.js em container (Render reinicia), mas causa perda de requests em andamento.
+
+**Pergunta:** É o comportamento esperado? Posso adicionar graceful shutdown (fechar pool MySQL, esperar requests em andamento, depois exit)?
 
 > RESPOSTA:
 
@@ -1021,11 +1100,17 @@ Existe um diretório `img/ads/` no root.
 
 | Prioridade | Questões | Tema |
 |------------|----------|------|
-| 🔴 Crítica | Q009, Q013, Q018, Q032, Q038, Q042 | Segurança + Bugs |
-| 🟠 Alta | Q001, Q002, Q007, Q017, Q021, Q034, Q054 | Arquitetura + Estabilidade |
-| 🟡 Média | Q024-Q027, Q030, Q039, Q056, Q079, Q093-Q095 | Refatoração + Código morto |
-| 🟢 Baixa | Q059, Q062, Q072, Q081, Q087, Q089-Q092 | DX + UX + Docs |
+| 🔴 Crítica (segurança) | Q001-Q007, Q021 | JWT, race conditions, rate limiting |
+| 🔴 Crítica (bug) | Q042, Q043, Q045 | Estoque, carrinho, total negativo |
+| 🟠 Alta (segurança) | Q008-Q015, Q016-Q022 | Admin, importação, CSP, enumeração |
+| 🟠 Alta (arquitetura) | Q023-Q024, Q030-Q031 | God components, error boundaries |
+| 🟡 Média (performance) | Q032-Q041 | Indexação, cache, queries |
+| 🟡 Média (DB) | Q051-Q057 | Índices, schema, migrations |
+| 🟢 Baixa (limpeza) | Q078-Q087 | Legacy, dead code, organização |
+| 🟢 Baixa (UX) | Q064-Q071 | A11y, skeleton, SEO |
+| 🔵 Info/Planejamento | Q088-Q100 | Negócio, monitoramento, futuro |
+| 🔵 DX | Q101-Q110 | Testes, types, dev workflow |
 
 ---
 
-> **Próximo passo:** Responda cada questão com `> RESPOSTA:` e me passe o arquivo novamente. Implementarei as melhorias com base nas suas respostas.
+> **Próximo passo:** Responda cada questão com `> RESPOSTA:` e me passe o arquivo novamente. Implementarei as melhorias com base nas suas respostas, começando pelas 🔴 Críticas.

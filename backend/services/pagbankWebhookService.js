@@ -256,6 +256,15 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
       let resultadoUpdate = null;
       let modoPersistencia = 'completo';
 
+      // Verificar status anterior para restauração condicional de estoque (Q042)
+      let statusAnterior = null;
+      if (statusInterno === 'cancelado') {
+        try {
+          const [pedidoRows] = await pool.query('SELECT status FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
+          statusAnterior = pedidoRows.length ? pedidoRows[0].status : null;
+        } catch (_) { /* ignore - prossegue sem restauração */ }
+      }
+
       try {
         const [resultadoCompleto] = await pool.query(
           'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ?, pago_em = COALESCE(pago_em, IF(? = \'pago\', NOW(), pago_em)) WHERE id = ?',
@@ -310,6 +319,25 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
           httpStatus: 503,
           retryable: true
         });
+      }
+
+      // Restaurar estoque se transitando para cancelado (Q042)
+      if (statusInterno === 'cancelado' && statusAnterior && statusAnterior !== 'cancelado') {
+        try {
+          const [itensPedido] = await pool.query(
+            'SELECT produto_id, quantidade FROM pedido_itens WHERE pedido_id = ?',
+            [pedidoId]
+          );
+          for (const item of itensPedido) {
+            await pool.query(
+              'UPDATE produtos SET estoque = estoque + ? WHERE id = ?',
+              [item.quantidade, item.produto_id]
+            );
+          }
+          logger.info(`Estoque restaurado via webhook para pedido #${pedidoId} (${itensPedido.length} itens).`);
+        } catch (errEstoque) {
+          logger.error(`Falha ao restaurar estoque via webhook para pedido #${pedidoId}:`, errEstoque.message);
+        }
       }
 
       logger.info(`Pedido #${pedidoId} atualizado para status: ${statusInterno}`);

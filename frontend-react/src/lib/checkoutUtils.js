@@ -11,11 +11,12 @@ export const ETAPAS = Object.freeze({
   CARRINHO: 'carrinho',
   ENTREGA: 'entrega',
   PAGAMENTO: 'pagamento',
+  REVISAO: 'revisao',
   PIX: 'pix',
   STATUS: 'status'
 });
 
-export const CHECKOUT_STEPS = ['Carrinho', 'Entrega', 'Pagamento', 'Confirmação'];
+export const CHECKOUT_STEPS = ['Carrinho', 'Entrega', 'Pagamento', 'Revisão', 'Confirmação'];
 
 export const PARCELAMENTO_MINIMO_CREDITO = 100;
 export const PARCELAMENTO_MAXIMO_CREDITO = 3;
@@ -161,7 +162,10 @@ let qrcodeModulePromise = null;
 
 export async function gerarQrCodeDataUrl(codigoPix) {
   if (!qrcodeModulePromise) {
-    qrcodeModulePromise = import('qrcode');
+    qrcodeModulePromise = import('qrcode').catch((err) => {
+      qrcodeModulePromise = null;
+      throw err;
+    });
   }
   const moduloQrCode = await qrcodeModulePromise;
   const QRCodeLib = moduloQrCode?.default || moduloQrCode;

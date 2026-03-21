@@ -310,14 +310,12 @@ module.exports = function createAdminCatalogoRoutes(deps) {
       }
 
       const payloadErro = {
-        erro: erro?.message || 'Nao foi possivel processar a importacao da planilha.'
+        erro: erro?.message || 'Nao foi possivel processar a importacao da planilha.',
+        detalhes: {
+          formato_arquivo: formatoArquivo,
+          duracao_ms: duracaoMs
+        }
       };
-
-      if (erro?.extra && typeof erro.extra === 'object') {
-        payloadErro.detalhes = detalhesErro;
-      } else {
-        payloadErro.detalhes = detalhesErro;
-      }
 
       return res.status(status).json(payloadErro);
     }
@@ -657,7 +655,10 @@ module.exports = function createAdminCatalogoRoutes(deps) {
   router.get('/api/produtos/:id', async (req, res) => {
     try {
       const [produtos] = await pool.query(
-        'SELECT * FROM produtos WHERE id = ? AND ativo = TRUE',
+        `SELECT id, nome, nome_externo, descricao, preco, preco_promocional, unidade,
+                categoria, imagem_url, estoque, ativo, codigo_barras, marca, peso_liquido,
+                ingredientes, informacao_nutricional, origem, data_validade
+         FROM produtos WHERE id = ? AND ativo = TRUE`,
         [req.params.id]
       );
 

@@ -32,14 +32,26 @@ export function carregarSdkPagBank() {
   }
 
   pagBankSdkPromise = new Promise((resolve, reject) => {
+    function aguardarPagSeguro(tentativas) {
+      if (win.PagSeguro?.encryptCard) {
+        resolve(win.PagSeguro);
+        return;
+      }
+      if (tentativas <= 0) {
+        reject(new Error('SDK do PagBank carregado, mas PagSeguro não disponível no window.'));
+        return;
+      }
+      setTimeout(() => aguardarPagSeguro(tentativas - 1), 100);
+    }
+
     const existente = win.document.querySelector(`script[src="${PAGBANK_SDK_URL}"]`);
     if (existente) {
-      if (win.PagSeguro) {
+      if (win.PagSeguro?.encryptCard) {
         resolve(win.PagSeguro);
         return;
       }
 
-      existente.addEventListener('load', () => resolve(win.PagSeguro), { once: true });
+      existente.addEventListener('load', () => aguardarPagSeguro(30), { once: true });
       existente.addEventListener('error', () => reject(new Error('Falha ao carregar SDK do PagBank.')), { once: true });
       return;
     }
@@ -47,7 +59,7 @@ export function carregarSdkPagBank() {
     const script = win.document.createElement('script');
     script.src = PAGBANK_SDK_URL;
     script.async = true;
-    script.onload = () => resolve(win.PagSeguro);
+    script.onload = () => aguardarPagSeguro(30);
     script.onerror = () => reject(new Error('Falha ao carregar SDK do PagBank.'));
     win.document.body.appendChild(script);
   })

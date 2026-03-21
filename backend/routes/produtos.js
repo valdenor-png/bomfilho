@@ -64,7 +64,19 @@ module.exports = function createProdutosPublicRoutes({
         campos.push('imagem_url AS imagem');
       }
 
-      const busca = toLowerTrim(req.query?.busca);
+      if (colunas.has('preco_promocional')) {
+        campos.push('preco_promocional');
+      }
+
+      if (colunas.has('departamento')) {
+        campos.push('departamento');
+      }
+
+      if (colunas.has('secao_exibicao')) {
+        campos.push('secao_exibicao');
+      }
+
+      const busca = (toLowerTrim(req.query?.busca) || '').slice(0, 200);
       const categoriaRaw = toLowerTrim(req.query?.categoria);
       const categoria = categoriaRaw && categoriaRaw !== 'todas' ? categoriaRaw : '';
       const ordenacaoRaw = toLowerTrim(req.query?.sort || req.query?.ordenacao);
@@ -73,9 +85,10 @@ module.exports = function createProdutosPublicRoutes({
         nome_desc: 'categoria DESC, nome DESC',
         preco_asc: 'preco ASC, nome ASC',
         preco_desc: 'preco DESC, nome ASC',
-        recentes: 'id DESC'
+        recentes: 'id DESC',
+        estoque: 'estoque DESC, nome ASC'
       };
-      const ordenacaoSql = ordenacaoMap[ordenacaoRaw] || 'categoria ASC, nome ASC';
+      const ordenacaoSql = ordenacaoMap[ordenacaoRaw] || 'estoque DESC, categoria ASC, nome ASC';
 
       const limite = parsePositiveInt(req.query?.limit || req.query?.limite, 60, { min: 1, max: 200 });
       const paginaSolicitada = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
@@ -84,7 +97,12 @@ module.exports = function createProdutosPublicRoutes({
       const params = [];
 
       if (categoria) {
-        filtros.push('LOWER(categoria) = ?');
+        if (colunas.has('departamento')) {
+          // Usa departamento (IA) quando disponível, senão categoria (ERP)
+          filtros.push('(LOWER(COALESCE(NULLIF(TRIM(departamento), \'\'), categoria)) = ?)');
+        } else {
+          filtros.push('LOWER(categoria) = ?');
+        }
         params.push(categoria);
       }
 

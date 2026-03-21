@@ -2,7 +2,6 @@
 
 const express = require('express');
 const logger = require('../lib/logger');
-const { BoundedCache } = require('../lib/cache');
 const { pool } = require('../lib/db');
 const {
   NODE_ENV, IS_PRODUCTION, PAGBANK_TOKEN, PAGBANK_WEBHOOK_TOKEN,
@@ -16,8 +15,38 @@ const {
   resolverDadosWebhookPagBank,
 } = require('../services/pagbankWebhookService');
 
-const WEBHOOK_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
-const webhookPagBankProcessado = new BoundedCache({ maxSize: 2000, ttlMs: WEBHOOK_IDEMPOTENCY_TTL_MS, name: 'webhookDedup' });
+/**
+ * Verifica se um webhook já foi processado usando a tabela webhook_events.
+ * Retorna true se já existe (duplicata), false caso contrário.
+ */
+async function webhookJaProcessado(idempotencyKey) {
+  if (!idempotencyKey || idempotencyKey === '__') return false;
+  try {
+    const [rows] = await pool.query(
+      'SELECT 1 FROM webhook_events WHERE idempotency_key = ? LIMIT 1',
+      [idempotencyKey]
+    );
+    return rows.length > 0;
+  } catch (err) {
+    logger.warn('Falha ao verificar idempotencia webhook no DB, permitindo processamento:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Registra um webhook como processado na tabela webhook_events.
+ */
+async function registrarWebhookProcessado(idempotencyKey, eventType) {
+  if (!idempotencyKey || idempotencyKey === '__') return;
+  try {
+    await pool.query(
+      'INSERT IGNORE INTO webhook_events (idempotency_key, event_type) VALUES (?, ?)',
+      [idempotencyKey, (eventType || '').slice(0, 100)]
+    );
+  } catch (err) {
+    logger.warn('Falha ao registrar idempotencia webhook no DB:', err.message);
+  }
+}
 
 /**
  * @param {object} deps
@@ -32,6 +61,8 @@ const webhookPagBankProcessado = new BoundedCache({ maxSize: 2000, ttlMs: WEBHOO
  * @param {object}   deps.evolutionLastReplyByNumber
  * @param {Function} deps.registrarLogPagBank
  * @param {Function} deps.obterPedidoPagBank
+ * @param {object}   [deps.mercadoPagoService]
+ * @param {Function} [deps.enviarWhatsappPedido]
  */
 module.exports = function createWebhookRoutes(deps) {
   const router = express.Router();
@@ -41,6 +72,7 @@ module.exports = function createWebhookRoutes(deps) {
     formatarTelefoneWhatsapp, enviarWhatsappTexto, limparCacheEvolution,
     evolutionProcessedMessageIds, evolutionLastReplyByNumber,
     registrarLogPagBank, obterPedidoPagBank,
+    mercadoPagoService, enviarWhatsappPedido,
   } = deps;
 
   // ============================================
@@ -111,10 +143,6 @@ module.exports = function createWebhookRoutes(deps) {
   // ============================================
   // WEBHOOK PAGBANK (PIX + CARTAO)
   // ============================================
-  function limparCacheWebhookIdempotency() {
-    webhookPagBankProcessado.purgeExpired();
-  }
-
   async function processarWebhookPagBank(req, res, endpointLog = '/api/webhooks/pagbank') {
     try {
       if (!validarWebhookPagBank(req)) {
@@ -138,10 +166,9 @@ module.exports = function createWebhookRoutes(deps) {
       const eventType = String(notificacao?.event || notificacao?.type || '').trim().toUpperCase();
 
       const idempotencyKey = `${notificacao?.id || ''}_${eventType}_${notificacao?.charges?.[0]?.id || ''}`;
-      if (idempotencyKey && idempotencyKey !== '__' && webhookPagBankProcessado.has(idempotencyKey)) {
+      if (await webhookJaProcessado(idempotencyKey)) {
         return res.sendStatus(200);
       }
-      limparCacheWebhookIdempotency();
 
       const dadosWebhook = await resolverDadosWebhookPagBank({
         notificacao,
@@ -266,7 +293,7 @@ module.exports = function createWebhookRoutes(deps) {
         return res.sendStatus(202);
       }
 
-      webhookPagBankProcessado.set(idempotencyKey, Date.now());
+      await registrarWebhookProcessado(idempotencyKey, eventType);
       return res.sendStatus(200);
     } catch (erro) {
       logger.error('Erro no webhook do PagBank:', erro);
@@ -294,6 +321,153 @@ module.exports = function createWebhookRoutes(deps) {
   // Alias temporário para compatibilidade
   router.post('/api/pagbank/webhook', (req, res) => {
     return processarWebhookPagBank(req, res, '/api/pagbank/webhook');
+  });
+
+  // ============================================
+  // WEBHOOK MERCADO PAGO
+  // ============================================
+
+  // Diagnóstico: GET para confirmar que a rota está viva (browser / uptime check)
+  router.get('/api/webhooks/mercadopago', (_req, res) => {
+    res.json({ ok: true, route: 'mercadopago-webhook', method: 'GET', info: 'Use POST para receber notificações.' });
+  });
+
+  router.post('/api/webhooks/mercadopago', async (req, res) => {
+    logger.info('[MP Webhook] Requisição recebida', {
+      method: req.method,
+      url: req.originalUrl,
+      contentType: req.headers['content-type'] || '(vazio)',
+      hasSignature: Boolean(req.headers['x-signature']),
+      hasRequestId: Boolean(req.headers['x-request-id']),
+      bodyKeys: req.body ? Object.keys(req.body).join(',') : '(sem body)',
+    });
+
+    try {
+      if (!mercadoPagoService) {
+        logger.warn('[MP Webhook] Mercado Pago service não configurado.');
+        return res.sendStatus(200);
+      }
+
+      const xSignature = req.headers['x-signature'] || '';
+      const xRequestId = req.headers['x-request-id'] || '';
+      const payload = req.body || {};
+
+      // Mercado Pago envia { action, type, data: { id } }
+      const action = String(payload.action || '').trim();
+      const dataId = String(payload.data?.id || payload.id || '').trim();
+      const type = String(payload.type || '').trim();
+
+      // Só processar notificações de pagamento
+      if (type !== 'payment' && action !== 'payment.updated' && action !== 'payment.created') {
+        return res.sendStatus(200);
+      }
+
+      if (!dataId) {
+        logger.warn('[MP Webhook] Notificação sem data.id, ignorando.');
+        return res.sendStatus(200);
+      }
+
+      // Validar assinatura
+      const assinaturaValida = mercadoPagoService.validarAssinaturaWebhook(xSignature, xRequestId, dataId);
+      if (!assinaturaValida) {
+        logger.warn('[MP Webhook] Assinatura inválida, rejeitando.');
+        return res.status(401).json({ erro: 'Assinatura inválida.' });
+      }
+
+      // Idempotência
+      const idempotencyKey = `mp_${dataId}_${action}`;
+      if (await webhookJaProcessado(idempotencyKey)) {
+        return res.sendStatus(200);
+      }
+
+      // Consultar pagamento na API do Mercado Pago
+      const pagamento = await mercadoPagoService.consultarPagamento(dataId);
+      if (!pagamento || !pagamento.id) {
+        logger.warn(`[MP Webhook] Pagamento ${dataId} não encontrado na API.`);
+        return res.sendStatus(200);
+      }
+
+      const pedidoId = Number(pagamento.external_reference);
+      if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
+        logger.warn(`[MP Webhook] external_reference inválido: "${pagamento.external_reference}"`);
+        await registrarWebhookProcessado(idempotencyKey, `mp_${action}`);
+        return res.sendStatus(200);
+      }
+
+      const statusInterno = mercadoPagoService.mapearStatusPagamento(pagamento.status);
+
+      // Buscar pedido no banco
+      const [pedidos] = await pool.query(
+        'SELECT id, status, usuario_id FROM pedidos WHERE id = ? LIMIT 1',
+        [pedidoId]
+      );
+
+      if (!pedidos.length) {
+        logger.warn(`[MP Webhook] Pedido #${pedidoId} não encontrado no banco.`);
+        await registrarWebhookProcessado(idempotencyKey, `mp_${action}`);
+        return res.sendStatus(200);
+      }
+
+      const pedidoAtual = pedidos[0];
+
+      // Não regredir status: se já está pago/preparando/enviado, não voltar para pendente
+      const statusNaoRegredir = ['pago', 'preparando', 'enviado', 'entregue', 'retirado'];
+      if (statusNaoRegredir.includes(pedidoAtual.status) && statusInterno === 'pendente') {
+        logger.info(`[MP Webhook] Pedido #${pedidoId} já em "${pedidoAtual.status}", ignorando status "${statusInterno}".`);
+        await registrarWebhookProcessado(idempotencyKey, `mp_${action}`);
+        return res.sendStatus(200);
+      }
+
+      // Atualizar status e payment ID
+      const updateFields = ['status = ?', 'mp_payment_id_mp = ?'];
+      const updateValues = [statusInterno, String(pagamento.id)];
+
+      if (statusInterno === 'pago') {
+        updateFields.push('pix_status = ?');
+        updateValues.push('PAID');
+        updateFields.push('pago_em = COALESCE(pago_em, NOW())');
+      } else if (statusInterno === 'cancelado' || statusInterno === 'pagamento_recusado') {
+        updateFields.push('pix_status = ?');
+        updateValues.push(statusInterno === 'cancelado' ? 'CANCELED' : 'DECLINED');
+      }
+
+      updateValues.push(pedidoId);
+      await pool.query(
+        `UPDATE pedidos SET ${updateFields.join(', ')} WHERE id = ?`,
+        updateValues
+      );
+
+      logger.info(`[MP Webhook] Pedido #${pedidoId} atualizado: ${pedidoAtual.status} → ${statusInterno} (MP payment ${pagamento.id})`);
+
+      // Notificar cliente via WhatsApp se pagamento foi confirmado
+      if (statusInterno === 'pago' && enviarWhatsappPedido) {
+        try {
+          const [dadosNotifica] = await pool.query(
+            `SELECT p.total, u.nome, u.telefone, u.whatsapp_opt_in
+             FROM pedidos p JOIN usuarios u ON p.usuario_id = u.id
+             WHERE p.id = ? LIMIT 1`,
+            [pedidoId]
+          );
+          if (dadosNotifica.length && dadosNotifica[0].whatsapp_opt_in) {
+            await enviarWhatsappPedido({
+              telefone: dadosNotifica[0].telefone,
+              nome: dadosNotifica[0].nome,
+              pedidoId,
+              total: dadosNotifica[0].total,
+              mensagemExtra: '✅ Pagamento confirmado! Seu pedido está sendo preparado.'
+            });
+          }
+        } catch (errWhats) {
+          logger.error('[MP Webhook] Falha ao notificar WhatsApp:', errWhats.message);
+        }
+      }
+
+      await registrarWebhookProcessado(idempotencyKey, `mp_${action}`);
+      return res.sendStatus(200);
+    } catch (erro) {
+      logger.error('[MP Webhook] Erro:', erro.message);
+      return res.sendStatus(500);
+    }
   });
 
   return router;

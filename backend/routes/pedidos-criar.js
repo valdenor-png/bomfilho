@@ -4,9 +4,6 @@ const express = require('express');
 const logger = require('../lib/logger');
 const { criarErroHttp, toMoney } = require('../lib/helpers');
 const {
-  PAGBANK_TOKEN,
-  PAGBANK_ENV,
-  ALLOW_PIX_MOCK,
   RECAPTCHA_CHECKOUT_PROTECTION_ENABLED,
   TAXA_SERVICO_PERCENTUAL
 } = require('../lib/config');
@@ -25,7 +22,6 @@ const {
  * @param {Function} deps.autenticarToken
  * @param {Function} deps.validarRecaptcha
  * @param {Function} deps.calcularEntregaPorCep
- * @param {Function} deps.criarPagamentoPix
  * @param {Function} deps.enviarWhatsappPedido
  * @param {Function} deps.normalizarCep
  * @param {object}   deps.pool
@@ -35,7 +31,6 @@ module.exports = function createPedidoCriarRoute(deps) {
     autenticarToken,
     validarRecaptcha,
     calcularEntregaPorCep,
-    criarPagamentoPix,
     enviarWhatsappPedido,
     normalizarCep,
     pool
@@ -76,20 +71,11 @@ module.exports = function createPedidoCriarRoute(deps) {
       const tipoEntrega = normalizarTipoEntregaPedidoInput(tipo_entrega);
 
       const taxIdDigits = extrairTaxIdDigits(req.body);
-      const pagbankProducao = PAGBANK_ENV === 'production';
-      const usaPagbank = ['pix', 'cartao', 'credito', 'debito'].includes(formaPagamento);
-      const pixMockPermitido = !pagbankProducao && ALLOW_PIX_MOCK;
 
-      if (usaPagbank && pagbankProducao && !PAGBANK_TOKEN) {
-        throw criarErroHttp(503, 'Esta forma de pagamento está temporariamente indisponível.');
-      }
-
-      if (formaPagamento === 'pix' && !PAGBANK_TOKEN && !pixMockPermitido) {
-        throw criarErroHttp(503, 'O pagamento via PIX está temporariamente indisponível.');
-      }
-
-      if (usaPagbank && pagbankProducao && ![11, 14].includes(taxIdDigits.length)) {
-        throw criarErroHttp(400, 'Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamentos via PagBank.');
+      // Validações de documento fiscal (necessário para pagamento futuro)
+      const usaPagamentoOnline = ['pix', 'cartao', 'credito', 'debito'].includes(formaPagamento);
+      if (usaPagamentoOnline && ![11, 14].includes(taxIdDigits.length)) {
+        throw criarErroHttp(400, 'Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamentos online.');
       }
 
       if (!itensPedidoSaoValidos(itensNormalizados)) {
@@ -207,11 +193,13 @@ module.exports = function createPedidoCriarRoute(deps) {
         }
 
         const [cupons] = await connection.query(
-          `SELECT * FROM cupons 
+          `SELECT id, tipo, valor, valor_minimo, uso_atual, uso_maximo
+           FROM cupons
            WHERE id = ?
            AND ativo = TRUE
            AND (validade IS NULL OR validade >= CURDATE())
            AND (uso_maximo IS NULL OR uso_atual < uso_maximo)
+           FOR UPDATE
            LIMIT 1`,
           [cupomIdNumerico]
         );
@@ -259,10 +247,10 @@ module.exports = function createPedidoCriarRoute(deps) {
         throw criarErroHttp(400, 'O total do pedido deve ser maior que zero.');
       }
 
-      // Criar pedido
+      // Criar pedido — entra como "aguardando_revisao" para que a equipe confira disponibilidade
       const [pedidoResultado] = await connection.query(
-        'INSERT INTO pedidos (usuario_id, total, status, forma_pagamento, tipo_entrega, taxa_servico) VALUES (?, ?, ?, ?, ?, ?)',
-        [req.usuario.id, totalFinal, 'pendente', formaPagamento, tipoEntrega, taxaServico]
+        'INSERT INTO pedidos (usuario_id, total, status, forma_pagamento, tipo_entrega, taxa_servico, revisao_em) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+        [req.usuario.id, totalFinal, 'aguardando_revisao', formaPagamento, tipoEntrega, taxaServico]
       );
 
       const pedidoId = pedidoResultado.insertId;
@@ -307,50 +295,7 @@ module.exports = function createPedidoCriarRoute(deps) {
       await connection.commit();
       transacaoAberta = false;
 
-      // Gerar PIX real usando PagBank se for pagamento via PIX
-      let pixCodigo = null;
-      let pixQrCode = null;
-      let pixId = null;
-      let pixErro = null;
-      const podeUsarPixMock = !pagbankProducao && ALLOW_PIX_MOCK;
-
-      if (formaPagamento === 'pix' && PAGBANK_TOKEN) {
-        try {
-          const resultadoPix = await criarPagamentoPix({
-            pedidoId: pedidoId,
-            total: totalFinal,
-            descricao: `Pedido #${pedidoId} - Bom Filho Supermercado`,
-            email: usuarioPedido?.email || req.usuario?.email || 'cliente@example.com',
-            nome: usuarioPedido?.nome || 'Cliente',
-            taxId: taxIdDigits
-          });
-
-          if (resultadoPix && resultadoPix.qr_codes && resultadoPix.qr_codes.length > 0) {
-            pixCodigo = resultadoPix.qr_codes[0].text;
-            pixQrCode = resultadoPix.qr_codes[0].links?.[0]?.href;
-            pixId = resultadoPix.id;
-
-            try {
-              await pool.query(
-                'UPDATE pedidos SET pix_id = ?, pix_codigo = ?, pix_qrcode = ?, pix_status = ? WHERE id = ?',
-                [pixId, pixCodigo, pixQrCode, 'WAITING', pedidoId]
-              );
-            } catch (errUpdate) {
-              logger.warn('⚠️ Falha ao salvar dados PIX no pedido:', errUpdate.message);
-            }
-          }
-        } catch (erro) {
-          logger.error('Erro ao gerar PIX PagBank:', erro.message);
-          pixErro = erro.message;
-
-          if (podeUsarPixMock) {
-            pixCodigo = '00020126580014BR.GOV.BCB.PIX' + pedidoId.toString().padStart(10, '0');
-          }
-        }
-      } else if (formaPagamento === 'pix' && podeUsarPixMock) {
-        pixCodigo = '00020126580014BR.GOV.BCB.PIX' + pedidoId.toString().padStart(10, '0');
-      }
-
+      // Notificar equipe que há novo pedido para revisão
       if (usuarioPedido && usuarioPedido.whatsapp_opt_in) {
         try {
           await enviarWhatsappPedido({
@@ -358,7 +303,8 @@ module.exports = function createPedidoCriarRoute(deps) {
             nome: usuarioPedido.nome,
             pedidoId: pedidoId,
             total: totalFinal,
-            pixCodigo: pixCodigo
+            pixCodigo: null,
+            mensagemExtra: '📋 Seu pedido foi recebido e está aguardando revisão da equipe. Você será notificado quando for aprovado para pagamento.'
           });
         } catch (erro) {
           logger.error('Falha ao disparar WhatsApp do pedido:', erro.message);
@@ -366,8 +312,9 @@ module.exports = function createPedidoCriarRoute(deps) {
       }
 
       res.status(201).json({
-        mensagem: 'Pedido confirmado com sucesso.',
+        mensagem: 'Pedido recebido! Aguarde a revisão da equipe para prosseguir com o pagamento.',
         pedido_id: pedidoId,
+        status: 'aguardando_revisao',
         tipo_entrega: tipoEntrega,
         total: totalFinal,
         total_produtos: totalProdutos,
@@ -385,11 +332,7 @@ module.exports = function createPedidoCriarRoute(deps) {
             numero: entregaNormalizada?.numero_destino || null
           },
         desconto_aplicado: descontoAplicado,
-        forma_pagamento: formaPagamento,
-        pix_codigo: pixCodigo,
-        pix_qrcode: pixQrCode,
-        pix_id: pixId,
-        pix_erro: pixErro
+        forma_pagamento: formaPagamento
       });
     } catch (erro) {
       if (transacaoAberta) {

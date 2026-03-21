@@ -521,6 +521,157 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
   });
 
   // ============================================
+  // Aprovar revisão do pedido (libera para pagamento)
+  // ============================================
+  router.put('/api/admin/pedidos/:id/aprovar-revisao', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+    try {
+      const pedidoId = req.params.id;
+      const { observacao } = req.body || {};
+
+      const [pedidos] = await pool.query('SELECT id, status, usuario_id FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
+      if (!pedidos.length) {
+        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+      }
+
+      if (pedidos[0].status !== 'aguardando_revisao') {
+        return res.status(400).json({ erro: `Pedido não está aguardando revisão (status atual: ${pedidos[0].status}).` });
+      }
+
+      // Atualizar para pendente (liberado para pagamento)
+      const obsCurada = String(observacao || '').trim().slice(0, 500) || null;
+      await pool.query(
+        'UPDATE pedidos SET status = ?, revisao_aprovada_em = NOW(), revisao_obs = ? WHERE id = ?',
+        ['pendente', obsCurada, pedidoId]
+      );
+
+      // Notificar cliente por WhatsApp
+      try {
+        const [dados] = await pool.query(
+          `SELECT p.total, p.forma_pagamento, u.nome, u.telefone, u.whatsapp_opt_in
+           FROM pedidos p JOIN usuarios u ON p.usuario_id = u.id
+           WHERE p.id = ? LIMIT 1`,
+          [pedidoId]
+        );
+
+        if (dados.length && dados[0].whatsapp_opt_in) {
+          await enviarWhatsappPedido({
+            telefone: dados[0].telefone,
+            nome: dados[0].nome,
+            pedidoId,
+            total: dados[0].total,
+            pixCodigo: null,
+            mensagemExtra: '✅ Seu pedido foi revisado e aprovado! Agora é só realizar o pagamento para prosseguirmos com a separação.'
+          });
+        }
+      } catch (errNotifica) {
+        logger.error('Falha ao notificar aprovação por WhatsApp:', errNotifica.message);
+      }
+
+      registrarAuditoria(pool, {
+        acao: 'aprovar_revisao_pedido',
+        entidade: 'pedido',
+        entidade_id: pedidoId,
+        detalhes: { observacao: obsCurada },
+        admin_usuario: 'admin',
+        ip: req.ip
+      });
+
+      res.json({ mensagem: 'Pedido aprovado e liberado para pagamento.', status: 'pendente' });
+    } catch (erro) {
+      logger.error('Erro ao aprovar revisão:', erro);
+      res.status(500).json({ erro: 'Não foi possível aprovar a revisão do pedido.' });
+    }
+  });
+
+  // ============================================
+  // Rejeitar revisão do pedido (cancela + restaura estoque)
+  // ============================================
+  router.put('/api/admin/pedidos/:id/rejeitar-revisao', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+    try {
+      const pedidoId = req.params.id;
+      const { motivo } = req.body || {};
+
+      const [pedidos] = await pool.query('SELECT id, status, usuario_id FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
+      if (!pedidos.length) {
+        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+      }
+
+      if (pedidos[0].status !== 'aguardando_revisao') {
+        return res.status(400).json({ erro: `Pedido não está aguardando revisão (status atual: ${pedidos[0].status}).` });
+      }
+
+      const motivoCurado = String(motivo || 'Revisão rejeitada pela equipe').trim().slice(0, 500);
+
+      // Restaurar estoque em transação
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+
+        const [itensPedido] = await connection.query(
+          'SELECT produto_id, quantidade FROM pedido_itens WHERE pedido_id = ?',
+          [pedidoId]
+        );
+
+        for (const item of itensPedido) {
+          await connection.query(
+            'UPDATE produtos SET estoque = estoque + ? WHERE id = ?',
+            [item.quantidade, item.produto_id]
+          );
+        }
+
+        await connection.query(
+          'UPDATE pedidos SET status = ?, revisao_obs = ?, cancelado_em = NOW() WHERE id = ?',
+          ['cancelado', motivoCurado, pedidoId]
+        );
+
+        await connection.commit();
+      } catch (errTx) {
+        await connection.rollback();
+        throw errTx;
+      } finally {
+        connection.release();
+      }
+
+      // Notificar cliente
+      try {
+        const [dados] = await pool.query(
+          `SELECT p.total, u.nome, u.telefone, u.whatsapp_opt_in
+           FROM pedidos p JOIN usuarios u ON p.usuario_id = u.id
+           WHERE p.id = ? LIMIT 1`,
+          [pedidoId]
+        );
+
+        if (dados.length && dados[0].whatsapp_opt_in) {
+          await enviarWhatsappPedido({
+            telefone: dados[0].telefone,
+            nome: dados[0].nome,
+            pedidoId,
+            total: dados[0].total,
+            pixCodigo: null,
+            mensagemExtra: `❌ Infelizmente não pudemos confirmar seu pedido: ${motivoCurado}. Tente novamente ou entre em contato.`
+          });
+        }
+      } catch (errNotifica) {
+        logger.error('Falha ao notificar rejeição por WhatsApp:', errNotifica.message);
+      }
+
+      registrarAuditoria(pool, {
+        acao: 'rejeitar_revisao_pedido',
+        entidade: 'pedido',
+        entidade_id: pedidoId,
+        detalhes: { motivo: motivoCurado },
+        admin_usuario: 'admin',
+        ip: req.ip
+      });
+
+      res.json({ mensagem: 'Pedido rejeitado e estoque restaurado.', status: 'cancelado' });
+    } catch (erro) {
+      logger.error('Erro ao rejeitar revisão:', erro);
+      res.status(500).json({ erro: 'Não foi possível rejeitar a revisão do pedido.' });
+    }
+  });
+
+  // ============================================
   // Atualizar status do pedido (admin)
   // ============================================
   router.put('/api/admin/pedidos/:id/status', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
@@ -528,33 +679,77 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       const { status } = req.body;
       const pedidoId = req.params.id;
 
-      const statusValidos = ['pendente', 'preparando', 'enviado', 'entregue', 'cancelado', 'pronto_para_retirada', 'retirado'];
+      const statusValidos = ['pendente', 'aguardando_revisao', 'preparando', 'enviado', 'entregue', 'cancelado', 'pronto_para_retirada', 'retirado'];
       
       if (!statusValidos.includes(status)) {
         return res.status(400).json({ erro: 'Selecione um status de pedido válido.' });
       }
 
-      // Gravar timestamp da etapa (sem sobrescrever se já existir)
-      const colunaTimestamp = STATUS_TIMESTAMP_COLUNA[status];
-      if (colunaTimestamp) {
+      // Buscar status atual para restauração condicional de estoque
+      const [pedidoAtual] = await pool.query('SELECT status FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
+      if (!pedidoAtual.length) {
+        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+      }
+      const statusAnterior = pedidoAtual[0].status;
+
+      // Restaurar estoque se mudando para cancelado (e não estava cancelado antes) — Q042
+      if (status === 'cancelado' && statusAnterior !== 'cancelado') {
+        const connection = await pool.getConnection();
         try {
-          await pool.query(
-            `UPDATE pedidos SET status = ?, ${colunaTimestamp} = COALESCE(${colunaTimestamp}, NOW()) WHERE id = ?`,
-            [status, pedidoId]
+          await connection.beginTransaction();
+
+          const [itensPedido] = await connection.query(
+            'SELECT produto_id, quantidade FROM pedido_itens WHERE pedido_id = ?',
+            [pedidoId]
           );
-        } catch (errTs) {
-          // Fallback: coluna pode não existir ainda (migration pendente)
-          logger.warn(`⚠️ Timestamp ${colunaTimestamp} não gravado (migration pendente?):`, errTs.message);
-          await pool.query(
-            'UPDATE pedidos SET status = ? WHERE id = ?',
-            [status, pedidoId]
-          );
+
+          for (const item of itensPedido) {
+            await connection.query(
+              'UPDATE produtos SET estoque = estoque + ? WHERE id = ?',
+              [item.quantidade, item.produto_id]
+            );
+          }
+
+          // Atualizar status e timestamp na mesma transação
+          const colunaTimestamp = STATUS_TIMESTAMP_COLUNA[status];
+          if (colunaTimestamp) {
+            try {
+              await connection.query(
+                `UPDATE pedidos SET status = ?, ${colunaTimestamp} = COALESCE(${colunaTimestamp}, NOW()) WHERE id = ?`,
+                [status, pedidoId]
+              );
+            } catch (errTs) {
+              logger.warn(`⚠️ Timestamp ${colunaTimestamp} não gravado (migration pendente?):`, errTs.message);
+              await connection.query('UPDATE pedidos SET status = ? WHERE id = ?', [status, pedidoId]);
+            }
+          } else {
+            await connection.query('UPDATE pedidos SET status = ? WHERE id = ?', [status, pedidoId]);
+          }
+
+          await connection.commit();
+          logger.info(`Estoque restaurado para pedido #${pedidoId} (${itensPedido.length} itens).`);
+        } catch (errEstoque) {
+          await connection.rollback();
+          throw errEstoque;
+        } finally {
+          connection.release();
         }
       } else {
-        await pool.query(
-          'UPDATE pedidos SET status = ? WHERE id = ?',
-          [status, pedidoId]
-        );
+        // Gravar timestamp da etapa (sem sobrescrever se já existir)
+        const colunaTimestamp = STATUS_TIMESTAMP_COLUNA[status];
+        if (colunaTimestamp) {
+          try {
+            await pool.query(
+              `UPDATE pedidos SET status = ?, ${colunaTimestamp} = COALESCE(${colunaTimestamp}, NOW()) WHERE id = ?`,
+              [status, pedidoId]
+            );
+          } catch (errTs) {
+            logger.warn(`⚠️ Timestamp ${colunaTimestamp} não gravado (migration pendente?):`, errTs.message);
+            await pool.query('UPDATE pedidos SET status = ? WHERE id = ?', [status, pedidoId]);
+          }
+        } else {
+          await pool.query('UPDATE pedidos SET status = ? WHERE id = ?', [status, pedidoId]);
+        }
       }
 
       // Notificar cliente via WhatsApp se estiver configurado e houver opt-in
@@ -571,14 +766,14 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
           if (dados.length && dados[0].whatsapp_opt_in) {
             const mensagemStatus = status === 'preparando'
-              ? 'Seu pedido está sendo preparado!'
+              ? 'Seu pedido está sendo separado! Em breve estará pronto.'
               : status === 'enviado'
-                ? 'Seu pedido saiu para entrega!'
+                ? 'Seu pedido saiu pra entrega! Acompanhe em tempo real pelo app.'
                 : status === 'entregue'
-                  ? 'Seu pedido foi entregue.'
+                  ? 'Seu pedido foi entregue. Obrigado pela preferência!'
                   : status === 'pronto_para_retirada'
-                    ? 'Seu pedido está pronto para retirada na loja.'
-                    : 'Seu pedido foi retirado com sucesso.';
+                    ? 'Seu pedido está preparado e pronto para retirada na loja!'
+                    : 'Seu pedido foi retirado com sucesso. Obrigado!';
 
             await enviarWhatsappPedido({
               telefone: dados[0].telefone,
@@ -611,6 +806,21 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
     try {
       const filas = {};
 
+      // Aguardando revisão do mercado (novo fluxo)
+      let aguardandoRevisao = [];
+      try {
+        const [rows] = await pool.query(
+          `SELECT p.id, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.status, p.revisao_em,
+                  u.nome AS cliente_nome, u.telefone AS cliente_telefone,
+                  TIMESTAMPDIFF(MINUTE, p.revisao_em, NOW()) AS minutos_parado
+           FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+           WHERE p.status = 'aguardando_revisao'
+           ORDER BY p.revisao_em ASC LIMIT 50`
+        );
+        aguardandoRevisao = rows;
+      } catch (_) {}
+      filas.aguardando_revisao = aguardandoRevisao;
+
       // Pendentes de pagamento
       const [pendPag] = await pool.query(
         `SELECT p.id, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.status,
@@ -631,6 +841,21 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       );
       filas.pagos_aguardando_preparo = pagosAguardando;
 
+      // Em separação (status = preparando)
+      let emSeparacao = [];
+      try {
+        const [rows] = await pool.query(
+          `SELECT p.id, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.status,
+                  u.nome AS cliente_nome,
+                  TIMESTAMPDIFF(MINUTE, COALESCE(p.em_preparo_em, p.criado_em), NOW()) AS minutos_parado
+           FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+           WHERE p.status = 'preparando'
+           ORDER BY p.em_preparo_em ASC LIMIT 50`
+        );
+        emSeparacao = rows;
+      } catch (_) {}
+      filas.em_separacao = emSeparacao;
+
       // Prontos aguardando saída (entrega)
       let prontosAguardandoSaida = [];
       try {
@@ -645,6 +870,22 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         prontosAguardandoSaida = rows;
       } catch (_) {}
       filas.prontos_aguardando_saida = prontosAguardandoSaida;
+
+      // Em rota (todos os pedidos em entrega)
+      let emRota = [];
+      try {
+        const [rows] = await pool.query(
+          `SELECT p.id, p.total, p.tipo_entrega, p.criado_em, p.saiu_entrega_em, p.status,
+                  u.nome AS cliente_nome, u.telefone AS cliente_telefone,
+                  TIMESTAMPDIFF(MINUTE, p.saiu_entrega_em, NOW()) AS minutos_rota
+           FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+           WHERE p.status = 'enviado' AND p.saiu_entrega_em IS NOT NULL
+             AND TIMESTAMPDIFF(MINUTE, p.saiu_entrega_em, NOW()) <= 25
+           ORDER BY p.saiu_entrega_em ASC LIMIT 50`
+        );
+        emRota = rows;
+      } catch (_) {}
+      filas.em_rota = emRota;
 
       // Em rota acima do SLA
       let emRotaLonga = [];
@@ -691,9 +932,12 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
       // Contadores
       filas.contadores = {
+        aguardando_revisao: aguardandoRevisao.length,
         pendentes_pagamento: pendPag.length,
         pagos_aguardando_preparo: pagosAguardando.length,
+        em_separacao: emSeparacao.length,
         prontos_aguardando_saida: prontosAguardandoSaida.length,
+        em_rota: emRota.length,
         em_rota_acima_sla: emRotaLonga.length,
         retiradas_prontas_aguardando: retiradasProntas.length,
         travados: travados.length
@@ -715,7 +959,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       const limite = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
       const pagina = Math.max(Number(req.query.page) || 1, 1);
       const offset = (pagina - 1) * limite;
-      const busca = String(req.query.busca || '').trim();
+      const busca = String(req.query.busca || '').trim().slice(0, 200);
       const segmento = String(req.query.segmento || 'todos').trim();
 
       let orderBy = 'total_gasto DESC';
@@ -1338,6 +1582,64 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
     } catch (erro) {
       logger.error('Erro saúde catálogo:', erro);
       res.status(500).json({ erro: 'Falha ao verificar saúde do catálogo.' });
+    }
+  });
+
+  // ============================================
+  // Espelho/nota do pedido para impressão térmica
+  // ============================================
+  router.get('/api/admin/pedidos/:id/espelho', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+    try {
+      const pedidoId = parsePositiveInt(req.params.id);
+      if (!pedidoId) {
+        return res.status(400).json({ erro: 'ID do pedido inválido.' });
+      }
+
+      const [[pedido]] = await pool.query(
+        `SELECT p.*, u.nome AS cliente_nome, u.email AS cliente_email, u.telefone AS cliente_telefone
+         FROM pedidos p
+         LEFT JOIN usuarios u ON p.usuario_id = u.id
+         WHERE p.id = ? LIMIT 1`,
+        [pedidoId]
+      );
+
+      if (!pedido) {
+        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+      }
+
+      const [itens] = await pool.query(
+        'SELECT nome_produto, quantidade, preco, subtotal FROM pedido_itens WHERE pedido_id = ?',
+        [pedidoId]
+      );
+
+      let endereco = null;
+      if (pedido.usuario_id && pedido.tipo_entrega !== 'retirada') {
+        const [endRows] = await pool.query(
+          'SELECT rua, logradouro, numero, complemento, bairro, cidade, estado, cep, referencia FROM enderecos WHERE usuario_id = ? ORDER BY atualizado_em DESC LIMIT 1',
+          [pedido.usuario_id]
+        );
+        endereco = endRows[0] || null;
+      }
+
+      const { gerarEspelhoPedido } = require('../services/espelhoPedido');
+      const texto = gerarEspelhoPedido({
+        pedido,
+        cliente: {
+          nome: pedido.cliente_nome,
+          telefone: pedido.cliente_telefone,
+          email: pedido.cliente_email
+        },
+        endereco,
+        itens,
+        desconto: Number(pedido.desconto_aplicado || 0),
+        instrucoes: pedido.instrucoes || null,
+        tipo_entrega: pedido.tipo_entrega
+      });
+
+      res.type('text/plain; charset=utf-8').send(texto);
+    } catch (erro) {
+      logger.error('Erro ao gerar espelho do pedido:', erro);
+      res.status(500).json({ erro: 'Falha ao gerar espelho do pedido.' });
     }
   });
 
