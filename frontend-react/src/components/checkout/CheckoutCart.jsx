@@ -3,7 +3,7 @@
  */
 import React, { useState } from 'react';
 import SmartImage from '../ui/SmartImage';
-import { formatarMoeda, formatarQuantidadeItens } from '../../lib/checkoutUtils';
+import { formatarMoeda } from '../../lib/checkoutUtils';
 
 export function CartItemRow({
   item,
@@ -14,18 +14,8 @@ export function CartItemRow({
   const precoUnitario = Number(item?.preco || 0);
   const subtotal = Number((precoUnitario * quantidade).toFixed(2));
   const imagem = String(item?.imagem || '').trim();
-  const categoria = String(item?.categoria || '').trim();
-  const unidade = String(item?.unidade || '').trim();
   const [imagemFalhou, setImagemFalhou] = useState(false);
   const exibirImagem = Boolean(imagem) && !imagemFalhou;
-
-  const unidadeLabel = unidade
-    ? unidade.toLowerCase() === 'un'
-      ? 'Unidade'
-      : unidade
-    : '';
-
-  const meta = [categoria, unidadeLabel].filter(Boolean).join(' • ');
 
   return (
     <article className="cart-item-row" aria-label={`Item ${item.nome}`}>
@@ -45,10 +35,7 @@ export function CartItemRow({
 
       <div className="cart-item-main">
         <p className="cart-item-name">{item.nome}</p>
-        <p className="cart-item-meta">{meta || 'Produto selecionado para o pedido'}</p>
-        <p className="cart-item-unitary">
-          Unitário: <strong>{formatarMoeda(precoUnitario)}</strong>
-        </p>
+        <p className="cart-item-unitary"><strong>{formatarMoeda(precoUnitario)}</strong></p>
       </div>
 
       <div className="cart-item-qty" aria-label={`Quantidade de ${item.nome}`}>
@@ -62,18 +49,7 @@ export function CartItemRow({
           -
         </button>
 
-        <input
-          className="cart-item-qty-input"
-          type="number"
-          min="1"
-          value={quantidade}
-          onChange={(event) => {
-            const digits = String(event.target.value || '').replace(/\D/g, '');
-            const proximaQuantidade = Number.parseInt(digits || '1', 10);
-            onUpdateQuantity(item.id, Math.max(1, Number.isFinite(proximaQuantidade) ? proximaQuantidade : 1));
-          }}
-          aria-label={`Quantidade de ${item.nome}`}
-        />
+        <span className="cart-item-qty-value" aria-live="polite" aria-atomic="true">{quantidade}</span>
 
         <button
           type="button"
@@ -86,7 +62,6 @@ export function CartItemRow({
       </div>
 
       <div className="cart-item-subtotal">
-        <span>Subtotal</span>
         <strong>{formatarMoeda(subtotal)}</strong>
       </div>
 
@@ -103,14 +78,11 @@ export function CartItemRow({
 }
 
 export function CheckoutSummaryCard({
-  itens,
-  produtosDistintos,
   subtotal,
   taxaServico = 0,
   tipoEntrega = 'entrega',
   economiaFrete = 0,
   onContinue,
-  onClearCart,
   disabled
 }) {
   const retirada = String(tipoEntrega || '').trim().toLowerCase() === 'retirada';
@@ -119,18 +91,7 @@ export function CheckoutSummaryCard({
 
   return (
     <aside className="checkout-cart-summary-card" aria-label="Resumo da etapa de carrinho">
-      <p className="checkout-cart-summary-kicker">Resumo do carrinho</p>
-      <h3>Revisão da compra</h3>
-
-      <div className="checkout-cart-summary-row">
-        <span>Itens</span>
-        <strong>{formatarQuantidadeItens(itens)}</strong>
-      </div>
-
-      <div className="checkout-cart-summary-row">
-        <span>Produtos diferentes</span>
-        <strong>{produtosDistintos}</strong>
-      </div>
+      <h3>Resumo</h3>
 
       <div className="checkout-cart-summary-row">
         <span>Subtotal</span>
@@ -139,48 +100,78 @@ export function CheckoutSummaryCard({
 
       <div className="checkout-cart-summary-row">
         <span>Frete</span>
-        <strong>{retirada ? 'Sem frete' : 'Calculado na etapa de entrega'}</strong>
+        <strong>{retirada ? 'Grátis' : 'Na entrega'}</strong>
       </div>
-
-      <div className="checkout-cart-summary-row">
-        <span>Taxa de serviço</span>
-        <strong>{formatarMoeda(taxaServicoNumerico)}</strong>
-      </div>
-
-      {retirada ? (
-        <div className="checkout-cart-summary-row is-savings">
-          <span>Economia no frete</span>
-          <strong>{Number(economiaFrete || 0) > 0 ? formatarMoeda(economiaFrete) : 'Sem custo adicional'}</strong>
-        </div>
-      ) : null}
 
       <div className="checkout-cart-summary-divider" aria-hidden="true" />
 
       <div className="checkout-cart-summary-row is-total">
-        <span>Total previsto</span>
+        <span>Total</span>
         <strong>{formatarMoeda(totalPrevisto)}</strong>
       </div>
 
       <button
-        className="btn-primary checkout-cart-summary-btn"
+        className="btn-primary checkout-cart-summary-btn checkout-cart-summary-btn-desktop"
         type="button"
         onClick={onContinue}
         disabled={disabled}
       >
-        Continuar para entrega • {formatarMoeda(totalPrevisto)}
+        Ir para entrega
       </button>
 
-      <button
-        className="btn-secondary checkout-cart-summary-clear-btn"
-        type="button"
-        onClick={onClearCart}
-        disabled={disabled}
-      >
-        Esvaziar carrinho
-      </button>
-
-      <p className="checkout-cart-summary-note">Você só confirma o pagamento nas próximas etapas. Frete e prazo aparecem na entrega.</p>
+      {disabled ? <p className="checkout-cart-summary-note">Adicione itens para continuar</p> : null}
     </aside>
+  );
+}
+
+export function CheckoutCrossSellRail({
+  title = 'Pode combinar com isso 👀',
+  subtitle = 'Que tal adicionar também?',
+  produtos = [],
+  carregando = false,
+  onAdd
+}) {
+  if (!carregando && !produtos.length) {
+    return null;
+  }
+
+  return (
+    <section className="checkout-cross-sell" aria-label="Sugestões para complementar a compra">
+      <div className="checkout-cross-sell-header">
+        <h3>{title}</h3>
+        <p>{subtitle}</p>
+      </div>
+
+      <div className="checkout-cross-sell-rail" role="list">
+        {carregando ? (
+          Array.from({ length: 4 }).map((_, idx) => (
+            <article key={`skeleton-${idx}`} className="checkout-cross-sell-card is-loading" role="listitem" aria-hidden="true" />
+          ))
+        ) : produtos.map((produto) => (
+          <article key={produto.id} className="checkout-cross-sell-card" role="listitem">
+            <div className="checkout-cross-sell-media" aria-hidden="true">
+              {produto.imagem ? (
+                <SmartImage src={produto.imagem} alt="" className="checkout-cross-sell-image" loading="lazy" />
+              ) : (
+                <span className="checkout-cross-sell-emoji">{produto.emoji || '🛍️'}</span>
+              )}
+            </div>
+
+            <p className="checkout-cross-sell-name">{produto.nome}</p>
+            <strong className="checkout-cross-sell-price">{formatarMoeda(produto.preco)}</strong>
+
+            <button
+              type="button"
+              className="checkout-cross-sell-add-btn"
+              onClick={() => onAdd(produto)}
+              aria-label={`Adicionar ${produto.nome}`}
+            >
+              +
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -202,40 +193,17 @@ export function OrderSummaryCard({
 
   return (
     <aside className={`checkout-order-summary ${className}`.trim()} aria-label="Resumo do pedido">
-      <p className="checkout-order-summary-kicker">Resumo do pedido</p>
-      <h3>Total da compra</h3>
+      <h3>Resumo</h3>
 
       <div className="checkout-order-summary-row">
-        <span>Itens</span>
-        <strong>{itensExibicao}</strong>
-      </div>
-
-      <div className="checkout-order-summary-row">
-        <span>Produtos</span>
+        <span>Subtotal</span>
         <strong>{formatarMoeda(subtotal)}</strong>
       </div>
 
       <div className="checkout-order-summary-row">
         <span>Frete</span>
-        <strong>{frete === null ? 'A calcular' : retirada ? 'Sem frete' : formatarMoeda(frete)}</strong>
+        <strong>{frete === null ? 'A calcular' : retirada ? 'Grátis' : formatarMoeda(frete)}</strong>
       </div>
-
-      <div className="checkout-order-summary-row">
-        <span>Atendimento</span>
-        <strong>{veiculoLabel}</strong>
-      </div>
-
-      <div className="checkout-order-summary-row">
-        <span>Taxa de serviço</span>
-        <strong>{formatarMoeda(Number(taxaServico || 0))}</strong>
-      </div>
-
-      {retirada ? (
-        <div className="checkout-order-summary-row is-savings">
-          <span>Economia no frete</span>
-          <strong>{Number(economiaFrete || 0) > 0 ? formatarMoeda(economiaFrete) : 'Sem custo adicional'}</strong>
-        </div>
-      ) : null}
 
       <div className="checkout-order-summary-divider" aria-hidden="true" />
 

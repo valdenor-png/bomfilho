@@ -151,6 +151,7 @@ const STATUS_CHIPS_OPERACIONAIS_SET = new Set(STATUS_CHIPS_OPERACIONAIS);
 const ORDENACAO_PEDIDOS_SET = new Set(ORDENACAO_PEDIDOS_OPTIONS.map((item) => item.id));
 const FILTRO_PAGAMENTO_SET = new Set(FILTRO_PAGAMENTO_OPTIONS.map((item) => item.id));
 const FILTRO_TIPO_ENTREGA_SET = new Set(FILTRO_TIPO_ENTREGA_OPTIONS.map((item) => item.id));
+const PEDIDOS_TAB_SOMENTE_HISTORICO = true;
 
 // Som de notificação para novos pedidos (Web Audio API - sem arquivo externo)
 function tocarSomNovoPedido() {
@@ -1005,7 +1006,7 @@ export default function AdminPage() {
   const [adminUsuario, setAdminUsuario] = useState('admin');
   const [adminSenha, setAdminSenha] = useState('');
   const [adminAutenticado, setAdminAutenticado] = useState(null);
-  const [tab, setTab] = useState('dashboard');
+  const [tab, setTab] = useState('operacao');
   const [pedidos, setPedidos] = useState([]);
   const [produtos, setProdutos] = useState([]);
   const [paginacaoPedidos, setPaginacaoPedidos] = useState(() => criarPaginacaoInicial(ADMIN_PEDIDOS_POR_PAGINA));
@@ -2513,8 +2514,8 @@ export default function AdminPage() {
           <section className={`admin-orders-panel ${modoFilaAltaAtivo ? 'is-fila-alta' : ''}`}>
             <div className="admin-orders-head">
               <div>
-                <h2>Operação de pedidos</h2>
-                <p>Triagem operacional para priorizar, executar e acompanhar a fila.</p>
+                <h2>Histórico de pedidos</h2>
+                <p>Consulta histórica de pedidos. Operação em tempo real fica na aba Operação ao Vivo.</p>
               </div>
 
               <p className="admin-orders-head-meta">
@@ -2522,7 +2523,8 @@ export default function AdminPage() {
               </p>
             </div>
 
-            <div className="admin-orders-summary-grid" aria-label="Resumo operacional dos pedidos">
+            {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
+              <div className="admin-orders-summary-grid" aria-label="Resumo operacional dos pedidos">
               <article className="admin-orders-summary-card">
                 <span>Total na página</span>
                 <strong>{resumoPedidosOperacionais.total}</strong>
@@ -2558,9 +2560,11 @@ export default function AdminPage() {
                 <strong>{resumoPedidosOperacionais.pendentesPagamento}</strong>
                 <small>Com necessidade de conferência</small>
               </article>
-            </div>
+              </div>
+            ) : null}
 
-            <div className="admin-orders-refresh-strip" aria-label="Estado de atualização operacional">
+            {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
+              <div className="admin-orders-refresh-strip" aria-label="Estado de atualização operacional">
               <div className="admin-orders-refresh-info">
                 <p>
                   <strong>Última atualização:</strong> {ultimaAtualizacaoPedidosTexto}
@@ -2607,9 +2611,11 @@ export default function AdminPage() {
                   {carregandoPedidos ? 'Atualizando...' : 'Sincronizar fila agora'}
                 </button>
               </div>
-            </div>
+              </div>
+            ) : null}
 
-            <div className="admin-orders-quick-nav" aria-label="Navegação rápida entre pedidos">
+            {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
+              <div className="admin-orders-quick-nav" aria-label="Navegação rápida entre pedidos">
               <p>
                 {pedidoExpandidoId && navegacaoPedidosDetalhe.indiceAtual >= 0
                   ? `Detalhe aberto ${navegacaoPedidosDetalhe.indiceAtual + 1} de ${navegacaoPedidosDetalhe.total}`
@@ -2645,9 +2651,11 @@ export default function AdminPage() {
                   Fechar detalhe
                 </button>
               </div>
-            </div>
+              </div>
+            ) : null}
 
-            <div className="admin-orders-session-audit" aria-label="Auditoria da sessão operacional">
+            {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
+              <div className="admin-orders-session-audit" aria-label="Auditoria da sessão operacional">
               <div className="admin-orders-session-audit-head">
                 <p>
                   <strong>Histórico da sessão:</strong> {resumoAuditoriaSessao.total} ação(ões)
@@ -2685,27 +2693,30 @@ export default function AdminPage() {
               >
                 Limpar histórico da sessão
               </button>
-            </div>
-
-            <div className="admin-orders-filter-wrap" aria-label="Filtros operacionais">
-              <div className="admin-orders-status-chips" role="tablist" aria-label="Filtrar pedidos por status">
-                {statusChipsOperacionais.map((chip) => (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    className={`admin-orders-status-chip ${filtroPedidoStatus === chip.id ? 'active' : ''}`}
-                    onClick={() => setFiltroPedidoStatus(chip.id)}
-                    aria-pressed={filtroPedidoStatus === chip.id}
-                  >
-                    <span>{chip.label}</span>
-                    <strong>{chip.count}</strong>
-                  </button>
-                ))}
               </div>
+            ) : null}
+
+            <div className="admin-orders-filter-wrap" aria-label="Filtros de histórico de pedidos">
+              {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
+                <div className="admin-orders-status-chips" role="tablist" aria-label="Filtrar pedidos por status">
+                  {statusChipsOperacionais.map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      className={`admin-orders-status-chip ${filtroPedidoStatus === chip.id ? 'active' : ''}`}
+                      onClick={() => setFiltroPedidoStatus(chip.id)}
+                      aria-pressed={filtroPedidoStatus === chip.id}
+                    >
+                      <span>{chip.label}</span>
+                      <strong>{chip.count}</strong>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
 
               <div className="admin-orders-filters-grid">
                 <label className="admin-orders-search-field" htmlFor="admin-orders-search">
-                  <span>Busca operacional</span>
+                  <span>Buscar no histórico</span>
                   <input
                     id="admin-orders-search"
                     className="field-input"
@@ -3010,7 +3021,7 @@ export default function AdminPage() {
                       ) : null}
 
                       <div className="admin-order-actions-row">
-                        {pedido.proximoStatus ? (
+                        {!PEDIDOS_TAB_SOMENTE_HISTORICO && pedido.proximoStatus ? (
                           <button
                             className="btn-primary admin-order-next-step-btn"
                             type="button"
@@ -3032,7 +3043,8 @@ export default function AdminPage() {
                               [pedidoId]: event.target.value
                             }))
                           }
-                          disabled={emAtualizacao}
+                          disabled={emAtualizacao || PEDIDOS_TAB_SOMENTE_HISTORICO}
+                          title={PEDIDOS_TAB_SOMENTE_HISTORICO ? 'Aba somente histórico: sem alteração de status.' : ''}
                         >
                           {opcoesStatus.map((status) => (
                             <option key={`${pedidoId}-${status}`} value={status}>
@@ -3048,9 +3060,10 @@ export default function AdminPage() {
                           onClick={() => {
                             void salvarStatusPedido(pedidoId);
                           }}
-                          disabled={!podeSalvarStatus || emAtualizacao}
+                          disabled={PEDIDOS_TAB_SOMENTE_HISTORICO || !podeSalvarStatus || emAtualizacao}
+                          title={PEDIDOS_TAB_SOMENTE_HISTORICO ? 'Aba somente histórico: sem alteração de status.' : ''}
                         >
-                          {emAtualizacao ? 'Salvando...' : 'Confirmar status'}
+                          {PEDIDOS_TAB_SOMENTE_HISTORICO ? 'Somente histórico' : (emAtualizacao ? 'Salvando...' : 'Confirmar status')}
                         </button>
 
                         <button

@@ -2,7 +2,7 @@
  * Componentes de seleção e resumo de pagamento — extraídos de PagamentoPage.
  */
 import React from 'react';
-import { formatarMoeda, formatarQuantidadeItens } from '../../lib/checkoutUtils';
+import { formatarMoeda } from '../../lib/checkoutUtils';
 
 export function PaymentMethodCard({
   icon,
@@ -60,71 +60,20 @@ export function PaymentSelectionSummary({ title, description }) {
 }
 
 export function PaymentOrderSummary({ itens, subtotal, frete, taxaServico = 0, total, metodo, tipoEntrega = 'entrega', economiaFrete = 0, className = '' }) {
-  const itensNumerico = Number(itens);
-  const itensExibicao = Number.isFinite(Number(itens))
-    ? formatarQuantidadeItens(Number(itens))
-    : itens;
   const retirada = String(tipoEntrega || '').trim().toLowerCase() === 'retirada';
-  const subtotalNumerico = Number(subtotal || 0);
-  const totalNumerico = Number(total || 0);
-  const freteNumerico = frete === null ? null : Number(frete || 0);
-  const taxaServicoNumerico = Number(taxaServico || 0);
-  const valorMedioPorItem = Number.isFinite(itensNumerico) && itensNumerico > 0
-    ? Number((totalNumerico / itensNumerico).toFixed(2))
-    : null;
-  const linhaConferencia = freteNumerico === null
-    ? 'Total parcial exibido. O frete sera somado apos a simulacao de entrega.'
-    : retirada
-      ? `Conferencia: ${formatarMoeda(subtotalNumerico)} + ${formatarMoeda(taxaServicoNumerico)} (taxa de servico) + sem frete = ${formatarMoeda(totalNumerico)}.`
-      : `Conferencia: ${formatarMoeda(subtotalNumerico)} + ${formatarMoeda(taxaServicoNumerico)} (taxa de servico) + ${formatarMoeda(freteNumerico)} = ${formatarMoeda(totalNumerico)}.`;
 
   return (
     <aside className={`payment-order-summary ${className}`.trim()} aria-label="Resumo financeiro da etapa de pagamento">
-      <p className="payment-order-summary-kicker">Resumo do pedido</p>
-      <h3>Quanto você vai pagar</h3>
+      <h3>Resumo</h3>
 
       <div className="payment-order-summary-row">
-        <span>Itens</span>
-        <strong>{itensExibicao}</strong>
-      </div>
-
-      <div className="payment-order-summary-row">
-        <span>Produtos</span>
+        <span>Subtotal</span>
         <strong>{formatarMoeda(subtotal)}</strong>
       </div>
 
       <div className="payment-order-summary-row">
-        <span>Frete</span>
-        <strong>{frete === null ? 'A calcular' : retirada ? 'Sem frete' : formatarMoeda(frete)}</strong>
-      </div>
-
-      <div className="payment-order-summary-row">
-        <span>Taxa de serviço</span>
-        <strong>{formatarMoeda(taxaServicoNumerico)}</strong>
-      </div>
-
-      {valorMedioPorItem !== null ? (
-        <div className="payment-order-summary-row is-average">
-          <span>Media por item</span>
-          <strong>{formatarMoeda(valorMedioPorItem)}</strong>
-        </div>
-      ) : null}
-
-      {retirada ? (
-        <div className="payment-order-summary-row is-savings">
-          <span>Economia no frete</span>
-          <strong>{Number(economiaFrete || 0) > 0 ? formatarMoeda(economiaFrete) : 'Sem custo adicional'}</strong>
-        </div>
-      ) : null}
-
-      <div className="payment-order-summary-row">
-        <span>Pagamento</span>
-        <strong>{metodo}</strong>
-      </div>
-
-      <div className="payment-order-summary-row">
-        <span>Atendimento</span>
-        <strong>{retirada ? 'Retirada na loja' : 'Entrega no endereco'}</strong>
+        <span>Entrega</span>
+        <strong>{frete === null ? 'A calcular' : retirada ? 'Grátis' : formatarMoeda(frete)}</strong>
       </div>
 
       <div className="payment-order-summary-divider" aria-hidden="true" />
@@ -133,10 +82,6 @@ export function PaymentOrderSummary({ itens, subtotal, frete, taxaServico = 0, t
         <span>Total</span>
         <strong>{formatarMoeda(total)}</strong>
       </div>
-
-      <p className="payment-order-summary-clarity">{linhaConferencia}</p>
-
-      <p className="payment-order-summary-trust">🔒 Pagamento seguro via PagBank. Seus dados estao protegidos.</p>
     </aside>
   );
 }

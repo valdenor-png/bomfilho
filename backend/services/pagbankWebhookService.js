@@ -256,18 +256,13 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
       let resultadoUpdate = null;
       let modoPersistencia = 'completo';
 
-      // Verificar status anterior para restauração condicional de estoque (Q042)
-      let statusAnterior = null;
-      if (statusInterno === 'cancelado') {
-        try {
-          const [pedidoRows] = await pool.query('SELECT status FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
-          statusAnterior = pedidoRows.length ? pedidoRows[0].status : null;
-        } catch (_) { /* ignore - prossegue sem restauração */ }
-      }
+      const whereAtualizacao = statusInterno === 'cancelado'
+        ? 'id = ? AND status <> \'cancelado\''
+        : 'id = ?';
 
       try {
         const [resultadoCompleto] = await pool.query(
-          'UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ?, pago_em = COALESCE(pago_em, IF(? = \'pago\', NOW(), pago_em)) WHERE id = ?',
+          `UPDATE pedidos SET status = ?, pix_status = ?, pix_id = ?, pago_em = COALESCE(pago_em, IF(? = 'pago', NOW(), pago_em)) WHERE ${whereAtualizacao}`,
           [statusInterno, statusPagBank, orderId, statusInterno, pedidoId]
         );
         resultadoUpdate = resultadoCompleto;
@@ -278,7 +273,7 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
         }
 
         const [resultadoFallback] = await pool.query(
-          'UPDATE pedidos SET status = ? WHERE id = ?',
+          `UPDATE pedidos SET status = ? WHERE ${whereAtualizacao}`,
           [statusInterno, pedidoId]
         );
         resultadoUpdate = resultadoFallback;
@@ -321,8 +316,8 @@ async function persistirAtualizacaoPedidoWebhookPagBank({
         });
       }
 
-      // Restaurar estoque se transitando para cancelado (Q042)
-      if (statusInterno === 'cancelado' && statusAnterior && statusAnterior !== 'cancelado') {
+      // Restaurar estoque apenas no cancelamento realmente aplicado nesta transição.
+      if (statusInterno === 'cancelado' && persistido) {
         try {
           const [itensPedido] = await pool.query(
             'SELECT produto_id, quantidade FROM pedido_itens WHERE pedido_id = ?',

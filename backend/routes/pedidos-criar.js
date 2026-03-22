@@ -5,7 +5,8 @@ const logger = require('../lib/logger');
 const { criarErroHttp, toMoney } = require('../lib/helpers');
 const {
   RECAPTCHA_CHECKOUT_PROTECTION_ENABLED,
-  TAXA_SERVICO_PERCENTUAL
+  TAXA_SERVICO_PERCENTUAL,
+  DISTRIBUTED_IDEMPOTENCY_ENABLED
 } = require('../lib/config');
 const {
   FORMAS_PAGAMENTO_PEDIDO_VALIDAS,
@@ -16,6 +17,41 @@ const {
   extrairTaxIdDigits,
   itensPedidoSaoValidos
 } = require('../services/pedidoPagamentoHelpers');
+const {
+  normalizarIdempotencyKey,
+  hashFingerprint,
+  iniciarOperacaoDistribuida,
+  concluirOperacaoDistribuida,
+  falharOperacaoDistribuida
+} = require('../services/distributedIdempotencyService');
+
+function montarFingerprintCriacaoPedido(payload = {}) {
+  const itens = Array.isArray(payload?.itens)
+    ? payload.itens
+      .map((item) => ({
+        produto_id: Number(item?.produto_id || 0),
+        quantidade: Number(item?.quantidade || 0)
+      }))
+      .sort((a, b) => a.produto_id - b.produto_id)
+    : [];
+
+  const entrega = payload?.entrega && typeof payload.entrega === 'object'
+    ? {
+      cep: String(payload.entrega?.cep_destino || payload.entrega?.cep || '').replace(/\D/g, '').slice(0, 8),
+      numero: String(payload.entrega?.numero_destino || payload.entrega?.numero || '').trim().slice(0, 20),
+      veiculo: String(payload.entrega?.veiculo || '').trim().toLowerCase()
+    }
+    : null;
+
+  return hashFingerprint({
+    itens,
+    forma_pagamento: String(payload?.forma_pagamento || '').trim().toLowerCase(),
+    cupom_id: payload?.cupom_id ?? null,
+    tipo_entrega: String(payload?.tipo_entrega || '').trim().toLowerCase(),
+    tax_id: String(payload?.tax_id || payload?.cpf || '').replace(/\D/g, ''),
+    entrega
+  });
+}
 
 /**
  * @param {object} deps
@@ -39,10 +75,44 @@ module.exports = function createPedidoCriarRoute(deps) {
   const router = express.Router();
 
   router.post('/api/pedidos', autenticarToken, async (req, res) => {
+    const chaveIdempotencia = normalizarIdempotencyKey(req.headers?.['x-idempotency-key']);
+    const usarIdempotenciaDistribuida = DISTRIBUTED_IDEMPOTENCY_ENABLED && Boolean(chaveIdempotencia);
+    const fingerprint = usarIdempotenciaDistribuida
+      ? montarFingerprintCriacaoPedido(req.body || {})
+      : '';
+    let idempotenciaAdquirida = false;
+
     const connection = await pool.getConnection();
     let transacaoAberta = false;
 
     try {
+      if (usarIdempotenciaDistribuida) {
+        const statusIdempotencia = await iniciarOperacaoDistribuida({
+          pool,
+          scope: 'pedido_criacao',
+          idempotencyKey: chaveIdempotencia,
+          userId: req.usuario.id,
+          requestFingerprint: fingerprint,
+          strictFingerprint: true,
+          lockTtlSeconds: 35,
+          operationTtlSeconds: 180
+        });
+
+        if (statusIdempotencia.state === 'replay' && statusIdempotencia.responsePayload) {
+          return res.status(Number(statusIdempotencia.httpStatus || 201)).json(statusIdempotencia.responsePayload);
+        }
+
+        if (statusIdempotencia.state === 'in_progress') {
+          return res.status(409).json({ erro: 'Seu pedido já está sendo processado. Aguarde alguns segundos e atualize a tela.' });
+        }
+
+        if (statusIdempotencia.state === 'fingerprint_mismatch') {
+          return res.status(409).json({ erro: 'A chave de idempotência enviada não corresponde a esta solicitação.' });
+        }
+
+        idempotenciaAdquirida = statusIdempotencia.state === 'acquired';
+      }
+
       if (RECAPTCHA_CHECKOUT_PROTECTION_ENABLED) {
         await validarRecaptcha({
           token: req.body?.recaptcha_token,
@@ -311,7 +381,7 @@ module.exports = function createPedidoCriarRoute(deps) {
         }
       }
 
-      res.status(201).json({
+      const respostaSucesso = {
         mensagem: 'Pedido recebido! Aguarde a revisão da equipe para prosseguir com o pagamento.',
         pedido_id: pedidoId,
         status: 'aguardando_revisao',
@@ -333,8 +403,34 @@ module.exports = function createPedidoCriarRoute(deps) {
           },
         desconto_aplicado: descontoAplicado,
         forma_pagamento: formaPagamento
-      });
+      };
+
+      if (usarIdempotenciaDistribuida && idempotenciaAdquirida) {
+        await concluirOperacaoDistribuida({
+          pool,
+          scope: 'pedido_criacao',
+          idempotencyKey: chaveIdempotencia,
+          userId: req.usuario.id,
+          pedidoId,
+          httpStatus: 201,
+          responsePayload: respostaSucesso,
+          successTtlSeconds: 300
+        });
+      }
+
+      res.status(201).json(respostaSucesso);
     } catch (erro) {
+      if (usarIdempotenciaDistribuida && idempotenciaAdquirida) {
+        await falharOperacaoDistribuida({
+          pool,
+          scope: 'pedido_criacao',
+          idempotencyKey: chaveIdempotencia,
+          userId: req.usuario.id,
+          httpStatus: Number(erro?.httpStatus || 500),
+          errorMessage: erro?.message || 'erro_pedido',
+          failureTtlSeconds: 90
+        });
+      }
       if (transacaoAberta) {
         await connection.rollback();
       }

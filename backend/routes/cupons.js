@@ -15,7 +15,17 @@ module.exports = function createCuponsRoutes({ autenticarToken, toMoney }) {
   // Validar cupom
   router.post('/api/cupons/validar', autenticarToken, async (req, res) => {
     try {
-      const { codigo, valorPedido } = req.body;
+      const { codigo, valorPedido } = req.body || {};
+      const codigoNormalizado = String(codigo || '').trim().toUpperCase();
+      const valorPedidoNumero = Number(valorPedido);
+
+      if (!codigoNormalizado) {
+        return res.status(400).json({ erro: 'Informe um código de cupom para validação.' });
+      }
+
+      if (!Number.isFinite(valorPedidoNumero) || valorPedidoNumero <= 0) {
+        return res.status(400).json({ erro: 'Informe um valor de pedido válido para validar o cupom.' });
+      }
 
       // Buscar cupom
       const [cupons] = await pool.query(
@@ -25,7 +35,7 @@ module.exports = function createCuponsRoutes({ autenticarToken, toMoney }) {
          AND ativo = TRUE
          AND (validade IS NULL OR validade >= CURDATE())
          AND (uso_maximo IS NULL OR uso_atual < uso_maximo)`,
-        [codigo.toUpperCase()]
+        [codigoNormalizado]
       );
 
       if (cupons.length === 0) {
@@ -36,7 +46,7 @@ module.exports = function createCuponsRoutes({ autenticarToken, toMoney }) {
 
       // Verificar valor mínimo
       const valorMinimoCupom = Number(cupom.valor_minimo || 0);
-      if (valorPedido < valorMinimoCupom) {
+      if (valorPedidoNumero < valorMinimoCupom) {
         return res.status(400).json({
           erro: `Valor mínimo do pedido para este cupom: R$ ${valorMinimoCupom.toFixed(2)}`
         });
@@ -53,7 +63,7 @@ module.exports = function createCuponsRoutes({ autenticarToken, toMoney }) {
       }
 
       // Calcular desconto
-      const valorPedidoNum = toMoney(Number(valorPedido || 0));
+      const valorPedidoNum = toMoney(valorPedidoNumero);
       let desconto = 0;
       if (cupom.tipo === 'percentual') {
         desconto = toMoney(valorPedidoNum * (Number(cupom.valor || 0) / 100));

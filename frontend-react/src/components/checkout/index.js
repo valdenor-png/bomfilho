@@ -4,6 +4,6 @@
 export { BotaoVoltarSeta, LinkVoltarSeta, CheckoutStepper } from './CheckoutNav';
 export { CheckoutContextBanner, CheckoutGuidanceChips, CheckoutMobileActionBar, CheckoutSecurityTrust } from './CheckoutBanners';
 export { DeliveryOptionCard, DeliverySummaryCard, DeliveryModeSelector, PickupStoreCard, DeliveryAddressLookupCard } from './CheckoutDelivery';
-export { CartItemRow, CheckoutSummaryCard, OrderSummaryCard } from './CheckoutCart';
+export { CartItemRow, CheckoutSummaryCard, CheckoutCrossSellRail, OrderSummaryCard } from './CheckoutCart';
 export { PaymentMethodCard, PaymentSelectionSummary, PaymentOrderSummary, TaxIdInput } from './CheckoutPayment';
 export { PixStatusCard, PixQrCodeCard, PixCopyCodeCard, PixInstructionsCard } from './CheckoutPix';

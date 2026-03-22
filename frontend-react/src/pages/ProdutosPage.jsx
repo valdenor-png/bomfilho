@@ -114,6 +114,150 @@ import {
 
 const ProdutoDecisionDrawer = React.lazy(() => import('../components/ProdutoDecisionDrawer'));
 
+const CategoriaHorizontalRail = React.memo(function CategoriaHorizontalRail({
+  itensIndexados = [],
+  onWheel,
+  renderCard,
+  exibirBarraMobile = false
+}) {
+  const trilhoRef = useRef(null);
+  const snapTimeoutRef = useRef(null);
+  const [maxScroll, setMaxScroll] = useState(0);
+  const [scrollPos, setScrollPos] = useState(0);
+
+  const sincronizarMetricas = useCallback(() => {
+    const elemento = trilhoRef.current;
+    if (!elemento) {
+      setMaxScroll(0);
+      setScrollPos(0);
+      return;
+    }
+
+    const maxAtual = Math.max(0, elemento.scrollWidth - elemento.clientWidth);
+    const scrollAtual = Math.max(0, Math.min(maxAtual, elemento.scrollLeft));
+    setMaxScroll(maxAtual);
+    setScrollPos(scrollAtual);
+  }, []);
+
+  useEffect(() => {
+    sincronizarMetricas();
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    window.addEventListener('resize', sincronizarMetricas);
+    return () => {
+      window.removeEventListener('resize', sincronizarMetricas);
+    };
+  }, [itensIndexados, sincronizarMetricas]);
+
+  useEffect(() => {
+    return () => {
+      if (snapTimeoutRef.current) {
+        clearTimeout(snapTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const snapParaCardMaisProximo = useCallback(() => {
+    const elemento = trilhoRef.current;
+    if (!elemento) {
+      return;
+    }
+
+    const cards = elemento.querySelectorAll('.produto-card');
+    if (!cards.length) {
+      return;
+    }
+
+    const scrollAtual = Math.max(0, elemento.scrollLeft);
+    let offsetMaisProximo = 0;
+    let distanciaMaisProxima = Number.POSITIVE_INFINITY;
+
+    cards.forEach((card) => {
+      const offset = Number(card?.offsetLeft || 0);
+      const distancia = Math.abs(offset - scrollAtual);
+      if (distancia < distanciaMaisProxima) {
+        distanciaMaisProxima = distancia;
+        offsetMaisProximo = offset;
+      }
+    });
+
+    elemento.scrollTo({
+      left: offsetMaisProximo,
+      behavior: 'smooth'
+    });
+  }, []);
+
+  const agendarSnap = useCallback(() => {
+    if (!exibirBarraMobile) {
+      return;
+    }
+
+    if (snapTimeoutRef.current) {
+      clearTimeout(snapTimeoutRef.current);
+    }
+
+    snapTimeoutRef.current = setTimeout(() => {
+      snapParaCardMaisProximo();
+    }, 140);
+  }, [exibirBarraMobile, snapParaCardMaisProximo]);
+
+  const handleScroll = useCallback((event) => {
+    const elemento = event.currentTarget;
+    const maxAtual = Math.max(0, elemento.scrollWidth - elemento.clientWidth);
+    setMaxScroll(maxAtual);
+    setScrollPos(Math.max(0, Math.min(maxAtual, elemento.scrollLeft)));
+    agendarSnap();
+  }, [agendarSnap]);
+
+  const handleRangeChange = useCallback((event) => {
+    const elemento = trilhoRef.current;
+    if (!elemento) {
+      return;
+    }
+
+    const proximoValor = Number(event.target.value || 0);
+    elemento.scrollLeft = proximoValor;
+    setScrollPos(proximoValor);
+  }, []);
+
+  const handleRangeCommit = useCallback(() => {
+    snapParaCardMaisProximo();
+  }, [snapParaCardMaisProximo]);
+
+  const mostrarBarraRange = exibirBarraMobile && maxScroll > 0;
+
+  return (
+    <div className="categoria-horizontal-rail">
+      <div
+        ref={trilhoRef}
+        className="categoria-horizontal-scroll"
+        onWheel={onWheel}
+        onScroll={handleScroll}
+      >
+        {itensIndexados.map((produtoIndexado, index) => renderCard(produtoIndexado, index))}
+      </div>
+
+      {mostrarBarraRange ? (
+        <input
+          type="range"
+          className="categoria-horizontal-range"
+          min={0}
+          max={maxScroll}
+          step={1}
+          value={scrollPos}
+          onChange={handleRangeChange}
+          onMouseUp={handleRangeCommit}
+          onTouchEnd={handleRangeCommit}
+          onKeyUp={handleRangeCommit}
+          aria-label="Deslizar produtos da categoria"
+        />
+      ) : null}
+    </div>
+  );
+});
+
 
 export default function ProdutosPage() {
   useDocumentHead({ title: 'Produtos', description: 'Explore o catálogo completo do BomFilho — hortifruti, bebidas, mercearia, limpeza e muito mais.' });
@@ -179,6 +323,8 @@ export default function ProdutosPage() {
   const quantidadesCarrinhoRef = useRef(new Map());
   const prefetchProdutosCacheRef = useRef(new Map());
   const prefetchEmAndamentoRef = useRef(new Set());
+  const produtosSnapshotRef = useRef([]);
+  const falhasConsecutivasProdutosRef = useRef(0);
   const buscaDebounced = useDebouncedValue(busca, 280);
   const termoBuscaDigitado = String(busca || '').trim();
   const termoBuscaEfetivo = String(buscaDebounced || '').trim();
@@ -341,6 +487,10 @@ export default function ProdutosPage() {
   }, [assinaturaConsultaAtual]);
 
   useEffect(() => {
+    produtosSnapshotRef.current = produtos;
+  }, [produtos]);
+
+  useEffect(() => {
     return () => {
       if (limparFeedbackAdicaoRef.current) {
         clearTimeout(limparFeedbackAdicaoRef.current);
@@ -442,12 +592,43 @@ export default function ProdutosPage() {
         || detalheCategoriaAtivo
       );
       const limiteEfetivo = categoriaPrecisaAmostraAmpla ? 200 : PRODUTOS_POR_PAGINA;
-      const { lista, paginacao } = await fetchProdutosPage({
-        categoria: categoriaEfetiva,
-        busca: buscaEfetiva,
-        page: pagina,
-        limit: limiteEfetivo
-      });
+      let respostaProdutos = null;
+      let erroTentativa = null;
+
+      // Retry silencioso para reduzir intermitência em falhas transitórias de rede/5xx.
+      for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
+        try {
+          respostaProdutos = await fetchProdutosPage({
+            categoria: categoriaEfetiva,
+            busca: buscaEfetiva,
+            page: pagina,
+            limit: limiteEfetivo
+          });
+          erroTentativa = null;
+          break;
+        } catch (errorFetch) {
+          erroTentativa = errorFetch;
+          const statusErro = Number(errorFetch?.status || 0);
+          const mensagemErro = String(errorFetch?.message || '').toLowerCase();
+          const erroRecuperavel = statusErro === 0
+            || statusErro >= 500
+            || mensagemErro.includes('network')
+            || mensagemErro.includes('failed to fetch');
+
+          if (tentativa < 2 && erroRecuperavel) {
+            await new Promise((resolve) => setTimeout(resolve, 180));
+            continue;
+          }
+
+          throw errorFetch;
+        }
+      }
+
+      if (!respostaProdutos && erroTentativa) {
+        throw erroTentativa;
+      }
+
+      const { lista, paginacao } = respostaProdutos || { lista: [], paginacao: {} };
 
       if (requestId !== requisicaoProdutosIdRef.current) {
         return;
@@ -457,6 +638,7 @@ export default function ProdutosPage() {
       setPaginaAtual(Number(paginacao.pagina || pagina));
       setTemMaisProdutos(Boolean(paginacao.tem_mais));
       setTotalProdutosBackend(Number(paginacao.total || lista.length));
+      falhasConsecutivasProdutosRef.current = 0;
 
       void prefetchProximaPagina({
         categoriaAlvo: categoriaEfetiva,
@@ -469,13 +651,31 @@ export default function ProdutosPage() {
         return;
       }
 
+      const falhasConsecutivas = ++falhasConsecutivasProdutosRef.current;
+      const status = Number(error?.status || 0);
+      const erroFatal = status >= 500 || status === 0;
+      const listaAnterior = Array.isArray(produtosSnapshotRef.current)
+        ? produtosSnapshotRef.current
+        : [];
+      const tinhaConteudoAnterior = listaAnterior.length > 0;
+
       setErro(error.message);
 
       if (!append) {
-        setProdutos([]);
-        setPaginaAtual(1);
-        setTemMaisProdutos(false);
-        setTotalProdutosBackend(0);
+        if (!tinhaConteudoAnterior) {
+          setProdutos([]);
+          setPaginaAtual(1);
+          setTemMaisProdutos(false);
+          setTotalProdutosBackend(0);
+        } else if (erroFatal && falhasConsecutivas >= 3) {
+          setProdutos([]);
+          setPaginaAtual(1);
+          setTemMaisProdutos(false);
+          setTotalProdutosBackend(0);
+          setErro('Nao foi possivel atualizar os produtos apos varias tentativas.');
+        } else {
+          setErro('Instabilidade na atualizacao. Exibindo os ultimos produtos carregados.');
+        }
       }
     } finally {
       if (requestId !== requisicaoProdutosIdRef.current) {
@@ -1497,7 +1697,21 @@ export default function ProdutosPage() {
       const itensOrdenados = [...secao.itensIndexados].sort((a, b) => {
         const estoqueA = Number(a.produto?.estoque || 0);
         const estoqueB = Number(b.produto?.estoque || 0);
-        return estoqueB - estoqueA;
+        if (estoqueA !== estoqueB) {
+          return estoqueB - estoqueA;
+        }
+
+        const scoreMaisVendidoDiff = Number(b.scoreMaisVendido || 0) - Number(a.scoreMaisVendido || 0);
+        if (scoreMaisVendidoDiff !== 0) {
+          return scoreMaisVendidoDiff;
+        }
+
+        const scoreConversaoDiff = Number(b.scoreConversao || 0) - Number(a.scoreConversao || 0);
+        if (scoreConversaoDiff !== 0) {
+          return scoreConversaoDiff;
+        }
+
+        return compareProdutosPorNome(a, b);
       });
 
       const totalBackendCategoria = Number(totaisCategoriasVitrine[secao.id] || 0);
@@ -2096,13 +2310,24 @@ export default function ProdutosPage() {
       return;
     }
 
-    const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+    const deltaX = Number(event.deltaX || 0);
+    const deltaY = Number(event.deltaY || 0);
+    const delta = Math.abs(deltaX) > Math.abs(deltaY)
+      ? deltaX
+      : (deltaY * 1.15);
+
     if (!delta) {
       return;
     }
 
-    container.scrollLeft += delta;
-    if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+    const scrollLeftAtual = container.scrollLeft;
+    const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth);
+    const proximoScrollLeft = Math.max(0, Math.min(maxScroll, scrollLeftAtual + delta));
+    const conseguiuRolar = Math.abs(proximoScrollLeft - scrollLeftAtual) > 0.5;
+
+    container.scrollLeft = proximoScrollLeft;
+
+    if (conseguiuRolar && Math.abs(deltaY) >= Math.abs(deltaX)) {
       event.preventDefault();
     }
   }, []);
@@ -2110,55 +2335,60 @@ export default function ProdutosPage() {
   const renderCategoriaHorizontalRow = useCallback((itensIndexados) => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 700;
 
+    const renderCard = (produtoIndexado, index) => (
+      <ProdutoCard
+        key={produtoIndexado.chaveReact}
+        index={index}
+        isMobileViewport={isMobile}
+        nextImageSrc={itensIndexados[index + 1]?.imagemResponsiva?.src || ''}
+        produtoIndexado={produtoIndexado}
+        estaAdicionando={isProdutoAdicionando(produtoIndexado.produto)}
+        quantidadeNoCarrinho={getQuantidadeProduto(produtoIndexado.produto)}
+        destaqueMaisVendido={chavesMaisVendidos.has(produtoIndexado.chaveReact)}
+        destaqueNovo={
+          produtoIndexado.carrinhoId !== null
+          && idsNovidades.has(produtoIndexado.carrinhoId)
+        }
+        favorito={
+          produtoIndexado.carrinhoId !== null
+          && favoritosIdsSet.has(produtoIndexado.carrinhoId)
+        }
+        sinalRecorrente={
+          produtoIndexado.carrinhoId !== null
+          && recompraIdsSet.has(produtoIndexado.carrinhoId)
+        }
+        sinalRecomendado={
+          categoriasRecompraSet.size > 0
+          && produtoIndexado.carrinhoId !== null
+          && !recompraIdsSet.has(produtoIndexado.carrinhoId)
+          && !favoritosIdsSet.has(produtoIndexado.carrinhoId)
+          && categoriasRecompraSet.has(produtoIndexado.categoriaNormalizada)
+          && produtoIndexado.estoqueInfo?.semEstoque !== true
+        }
+        destaqueConversao={
+          produtoIndexado.carrinhoId !== null
+          && idsAltaConversaoSet.has(produtoIndexado.carrinhoId)
+        }
+        growthExperimento={growthExperimento}
+        foiAdicionadoRecente={
+          produtoIndexado.carrinhoId !== null
+          && produtoIndexado.carrinhoId === produtoAdicionadoRecenteId
+        }
+        onAddItem={handleAddItem}
+        onIncreaseItem={handleIncreaseItem}
+        onDecreaseItem={handleDecreaseItem}
+        onToggleFavorito={handleToggleFavorito}
+        onOpenDetail={abrirDetalheProduto}
+      />
+    );
+
     return (
-      <div className="categoria-horizontal-scroll" onWheel={handleHorizontalWheel}>
-        {itensIndexados.map((produtoIndexado, index) => (
-          <ProdutoCard
-            key={produtoIndexado.chaveReact}
-            index={index}
-            isMobileViewport={isMobile}
-            nextImageSrc={itensIndexados[index + 1]?.imagemResponsiva?.src || ''}
-            produtoIndexado={produtoIndexado}
-            estaAdicionando={isProdutoAdicionando(produtoIndexado.produto)}
-            quantidadeNoCarrinho={getQuantidadeProduto(produtoIndexado.produto)}
-            destaqueMaisVendido={chavesMaisVendidos.has(produtoIndexado.chaveReact)}
-            destaqueNovo={
-              produtoIndexado.carrinhoId !== null
-              && idsNovidades.has(produtoIndexado.carrinhoId)
-            }
-            favorito={
-              produtoIndexado.carrinhoId !== null
-              && favoritosIdsSet.has(produtoIndexado.carrinhoId)
-            }
-            sinalRecorrente={
-              produtoIndexado.carrinhoId !== null
-              && recompraIdsSet.has(produtoIndexado.carrinhoId)
-            }
-            sinalRecomendado={
-              categoriasRecompraSet.size > 0
-              && produtoIndexado.carrinhoId !== null
-              && !recompraIdsSet.has(produtoIndexado.carrinhoId)
-              && !favoritosIdsSet.has(produtoIndexado.carrinhoId)
-              && categoriasRecompraSet.has(produtoIndexado.categoriaNormalizada)
-              && produtoIndexado.estoqueInfo?.semEstoque !== true
-            }
-            destaqueConversao={
-              produtoIndexado.carrinhoId !== null
-              && idsAltaConversaoSet.has(produtoIndexado.carrinhoId)
-            }
-            growthExperimento={growthExperimento}
-            foiAdicionadoRecente={
-              produtoIndexado.carrinhoId !== null
-              && produtoIndexado.carrinhoId === produtoAdicionadoRecenteId
-            }
-            onAddItem={handleAddItem}
-            onIncreaseItem={handleIncreaseItem}
-            onDecreaseItem={handleDecreaseItem}
-            onToggleFavorito={handleToggleFavorito}
-            onOpenDetail={abrirDetalheProduto}
-          />
-        ))}
-      </div>
+      <CategoriaHorizontalRail
+        itensIndexados={itensIndexados}
+        onWheel={handleHorizontalWheel}
+        renderCard={renderCard}
+        exibirBarraMobile={isMobile}
+      />
     );
   }, [
     chavesMaisVendidos,
@@ -2301,7 +2531,22 @@ export default function ProdutosPage() {
   const subtotalTexto = formatCurrency(resumo.total);
 
   const mostrarSkeletonInicial = carregando && produtos.length === 0;
-  const mostrarErro = Boolean(erro) && !carregando;
+  const mostrarErro = Boolean(erro) && !carregando && produtos.length === 0;
+  const mostrarAvisoAtualizacao = Boolean(erro) && !carregando && produtos.length > 0;
+  const mensagemAtualizacao = useMemo(() => {
+    if (!((carregando && produtos.length > 0) || buscaEmAtualizacao)) {
+      return '';
+    }
+
+    const categoriaLabel = String(categoriaAtualLabel || 'produtos').trim();
+    const termo = String(termoBuscaEfetivo || '').trim();
+
+    if (termo) {
+      return `Atualizando ${categoriaLabel.toLowerCase()} para "${termo}"...`;
+    }
+
+    return `Atualizando ${categoriaLabel.toLowerCase()}...`;
+  }, [buscaEmAtualizacao, carregando, categoriaAtualLabel, produtos.length, termoBuscaEfetivo]);
 
   const renderSemResultados = useCallback((titulo, descricao) => {
     return (
@@ -2726,8 +2971,11 @@ export default function ProdutosPage() {
             {totalProdutosBackend > 0 ? ` de ${totalProdutosBackend}` : ''}
             {totalOfertasDisponiveis > 0 ? ` · ${totalOfertasDisponiveis} em oferta` : ''}
           </p>
-          {(carregando && produtos.length > 0) || buscaEmAtualizacao ? (
-            <span className="products-results-pill">Atualizando...</span>
+          {mensagemAtualizacao ? (
+            <span className="products-results-pill">{mensagemAtualizacao}</span>
+          ) : null}
+          {mostrarAvisoAtualizacao ? (
+            <span className="products-results-pill is-warning" role="status">{erro}</span>
           ) : null}
         </div>
       </section>

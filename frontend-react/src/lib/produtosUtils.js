@@ -651,6 +651,45 @@ export function getScoreComportamento(item, scoreComportamentoPorId) {
   return Number(scoreComportamentoPorId.get(id) || 0);
 }
 
+function comparePrioridadeEstoque(
+  a,
+  b,
+  {
+    priorizarConversao = true,
+    priorizarPersonalizacao = false,
+    scoreComportamentoPorId = null
+  } = {}
+) {
+  const estoqueA = Number(a?.estoqueInfo?.quantidade || 0);
+  const estoqueB = Number(b?.estoqueInfo?.quantidade || 0);
+  const estoqueDiff = estoqueB - estoqueA;
+  if (estoqueDiff !== 0) {
+    return estoqueDiff;
+  }
+
+  if (priorizarConversao) {
+    const conversaoDiff = Number(b.scoreConversao || 0) - Number(a.scoreConversao || 0);
+    if (conversaoDiff !== 0) {
+      return conversaoDiff;
+    }
+  }
+
+  if (priorizarPersonalizacao) {
+    const scoreComportamentoDiff = getScoreComportamento(b, scoreComportamentoPorId)
+      - getScoreComportamento(a, scoreComportamentoPorId);
+    if (scoreComportamentoDiff !== 0) {
+      return scoreComportamentoDiff;
+    }
+  }
+
+  const scoreMaisVendidoDiff = Number(b.scoreMaisVendido || 0) - Number(a.scoreMaisVendido || 0);
+  if (scoreMaisVendidoDiff !== 0) {
+    return scoreMaisVendidoDiff;
+  }
+
+  return 0;
+}
+
 export function sortProdutosIndexados(
   lista,
   ordenacao,
@@ -665,6 +704,15 @@ export function sortProdutosIndexados(
   switch (ordenacao) {
     case 'menor-preco':
       ordenados.sort((a, b) => {
+        const prioridadeEstoqueDiff = comparePrioridadeEstoque(a, b, {
+          priorizarConversao,
+          priorizarPersonalizacao,
+          scoreComportamentoPorId
+        });
+        if (prioridadeEstoqueDiff !== 0) {
+          return prioridadeEstoqueDiff;
+        }
+
         const diff = a.precoInfo.precoAtual - b.precoInfo.precoAtual;
         if (diff !== 0) {
           return diff;
@@ -683,6 +731,15 @@ export function sortProdutosIndexados(
       break;
     case 'maior-preco':
       ordenados.sort((a, b) => {
+        const prioridadeEstoqueDiff = comparePrioridadeEstoque(a, b, {
+          priorizarConversao,
+          priorizarPersonalizacao,
+          scoreComportamentoPorId
+        });
+        if (prioridadeEstoqueDiff !== 0) {
+          return prioridadeEstoqueDiff;
+        }
+
         const diff = b.precoInfo.precoAtual - a.precoInfo.precoAtual;
         if (diff !== 0) {
           return diff;
@@ -701,6 +758,15 @@ export function sortProdutosIndexados(
       break;
     case 'az':
       ordenados.sort((a, b) => {
+        const prioridadeEstoqueDiff = comparePrioridadeEstoque(a, b, {
+          priorizarConversao,
+          priorizarPersonalizacao,
+          scoreComportamentoPorId
+        });
+        if (prioridadeEstoqueDiff !== 0) {
+          return prioridadeEstoqueDiff;
+        }
+
         if (priorizarPersonalizacao) {
           const scoreComportamentoDiff = getScoreComportamento(b, scoreComportamentoPorId)
             - getScoreComportamento(a, scoreComportamentoPorId);
@@ -714,6 +780,15 @@ export function sortProdutosIndexados(
       break;
     case 'promocoes':
       ordenados.sort((a, b) => {
+        const prioridadeEstoqueDiff = comparePrioridadeEstoque(a, b, {
+          priorizarConversao,
+          priorizarPersonalizacao,
+          scoreComportamentoPorId
+        });
+        if (prioridadeEstoqueDiff !== 0) {
+          return prioridadeEstoqueDiff;
+        }
+
         const promoDiff = Number(b.emPromocao) - Number(a.emPromocao);
         if (promoDiff !== 0) {
           return promoDiff;
@@ -738,24 +813,13 @@ export function sortProdutosIndexados(
     case 'mais-vendidos':
     default:
       ordenados.sort((a, b) => {
-        if (priorizarConversao) {
-          const conversaoDiff = Number(b.scoreConversao || 0) - Number(a.scoreConversao || 0);
-          if (conversaoDiff !== 0) {
-            return conversaoDiff;
-          }
-        }
-
-        if (priorizarPersonalizacao) {
-          const scoreComportamentoDiff = getScoreComportamento(b, scoreComportamentoPorId)
-            - getScoreComportamento(a, scoreComportamentoPorId);
-          if (scoreComportamentoDiff !== 0) {
-            return scoreComportamentoDiff;
-          }
-        }
-
-        const scoreDiff = b.scoreMaisVendido - a.scoreMaisVendido;
-        if (scoreDiff !== 0) {
-          return scoreDiff;
+        const prioridadeEstoqueDiff = comparePrioridadeEstoque(a, b, {
+          priorizarConversao,
+          priorizarPersonalizacao,
+          scoreComportamentoPorId
+        });
+        if (prioridadeEstoqueDiff !== 0) {
+          return prioridadeEstoqueDiff;
         }
 
         const promoDiff = Number(b.emPromocao) - Number(a.emPromocao);

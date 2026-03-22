@@ -116,7 +116,7 @@ const NAV_SECTIONS = [
     collapsible: true,
     defaultOpen: true,
     items: [
-      { id: 'pedidos', label: 'Pedidos', icon: 'pedidos' },
+      { id: 'pedidos', label: 'Histórico de Pedidos', icon: 'pedidos' },
       { id: 'produtos', label: 'Catálogo', icon: 'produtos' },
       { id: 'clientes', label: 'Clientes', icon: 'clientes' },
       { id: 'importacao', label: 'Importação', icon: 'importacao' },
@@ -145,7 +145,7 @@ const NAV_SECTIONS = [
 
 const TAB_TITLES = {
   dashboard: 'Central de Comando',
-  pedidos: 'Gestão de Pedidos',
+  pedidos: 'Histórico de Pedidos',
   produtos: 'Catálogo de Produtos',
   financeiro: 'Painel Financeiro',
   importacao: 'Importação de Produtos',

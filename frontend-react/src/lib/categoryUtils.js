@@ -1,6 +1,13 @@
 import { normalizeText } from './produtosUtils';
 
 export const CATEGORIA_CERVEJAS = 'cervejas';
+const CATEGORIAS_BASE_ELEGIVEIS_CERVEJA = new Set([
+  'mercearia',
+  'bebidas',
+  'agua',
+  'refrigerantes',
+  CATEGORIA_CERVEJAS
+]);
 
 const CERVEJA_MATCHERS = [
   'cerveja',
@@ -13,17 +20,13 @@ const CERVEJA_MATCHERS = [
   'corona',
   'spaten',
   'amstel',
+  'chopp',
   'pilsen',
   'lager',
-  'ipa',
-  'apa',
   'weiss',
   'witbier',
   'long neck',
   'longneck',
-  'fardo',
-  'pack',
-  'latao',
   'puro malte'
 ].map(normalizeText);
 
@@ -38,11 +41,16 @@ export function isProdutoCerveja(textoBusca) {
 
 export function classifyCategoriaComercial({ categoriaAgrupada, textoBusca }) {
   const categoriaBase = normalizeText(categoriaAgrupada);
+  const categoriaBaseValida = categoriaBase || 'outros';
+
+  if (!CATEGORIAS_BASE_ELEGIVEIS_CERVEJA.has(categoriaBaseValida)) {
+    return categoriaBaseValida;
+  }
 
   // Regra de negocio: cervejas nunca ficam em mercearia/bebidas genericas.
   if (isProdutoCerveja(textoBusca)) {
     return CATEGORIA_CERVEJAS;
   }
 
-  return categoriaBase || 'outros';
+  return categoriaBaseValida;
 }

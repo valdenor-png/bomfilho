@@ -7,6 +7,7 @@ import {
   criarPedido,
   criarSessao3DSPagBank,
   gerarPix,
+  getProdutos,
   getMe,
   getPagBankPublicKey,
   getPedidos,
@@ -41,7 +42,6 @@ import { useCart } from '../context/CartContext';
 // â”€â”€ Utilitários e constantes extraídos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import {
   ETAPAS,
-  CHECKOUT_STEPS,
   PARCELAMENTO_MINIMO_CREDITO,
   PARCELAMENTO_MAXIMO_CREDITO,
   TAXA_SERVICO_PERCENTUAL,
@@ -97,9 +97,6 @@ import {
 import {
   BotaoVoltarSeta,
   LinkVoltarSeta,
-  CheckoutStepper,
-  CheckoutContextBanner,
-  CheckoutGuidanceChips,
   CheckoutMobileActionBar,
   CheckoutSecurityTrust,
   DeliveryOptionCard,
@@ -109,6 +106,7 @@ import {
   DeliveryAddressLookupCard,
   CartItemRow,
   CheckoutSummaryCard,
+  CheckoutCrossSellRail,
   OrderSummaryCard,
   PaymentMethodCard,
   PaymentSelectionSummary,
@@ -121,7 +119,7 @@ import {
 } from '../components/checkout';
 
 export default function PagamentoPage() {
-  const { itens, resumo, updateItemQuantity, removeItem, clearCart } = useCart();
+  const { itens, resumo, addItem, updateItemQuantity, removeItem } = useCart();
   const [resultadoPedido, setResultadoPedido] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
@@ -130,6 +128,8 @@ export default function PagamentoPage() {
   const [resultadoPix, setResultadoPix] = useState(null);
   const [qrCodePixDataUrl, setQrCodePixDataUrl] = useState('');
   const [feedbackCopiaPix, setFeedbackCopiaPix] = useState('');
+  const [sugestoesCheckout, setSugestoesCheckout] = useState([]);
+  const [carregandoSugestoesCheckout, setCarregandoSugestoesCheckout] = useState(false);
   const [verificandoStatusPix, setVerificandoStatusPix] = useState(false);
   const [resumoPedidoSnapshot, setResumoPedidoSnapshot] = useState(null);
   const [itensPedidoSnapshot, setItensPedidoSnapshot] = useState([]);
@@ -180,6 +180,7 @@ export default function PagamentoPage() {
   const buscaEnderecoRef = useRef(0);
   const startCheckoutTrackedRef = useRef(false);
   const purchaseTrackedOrdersRef = useRef(new Set());
+  const cacheSugestoesRef = useRef(new Map());
   const growthInsights = useMemo(() => getGrowthInsights({ windowDays: 7 }), [growthVersion]);
   const growthCheckoutPaymentConfig = growthInsights?.experiment?.ui?.checkoutPayment || {
     enabled: false,
@@ -194,6 +195,68 @@ export default function PagamentoPage() {
   const growthCheckoutPaymentBadge = growthCheckoutPaymentEnabled
     ? String(growthCheckoutPaymentConfig.badgeLabel || '').trim()
     : '';
+
+  const normalizarTextoSugestao = useCallback((valor) => String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim(), []);
+
+  const COMBO_MAP = useMemo(() => ({
+    macarrao: ['molho de tomate', 'queijo ralado'],
+    arroz: ['feijao', 'oleo'],
+    cafe: ['acucar', 'leite'],
+    pao: ['manteiga', 'presunto'],
+    cerveja: ['salgadinho', 'gelo']
+  }), []);
+
+  const RECEITAS_MAP = useMemo(() => ({
+    macarronada: ['macarrao', 'molho de tomate', 'carne moida', 'alho'],
+    'cafe da manha': ['pao', 'leite', 'cafe', 'manteiga']
+  }), []);
+
+  const palavrasCarrinho = useMemo(
+    () => itens.map((item) => normalizarTextoSugestao(item.nome)).filter(Boolean),
+    [itens, normalizarTextoSugestao]
+  );
+
+  const termosSugestaoPriorizados = useMemo(() => {
+    const diretos = [];
+    const receita = [];
+    const existeNoCarrinho = (termo) => palavrasCarrinho.some((nome) => nome.includes(termo));
+
+    Object.entries(COMBO_MAP).forEach(([gatilho, relacionados]) => {
+      if (!existeNoCarrinho(gatilho)) {
+        return;
+      }
+      relacionados.forEach((termo) => diretos.push(normalizarTextoSugestao(termo)));
+    });
+
+    Object.values(RECEITAS_MAP).forEach((ingredientes) => {
+      const ingredientesNorm = ingredientes.map((item) => normalizarTextoSugestao(item));
+      const temMatchReceita = ingredientesNorm.some((ingrediente) => existeNoCarrinho(ingrediente));
+      if (!temMatchReceita) {
+        return;
+      }
+      ingredientesNorm.forEach((ingrediente) => {
+        if (!existeNoCarrinho(ingrediente)) {
+          receita.push(ingrediente);
+        }
+      });
+    });
+
+    const unicos = [];
+    const vistos = new Set();
+    [...diretos, ...receita].forEach((termo) => {
+      if (!termo || vistos.has(termo)) {
+        return;
+      }
+      vistos.add(termo);
+      unicos.push(termo);
+    });
+
+    return unicos.slice(0, 12);
+  }, [COMBO_MAP, RECEITAS_MAP, palavrasCarrinho, normalizarTextoSugestao]);
 
   useEffect(() => {
     if (!sessao3DSGeradaEm) {
@@ -262,15 +325,6 @@ export default function PagamentoPage() {
       setFeedbackCarrinho(`${itemAtual.nome} foi removido do carrinho.`);
     }
   }, [itens, removeItem]);
-
-  const handleLimparCarrinho = useCallback(() => {
-    if (!itens.length) {
-      return;
-    }
-
-    clearCart();
-    setFeedbackCarrinho('Carrinho esvaziado. Você pode continuar comprando quando quiser.');
-  }, [clearCart, itens.length]);
 
   const retiradaSelecionada = tipoEntrega === 'retirada';
   const freteAtual = retiradaSelecionada ? 0 : Number(simulacaoFrete?.frete || 0);
@@ -562,8 +616,18 @@ export default function PagamentoPage() {
         const data = await getPedidos();
         const pedido = (data.pedidos || []).find((item) => Number(item.id) === Number(resultadoPedido.pedido_id));
         if (ativo && pedido?.status) {
-          const novoStatus = String(pedido.status);
+          const novoStatus = String(pedido.status || '').toLowerCase();
           setStatusPedidoAtual(novoStatus);
+
+          // Evita travar na etapa de revisão quando o status já foi aprovado no admin.
+          if (etapaAtual === ETAPAS.REVISAO && (novoStatus === 'pendente' || novoStatus === 'pago')) {
+            setEtapaAtual(ETAPAS.PIX);
+          }
+
+          if (etapaAtual === ETAPAS.REVISAO && novoStatus === 'cancelado') {
+            setErro('Seu pedido foi cancelado pela equipe. Por favor, tente novamente.');
+          }
+
           if (novoStatus === 'pago' || novoStatus === 'entregue') {
             setPagamentoConfirmado(true);
           }
@@ -582,7 +646,7 @@ export default function PagamentoPage() {
       ativo = false;
       clearInterval(interval);
     };
-  }, [resultadoPedido?.pedido_id, autenticado]);
+  }, [resultadoPedido?.pedido_id, autenticado, etapaAtual]);
 
   async function executarSimulacaoFrete({ mostrarErro = true } = {}) {
     if (retiradaSelecionada) {
@@ -1240,7 +1304,6 @@ export default function PagamentoPage() {
   // ── Polling de revisão: verifica a cada 10s se o pedido foi aprovado ────
   useEffect(() => {
     if (etapaAtual !== ETAPAS.REVISAO || !resultadoPedido?.pedido_id) return undefined;
-    if (statusPedidoAtual !== 'aguardando_revisao') return undefined;
 
     let ativo = true;
     const intervalo = setInterval(async () => {
@@ -1253,9 +1316,15 @@ export default function PagamentoPage() {
         if (novoStatus === 'pendente') {
           setStatusPedidoAtual('pendente');
           setEtapaAtual(ETAPAS.PIX);
+        } else if (novoStatus === 'pago') {
+          setStatusPedidoAtual('pago');
+          setPagamentoConfirmado(true);
+          setEtapaAtual(ETAPAS.PIX);
         } else if (novoStatus === 'cancelado') {
           setStatusPedidoAtual('cancelado');
           setErro('Seu pedido foi cancelado pela equipe. Por favor, tente novamente.');
+        } else if (novoStatus) {
+          setStatusPedidoAtual(novoStatus);
         }
       } catch (_) {
         // Silenciar — tentará novamente no próximo tick
@@ -1665,6 +1734,15 @@ export default function PagamentoPage() {
   }
 
   const etapaIndex = getIndiceEtapa(etapaAtual);
+  const tituloEtapaAtual = (() => {
+    if (etapaAtual === ETAPAS.CARRINHO) return 'Carrinho';
+    if (etapaAtual === ETAPAS.ENTREGA) return 'Entrega';
+    if (etapaAtual === ETAPAS.PAGAMENTO) return 'Pagamento';
+    if (etapaAtual === ETAPAS.REVISAO) return 'Revisão';
+    if (etapaAtual === ETAPAS.PIX) return formaPagamento === 'pix' ? 'Pagamento' : `Pagamento com ${tituloFormaPagamento}`;
+    return 'Confirmação';
+  })();
+  const subtituloEtapaAtual = `Etapa ${etapaIndex + 1} de 5`;
   const labelStatus = formatarStatusPedido(statusPedidoAtual || resultadoPedido?.status || 'pendente');
   const carrinhoVazio = itens.length === 0;
   const statusCartaoAtual = String(resultadoCartao?.status || '').toUpperCase();
@@ -1699,10 +1777,6 @@ export default function PagamentoPage() {
   const dadosCartaoCompletos = nomeTitularCartaoValido && numeroCartaoValido && mesCartaoValido && anoCartaoValido && cvvCartaoValido;
   const cartaoProntoParaContinuar = !pagamentoCartaoSelecionado || Boolean(tokenCartao) || dadosCartaoCompletos;
   const formaPagamentoAtual = FORMAS_PAGAMENTO_OPCOES[formaPagamento] || FORMAS_PAGAMENTO_OPCOES.pix;
-  const ctaFinalPedidoBase = retiradaSelecionada ? 'Reservar para retirada' : 'Finalizar pedido';
-  const ctaFinalPedido = growthCheckoutPaymentEnabled && growthCheckoutPaymentConfig.ctaPrefix
-    ? growthCheckoutPaymentConfig.ctaPrefix
-    : ctaFinalPedidoBase;
   const resumoFretePagamento = resultadoPedido?.pedido_id
     ? freteSelecionado
     : retiradaSelecionada
@@ -1802,7 +1876,6 @@ export default function PagamentoPage() {
   const pixDisponivelParaPagar = Boolean(codigoPixAtual || qrCodePixSrc);
   const itensDistintosCarrinho = itens.length;
   const resumoItensCarrinho = formatarQuantidadeItens(resumo.itens);
-  const pendenciasChecklistPagamento = checklistPagamento.filter((item) => !item.ok).length;
   const mensagemProcessamentoCheckout = etapaAtual === ETAPAS.PIX
     ? (formaPagamento === 'pix'
       ? 'Processando informações do PIX. Aguarde para evitar pagamentos duplicados.'
@@ -1810,160 +1883,16 @@ export default function PagamentoPage() {
     : 'Processando as informações do seu pedido com segurança.';
   const pagamentoAprovadoCheckout = pagamentoConfirmado || pixPagamentoAprovado || cartaoAprovado;
 
-  const contextoCheckout = (() => {
-    if (etapaAtual === ETAPAS.CARRINHO) {
-      if (carrinhoVazio) {
-        return {
-          tone: 'neutral',
-          title: 'Seu carrinho está pronto para começar.',
-          description: 'Escolha seus produtos e volte para finalizar com calma.',
-          chips: ['Adicione produtos', 'Revise quantidades', 'Siga para entrega']
-        };
-      }
-
-      return {
-        tone: 'info',
-        title: 'Revise sua compra antes de seguir.',
-        description: `${itensDistintosCarrinho} produtos diferentes, ${resumoItensCarrinho} e total parcial de ${formatarMoeda(resumo.total)}.`,
-        chips: ['Confirme subtotal', 'Ajuste quantidades', 'Avance para calcular frete']
-      };
-    }
-
-    if (etapaAtual === ETAPAS.ENTREGA) {
-      if (retiradaSelecionada) {
-        return {
-          tone: 'success',
-          title: 'Retirada na loja selecionada.',
-          description: Number(economiaFreteRetirada || 0) > 0
-            ? `Voce economiza ${formatarMoeda(economiaFreteRetirada)} de frete com retirada.`
-            : 'Sem custo de frete. Agora avance para o pagamento da sua reserva.',
-          chips: ['Sem frete', 'Retirada no balcao', 'Pronto para pagamento']
-        };
-      }
-
-      if (semOpcaoEntregaDisponivel) {
-        return {
-          tone: 'warning',
-          title: 'Ainda não encontramos cobertura para este CEP.',
-          description: 'Revise o CEP informado ou tente outro endereço para continuar.',
-          chips: ['CEP válido', 'Endereço conferido', 'Escolha de entrega']
-        };
-      }
-
-      if (freteCalculado) {
-        return {
-          tone: 'success',
-          title: 'Entrega calculada com sucesso.',
-          description: `${veiculoSelecionadoEntrega.label} selecionada com frete de ${formatarMoeda(freteAtual)} para ${distanciaSelecionadaTexto}.`,
-          chips: ['Frete confirmado', 'Tipo de entrega definido', 'Pronto para pagamento']
-        };
-      }
-
-      return {
-        tone: 'neutral',
-        title: 'Defina o CEP e calcule o frete.',
-        description: 'Depois de calcular o frete, você já pode seguir para o pagamento.',
-        chips: ['CEP de entrega', 'Conferir endereço', 'Selecionar tipo de entrega']
-      };
-    }
-
-    if (etapaAtual === ETAPAS.PAGAMENTO) {
-      if (pendenciasChecklistPagamento > 0) {
-        return {
-          tone: 'warning',
-          title: 'Faltam alguns itens para concluir esta etapa.',
-          description: `Há ${pendenciasChecklistPagamento} pendência(s) no checklist antes da confirmação.`,
-          chips: ['Documento válido', 'reCAPTCHA ativo', 'Forma de pagamento revisada']
-        };
-      }
-
-      return {
-        tone: 'success',
-        title: 'Tudo pronto para avançar com o pagamento.',
-        description: `Método selecionado: ${formaPagamentoAtual.title}. Total atual ${formatarMoeda(resumoTotalPagamento)}.`,
-        chips: ['Dados conferidos', 'Resumo validado', 'Pronto para finalizar']
-      };
-    }
-
-    if (etapaAtual === ETAPAS.REVISAO) {
-      if (statusPedidoAtual === 'cancelado') {
-        return {
-          tone: 'warning',
-          title: 'Pedido não aprovado pela equipe.',
-          description: 'Alguns itens podem estar indisponíveis. Tente novamente com outros produtos.',
-          chips: ['Indisponível', 'Voltar às compras', 'Suporte disponível']
-        };
-      }
-      return {
-        tone: 'info',
-        title: 'Pedido recebido! Aguardando revisão.',
-        description: 'A equipe do mercado está verificando a disponibilidade dos seus itens. Você será avisado quando puder pagar.',
-        chips: ['Verificação automática', 'Equipe revisando', 'Atualização em 10s']
-      };
-    }
-
-    if (etapaAtual === ETAPAS.PIX) {
-      if (formaPagamento === 'pix') {
-        if (podeContinuarConfirmacaoPix) {
-          return {
-            tone: 'success',
-            title: 'Pagamento PIX confirmado.',
-            description: 'Você já pode seguir para a confirmação final do pedido.',
-            chips: ['PIX aprovado', 'Pedido identificado', 'Pronto para confirmar']
-          };
-        }
-
-        return {
-          tone: pixDisponivelParaPagar ? 'info' : 'neutral',
-          title: pixDisponivelParaPagar ? 'PIX gerado. Falta confirmar o pagamento.' : 'Gere o QR Code para pagar com PIX.',
-          description: pixDisponivelParaPagar
-            ? 'Depois de pagar no app do banco, clique em verificar para atualizar o status.'
-            : 'Você pode pagar escaneando o QR Code ou copiando o código PIX.',
-          chips: ['QR Code', 'Código copia e cola', 'Validação de pagamento']
-        };
-      }
-
-      if (cartaoRecusado) {
-        return {
-          tone: 'warning',
-          title: 'Pagamento no cartão não foi aprovado.',
-          description: 'Revise os dados do cartão e tente novamente para continuar o pedido.',
-          chips: ['Conferir dados', 'Tentar novamente', 'Acompanhar status']
-        };
-      }
-
-      return {
-        tone: cartaoAprovado ? 'success' : 'info',
-        title: cartaoAprovado ? 'Pagamento no cartão aprovado.' : 'Aguardando conclusão do pagamento no cartão.',
-        description: cartaoAprovado
-          ? 'Agora você já pode seguir para a confirmação final do pedido.'
-          : 'Conclua o pagamento para liberar a etapa de confirmação.',
-        chips: ['Autorização do cartão', 'Status do pedido', 'Confirmação final']
-      };
-    }
-
-    return {
-      tone: pagamentoConfirmado ? 'success' : 'info',
-      title: pagamentoConfirmado ? 'Pedido confirmado com sucesso.' : 'Pedido em acompanhamento.',
-      description: pagamentoConfirmado
-        ? 'Seguimos para preparação e envio assim que o pagamento é confirmado.'
-        : 'Acompanhe a atualização automática enquanto o pagamento é processado.',
-      chips: ['Status em tempo real', 'Suporte disponível', 'Acompanhamento do pedido']
-    };
-  })();
-
   const exibirBarraMobileCheckout = etapaAtual !== ETAPAS.STATUS;
   const mobileActionBarConfig = (() => {
     if (etapaAtual === ETAPAS.CARRINHO) {
       return {
-        stepLabel: 'Etapa 1 de 5',
+        stepLabel: subtituloEtapaAtual,
         totalLabel: `Total parcial: ${formatarMoeda(resumo.total)}`,
-        caption: carrinhoVazio ? 'Adicione itens para avançar.' : `${resumoItensCarrinho} no carrinho`,
-        primaryLabel: 'Ir para entrega',
+        caption: '',
+        primaryLabel: `Ir para entrega • ${formatarMoeda(Number(resumo.total || 0) + Number(taxaServicoAtual || 0))}`,
         onPrimaryClick: () => setEtapaAtual(ETAPAS.ENTREGA),
-        primaryDisabled: carrinhoVazio,
-        secondaryLabel: 'Continuar comprando',
-        secondaryTo: '/produtos'
+        primaryDisabled: carrinhoVazio
       };
     }
 
@@ -1993,9 +1922,7 @@ export default function PagamentoPage() {
         stepLabel: 'Etapa 3 de 5',
         totalLabel: `Total do pedido: ${formatarMoeda(resumoTotalPagamento)}`,
         caption: `Forma atual: ${formaPagamentoAtual.title}`,
-        primaryLabel: carregando
-          ? (retiradaSelecionada ? 'Reservando retirada...' : 'Finalizando pedido...')
-          : `${ctaFinalPedido} • Total ${formatarMoeda(resumoTotalPagamento)}`,
+        primaryLabel: carregando ? 'Processando...' : 'Revisar pedido',
         onPrimaryClick: () => {
           void handleContinuarPagamento();
         },
@@ -2012,9 +1939,9 @@ export default function PagamentoPage() {
         caption: statusPedidoAtual === 'cancelado'
           ? 'Pedido cancelado pela equipe.'
           : 'Aguardando revisão da equipe do mercado...',
-        primaryLabel: 'Aguardando...',
-        onPrimaryClick: () => {},
-        primaryDisabled: true
+        primaryLabel: 'Confirmar pedido',
+        onPrimaryClick: () => setEtapaAtual(ETAPAS.PIX),
+        primaryDisabled: !['pendente', 'pago'].includes(String(statusPedidoAtual || '').toLowerCase())
       };
     }
 
@@ -2176,6 +2103,79 @@ export default function PagamentoPage() {
   useEffect(() => {
     let ativo = true;
 
+    if (etapaAtual !== ETAPAS.CARRINHO || !itens.length || !termosSugestaoPriorizados.length) {
+      setSugestoesCheckout([]);
+      setCarregandoSugestoesCheckout(false);
+      return () => {
+        ativo = false;
+      };
+    }
+
+    const idsCarrinho = new Set(itens.map((item) => Number(item.id)));
+
+    async function carregarSugestoes() {
+      setCarregandoSugestoesCheckout(true);
+
+      const consultas = termosSugestaoPriorizados.slice(0, 10).map(async (termo) => {
+        if (cacheSugestoesRef.current.has(termo)) {
+          return { termo, lista: cacheSugestoesRef.current.get(termo) };
+        }
+
+        try {
+          const data = await getProdutos({ busca: termo, page: 1, limit: 16 });
+          const lista = Array.isArray(data?.produtos) ? data.produtos : [];
+          cacheSugestoesRef.current.set(termo, lista);
+          return { termo, lista };
+        } catch {
+          cacheSugestoesRef.current.set(termo, []);
+          return { termo, lista: [] };
+        }
+      });
+
+      const lotes = await Promise.all(consultas);
+      if (!ativo) {
+        return;
+      }
+
+      const vistos = new Set();
+      const agregados = [];
+
+      lotes.forEach(({ termo, lista }) => {
+        lista.forEach((produto) => {
+          const id = Number(produto?.id || 0);
+          const nome = String(produto?.nome_externo || produto?.nome || '').trim();
+          const nomeNormalizado = normalizarTextoSugestao(nome);
+          if (!id || !nome || !nomeNormalizado.includes(termo) || vistos.has(id) || idsCarrinho.has(id)) {
+            return;
+          }
+
+          vistos.add(id);
+          agregados.push({
+            id,
+            nome,
+            preco: Number(produto?.preco_promocional || produto?.preco || produto?.preco_venda || 0),
+            emoji: String(produto?.emoji || '🛍️'),
+            imagem: String(produto?.imagem || '').trim(),
+            categoria: String(produto?.categoria || '').trim(),
+            unidade: String(produto?.unidade || '').trim()
+          });
+        });
+      });
+
+      setSugestoesCheckout(agregados.slice(0, 10));
+      setCarregandoSugestoesCheckout(false);
+    }
+
+    void carregarSugestoes();
+
+    return () => {
+      ativo = false;
+    };
+  }, [etapaAtual, itens, termosSugestaoPriorizados]);
+
+  useEffect(() => {
+    let ativo = true;
+
     if (qrCodeBase64Atual || qrCodeRemotoAtual || !codigoPixAtual) {
       setQrCodePixDataUrl('');
       return () => {
@@ -2215,17 +2215,10 @@ export default function PagamentoPage() {
 
   return (
     <section className={`page checkout-page ${exibirBarraMobileCheckout ? 'has-mobile-action-bar' : ''}`.trim()}>
-      <h1>Finalizar pedido</h1>
-      <p>Revise seu carrinho, confirme a entrega, escolha o pagamento e acompanhe a confirmação do pedido.</p>
-
-      <CheckoutStepper currentIndex={etapaIndex} />
-
-      <CheckoutContextBanner
-        tone={contextoCheckout.tone}
-        title={contextoCheckout.title}
-        description={contextoCheckout.description}
-        chips={contextoCheckout.chips}
-      />
+      <header className="checkout-stage-header">
+        <h1>{tituloEtapaAtual}</h1>
+        <p className="checkout-stage-subtitle">{subtituloEtapaAtual}</p>
+      </header>
 
       {erro ? (
         <article className="checkout-inline-feedback is-error" role="alert">
@@ -2283,18 +2276,6 @@ export default function PagamentoPage() {
         <div className="checkout-cart-layout">
           <div className="card-box checkout-cart-main">
             <div className="checkout-cart-header">
-              <p className="checkout-cart-kicker">Etapa 1</p>
-              <h2>Carrinho de compras</h2>
-              <p className="muted-text">Revise os itens com calma, ajuste quantidades e avance quando o total estiver correto.</p>
-
-              <CheckoutGuidanceChips
-                items={[
-                  'Confira quantidade e subtotal de cada item',
-                  'Remova o que não vai levar',
-                  'Siga para calcular frete e prazo'
-                ]}
-              />
-
               <p className="checkout-cart-live-feedback" role="status" aria-live="polite">
                 {feedbackCarrinho || (carrinhoVazio
                   ? 'Nenhum item no carrinho por enquanto.'
@@ -2325,28 +2306,25 @@ export default function PagamentoPage() {
                 ))}
               </div>
             )}
+
+            <CheckoutCrossSellRail
+              title="Pode combinar com isso 👀"
+              subtitle="Complete sua compra"
+              produtos={sugestoesCheckout}
+              carregando={carregandoSugestoesCheckout}
+              onAdd={(produto) => addItem(produto, 1, { source: 'checkout_cross_sell' })}
+            />
           </div>
 
           <aside className="checkout-cart-side">
             <CheckoutSummaryCard
-              itens={resumo.itens}
-              produtosDistintos={itensDistintosCarrinho}
               subtotal={resumo.total}
               taxaServico={taxaServicoAtual}
               tipoEntrega={tipoEntrega}
               economiaFrete={economiaFreteRetirada}
               onContinue={() => setEtapaAtual(ETAPAS.ENTREGA)}
-              onClearCart={handleLimparCarrinho}
               disabled={carrinhoVazio}
             />
-
-            <div className="card-box checkout-cart-side-card">
-              <p className="checkout-cart-side-title">Quer complementar sua compra?</p>
-              <p className="checkout-cart-side-copy">Volte para produtos para incluir novos itens, comparar preços e depois retomar o checkout.</p>
-              <Link className="btn-secondary checkout-cart-shopping-btn" to="/produtos">
-                Voltar para produtos
-              </Link>
-            </div>
           </aside>
         </div>
       ) : null}
@@ -2355,21 +2333,11 @@ export default function PagamentoPage() {
         <div className="checkout-delivery-layout">
           <div className="card-box checkout-delivery-main">
             <div className="checkout-delivery-header">
-              <p className="checkout-delivery-kicker">Etapa 2</p>
-              <h2>Entrega</h2>
               <p className="muted-text">
                 {retiradaSelecionada
-                  ? 'Retirada na loja ativa. Sem frete e com preparo rapido para voce buscar no balcao.'
-                  : 'Informe o CEP, confira o endereço retornado e escolha a modalidade de entrega mais adequada para seu pedido.'}
+                  ? 'Retirada ativa, sem frete.'
+                  : 'Informe o CEP e escolha a entrega.'}
               </p>
-
-              <CheckoutGuidanceChips
-                items={[
-                  'Use um CEP válido de 8 dígitos',
-                  'Confira o endereço retornado',
-                  'Escolha o tipo de entrega para definir o total'
-                ]}
-              />
             </div>
 
             <DeliveryModeSelector
@@ -2552,10 +2520,10 @@ export default function PagamentoPage() {
                   disabled={!podeAvancarParaPagamento}
                 >
                   {retiradaSelecionada
-                    ? `Continuar para pagamento • Total ${formatarMoeda(Number(resumo.total || 0))}`
+                    ? `Ir para pagamento • Total ${formatarMoeda(Number(resumo.total || 0))}`
                     : simulacaoFrete
-                      ? `Continuar para pagamento • Total ${formatarMoeda(totalComFreteAtual)}`
-                      : 'Continuar para pagamento'}
+                      ? `Ir para pagamento • Total ${formatarMoeda(totalComFreteAtual)}`
+                      : 'Ir para pagamento'}
                 </button>
               </div>
             </div>
@@ -2567,19 +2535,9 @@ export default function PagamentoPage() {
         <div className="checkout-payment-layout">
           <div className="card-box checkout-payment-main">
             <div className="checkout-payment-header">
-              <p className="checkout-payment-kicker">Etapa 3</p>
-              <h2>Pagamento</h2>
               <p className="muted-text">
-                Escolha o método, confirme seus dados e avance com segurança para finalizar o pedido.
+                Escolha a forma de pagamento e confirme seus dados.
               </p>
-
-              <CheckoutGuidanceChips
-                items={[
-                  'Selecione a forma de pagamento',
-                  'Informe CPF/CNPJ do pagador',
-                  'Revise total e clique para continuar'
-                ]}
-              />
             </div>
 
             <p className={`payment-frete-info ${(retiradaSelecionada || simulacaoFrete || resultadoPedido?.pedido_id) ? 'is-ready' : 'is-warning'}`}>
@@ -2925,8 +2883,8 @@ export default function PagamentoPage() {
                     disabled={bloqueioPagamento}
                   >
                     {carregando
-                      ? (retiradaSelecionada ? 'Reservando retirada...' : 'Finalizando pedido...')
-                      : `${ctaFinalPedido} • Total ${formatarMoeda(resumoTotalPagamento)}`}
+                      ? 'Processando...'
+                      : 'Revisar pedido'}
                   </button>
                 </div>
               </div>
@@ -2998,19 +2956,11 @@ export default function PagamentoPage() {
         <div className="checkout-pix-layout">
           <div className="card-box checkout-pix-main">
             <div className="checkout-pix-header">
-              <p className="checkout-pix-kicker">Etapa 3</p>
-              <h2>{formaPagamento === 'pix' ? 'Pagamento via PIX' : `Pagamento com ${tituloFormaPagamento}`}</h2>
               <p className="muted-text">
                 {formaPagamento === 'pix'
-                  ? 'Escaneie o QR Code ou copie o código PIX e confirme o status para liberar a confirmação do pedido.'
-                  : `Finalize o pagamento com ${tituloFormaPagamento.toLowerCase()} para seguir para a confirmação.`}
+                  ? 'Escaneie o QR Code ou copie o código para pagar.'
+                  : `Finalize com ${tituloFormaPagamento.toLowerCase()} para continuar.`}
               </p>
-
-              <CheckoutGuidanceChips
-                items={formaPagamento === 'pix'
-                  ? ['Gerar QR Code', 'Pagar no app do banco', 'Verificar status e confirmar pedido']
-                  : ['Concluir pagamento no cartão', 'Conferir status do pedido', 'Seguir para confirmação']}
-              />
             </div>
 
             <CheckoutSecurityTrust

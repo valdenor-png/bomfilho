@@ -40,8 +40,16 @@ const {
   IS_PRODUCTION,
   ALLOW_DEBIT_3DS_MOCK,
   BASE_URL_ENV,
-  RECAPTCHA_PAYMENT_PROTECTION_ENABLED
+  RECAPTCHA_PAYMENT_PROTECTION_ENABLED,
+  DISTRIBUTED_IDEMPOTENCY_ENABLED
 } = config;
+const {
+  normalizarIdempotencyKey,
+  hashFingerprint,
+  iniciarOperacaoDistribuida,
+  concluirOperacaoDistribuida,
+  falharOperacaoDistribuida
+} = require('../services/distributedIdempotencyService');
 
 /**
  * @param {object} deps
@@ -85,6 +93,28 @@ module.exports = function createPagBankRoutes(deps) {
   } = deps;
 
   const router = express.Router();
+
+  function montarFingerprintPagamentoPix(payloadRequest = {}) {
+    const taxIdDigits = extrairTaxIdDigits(payloadRequest);
+    return hashFingerprint({
+      pedido_id: Number.parseInt(String(payloadRequest?.pedido_id || ''), 10) || null,
+      tax_id_len: taxIdDigits.length,
+      tax_id_tail: taxIdDigits ? taxIdDigits.slice(-4) : ''
+    });
+  }
+
+  function montarFingerprintPagamentoCartao(payloadRequest = {}) {
+    const taxIdDigits = extrairTaxIdDigits(payloadRequest);
+    const tokenCartao = String(payloadRequest?.token_cartao || payloadRequest?.cartao_encriptado || '').trim();
+    return hashFingerprint({
+      pedido_id: Number.parseInt(String(payloadRequest?.pedido_id || ''), 10) || null,
+      tipo_cartao: String(payloadRequest?.tipo_cartao || payloadRequest?.forma_pagamento || '').trim().toLowerCase(),
+      parcelas: normalizarParcelasCartao(payloadRequest?.parcelas),
+      tax_id_len: taxIdDigits.length,
+      tax_id_tail: taxIdDigits ? taxIdDigits.slice(-4) : '',
+      token_hash: tokenCartao ? hashFingerprint({ tokenCartao }).slice(0, 24) : ''
+    });
+  }
 
   // Chave pública do PagBank para criptografia de cartão no frontend
   router.get('/api/pagbank/public-key', (req, res) => {
@@ -393,9 +423,13 @@ module.exports = function createPagBankRoutes(deps) {
 
   // Gerar QR Code PIX (PagBank) para um pedido existente
   router.post('/api/pagamentos/pix', autenticarToken, async (req, res) => {
+    let usarIdempotencia = false;
+    let idempotenciaAdquirida = false;
+    let chaveIdempotencia = '';
+    let pedidoIdNumerico = 0;
+    const payloadRequest = req.body || {};
     try {
-      const payloadRequest = req.body || {};
-      const pedidoIdNumerico = Number.parseInt(String(payloadRequest?.pedido_id || ''), 10);
+      pedidoIdNumerico = Number.parseInt(String(payloadRequest?.pedido_id || ''), 10);
       const taxIdDigits = extrairTaxIdDigits(payloadRequest);
       const taxId = taxIdDigits || (PAGBANK_ENV === 'production' ? null : '12345678909');
 
@@ -438,6 +472,39 @@ module.exports = function createPagBankRoutes(deps) {
         return res.status(409).json({ erro: `Este pedido ja esta ${statusPedidoAtual} e nao aceita novo pagamento.` });
       }
 
+      const headerKey = normalizarIdempotencyKey(req.headers?.['x-idempotency-key']);
+      const keyFallback = `auto_pix_${req.usuario.id}_${pedido.id}`;
+      chaveIdempotencia = headerKey || keyFallback;
+      usarIdempotencia = DISTRIBUTED_IDEMPOTENCY_ENABLED && Boolean(chaveIdempotencia);
+
+      if (usarIdempotencia) {
+        const idempotenciaStatus = await iniciarOperacaoDistribuida({
+          pool,
+          scope: 'pagamento_pix',
+          idempotencyKey: chaveIdempotencia,
+          userId: req.usuario.id,
+          pedidoId: pedido.id,
+          requestFingerprint: montarFingerprintPagamentoPix(payloadRequest),
+          strictFingerprint: Boolean(headerKey),
+          lockTtlSeconds: 40,
+          operationTtlSeconds: 240
+        });
+
+        if (idempotenciaStatus.state === 'replay' && idempotenciaStatus.responsePayload) {
+          return res.status(Number(idempotenciaStatus.httpStatus || 200)).json(idempotenciaStatus.responsePayload);
+        }
+
+        if (idempotenciaStatus.state === 'in_progress') {
+          return res.status(409).json({ erro: 'Já existe um pagamento PIX em processamento para este pedido. Aguarde alguns segundos.' });
+        }
+
+        if (idempotenciaStatus.state === 'fingerprint_mismatch') {
+          return res.status(409).json({ erro: 'A chave de idempotência enviada não corresponde a esta solicitação de pagamento.' });
+        }
+
+        idempotenciaAdquirida = idempotenciaStatus.state === 'acquired';
+      }
+
       const pagamento = await criarPagamentoPix({
         pedidoId: pedido.id,
         total: pedido.total,
@@ -473,7 +540,7 @@ module.exports = function createPagBankRoutes(deps) {
         logger.warn('Não foi possível salvar dados do PIX (faltam colunas?):', err.message);
       }
 
-      res.json({
+      const respostaPix = {
         payment_id: paymentId,
         status: statusPagBank,
         status_interno: statusInterno,
@@ -482,8 +549,35 @@ module.exports = function createPagBankRoutes(deps) {
         qr_data: pixCodigo,
         pix_codigo: pixCodigo,
         pix_qrcode: pixQrCode
-      });
+      };
+
+      if (usarIdempotencia && idempotenciaAdquirida) {
+        await concluirOperacaoDistribuida({
+          pool,
+          scope: 'pagamento_pix',
+          idempotencyKey: chaveIdempotencia,
+          userId: req.usuario.id,
+          pedidoId: pedido.id,
+          httpStatus: 200,
+          responsePayload: respostaPix,
+          successTtlSeconds: 300
+        });
+      }
+
+      res.json(respostaPix);
     } catch (erro) {
+      if (usarIdempotencia && idempotenciaAdquirida) {
+        await falharOperacaoDistribuida({
+          pool,
+          scope: 'pagamento_pix',
+          idempotencyKey: chaveIdempotencia,
+          userId: req.usuario.id,
+          httpStatus: Number(erro?.httpStatus || 500),
+          errorMessage: erro?.message || 'erro_pagamento_pix',
+          failureTtlSeconds: 120
+        });
+      }
+
       if (erro?.httpStatus) {
         return res.status(erro.httpStatus).json({ erro: erro.message });
       }
@@ -495,9 +589,13 @@ module.exports = function createPagBankRoutes(deps) {
 
   // Processar pagamento com cartão (PagBank API Orders) para um pedido existente
   router.post('/api/pagamentos/cartao', autenticarToken, async (req, res) => {
+    let usarIdempotencia = false;
+    let idempotenciaAdquirida = false;
+    let chaveIdempotencia = '';
+    let pedidoIdNumerico = 0;
+    const payloadRequest = req.body || {};
     try {
-      const payloadRequest = req.body || {};
-      const pedidoIdNumerico = Number.parseInt(String(payloadRequest?.pedido_id || ''), 10);
+      pedidoIdNumerico = Number.parseInt(String(payloadRequest?.pedido_id || ''), 10);
       const taxIdDigits = extrairTaxIdDigits(payloadRequest);
       const tokenCartao = String(payloadRequest?.token_cartao || payloadRequest?.cartao_encriptado || '').trim();
       const authenticationMethodBruto = payloadRequest?.authentication_method;
@@ -559,6 +657,39 @@ module.exports = function createPagBankRoutes(deps) {
       const statusPedidoAtual = String(pedido.status || '').trim().toLowerCase();
       if (['pago', 'entregue', 'cancelado'].includes(statusPedidoAtual)) {
         return res.status(409).json({ erro: `Este pedido ja esta ${statusPedidoAtual} e nao aceita novo pagamento.` });
+      }
+
+      const headerKey = normalizarIdempotencyKey(req.headers?.['x-idempotency-key']);
+      const keyFallback = `auto_cartao_${req.usuario.id}_${pedido.id}`;
+      chaveIdempotencia = headerKey || keyFallback;
+      usarIdempotencia = DISTRIBUTED_IDEMPOTENCY_ENABLED && Boolean(chaveIdempotencia);
+
+      if (usarIdempotencia) {
+        const idempotenciaStatus = await iniciarOperacaoDistribuida({
+          pool,
+          scope: 'pagamento_cartao',
+          idempotencyKey: chaveIdempotencia,
+          userId: req.usuario.id,
+          pedidoId: pedido.id,
+          requestFingerprint: montarFingerprintPagamentoCartao(payloadRequest),
+          strictFingerprint: Boolean(headerKey),
+          lockTtlSeconds: 45,
+          operationTtlSeconds: 240
+        });
+
+        if (idempotenciaStatus.state === 'replay' && idempotenciaStatus.responsePayload) {
+          return res.status(Number(idempotenciaStatus.httpStatus || 200)).json(idempotenciaStatus.responsePayload);
+        }
+
+        if (idempotenciaStatus.state === 'in_progress') {
+          return res.status(409).json({ erro: 'Já existe um pagamento com cartão em processamento para este pedido. Aguarde alguns segundos.' });
+        }
+
+        if (idempotenciaStatus.state === 'fingerprint_mismatch') {
+          return res.status(409).json({ erro: 'A chave de idempotência enviada não corresponde a esta solicitação de pagamento.' });
+        }
+
+        idempotenciaAdquirida = idempotenciaStatus.state === 'acquired';
       }
 
       const formaPagamentoPedido = String(pedido.forma_pagamento || '').toLowerCase();
@@ -859,8 +990,33 @@ module.exports = function createPagBankRoutes(deps) {
         }
       });
 
+      if (usarIdempotencia && idempotenciaAdquirida) {
+        await concluirOperacaoDistribuida({
+          pool,
+          scope: 'pagamento_cartao',
+          idempotencyKey: chaveIdempotencia,
+          userId: req.usuario.id,
+          pedidoId: pedido.id,
+          httpStatus: 200,
+          responsePayload: payloadResposta,
+          successTtlSeconds: 300
+        });
+      }
+
       return res.json(payloadResposta);
     } catch (erro) {
+      if (usarIdempotencia && idempotenciaAdquirida) {
+        await falharOperacaoDistribuida({
+          pool,
+          scope: 'pagamento_cartao',
+          idempotencyKey: chaveIdempotencia,
+          userId: req.usuario.id,
+          httpStatus: Number(erro?.httpStatus || erro?.status || 500),
+          errorMessage: erro?.message || 'erro_pagamento_cartao',
+          failureTtlSeconds: 120
+        });
+      }
+
       const statusBruto = Number(erro?.httpStatus || erro?.status || 500);
       const statusResposta = statusBruto >= 500 || statusBruto < 400
         ? 502
