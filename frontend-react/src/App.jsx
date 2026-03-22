@@ -141,7 +141,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <a href="#main-content" className="skip-to-content">Pular para o conteúdo</a>
-      <main className="content" id="main-content">
+      <main className={`content${isProdutosRoute ? ' content-produtos' : ''}`} id="main-content">
         <ErrorBoundary>
         <Suspense fallback={<RouteLoadingFallback />}>
           <Routes>

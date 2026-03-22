@@ -4,8 +4,7 @@ import { ProdutoImageFallback, ProdutoBadge } from './ProdutoHelpers';
 import {
   formatCurrency,
   getProdutoBadges,
-  prefetchProductImage,
-  getEstoqueBadge
+  prefetchProductImage
 } from '../../lib/produtosUtils';
 
 const ProdutoCard = React.memo(function ProdutoCard({
@@ -116,28 +115,6 @@ const ProdutoCard = React.memo(function ProdutoCard({
   const promoBadges = badges.filter(b => b.tone !== 'mais-vendido' && b.tone !== 'recomendado');
   const podeComprar = produtoIndexado.carrinhoId !== null;
   const shouldPrioritizeImage = isMobileViewport ? index < 1 : index < 2;
-  const urgenciaEstoqueAtiva = Boolean(podeComprar && estoqueInfo?.estoqueBaixo);
-  const copyDisponibilidade = !podeComprar
-    ? 'Indisponivel no momento'
-    : (urgenciaEstoqueAtiva ? 'Restam poucas unidades' : '');
-  const microcopyConversao = '';
-  const precoCta = formatCurrency(precoInfo.precoAtual);
-  const temPrecoNoCta = Number(precoInfo.precoAtual || 0) > 0;
-  const ctaExperimentoCatalogo = '';
-  const indicadorUrgencia = !podeComprar
-    ? ''
-    : (urgenciaEstoqueAtiva
-      ? '⏳ Acabando'
-      : (precoInfo.economia >= 1
-        ? `💸 Economize ${formatCurrency(precoInfo.economia)}`
-        : ((produtoIndexado.emPromocao || precoInfo.precoAnterior) ? '🔥 Oferta hoje' : '')));
-  const ctaPrimaria = !podeComprar
-    ? 'Indisponivel'
-    : (estaAdicionando
-      ? 'Adicionando...'
-      : (quantidadeNoCarrinho > 0
-        ? 'Adicionar +1'
-        : 'Adicionar'));
   const priceAreaClassName = [
     'produto-price-area',
     growthCatalogEnabled ? `is-growth-${growthCatalogPriceHighlight}` : ''
@@ -149,8 +126,7 @@ const ProdutoCard = React.memo(function ProdutoCard({
   const cardClassName = [
     'produto-card',
     foiAdicionadoRecente ? 'is-added' : '',
-    index === 0 ? 'is-prime' : '',
-    indicadorUrgencia ? 'is-urgent' : '',
+    quantidadeNoCarrinho > 0 ? 'has-qty' : '',
     (produtoIndexado.emPromocao || precoInfo.precoAnterior) ? 'is-offer' : '',
     (destaqueMaisVendido || sinalRecorrente) ? 'is-popular' : '',
     destaqueConversao ? 'is-conversion-winner' : ''
@@ -203,35 +179,47 @@ const ProdutoCard = React.memo(function ProdutoCard({
         </button>
 
         {podeComprar ? (
-          <button
-            type="button"
-            className={`produto-quick-add ${estaAdicionando ? 'is-loading' : ''}`.trim()}
-            onClick={handleAddItemLocal}
-            disabled={estaAdicionando}
-            aria-label={`Adicionar ${nomeProduto} ao carrinho`}
-          >
-            +
-          </button>
+          quantidadeNoCarrinho > 0 ? (
+            <div className="produto-qty-overlay" aria-label={`Quantidade de ${nomeProduto} no carrinho`}>
+              <button
+                type="button"
+                className="produto-qty-overlay-btn"
+                onClick={() => onDecreaseItem(produto, quantidadeNoCarrinho)}
+                aria-label={`Diminuir quantidade de ${nomeProduto}`}
+                disabled={estaAdicionando}
+              >
+                {quantidadeNoCarrinho <= 1 ? '🗑' : '−'}
+              </button>
+              <span className="produto-qty-overlay-value">{quantidadeNoCarrinho}</span>
+              <button
+                type="button"
+                className="produto-qty-overlay-btn"
+                onClick={handleIncreaseLocal}
+                aria-label={`Aumentar quantidade de ${nomeProduto}`}
+                disabled={estaAdicionando}
+              >
+                +
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className={`produto-quick-add ${estaAdicionando ? 'is-loading' : ''}`.trim()}
+              onClick={handleAddItemLocal}
+              disabled={estaAdicionando}
+              aria-label={`Adicionar ${nomeProduto} ao carrinho`}
+            >
+              +
+            </button>
+          )
         ) : null}
       </div>
 
-      <div className="produto-card-body">
+      <div className="produto-card-body" onClick={() => onOpenDetail(produtoIndexado.chaveReact)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') onOpenDetail(produtoIndexado.chaveReact); }}>
         <h3 className="produto-title" title={nomeProduto}>{nomeProduto}</h3>
         {detalhesProduto && detalhesProduto !== 'Unidade' && !detalhesProduto.startsWith('Sele') ? (
           <p className="produto-details">{detalhesProduto}</p>
         ) : null}
-
-        <div className="produto-status-row">
-          {(() => {
-            const badge = getEstoqueBadge(estoqueInfo);
-            return (
-              <span className={`estoque-badge ${badge.classe}`}>{badge.label}</span>
-            );
-          })()}
-          {statusBadges.map((badge) => (
-            <ProdutoBadge key={`${badge.tone}:${badge.label}`} tone={badge.tone} label={badge.label} />
-          ))}
-        </div>
 
         <div className={priceAreaClassName}>
           {precoInfo.precoAnterior ? (
@@ -246,58 +234,14 @@ const ProdutoCard = React.memo(function ProdutoCard({
           {precoInfo.economia > 0 ? (
             <p className="produto-price-saving">Economize {formatCurrency(precoInfo.economia)}</p>
           ) : null}
-          {precoInfo.precoPix ? (
-            <p className="produto-price-pix">{formatCurrency(precoInfo.precoPix)} no Pix</p>
-          ) : null}
         </div>
-
-        {indicadorUrgencia ? <p className="produto-urgency">{indicadorUrgencia}</p> : null}
       </div>
 
-      <div className="produto-card-actions">
-        {quantidadeNoCarrinho > 0 ? (
-          <div className="produto-qty-control" aria-label={`Quantidade de ${nomeProduto} no carrinho`}>
-            <button
-              type="button"
-              className="produto-qty-btn"
-              onClick={() => onDecreaseItem(produto, quantidadeNoCarrinho)}
-              aria-label={`Diminuir quantidade de ${nomeProduto}`}
-              disabled={estaAdicionando}
-            >
-              -
-            </button>
-            <span className="produto-qty-value">{quantidadeNoCarrinho} no carrinho</span>
-            <button
-              type="button"
-              className="produto-qty-btn"
-              onClick={handleIncreaseLocal}
-              aria-label={`Aumentar quantidade de ${nomeProduto}`}
-              disabled={estaAdicionando}
-            >
-              +
-            </button>
-          </div>
-        ) : null}
-
-        {microcopyConversao ? <p className="produto-microcopy">{microcopyConversao}</p> : null}
-
-        <div className="produto-card-actions-row">
-          <button
-            className={`btn-primary produto-add-btn ${estaAdicionando ? 'is-loading' : ''}`.trim()}
-            type="button"
-            onClick={handleAddItemLocal}
-            disabled={!podeComprar || estaAdicionando}
-          >
-            {ctaPrimaria}
-          </button>
-        </div>
-
-        {foiAdicionadoRecente ? (
-          <p className="produto-card-feedback" role="status" aria-live="polite">
-            Adicionado ao carrinho ✅
-          </p>
-        ) : null}
-      </div>
+      {foiAdicionadoRecente ? (
+        <p className="produto-card-feedback" role="status" aria-live="polite">
+          Adicionado ✅
+        </p>
+      ) : null}
     </article>
   );
 });

@@ -4,6 +4,43 @@ const express = require('express');
 const { queryWithRetry } = require('../lib/db');
 const logger = require('../lib/logger');
 
+const CERVEJA_MATCHERS = [
+  'cerveja',
+  'heineken',
+  'brahma',
+  'skol',
+  'itaipava',
+  'antarctica',
+  'budweiser',
+  'stella',
+  'corona',
+  'amstel',
+  'chopp',
+  'puro malte',
+  'long neck',
+  'longneck',
+  'pilsen',
+  'lager'
+];
+
+function buildProdutoTextoBuscaExpr(colunas) {
+  const partes = ["COALESCE(nome, '')"];
+
+  if (colunas.has('nome_externo')) {
+    partes.push("COALESCE(nome_externo, '')");
+  }
+
+  if (colunas.has('descricao')) {
+    partes.push("COALESCE(descricao, '')");
+  }
+
+  if (colunas.has('marca')) {
+    partes.push("COALESCE(marca, '')");
+  }
+
+  return `LOWER(CONCAT(${partes.join(", ' ', ")}))`;
+}
+
 /**
  * @param {object} deps
  * @param {Function} deps.obterColunasProdutos
@@ -96,14 +133,37 @@ module.exports = function createProdutosPublicRoutes({
       const filtros = ['ativo = TRUE'];
       const params = [];
 
+      // Super-categorias: bebidas inclui agua+refrigerantes, frios inclui derivados_lacteos+leites_fermentados
+      const SUPER_CATEGORIAS = {
+        bebidas: ['bebidas', 'agua', 'refrigerantes'],
+        frios: ['frios', 'derivados_lacteos', 'leites_fermentados']
+      };
+
       if (categoria) {
-        if (colunas.has('departamento')) {
-          // Usa departamento (IA) quando disponível, senão categoria (ERP)
-          filtros.push('(LOWER(COALESCE(NULLIF(TRIM(departamento), \'\'), categoria)) = ?)');
+        const categoriaExpr = colunas.has('departamento')
+          ? "LOWER(COALESCE(NULLIF(TRIM(departamento), ''), categoria))"
+          : 'LOWER(categoria)';
+
+        if (categoria === 'cervejas' || categoria === 'cerveja') {
+          const textoProdutoExpr = buildProdutoTextoBuscaExpr(colunas);
+          const filtrosTextoCerveja = CERVEJA_MATCHERS.map(() => `${textoProdutoExpr} LIKE ? ESCAPE '\\\\'`);
+
+          filtros.push(`(${categoriaExpr} = ? OR (${filtrosTextoCerveja.join(' OR ')}))`);
+          params.push('cervejas');
+          CERVEJA_MATCHERS.forEach((matcher) => {
+            params.push(`%${escapeLike(matcher)}%`);
+          });
         } else {
-          filtros.push('LOWER(categoria) = ?');
+          const subcats = SUPER_CATEGORIAS[categoria];
+          if (subcats) {
+            const placeholders = subcats.map(() => '?').join(', ');
+            filtros.push(`(${categoriaExpr} IN (${placeholders}))`);
+            params.push(...subcats);
+          } else {
+            filtros.push(`(${categoriaExpr} = ?)`);
+            params.push(categoria);
+          }
         }
-        params.push(categoria);
       }
 
       if (busca) {
@@ -191,12 +251,23 @@ module.exports = function createProdutosPublicRoutes({
         });
       }
 
+      const colunas = await obterColunasProdutos();
+      const categoriaExpr = colunas.has('departamento')
+        ? "LOWER(COALESCE(NULLIF(TRIM(departamento), ''), categoria))"
+        : 'LOWER(categoria)';
+      const categoriaNotNullFilter = colunas.has('departamento')
+        ? "COALESCE(NULLIF(TRIM(departamento), ''), categoria) IS NOT NULL"
+        : 'categoria IS NOT NULL';
+      const categoriaNotEmptyFilter = colunas.has('departamento')
+        ? "COALESCE(NULLIF(TRIM(departamento), ''), categoria) <> ''"
+        : "categoria <> ''";
+
       const [rows] = await queryWithRetry(
-        `SELECT DISTINCT categoria
+        `SELECT DISTINCT ${categoriaExpr} AS categoria
          FROM produtos
          WHERE ativo = TRUE
-           AND categoria IS NOT NULL
-           AND categoria <> ''
+           AND ${categoriaNotNullFilter}
+           AND ${categoriaNotEmptyFilter}
          ORDER BY categoria ASC`
       );
 

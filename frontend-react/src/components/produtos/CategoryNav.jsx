@@ -1,0 +1,38 @@
+import React from 'react';
+
+const CategoryNav = React.memo(function CategoryNav({
+  categories = [],
+  activeCategoryId = 'todas',
+  onSelect,
+  onWheel
+}) {
+  if (!Array.isArray(categories) || categories.length === 0) {
+    return null;
+  }
+
+  return (
+    <nav className="products-quick-categories" aria-label="Categorias rapidas" onWheel={onWheel}>
+      {categories.map((category) => {
+        const id = String(category?.id || '');
+        const label = String(category?.label || 'Categoria');
+        const icon = String(category?.icon || '🛍️');
+        const isActive = id === activeCategoryId;
+
+        return (
+          <button
+            key={id}
+            type="button"
+            className={`products-quick-cat-item${isActive ? ' is-active' : ''}`}
+            onClick={() => onSelect?.(id)}
+            aria-pressed={isActive}
+          >
+            <span className="products-quick-cat-icon" aria-hidden="true">{icon}</span>
+            <span className="products-quick-cat-label">{label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+});
+
+export default CategoryNav;

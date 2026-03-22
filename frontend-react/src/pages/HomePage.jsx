@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { getProdutos } from '../lib/api';
 import { getProdutoEstoqueInfo, getEstoqueBadge } from '../lib/produtosUtils';
 import BrandLogo from '../components/BrandLogo';
@@ -10,39 +10,20 @@ import useDocumentHead from '../hooks/useDocumentHead';
 import { STORE_WHATSAPP_URL, STORE_WHATSAPP_DISPLAY, STORE_TELEFONE_URL, STORE_TELEFONE_DISPLAY, STORE_CNPJ, STORE_ENDERECO, STORE_HORARIO_CURTO } from '../config/store';
 
 const CATEGORY_IMAGES = {
-  hortifruti: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=60',
+  frios: 'https://images.unsplash.com/photo-1486297678162-eb2a19b0a32d?auto=format&fit=crop&w=900&q=60',
+  refrigerantes: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=900&q=60',
   bebidas: 'https://images.unsplash.com/photo-1497534446932-c925b458314e?auto=format&fit=crop&w=900&q=60',
+  agua: 'https://images.unsplash.com/photo-1548839140-29a749e1cf4d?auto=format&fit=crop&w=900&q=60',
+  salgadinhos: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=900&q=60',
+  doces: 'https://images.unsplash.com/photo-1582176604856-e824b4736522?auto=format&fit=crop&w=900&q=60',
+  biscoitos: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?auto=format&fit=crop&w=900&q=60',
+  leites_fermentados: 'https://images.unsplash.com/photo-1628088062854-d1870b4553da?auto=format&fit=crop&w=900&q=60',
+  derivados_lacteos: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=900&q=60',
   mercearia: 'https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=900&q=60',
-  acougue: 'https://images.unsplash.com/photo-1607623814143-16f56c7d0980?auto=format&fit=crop&w=900&q=60',
-  limpeza: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?auto=format&fit=crop&w=900&q=60'
+  limpeza: 'https://images.unsplash.com/photo-1585421514284-efb74c2b69ba?auto=format&fit=crop&w=900&q=60',
+  higiene: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?auto=format&fit=crop&w=900&q=60',
+  hortifruti: 'https://images.unsplash.com/photo-1610832958506-aa56368176cf?auto=format&fit=crop&w=900&q=60'
 };
-
-const HOME_SETORES = [
-  {
-    categoria: 'bebidas',
-    label: 'Bebidas',
-    busca: '',
-    imagem: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=900&q=60'
-  },
-  {
-    categoria: 'hortifruti',
-    label: 'Hortifruti',
-    busca: '',
-    imagem: 'https://images.unsplash.com/photo-1506806732259-39c2d0268443?auto=format&fit=crop&w=900&q=60'
-  },
-  {
-    categoria: 'mercearia',
-    label: 'Mercearia',
-    busca: '',
-    imagem: 'https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=900&q=60'
-  },
-  {
-    categoria: 'limpeza',
-    label: 'Limpeza',
-    busca: 'limpeza',
-    imagem: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=900&q=60'
-  }
-];
 
 function isProdutoEmPromocao(produto) {
   return (
@@ -146,10 +127,7 @@ export default function HomePage() {
     setCarregando(true);
     setErro('');
     try {
-      const data = await getProdutos({
-        page: 1,
-        limit: 120
-      });
+      const data = await getProdutos({ page: 1, limit: 120 });
       setProdutos(data.produtos || []);
     } catch (error) {
       setErro(error.message);
@@ -163,53 +141,30 @@ export default function HomePage() {
   const recompraHome = useMemo(() => recomprasProdutos.slice(0, 4), [recomprasProdutos]);
   const temDadosRecorrencia = recorrenciaStats.favoritos > 0 || recorrenciaStats.recentes > 0 || recorrenciaStats.recompra > 0;
 
-  const idsRecorrenciaHome = useMemo(() => {
-    const ids = [
-      ...favoritosProdutos,
-      ...recentesProdutos,
-      ...recomprasProdutos
-    ]
-      .map((produto) => getProdutoId(produto))
-      .filter((id) => id !== null);
-
-    return new Set(ids);
-  }, [favoritosProdutos, recentesProdutos, recomprasProdutos]);
-
   const oportunidadesComerciais = useMemo(() => {
+    const idsRecorrencia = new Set(
+      [...favoritosProdutos, ...recentesProdutos, ...recomprasProdutos]
+        .map(p => getProdutoId(p))
+        .filter(id => id !== null)
+    );
+
     return produtos
       .map((produto) => {
         const id = getProdutoId(produto);
         let score = 0;
-
-        if (isProdutoEmPromocao(produto)) {
-          score += 6;
-        }
-
-        if (id !== null && idsRecorrenciaHome.has(id)) {
-          score += 4;
-        }
-
-        if (Number(produto?.preco_pix || 0) > 0) {
-          score += 1;
-        }
-
-        return {
-          produto,
-          id,
-          score
-        };
+        if (isProdutoEmPromocao(produto)) score += 6;
+        if (id !== null && idsRecorrencia.has(id)) score += 4;
+        if (Number(produto?.preco_pix || 0) > 0) score += 1;
+        return { produto, id, score };
       })
       .filter((item) => item.score > 0)
       .sort((a, b) => {
         const scoreDiff = b.score - a.score;
-        if (scoreDiff !== 0) {
-          return scoreDiff;
-        }
-
+        if (scoreDiff !== 0) return scoreDiff;
         return String(a.produto?.nome || '').localeCompare(String(b.produto?.nome || ''), 'pt-BR');
       })
       .slice(0, 4);
-  }, [idsRecorrenciaHome, produtos]);
+  }, [produtos, favoritosProdutos, recentesProdutos, recomprasProdutos]);
 
   const imagemLcpHome = useMemo(() => {
     const candidatoPrincipal = oportunidadesComerciais[0]?.produto;
@@ -276,7 +231,6 @@ export default function HomePage() {
           <span className="home-hero-pill">💲 Desconto no Pix</span>
           <span className="home-hero-pill">🛒 +21 mil produtos</span>
         </div>
-        <Link to="/produtos" className="btn-primary home-hero-btn">Comprar agora</Link>
       </section>
 
       <section className="home-opportunities home-section-clean" aria-label="Ofertas do dia">
@@ -327,24 +281,6 @@ export default function HomePage() {
         ) : (
           <p className="muted-text">As melhores ofertas aparecem aqui.</p>
         )}
-      </section>
-
-      <section className="sector-section home-section-clean" aria-label="Navegar por setor">
-        <h2>Setores</h2>
-        <div className="sector-grid">
-          {HOME_SETORES.map((setor) => (
-            <button
-              key={`${setor.categoria}-${setor.label}`}
-              className="sector-card"
-              type="button"
-              style={{ '--bg': `url('${setor.imagem}')` }}
-              onClick={() => abrirProdutos({ categoria: setor.categoria, busca: setor.busca })}
-              aria-label={`Ver produtos de ${setor.label}`}
-            >
-              <span className="sector-label">{setor.label}</span>
-            </button>
-          ))}
-        </div>
       </section>
 
       {temDadosRecorrencia ? (

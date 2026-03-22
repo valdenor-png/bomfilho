@@ -4,8 +4,24 @@ import { getProdutos } from './api';
 export const CATEGORIA_TODAS = 'todas';
 export const CATEGORIA_PROMOCOES = 'promocoes';
 export const CATEGORIA_BEBIDAS = 'bebidas';
+export const CATEGORIA_FRIOS = 'frios';
 export const TOKEN_BEBIDA = 'bebida';
+export const TOKEN_FRIOS = 'frios';
 export const PRODUTOS_POR_PAGINA = 60;
+
+// Super-categorias: agrupam subcategorias do DB
+export const SUPER_CATEGORIAS = {
+  bebidas: ['bebidas', 'agua', 'refrigerantes'],
+  frios: ['frios', 'derivados_lacteos', 'leites_fermentados']
+};
+
+// Mapa inverso: subcategoria DB -> super-categoria
+export const SUBCATEGORIA_TO_SUPER = {
+  agua: 'bebidas',
+  refrigerantes: 'bebidas',
+  derivados_lacteos: 'frios',
+  leites_fermentados: 'frios'
+};
 
 export const DRINK_SECTIONS_BEBIDAS = [
   {
@@ -129,20 +145,69 @@ export const BRAND_GROUPS_BY_SUBCATEGORY = {
   ]
 };
 
+export const FRIOS_SECTIONS = [
+  {
+    id: 'empanados',
+    label: 'Empanados e Congelados',
+    matchers: ['empan', 'empanado', 'nuggets', 'steak', 'stek', 'tirinha', 'isca', 'chicken', 'chicren', 'tekito', 'auroggets']
+  },
+  {
+    id: 'frios-embutidos',
+    label: 'Frios e Embutidos',
+    matchers: ['presunt', 'presunto', 'mortadela', 'salame', 'salsicha', 'linguica', 'linguiça', 'bacon', 'peito peru', 'apresuntado', 'copa', 'lombo', 'tender']
+  },
+  {
+    id: 'queijos',
+    label: 'Queijos',
+    matchers: ['queijo', 'mussarela', 'mozzarella', 'parmesao', 'parmes', 'provolone', 'cheddar', 'ricota', 'gorgonzola', 'coalh', 'prato']
+  },
+  {
+    id: 'requeijao-cremes',
+    label: 'Requeijão e Cremes',
+    matchers: ['requeij', 'requeijao', 'chantilly', 'creme de leite', 'nata']
+  },
+  {
+    id: 'leite-derivados',
+    label: 'Leite Condensado e em Pó',
+    matchers: ['leite cond', 'leite po', 'leite coc', 'condensado', 'leite em po']
+  },
+  {
+    id: 'leites-fermentados',
+    label: 'Leites Fermentados',
+    matchers: ['fermentado', 'yakult', 'chamyto']
+  }
+];
+
 export const CATEGORY_IMAGES = {
-  hortifruti: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=60',
+  frios: 'https://images.unsplash.com/photo-1486297678162-eb2a19b0a32d?auto=format&fit=crop&w=900&q=60',
+  refrigerantes: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=900&q=60',
   bebidas: 'https://images.unsplash.com/photo-1497534446932-c925b458314e?auto=format&fit=crop&w=900&q=60',
+  cervejas: 'https://images.unsplash.com/photo-1566633806327-68e152aaf26d?auto=format&fit=crop&w=900&q=60',
+  agua: 'https://images.unsplash.com/photo-1548839140-29a749e1cf4d?auto=format&fit=crop&w=900&q=60',
+  salgadinhos: 'https://images.unsplash.com/photo-1566478989037-eec170784d0b?auto=format&fit=crop&w=900&q=60',
+  doces: 'https://images.unsplash.com/photo-1582176604856-e824b4736522?auto=format&fit=crop&w=900&q=60',
+  biscoitos: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?auto=format&fit=crop&w=900&q=60',
+  leites_fermentados: 'https://images.unsplash.com/photo-1628088062854-d1870b4553da?auto=format&fit=crop&w=900&q=60',
+  derivados_lacteos: 'https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=900&q=60',
   mercearia: 'https://images.unsplash.com/photo-1607623814075-e51df1bdc82f?auto=format&fit=crop&w=900&q=60',
-  acougue: 'https://images.unsplash.com/photo-1607623814143-16f56c7d0980?auto=format&fit=crop&w=900&q=60',
-  limpeza: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?auto=format&fit=crop&w=900&q=60'
+  hortifruti: 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=60',
+  limpeza: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?auto=format&fit=crop&w=900&q=60',
+  higiene: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?auto=format&fit=crop&w=900&q=60'
 };
 
 export const CATEGORIAS_LEGADO = [
   { id: CATEGORIA_TODAS, label: 'Todas' },
   { id: CATEGORIA_PROMOCOES, label: 'Promoções', destaque: true },
-  { id: 'hortifruti', label: 'Hortifruti' },
+  { id: 'cervejas', label: 'Cervejas', destaque: true },
+  { id: 'mercearia', label: 'Mercearia' },
+  { id: 'limpeza', label: 'Limpeza' },
+  { id: 'biscoitos', label: 'Biscoitos' },
+  { id: 'doces', label: 'Doces' },
   { id: CATEGORIA_BEBIDAS, label: 'Bebidas' },
-  { id: 'limpeza', label: 'Limpeza' }
+  { id: 'higiene', label: 'Higiene' },
+  { id: 'hortifruti', label: 'Hortifruti' },
+  { id: 'salgadinhos', label: 'Salgadinhos' },
+  { id: CATEGORIA_FRIOS, label: 'Frios e Laticínios' }
 ];
 
 export const ORDENACOES_PRODUTOS = [
@@ -209,13 +274,20 @@ export const FILTROS_COMERCIAIS_RAPIDOS = [
 ];
 
 export const CATEGORIA_ICONE_FALLBACK = {
-  hortifruti: '🥦',
-  bebidas: '🥤',
-  limpeza: '🧽',
+  frios: '🧊',
+  refrigerantes: '🥤',
+  bebidas: '🍹',
+  cervejas: '🍺',
+  agua: '💧',
+  salgadinhos: '🍿',
+  doces: '🍫',
+  biscoitos: '🍪',
+  leites_fermentados: '🥛',
+  derivados_lacteos: '🧀',
   mercearia: '🛒',
-  acougue: '🥩',
-  padaria: '🥖',
-  frios: '🧀'
+  hortifruti: '🥦',
+  limpeza: '🧽',
+  higiene: '🧴'
 };
 
 export const TOKENS_MAIS_VENDIDOS = [
@@ -266,6 +338,11 @@ export const DRINK_SECTIONS_BEBIDAS_INDEX = DRINK_SECTIONS_BEBIDAS.map((section)
   matchersNormalizados: normalizeMatchers(section.matchers)
 }));
 
+export const FRIOS_SECTIONS_INDEX = FRIOS_SECTIONS.map((section) => ({
+  ...section,
+  matchersNormalizados: normalizeMatchers(section.matchers)
+}));
+
 export const BRAND_GROUPS_BY_SUBCATEGORY_INDEX = Object.fromEntries(
   Object.entries(BRAND_GROUPS_BY_SUBCATEGORY).map(([subcategoryId, groups]) => [
     subcategoryId,
@@ -278,6 +355,15 @@ export const BRAND_GROUPS_BY_SUBCATEGORY_INDEX = Object.fromEntries(
 
 export function isBebidasCategoria(value) {
   return normalizeText(value).includes('bebida');
+}
+
+export function isFriosCategoria(value) {
+  const v = normalizeText(value);
+  return v === 'frios' || v === 'frios e laticinios';
+}
+
+export function getCategoriaAgrupada(categoriaOriginal) {
+  return SUBCATEGORIA_TO_SUPER[categoriaOriginal] || categoriaOriginal;
 }
 
 export function getTextoProduto(produto) {
@@ -300,6 +386,13 @@ export function getBebidaSubcategoriaIdByTexto(textoProduto) {
     textoContemMatcher(textoProduto, section.matchersNormalizados)
   );
   return found?.id || 'outras-bebidas';
+}
+
+export function getFriosSubcategoriaIdByTexto(textoProduto) {
+  const found = FRIOS_SECTIONS_INDEX.find((section) =>
+    textoContemMatcher(textoProduto, section.matchersNormalizados)
+  );
+  return found?.id || 'outros-frios';
 }
 
 export function isProdutoEmPromocao(produto) {
@@ -375,9 +468,21 @@ export function getProdutoNome(produto) {
   return isAllCaps ? toTitleCase(nome) : nome;
 }
 
+// Mapa de labels legíveis para as categorias do DB
+const CATEGORIA_LABEL_MAP = Object.fromEntries(
+  CATEGORIAS_LEGADO
+    .filter(c => c.id !== CATEGORIA_TODAS && c.id !== CATEGORIA_PROMOCOES)
+    .map(c => [c.id, c.label])
+);
+// Sub-categorias DB que foram agrupadas
+CATEGORIA_LABEL_MAP.agua = 'Água';
+CATEGORIA_LABEL_MAP.refrigerantes = 'Refrigerantes';
+CATEGORIA_LABEL_MAP.derivados_lacteos = 'Derivados Lácteos';
+CATEGORIA_LABEL_MAP.leites_fermentados = 'Leites Fermentados';
+
 export function getProdutoCategoriaLabel(produto) {
-  const categoria = String(produto?.categoria || '').trim();
-  return categoria || 'Categoria não informada';
+  const raw = String(produto?.departamento || produto?.categoria || '').trim().toLowerCase();
+  return CATEGORIA_LABEL_MAP[raw] || raw || 'Categoria não informada';
 }
 
 export function getProdutoMedida(produto) {
@@ -784,6 +889,10 @@ export function getCategoriaApi(categoria) {
     return CATEGORIA_BEBIDAS;
   }
 
+  if (valor === CATEGORIA_FRIOS || valor === 'frios e laticinios') {
+    return CATEGORIA_FRIOS;
+  }
+
   return valor;
 }
 
@@ -801,6 +910,7 @@ export function buildProdutosQueryKey({ categoria, busca, page, limit }) {
 
 // Mantem a assinatura de busca isolada para facilitar migracao para React Query.
 export async function fetchProdutosPage({ categoria, busca, page, limit }) {
+  const categoriaOriginal = String(categoria || '').toLowerCase();
   const params = {
     page: Number(page || 1),
     limit: Number(limit || PRODUTOS_POR_PAGINA)
@@ -816,9 +926,25 @@ export async function fetchProdutosPage({ categoria, busca, page, limit }) {
     params.busca = buscaNormalizada;
   }
 
-  const data = await getProdutos(params);
-  const lista = Array.isArray(data?.produtos) ? data.produtos : [];
-  const paginacao = data?.paginacao || {};
+  let data = await getProdutos(params);
+  let lista = Array.isArray(data?.produtos) ? data.produtos : [];
+  let paginacao = data?.paginacao || {};
+
+  // Fallback de compatibilidade: algumas bases antigas guardam cervejas dentro de bebidas.
+  // Se a consulta por "cervejas" vier vazia sem termo de busca, tenta bebidas + busca "cerveja".
+  if (
+    categoriaOriginal === 'cervejas'
+    && !buscaNormalizada
+    && Number(paginacao?.total || lista.length || 0) === 0
+  ) {
+    data = await getProdutos({
+      ...params,
+      categoria: CATEGORIA_BEBIDAS,
+      busca: 'cerveja'
+    });
+    lista = Array.isArray(data?.produtos) ? data.produtos : [];
+    paginacao = data?.paginacao || {};
+  }
 
   return {
     queryKey: buildProdutosQueryKey({
@@ -918,10 +1044,10 @@ export function mergeProdutosById(listaAtual, novosProdutos) {
 
 export const VIRTUALIZATION_THRESHOLD = 64;
 export const VIRTUAL_GRID_GAP = 14;
-export const VIRTUAL_CARD_MIN_WIDTH_DESKTOP = 218;
-export const VIRTUAL_CARD_MIN_WIDTH_MOBILE = 148;
-export const VIRTUAL_CARD_HEIGHT_DESKTOP = 448;
-export const VIRTUAL_CARD_HEIGHT_MOBILE = 324;
+export const VIRTUAL_CARD_MIN_WIDTH_DESKTOP = 232;
+export const VIRTUAL_CARD_MIN_WIDTH_MOBILE = 158;
+export const VIRTUAL_CARD_HEIGHT_DESKTOP = 470;
+export const VIRTUAL_CARD_HEIGHT_MOBILE = 344;
 export const VIRTUAL_GRID_MIN_HEIGHT = 300;
 export const PREFETCHED_PRODUCT_IMAGE_LIMIT = 1200;
 const prefetchedProductImageSrc = new Set();

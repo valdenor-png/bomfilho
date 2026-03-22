@@ -721,6 +721,10 @@ export function getProdutos(params = {}) {
   return request('/api/produtos' + buildQueryString(params));
 }
 
+export function getCategoriasAtivas() {
+  return request('/api/categorias');
+}
+
 export function getOfertasDia() {
   return request('/api/ofertas-dia');
 }
