@@ -24,7 +24,14 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
 
       if (!usarPaginacao) {
         const [pedidos] = await pool.query(
-          'SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC',
+          `SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega,
+                  pix_codigo, pix_qrcode, pix_id, pix_status,
+                  frete_cobrado_cliente, frete_real_uber, margem_pedido,
+                  uber_delivery_id, uber_tracking_url, uber_vehicle_type, uber_eta_seconds, entrega_status,
+                  criado_em, atualizado_em
+             FROM pedidos
+            WHERE usuario_id = ?
+            ORDER BY criado_em DESC`,
           [req.usuario.id]
         );
 
@@ -53,7 +60,15 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
       const offset = (paginacao.pagina - 1) * paginacao.limite;
 
       const [pedidos] = await pool.query(
-        'SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE usuario_id = ? ORDER BY criado_em DESC LIMIT ? OFFSET ?',
+        `SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega,
+                pix_codigo, pix_qrcode, pix_id, pix_status,
+                frete_cobrado_cliente, frete_real_uber, margem_pedido,
+                uber_delivery_id, uber_tracking_url, uber_vehicle_type, uber_eta_seconds, entrega_status,
+                criado_em, atualizado_em
+           FROM pedidos
+          WHERE usuario_id = ?
+          ORDER BY criado_em DESC
+          LIMIT ? OFFSET ?`,
         [req.usuario.id, paginacao.limite, offset]
       );
 
@@ -78,7 +93,13 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
   router.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     try {
       const [pedidos] = await pool.query(
-        'SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega, pix_codigo, pix_qrcode, pix_id, pix_status, criado_em, atualizado_em FROM pedidos WHERE id = ? AND usuario_id = ?',
+        `SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega,
+                pix_codigo, pix_qrcode, pix_id, pix_status,
+                frete_cobrado_cliente, frete_real_uber, margem_pedido,
+                uber_delivery_id, uber_tracking_url, uber_vehicle_type, uber_eta_seconds, entrega_status,
+                criado_em, atualizado_em
+           FROM pedidos
+          WHERE id = ? AND usuario_id = ?`,
         [req.params.id, req.usuario.id]
       );
 
@@ -117,6 +138,8 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
     try {
       const [rows] = await pool.query(
         `SELECT id, status, tipo_entrega, forma_pagamento,
+          uber_delivery_id, uber_tracking_url, uber_vehicle_type, uber_eta_seconds,
+          entrega_status, frete_cobrado_cliente, frete_real_uber, margem_pedido,
                 pago_em, em_preparo_em, pronto_em, saiu_entrega_em, entregue_em, retirado_em, cancelado_em,
                 atualizado_em
          FROM pedidos WHERE id = ? AND usuario_id = ? LIMIT 1`,

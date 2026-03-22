@@ -178,7 +178,10 @@ if (!ADMIN_PASSWORD_HASH && !ADMIN_PASSWORD) {
 // ============================================
 // CORS
 // ============================================
-const CORS_ORIGENS_FIXAS_PRODUCAO = ['https://bomfilho-delivery.vercel.app'];
+const CORS_ORIGENS_FIXAS_PRODUCAO = [
+  'https://bomfilho-delivery.vercel.app',
+  'https://bomfilhoadmin.vercel.app'
+];
 const CORS_ORIGENS_FIXAS_DESENVOLVIMENTO = [
   'http://localhost:5173', 'http://localhost:5174',
   'http://127.0.0.1:5173', 'http://127.0.0.1:5174'
@@ -241,6 +244,47 @@ const FRETE_DEBUG_LOGS = (() => {
   return ['1', 'true', 'yes', 'on', 'sim'].includes(raw);
 })();
 
+// ============================================
+// UBER DIRECT
+// ============================================
+const UBER_DIRECT_ENABLED = parseBooleanEnv('UBER_DIRECT_ENABLED', false);
+const UBER_DIRECT_BASE_URL = String(process.env.UBER_DIRECT_BASE_URL || 'https://api.uber.com/v1').trim().replace(/\/+$/, '');
+const UBER_DIRECT_OAUTH_URL = String(process.env.UBER_DIRECT_OAUTH_URL || 'https://login.uber.com/oauth/v2/token').trim();
+const UBER_DIRECT_CUSTOMER_ID = String(process.env.UBER_DIRECT_CUSTOMER_ID || '').trim();
+const UBER_DIRECT_CLIENT_ID = String(process.env.UBER_DIRECT_CLIENT_ID || '').trim();
+const UBER_DIRECT_CLIENT_SECRET = String(process.env.UBER_DIRECT_CLIENT_SECRET || '').trim();
+const UBER_DIRECT_WEBHOOK_TOKEN = String(process.env.UBER_DIRECT_WEBHOOK_TOKEN || '').trim();
+const UBER_DIRECT_TIMEOUT_MS = (() => {
+  const valor = Number(process.env.UBER_DIRECT_TIMEOUT_MS || 15000);
+  if (!Number.isFinite(valor)) return 15000;
+  return Math.max(5000, Math.min(60000, Math.round(valor)));
+})();
+const UBER_PICKUP_NAME = String(process.env.UBER_PICKUP_NAME || 'BomFilho Supermercado').trim() || 'BomFilho Supermercado';
+const UBER_PICKUP_PHONE = String(process.env.UBER_PICKUP_PHONE || '').trim();
+const UBER_PICKUP_ADDRESS = String(process.env.UBER_PICKUP_ADDRESS || '').trim();
+
+if (UBER_DIRECT_ENABLED) {
+  if (!UBER_DIRECT_CUSTOMER_ID || !UBER_DIRECT_CLIENT_ID || !UBER_DIRECT_CLIENT_SECRET) {
+    const msg = 'UBER_DIRECT_ENABLED=true requer UBER_DIRECT_CUSTOMER_ID, UBER_DIRECT_CLIENT_ID e UBER_DIRECT_CLIENT_SECRET.';
+    if (IS_PRODUCTION) {
+      throw new Error(msg);
+    }
+    console.warn(`⚠️ ${msg}`);
+  }
+
+  if (!UBER_PICKUP_PHONE || !UBER_PICKUP_ADDRESS) {
+    const msg = 'UBER_DIRECT_ENABLED=true requer UBER_PICKUP_PHONE e UBER_PICKUP_ADDRESS para coleta.';
+    if (IS_PRODUCTION) {
+      throw new Error(msg);
+    }
+    console.warn(`⚠️ ${msg}`);
+  }
+
+  if (IS_PRODUCTION && !UBER_DIRECT_WEBHOOK_TOKEN) {
+    throw new Error('UBER_DIRECT_WEBHOOK_TOKEN é obrigatório em produção para validar webhook Uber.');
+  }
+}
+
 const TAXA_SERVICO_PERCENTUAL = (() => {
   const valor = Number(process.env.TAXA_SERVICO_PERCENTUAL || 3);
   return Number.isFinite(valor) && valor >= 0 && valor <= 100 ? valor : 3;
@@ -283,6 +327,17 @@ module.exports = {
   PRECO_COMBUSTIVEL_LITRO, CEP_MERCADO, NUMERO_MERCADO, LIMITE_BIKE_KM,
   CEP_GEO_TTL_MS, PRODUTOS_QUERY_CACHE_TTL_MS, READ_QUERY_CACHE_TTL_MS,
   FRETE_DEBUG_LOGS,
+  UBER_DIRECT_ENABLED,
+  UBER_DIRECT_BASE_URL,
+  UBER_DIRECT_OAUTH_URL,
+  UBER_DIRECT_CUSTOMER_ID,
+  UBER_DIRECT_CLIENT_ID,
+  UBER_DIRECT_CLIENT_SECRET,
+  UBER_DIRECT_WEBHOOK_TOKEN,
+  UBER_DIRECT_TIMEOUT_MS,
+  UBER_PICKUP_NAME,
+  UBER_PICKUP_PHONE,
+  UBER_PICKUP_ADDRESS,
   TAXA_SERVICO_PERCENTUAL,
   // helpers
   parseBooleanEnv, escapeRegex, normalizarOrigin,

@@ -735,6 +735,17 @@ export function simularFretePorCep({ cep, veiculo = 'moto' }) {
   return request(`/api/frete/simular?cep=${cepNormalizado}&veiculo=${encodeURIComponent(veiculoNormalizado)}`);
 }
 
+export function getUberDeliveryQuote({ endereco, carrinho, valorCarrinho = 0 }) {
+  return request('/api/delivery/quote', {
+    method: 'POST',
+    body: {
+      endereco,
+      carrinho,
+      valor_carrinho: Number(valorCarrinho || 0)
+    }
+  });
+}
+
 export function criarPedido({ itens, formaPagamento = 'pix', tipoEntrega = 'entrega', entrega, taxId, recaptchaToken }) {
   const body = {
     itens,
@@ -860,6 +871,30 @@ export function adminAtualizarStatusPedido(pedidoId, status) {
   return request(`/api/admin/pedidos/${pedidoId}/status`, {
     method: 'PUT',
     body: { status }
+  });
+}
+
+export function adminListarEntregasUber() {
+  return request('/api/admin/delivery/pedidos');
+}
+
+export function adminCriarEntregaUber({ pedidoId, estimateId }) {
+  return request('/api/delivery/create', {
+    method: 'POST',
+    body: {
+      pedido_id: Number(pedidoId || 0),
+      estimate_id: String(estimateId || '').trim() || undefined
+    }
+  });
+}
+
+export function adminCancelarEntregaUber({ pedidoId, motivo = 'cancelamento_operacional' }) {
+  return request('/api/delivery/cancel', {
+    method: 'POST',
+    body: {
+      pedido_id: Number(pedidoId || 0),
+      motivo: String(motivo || 'cancelamento_operacional').trim()
+    }
   });
 }
 

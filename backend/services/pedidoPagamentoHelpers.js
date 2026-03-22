@@ -53,7 +53,8 @@ function normalizarEntregaPedidoInput(entrega, normalizarCepFn) {
   return {
     veiculo: String(entrega.veiculo || 'moto').trim().toLowerCase(),
     cepDestino: normalizarCep(entrega.cep_destino || entrega.cep),
-    numeroDestino: String(entrega.numero_destino || entrega.numero || '').trim()
+    numeroDestino: String(entrega.numero_destino || entrega.numero || '').trim(),
+    estimate_id: String(entrega.estimate_id || entrega.estimateId || '').trim() || null
   };
 }
 

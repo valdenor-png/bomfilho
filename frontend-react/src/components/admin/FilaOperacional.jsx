@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { adminGetFilaOperacional, adminAtualizarStatusPedido, adminAprovarRevisao, adminRejeitarRevisao } from '../../lib/api';
+import {
+  adminGetFilaOperacional,
+  adminAtualizarStatusPedido,
+  adminAprovarRevisao,
+  adminRejeitarRevisao,
+  adminListarEntregasUber,
+  adminCriarEntregaUber,
+  adminCancelarEntregaUber
+} from '../../lib/api';
 import LoadingSkeleton from './ui/LoadingSkeleton';
 
 const R$ = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -160,6 +168,7 @@ function FilaGrupo({ chave, pedidos, onAcao, onRevisao, atualizandoId }) {
 
 export default function FilaOperacional() {
   const [dados, setDados] = useState(null);
+  const [entregasUber, setEntregasUber] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
   const [atualizandoId, setAtualizandoId] = useState(null);
@@ -170,8 +179,13 @@ export default function FilaOperacional() {
 
   const carregar = useCallback(async () => {
     try {
-      const resp = await adminGetFilaOperacional();
+      const [respFila, respUber] = await Promise.all([
+        adminGetFilaOperacional(),
+        adminListarEntregasUber().catch(() => ({ pedidos: [] }))
+      ]);
+      const resp = respFila;
       setDados(resp);
+      setEntregasUber(Array.isArray(respUber?.pedidos) ? respUber.pedidos : []);
       setErro(null);
     } catch (e) {
       setErro(e.message || 'Erro ao carregar fila operacional');
@@ -210,6 +224,56 @@ export default function FilaOperacional() {
       await carregar();
     } catch (e) {
       setFeedback({ tipo: 'erro', msg: e.message || 'Erro ao atualizar status' });
+    } finally {
+      setAtualizandoId(null);
+    }
+  }, [carregar]);
+
+  const handleChamarUber = useCallback(async (pedido) => {
+    const pedidoId = Number(pedido?.id || 0);
+    if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+      return;
+    }
+
+    setAtualizandoId(pedidoId);
+    try {
+      await adminCriarEntregaUber({
+        pedidoId,
+        estimateId: pedido?.uber_estimate_id
+      });
+      setFeedback({ tipo: 'ok', msg: `Entrega Uber criada para pedido #${pedidoId}` });
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = setTimeout(() => setFeedback(null), 3000);
+      await carregar();
+    } catch (e) {
+      setFeedback({ tipo: 'erro', msg: e.message || 'Falha ao chamar Uber' });
+    } finally {
+      setAtualizandoId(null);
+    }
+  }, [carregar]);
+
+  const handleCancelarUber = useCallback(async (pedido) => {
+    const pedidoId = Number(pedido?.id || 0);
+    if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+      return;
+    }
+
+    if (!window.confirm(`Cancelar entrega Uber do pedido #${pedidoId}?`)) {
+      return;
+    }
+
+    setAtualizandoId(pedidoId);
+    try {
+      await adminCancelarEntregaUber({
+        pedidoId,
+        motivo: 'cancelamento_operacional_admin'
+      });
+      setFeedback({ tipo: 'ok', msg: `Entrega Uber cancelada no pedido #${pedidoId}` });
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = setTimeout(() => setFeedback(null), 3000);
+      await carregar();
+    } catch (e) {
+      setFeedback({ tipo: 'erro', msg: e.message || 'Falha ao cancelar entrega Uber' });
     } finally {
       setAtualizandoId(null);
     }
@@ -307,6 +371,77 @@ export default function FilaOperacional() {
         {ordemFilas.map(chave => (
           <FilaGrupo key={chave} chave={chave} pedidos={dados[chave]} onAcao={handleAcao} onRevisao={handleRevisao} atualizandoId={atualizandoId} />
         ))}
+      </div>
+
+      <div className="fila-grupo" style={{ marginTop: 16 }}>
+        <div className="fila-grupo-header" style={{ borderLeftColor: '#111827' }}>
+          <span className="fila-grupo-titulo">🚚 Uber Direct — Operação de Entrega</span>
+          <span className="fila-grupo-badge" style={{ background: '#111827' }}>{entregasUber.length}</span>
+        </div>
+
+        {entregasUber.length === 0 ? (
+          <div className="fila-vazia">Sem pedidos de entrega para Uber no momento.</div>
+        ) : (
+          <div className="fila-grupo-cards">
+            {entregasUber.map((pedido) => {
+              const emEnvio = String(pedido?.status || '').toLowerCase() === 'enviado';
+              const possuiEntrega = Boolean(String(pedido?.uber_delivery_id || '').trim());
+              const freteCliente = Number(pedido?.frete_cobrado_cliente || 0);
+              const freteUber = Number(pedido?.frete_real_uber || 0);
+              const margem = Number(pedido?.margem_pedido || 0);
+
+              return (
+                <article key={`uber-${pedido.id}`} className="fila-card">
+                  <div className="fila-card-header">
+                    <span className="fila-card-id">#{pedido.id}</span>
+                    <span className="fila-card-tempo">{pedido?.entrega_status || 'pendente'}</span>
+                  </div>
+                  <div className="fila-card-info">
+                    <span className="fila-card-cliente">{pedido?.cliente_nome || '—'}</span>
+                    <span className="fila-card-valor">{R$(pedido?.total)}</span>
+                  </div>
+                  <div className="fila-card-meta" style={{ display: 'grid', gap: 4 }}>
+                    <span>Frete cliente: <strong>{R$(freteCliente)}</strong></span>
+                    <span>Frete Uber: <strong>{freteUber > 0 ? R$(freteUber) : '—'}</strong></span>
+                    <span>Margem: <strong>{R$(margem)}</strong></span>
+                    {pedido?.uber_vehicle_type ? <span>Veículo: <strong>{String(pedido.uber_vehicle_type).toUpperCase()}</strong></span> : null}
+                  </div>
+                  <div className="fila-card-acoes" style={{ marginTop: 10 }}>
+                    {!possuiEntrega ? (
+                      <button
+                        className="fila-btn-acao btn-despachar"
+                        disabled={atualizandoId === pedido.id}
+                        onClick={() => handleChamarUber(pedido)}
+                      >
+                        {atualizandoId === pedido.id ? 'Chamando...' : '🚚 Chamar Uber'}
+                      </button>
+                    ) : null}
+
+                    {possuiEntrega ? (
+                      <>
+                        {pedido?.uber_tracking_url ? (
+                          <a className="fila-btn-acao btn-separar" href={pedido.uber_tracking_url} target="_blank" rel="noreferrer">
+                            🔎 Rastreio
+                          </a>
+                        ) : null}
+                        {emEnvio ? (
+                          <button
+                            className="fila-btn-cancelar"
+                            disabled={atualizandoId === pedido.id}
+                            onClick={() => handleCancelarUber(pedido)}
+                            title="Cancelar entrega Uber"
+                          >
+                            ✕
+                          </button>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

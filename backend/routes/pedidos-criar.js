@@ -168,6 +168,7 @@ module.exports = function createPedidoCriarRoute(deps) {
 
       let freteEntrega = 0;
       let entregaNormalizada = null;
+      let estimateIdEntrega = null;
 
       if (tipoEntrega === 'entrega') {
         const entregaInput = normalizarEntregaPedidoInput(entrega, normalizarCep);
@@ -190,6 +191,7 @@ module.exports = function createPedidoCriarRoute(deps) {
         });
 
         freteEntrega = Number(entregaCalculada.frete || 0);
+        estimateIdEntrega = String(entregaInput.estimate_id || entregaInput.estimateId || '').trim() || null;
         entregaNormalizada = {
           veiculo: entregaCalculada.veiculo,
           distancia_km: entregaCalculada.distancia_km,
@@ -319,8 +321,20 @@ module.exports = function createPedidoCriarRoute(deps) {
 
       // Criar pedido — entra como "aguardando_revisao" para que a equipe confira disponibilidade
       const [pedidoResultado] = await connection.query(
-        'INSERT INTO pedidos (usuario_id, total, status, forma_pagamento, tipo_entrega, taxa_servico, revisao_em) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-        [req.usuario.id, totalFinal, 'aguardando_revisao', formaPagamento, tipoEntrega, taxaServico]
+        `INSERT INTO pedidos
+          (usuario_id, total, status, forma_pagamento, tipo_entrega, taxa_servico, frete_cobrado_cliente, uber_estimate_id, margem_pedido, revisao_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          req.usuario.id,
+          totalFinal,
+          'aguardando_revisao',
+          formaPagamento,
+          tipoEntrega,
+          taxaServico,
+          freteEntrega,
+          estimateIdEntrega,
+          freteEntrega,
+        ]
       );
 
       const pedidoId = pedidoResultado.insertId;
@@ -390,6 +404,7 @@ module.exports = function createPedidoCriarRoute(deps) {
         total_produtos: totalProdutos,
         taxa_servico: taxaServico,
         frete_entrega: freteEntrega,
+        estimate_id_entrega: estimateIdEntrega,
         veiculo_entrega: entregaNormalizada?.veiculo || null,
         distancia_entrega_km: entregaNormalizada?.distancia_km || null,
         cep_origem_entrega: entregaNormalizada?.cep_origem || null,

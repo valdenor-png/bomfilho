@@ -138,6 +138,17 @@ const {
   PRECO_COMBUSTIVEL_LITRO, CEP_MERCADO, NUMERO_MERCADO, LIMITE_BIKE_KM,
   CEP_GEO_TTL_MS, PRODUTOS_QUERY_CACHE_TTL_MS, READ_QUERY_CACHE_TTL_MS,
   FRETE_DEBUG_LOGS,
+  UBER_DIRECT_ENABLED,
+  UBER_DIRECT_OAUTH_URL,
+  UBER_DIRECT_BASE_URL,
+  UBER_DIRECT_CUSTOMER_ID,
+  UBER_DIRECT_CLIENT_ID,
+  UBER_DIRECT_CLIENT_SECRET,
+  UBER_DIRECT_TIMEOUT_MS,
+  UBER_PICKUP_NAME,
+  UBER_PICKUP_PHONE,
+  UBER_PICKUP_ADDRESS,
+  UBER_DIRECT_WEBHOOK_TOKEN,
 } = config;
 
 // Runtime instances (dependem de config, não podem ficar no módulo config)
@@ -209,6 +220,23 @@ const mercadoPagoService = criarMercadoPagoService({
   accessToken: MP_ACCESS_TOKEN,
   webhookSecret: MP_WEBHOOK_SECRET,
   timeoutMs: 15000
+});
+
+const createUberDirectService = require('./services/uberDirectService');
+const uberDirectService = createUberDirectService({
+  enabled: UBER_DIRECT_ENABLED,
+  oauthUrl: UBER_DIRECT_OAUTH_URL,
+  baseUrl: UBER_DIRECT_BASE_URL,
+  customerId: UBER_DIRECT_CUSTOMER_ID,
+  clientId: UBER_DIRECT_CLIENT_ID,
+  clientSecret: UBER_DIRECT_CLIENT_SECRET,
+  timeoutMs: UBER_DIRECT_TIMEOUT_MS,
+  pickup: {
+    name: UBER_PICKUP_NAME,
+    phone: UBER_PICKUP_PHONE,
+    address: UBER_PICKUP_ADDRESS
+  },
+  loggerInstance: logger
 });
 
 const VEICULOS_ENTREGA = {
@@ -1918,6 +1946,16 @@ app.use(require('./routes/pedidos-criar')({
 // Listar/detalhar pedidos do usuário (routes/pedidos.js)
 app.use(require('./routes/pedidos')({ autenticarToken, parsePositiveInt, montarPaginacao }));
 
+// Delivery Uber (cotação em tempo real + criação segura + cancelamento)
+app.use(require('./routes/delivery')({
+  autenticarToken,
+  exigirAcessoLocalAdmin,
+  autenticarAdminToken,
+  pool,
+  uberDirectService,
+  UBER_DIRECT_ENABLED
+}));
+
 // ============================================
 // ROTAS DE CUPONS (routes/cupons.js)
 // ============================================
@@ -1944,6 +1982,12 @@ app.use(require('./routes/webhooks')({
   evolutionProcessedMessageIds, evolutionLastReplyByNumber,
   registrarLogPagBank, obterPedidoPagBank,
   mercadoPagoService, enviarWhatsappPedido,
+}));
+
+app.use(require('./routes/uber-webhook')({
+  pool,
+  webhookToken: UBER_DIRECT_WEBHOOK_TOKEN,
+  IS_PRODUCTION
 }));
 
 // ============================================

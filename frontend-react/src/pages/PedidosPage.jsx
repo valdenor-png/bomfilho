@@ -726,6 +726,23 @@ export default function PedidosPage() {
                     </div>
                   )}
 
+                  {pedido?.tipo_entrega === 'entrega' && pedido?.entrega_status ? (
+                    <div className="orders-status-ativo-info">
+                      <span className="orders-pulse-dot" />
+                      <span>
+                        Entrega: {String(pedido.entrega_status || '').replace(/_/g, ' ')}
+                        {pedido?.uber_eta_seconds ? ` • previsão ~${Math.max(1, Math.round(Number(pedido.uber_eta_seconds || 0) / 60))} min` : ''}
+                        {pedido?.uber_vehicle_type ? ` • veículo ${String(pedido.uber_vehicle_type).toUpperCase()}` : ''}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {pedido?.uber_tracking_url ? (
+                    <a className="btn-secondary" href={pedido.uber_tracking_url} target="_blank" rel="noreferrer">
+                      Acompanhar entrega
+                    </a>
+                  ) : null}
+
                   <div className="orders-actions">
                     <button
                       type="button"
@@ -784,6 +801,17 @@ export default function PedidosPage() {
                             <p className="orders-item-subtotal">R$ {Number(item.subtotal || 0).toFixed(2)}</p>
                           </div>
                         ))}
+                      </div>
+                    ) : null}
+
+                    {pedido?.uber_tracking_url ? (
+                      <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <a className="btn-secondary" href={pedido.uber_tracking_url} target="_blank" rel="noreferrer">
+                          Acompanhar entrega
+                        </a>
+                        {pedido?.uber_vehicle_type ? (
+                          <span className="orders-status-badge tone-delivery">Veículo: {String(pedido.uber_vehicle_type).toUpperCase()}</span>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>

@@ -221,6 +221,77 @@ export function erroEntregaEhCobertura(mensagem) {
   );
 }
 
+function normalizarTextoEntrega(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+export function itemEhRestritoMoto(item = {}) {
+  if (item?.restrito_moto === true || item?.restritoMoto === true) {
+    return true;
+  }
+
+  const texto = `${normalizarTextoEntrega(item?.nome)} ${normalizarTextoEntrega(item?.categoria)}`;
+  const palavras = ['agua 20', 'galao', 'gas', 'botijao'];
+  return palavras.some((palavra) => texto.includes(palavra));
+}
+
+export function estimarPesoCarrinhoKg(carrinho = []) {
+  if (!Array.isArray(carrinho) || carrinho.length === 0) {
+    return 0;
+  }
+
+  const basePorItem = (item) => {
+    const explicito = Number(item?.peso_kg || item?.pesoKg || item?.peso || 0);
+    if (Number.isFinite(explicito) && explicito > 0) {
+      return explicito;
+    }
+
+    const texto = `${normalizarTextoEntrega(item?.nome)} ${normalizarTextoEntrega(item?.categoria)}`;
+    if (texto.includes('fardo') || texto.includes('caixa') || texto.includes('saco')) return 4;
+    if (texto.includes('refrigerante') || texto.includes('bebida') || texto.includes('leite') || texto.includes('arroz')) return 1.3;
+    if (itemEhRestritoMoto(item)) return 12;
+    return 0.45;
+  };
+
+  const peso = carrinho.reduce((acc, item) => {
+    const quantidade = Math.max(1, Number(item?.quantidade || 1));
+    return acc + (basePorItem(item) * quantidade);
+  }, 0);
+
+  return Math.round(peso * 100) / 100;
+}
+
+export function resolverModalEntregaUber(carrinho = [], distanciaKm = 0, pesoEstimadoKg = null, quantidadeItens = null) {
+  const lista = Array.isArray(carrinho) ? carrinho : [];
+  const qtdItens = Number.isFinite(Number(quantidadeItens))
+    ? Number(quantidadeItens)
+    : lista.reduce((acc, item) => acc + Math.max(1, Number(item?.quantidade || 1)), 0);
+  const peso = Number.isFinite(Number(pesoEstimadoKg)) ? Number(pesoEstimadoKg) : estimarPesoCarrinhoKg(lista);
+  const distancia = Number(distanciaKm || 0);
+
+  const possuiRestritoMoto = lista.some((item) => itemEhRestritoMoto(item));
+  const pedidoMuitoGrande = qtdItens >= 18 || peso >= 20;
+  const pedidoMedio = qtdItens >= 10 || peso >= 10;
+
+  if (possuiRestritoMoto || pedidoMuitoGrande) {
+    return 'carro';
+  }
+
+  if (distancia > 0 && distancia <= LIMITE_BIKE_KM && !pedidoMedio) {
+    return 'bike';
+  }
+
+  if (pedidoMedio) {
+    return 'carro';
+  }
+
+  return 'moto';
+}
+
 // ── CPF / CNPJ ──────────────────────────────────────────────────────────
 
 export function normalizarDocumentoFiscal(valor) {

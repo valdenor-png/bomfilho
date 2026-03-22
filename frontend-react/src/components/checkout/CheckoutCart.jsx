@@ -186,9 +186,6 @@ export function OrderSummaryCard({
   veiculoLabel,
   className = ''
 }) {
-  const itensExibicao = Number.isFinite(Number(itens))
-    ? formatarQuantidadeItens(Number(itens))
-    : itens;
   const retirada = String(tipoEntrega || '').trim().toLowerCase() === 'retirada';
 
   return (

@@ -16,6 +16,7 @@ import {
   mpGerarPix,
   mpPagarCartao,
   pagarCartao,
+  getUberDeliveryQuote,
   simularFretePorCep
 } from '../lib/api';
 import {
@@ -87,6 +88,8 @@ import {
   sanitizarRequestPagamentoCartaoHomologacao,
   extrairStatusThreeDSChargeHomologacao,
   montarResumoRespostaPagBankHomologacao,
+  resolverModalEntregaUber,
+  estimarPesoCarrinhoKg,
   resolverStatusPix,
   obterStatusPixVisual,
   formatarStatusPedido,
@@ -100,14 +103,11 @@ import {
   CheckoutMobileActionBar,
   CheckoutSecurityTrust,
   DeliveryOptionCard,
-  DeliverySummaryCard,
-  DeliveryModeSelector,
   PickupStoreCard,
   DeliveryAddressLookupCard,
   CartItemRow,
   CheckoutSummaryCard,
   CheckoutCrossSellRail,
-  OrderSummaryCard,
   PaymentMethodCard,
   PaymentSelectionSummary,
   PaymentOrderSummary,
@@ -140,9 +140,11 @@ export default function PagamentoPage() {
   const [verificandoSessao, setVerificandoSessao] = useState(true);
   const [tipoEntrega, setTipoEntrega] = useState('entrega');
   const [cepEntrega, setCepEntrega] = useState('');
-  const [veiculoEntrega, setVeiculoEntrega] = useState('moto');
+  const [numeroEntrega, setNumeroEntrega] = useState('');
+  const [veiculoEntrega, setVeiculoEntrega] = useState('uber');
   const [ultimoFreteEntrega, setUltimoFreteEntrega] = useState(0);
   const [simulacaoFrete, setSimulacaoFrete] = useState(null);
+  const [simulacoesFretePorVeiculo, setSimulacoesFretePorVeiculo] = useState({});
   const [simulandoFrete, setSimulandoFrete] = useState(false);
   const [erroEntrega, setErroEntrega] = useState('');
   const [enderecoCepEntrega, setEnderecoCepEntrega] = useState(null);
@@ -327,9 +329,22 @@ export default function PagamentoPage() {
   }, [itens, removeItem]);
 
   const retiradaSelecionada = tipoEntrega === 'retirada';
+  const itensRestritosEntrega = useMemo(() => {
+    return itens.some((item) => {
+      const nome = normalizarTextoSugestao(item?.nome || '');
+      return (
+        nome.includes('agua 20')
+        || nome.includes('galao')
+        || nome.includes('botijao')
+        || nome.includes('gas')
+      );
+    });
+  }, [itens, normalizarTextoSugestao]);
+  const opcoesEntregaCompactas = useMemo(() => ['bike', 'uber'], []);
   const freteAtual = retiradaSelecionada ? 0 : Number(simulacaoFrete?.frete || 0);
   const economiaFreteRetirada = Number(ultimoFreteEntrega || simulacaoFrete?.frete || 0);
   const taxaServicoAtual = Number((Number(resumo.total || 0) * (TAXA_SERVICO_PERCENTUAL / 100)).toFixed(2));
+  const pesoEstimadoCarrinhoKg = useMemo(() => estimarPesoCarrinhoKg(itens), [itens]);
 
   const totalComFreteAtual = useMemo(
     () => Number((Number(resumo.total || 0) + freteAtual + taxaServicoAtual).toFixed(2)),
@@ -343,10 +358,10 @@ export default function PagamentoPage() {
   const distanciaSelecionadaTexto = distanciaSelecionada > 0 ? `${distanciaSelecionada.toFixed(2)} km` : '-';
   const veiculoSelecionadoResumo = retiradaSelecionada
     ? null
-    : (VEICULOS_ENTREGA[resultadoPedido?.veiculo_entrega] || VEICULOS_ENTREGA[simulacaoFrete?.veiculo] || VEICULOS_ENTREGA[veiculoEntrega] || VEICULOS_ENTREGA.moto);
+    : (VEICULOS_ENTREGA[resultadoPedido?.veiculo_entrega] || VEICULOS_ENTREGA[simulacaoFrete?.veiculo] || VEICULOS_ENTREGA.moto);
   const atendimentoSelecionadoLabel = retiradaSelecionada
     ? formatarTipoEntrega('retirada')
-    : (veiculoSelecionadoResumo?.label || formatarTipoEntrega('entrega'));
+    : 'Uber Direct';
   const cepDestinoSelecionado = String(resultadoPedido?.cep_destino_entrega || simulacaoFrete?.cep_destino || formatarCep(cepEntrega) || '-');
   const cepOrigemSelecionado = String(resultadoPedido?.cep_origem_entrega || simulacaoFrete?.cep_origem || CEP_MERCADO);
   const numeroOrigemSelecionado = String(resultadoPedido?.numero_origem_entrega || simulacaoFrete?.numero_origem || NUMERO_MERCADO);
@@ -400,26 +415,48 @@ export default function PagamentoPage() {
   const cepEntregaNormalizado = normalizarCep(cepEntrega);
   const cepEntregaValido = cepEntregaNormalizado.length === 8;
   const cepEntregaIncompleto = cepEntregaNormalizado.length > 0 && cepEntregaNormalizado.length < 8;
+  const enderecoEntregaResumo = useMemo(() => {
+    const rua = String(enderecoCepEntrega?.logradouro || '').trim();
+    const bairro = String(enderecoCepEntrega?.bairro || '').trim();
+    const cidade = String(enderecoCepEntrega?.cidade || '').trim();
+    const estado = String(enderecoCepEntrega?.estado || '').trim();
+    const numero = String(numeroEntrega || '').trim();
+
+    if (!rua || !numero) {
+      return 'Informe CEP e número';
+    }
+
+    const linha = `${rua}, ${numero}`;
+    const complemento = [bairro, cidade, estado].filter(Boolean).join(' • ');
+    return complemento ? `${linha} - ${complemento}` : linha;
+  }, [enderecoCepEntrega, numeroEntrega]);
+  const enderecoEntregaComplemento = useMemo(() => {
+    const bairro = String(enderecoCepEntrega?.bairro || '').trim();
+    const cidade = String(enderecoCepEntrega?.cidade || '').trim();
+    const estado = String(enderecoCepEntrega?.estado || '').trim().toUpperCase();
+    const partes = [bairro, cidade && estado ? `${cidade}/${estado}` : (cidade || estado)].filter(Boolean);
+    return partes.join(' - ');
+  }, [enderecoCepEntrega]);
   const freteCalculado = retiradaSelecionada ? true : Boolean(simulacaoFrete);
   const semOpcaoEntregaDisponivel = retiradaSelecionada
     ? false
     : (!simulandoFrete && !simulacaoFrete && erroEntregaEhCobertura(erroEntrega));
   const podeAvancarParaPagamento = retiradaSelecionada
     ? (itens.length > 0 && !simulandoFrete)
-    : (itens.length > 0 && freteCalculado && !simulandoFrete && !semOpcaoEntregaDisponivel);
-  const veiculoSelecionadoEntrega = VEICULOS_ENTREGA[veiculoEntrega] || VEICULOS_ENTREGA.moto;
-  const veiculoRecomendado = useMemo(() => {
-    const distancia = Number(simulacaoFrete?.distancia_km || 0);
-    if (distancia > 0 && distancia <= LIMITE_BIKE_KM) {
-      return 'bike';
-    }
-
-    if (Number(resumo.itens || 0) >= 8 || Number(resumo.total || 0) >= 220) {
-      return 'carro';
-    }
-
-    return 'moto';
-  }, [resumo.itens, resumo.total, simulacaoFrete?.distancia_km]);
+    : (itens.length > 0 && freteCalculado && !simulandoFrete && !semOpcaoEntregaDisponivel && String(numeroEntrega || '').trim().length > 0);
+  const simulacaoBike = simulacoesFretePorVeiculo.bike || null;
+  const simulacaoUber = simulacoesFretePorVeiculo.uber || null;
+  const distanciaBikeKm = Number(simulacaoBike?.distancia_km || 0);
+  const bikeDisponivel = !simulacaoBike
+    ? true
+    : (Number.isFinite(distanciaBikeKm) && distanciaBikeKm > 0 && distanciaBikeKm <= LIMITE_BIKE_KM);
+  const modalUberInterno = useMemo(
+    () => resolverModalEntregaUber(itens, distanciaBikeKm, pesoEstimadoCarrinhoKg, Number(resumo.itens || 0)),
+    [itens, distanciaBikeKm, pesoEstimadoCarrinhoKg, resumo.itens]
+  );
+  const avisoRestricaoVeiculo = itensRestritosEntrega
+    ? 'Alguns itens exigem entrega em veículo maior'
+    : '';
 
   // Consolida feedback da simulação para manter mensagens consistentes na UX da entrega.
   const mensagemFrete = useMemo(() => {
@@ -433,7 +470,7 @@ export default function PagamentoPage() {
     }
 
     if (simulandoFrete) {
-      return { tone: 'loading', text: 'Calculando frete com base no CEP informado...' };
+      return { tone: 'loading', text: 'Calculando entrega...' };
     }
 
     if (erroEntrega) {
@@ -444,18 +481,137 @@ export default function PagamentoPage() {
     }
 
     if (simulacaoFrete) {
-      const distancia = Number(simulacaoFrete.distancia_km || 0).toFixed(2);
       return {
         tone: 'success',
-        text: `Frete calculado com sucesso: ${formatarMoeda(freteAtual)} para ${distancia} km.`
+        text: `Entrega calculada: ${formatarMoeda(freteAtual)}`
       };
     }
 
     return {
       tone: 'neutral',
-      text: 'Digite um CEP válido e escolha o tipo de entrega para calcular o frete.'
+      text: 'Informe CEP e número para calcular a entrega.'
     };
   }, [economiaFreteRetirada, erroEntrega, freteAtual, retiradaSelecionada, simulacaoFrete, simulandoFrete]);
+
+  useEffect(() => {
+    let ativo = true;
+
+    if (retiradaSelecionada) {
+      setSimulacoesFretePorVeiculo({});
+      return () => {
+        ativo = false;
+      };
+    }
+
+    if (cepEntregaNormalizado.length !== 8) {
+      setSimulacoesFretePorVeiculo({});
+      setSimulacaoFrete(null);
+      return () => {
+        ativo = false;
+      };
+    }
+
+    if (!String(numeroEntrega || '').trim()) {
+      setSimulacoesFretePorVeiculo({});
+      setSimulacaoFrete(null);
+      return () => {
+        ativo = false;
+      };
+    }
+
+    async function carregarFretesOpcoes() {
+      setSimulandoFrete(true);
+
+      const enderecoPayload = {
+        cep: formatarCep(cepEntregaNormalizado),
+        numero: String(numeroEntrega || '').trim(),
+        logradouro: String(enderecoCepEntrega?.logradouro || '').trim(),
+        bairro: String(enderecoCepEntrega?.bairro || '').trim(),
+        cidade: String(enderecoCepEntrega?.cidade || '').trim(),
+        estado: String(enderecoCepEntrega?.estado || '').trim()
+      };
+
+      const carrinhoPayload = itens.map((item) => ({
+        nome: item.nome,
+        categoria: item.categoria,
+        quantidade: Number(item.quantidade || 1)
+      }));
+
+      const [bikeRaw, uberRaw] = await Promise.all([
+        simularFretePorCep({ cep: cepEntregaNormalizado, veiculo: 'bike' }).catch(() => null),
+        getUberDeliveryQuote({
+          endereco: enderecoPayload,
+          carrinho: carrinhoPayload,
+          valorCarrinho: Number(resumo.total || 0)
+        }).catch(() => null)
+      ]);
+
+      if (!ativo) {
+        return;
+      }
+
+      const bikeMap = bikeRaw
+        ? {
+          veiculo: 'bike',
+          frete: Number(bikeRaw?.frete || 0),
+          distancia_km: Number(bikeRaw?.distancia_km || 0),
+          eta_seconds: null,
+          estimate_id: null,
+          cep_destino: formatarCep(cepEntregaNormalizado),
+          cep_origem: CEP_MERCADO,
+          numero_origem: NUMERO_MERCADO,
+          opcao_exibida: 'bike',
+          modal_interno: 'bike'
+        }
+        : null;
+
+      const uberMap = uberRaw
+        ? {
+          veiculo: modalUberInterno,
+          frete: Number(uberRaw?.preco || 0),
+          distancia_km: bikeMap?.distancia_km || null,
+          eta_seconds: Number(uberRaw?.eta_segundos || 0) || null,
+          estimate_id: String(uberRaw?.estimate_id || '').trim() || null,
+          cep_destino: formatarCep(cepEntregaNormalizado),
+          cep_origem: CEP_MERCADO,
+          numero_origem: NUMERO_MERCADO,
+          opcao_exibida: 'uber',
+          modal_interno: modalUberInterno
+        }
+        : null;
+
+      const mapa = {
+        bike: bikeMap,
+        uber: uberMap
+      };
+      setSimulacoesFretePorVeiculo(mapa);
+
+      const opcoesDisponiveis = opcoesEntregaCompactas.filter((key) => {
+        if (key === 'bike') {
+          const sim = bikeMap;
+          const distancia = Number(sim?.distancia_km || 0);
+          return Boolean(sim) && Number.isFinite(distancia) && distancia > 0 && distancia <= LIMITE_BIKE_KM;
+        }
+        return Boolean(mapa[key]);
+      });
+
+      const veiculoAtualValido = opcoesDisponiveis.includes(veiculoEntrega);
+      const proximoVeiculo = veiculoAtualValido ? veiculoEntrega : (opcoesDisponiveis[0] || veiculoEntrega);
+      if (proximoVeiculo !== veiculoEntrega) {
+        setVeiculoEntrega(proximoVeiculo);
+      }
+
+      setSimulacaoFrete(mapa[proximoVeiculo] || null);
+      setErroEntrega(opcoesDisponiveis.length ? '' : 'Sem opção de entrega disponível para este CEP.');
+      setSimulandoFrete(false);
+    }
+
+    void carregarFretesOpcoes();
+
+    return () => {
+      ativo = false;
+    };
+  }, [retiradaSelecionada, cepEntregaNormalizado, numeroEntrega, enderecoCepEntrega, itens, resumo.total, opcoesEntregaCompactas, veiculoEntrega, modalUberInterno]);
 
   const consultarEnderecoCepEntrega = useCallback(async (cep, { mostrarErro = true } = {}) => {
     const cepNormalizado = normalizarCep(cep);
@@ -665,6 +821,15 @@ export default function PagamentoPage() {
       return null;
     }
 
+    if (!String(numeroEntrega || '').trim()) {
+      const mensagem = 'Informe o número do endereço para calcular a entrega.';
+      setSimulacaoFrete(null);
+      if (mostrarErro) {
+        setErroEntrega(mensagem);
+      }
+      return null;
+    }
+
     if (!enderecoCepEntrega || cepEnderecoConsultado !== cepNormalizado) {
       void consultarEnderecoCepEntrega(cepNormalizado, { mostrarErro: false });
     }
@@ -673,13 +838,57 @@ export default function PagamentoPage() {
     setSimulandoFrete(true);
 
     try {
-      const data = await simularFretePorCep({
-        cep: cepNormalizado,
-        veiculo: veiculoEntrega
-      });
-      setSimulacaoFrete(data);
-      setUltimoFreteEntrega(Number(data?.frete || 0));
-      return data;
+      let payloadSimulacao = null;
+
+      if (veiculoEntrega === 'bike') {
+        const data = await simularFretePorCep({ cep: cepNormalizado, veiculo: 'bike' });
+        payloadSimulacao = {
+          veiculo: 'bike',
+          frete: Number(data?.frete || 0),
+          distancia_km: Number(data?.distancia_km || 0),
+          eta_seconds: null,
+          estimate_id: null,
+          cep_destino: formatarCep(cepNormalizado),
+          cep_origem: CEP_MERCADO,
+          numero_origem: NUMERO_MERCADO,
+          opcao_exibida: 'bike',
+          modal_interno: 'bike'
+        };
+      } else {
+        const data = await getUberDeliveryQuote({
+          endereco: {
+            cep: formatarCep(cepNormalizado),
+            numero: String(numeroEntrega || '').trim(),
+            logradouro: String(enderecoCepEntrega?.logradouro || '').trim(),
+            bairro: String(enderecoCepEntrega?.bairro || '').trim(),
+            cidade: String(enderecoCepEntrega?.cidade || '').trim(),
+            estado: String(enderecoCepEntrega?.estado || '').trim()
+          },
+          carrinho: itens.map((item) => ({
+            nome: item.nome,
+            categoria: item.categoria,
+            quantidade: Number(item.quantidade || 1)
+          })),
+          valorCarrinho: Number(resumo.total || 0)
+        });
+
+        payloadSimulacao = {
+          veiculo: modalUberInterno,
+          frete: Number(data?.preco || 0),
+          distancia_km: distanciaBikeKm || null,
+          eta_seconds: Number(data?.eta_segundos || 0) || null,
+          estimate_id: String(data?.estimate_id || '').trim() || null,
+          cep_destino: formatarCep(cepNormalizado),
+          cep_origem: CEP_MERCADO,
+          numero_origem: NUMERO_MERCADO,
+          opcao_exibida: 'uber',
+          modal_interno: modalUberInterno
+        };
+      }
+
+      setSimulacaoFrete(payloadSimulacao);
+      setUltimoFreteEntrega(Number(payloadSimulacao?.frete || 0));
+      return payloadSimulacao;
     } catch (error) {
       setSimulacaoFrete(null);
       if (mostrarErro) {
@@ -1168,8 +1377,12 @@ export default function PagamentoPage() {
 
       freteSimulado = simulacaoFrete;
       const cepSimulacaoAtual = normalizarCep(simulacaoFrete?.cep_destino);
-      const veiculoSimulacaoAtual = String(simulacaoFrete?.veiculo || '').toLowerCase();
-      const precisaNovaSimulacao = !freteSimulado || cepSimulacaoAtual !== cepNormalizado || veiculoSimulacaoAtual !== veiculoEntrega;
+      const opcaoSimulacaoAtual = String(simulacaoFrete?.opcao_exibida || '').toLowerCase();
+      const modalSimulacaoAtual = String(simulacaoFrete?.modal_interno || simulacaoFrete?.veiculo || '').toLowerCase();
+      const precisaNovaSimulacao = !freteSimulado
+        || cepSimulacaoAtual !== cepNormalizado
+        || opcaoSimulacaoAtual !== veiculoEntrega
+        || (veiculoEntrega === 'uber' && modalSimulacaoAtual !== modalUberInterno);
 
       if (precisaNovaSimulacao) {
         freteSimulado = await executarSimulacaoFrete();
@@ -1217,11 +1430,15 @@ export default function PagamentoPage() {
       const entregaPayload = retiradaSelecionada
         ? null
         : {
-          veiculo: veiculoEntrega,
+          veiculo: veiculoEntrega === 'bike' ? 'bike' : modalUberInterno,
           cep_destino: formatarCep(cepNormalizado),
           frete_estimado: Number(freteSimulado?.frete || 0),
           distancia_km: Number(freteSimulado?.distancia_km || 0),
-          fator_reparo: VEICULOS_ENTREGA[veiculoEntrega]?.fatorReparo || 1
+          fator_reparo: VEICULOS_ENTREGA[veiculoEntrega === 'bike' ? 'bike' : modalUberInterno]?.fatorReparo || 1,
+          estimate_id: freteSimulado?.estimate_id || null,
+          opcao_cliente: veiculoEntrega,
+          modal_uber_interno: veiculoEntrega === 'bike' ? 'bike' : modalUberInterno,
+          numero_destino: String(numeroEntrega || '').trim()
         };
 
       const data = await criarPedido({
@@ -1899,21 +2116,13 @@ export default function PagamentoPage() {
     if (etapaAtual === ETAPAS.ENTREGA) {
       return {
         stepLabel: 'Etapa 2 de 5',
-        totalLabel: retiradaSelecionada
-          ? `Total sem frete: ${formatarMoeda(resumo.total)}`
-          : simulacaoFrete
-            ? `Total com frete: ${formatarMoeda(totalComFreteAtual)}`
-            : `Subtotal atual: ${formatarMoeda(resumo.total)}`,
-        caption: retiradaSelecionada
-          ? 'Retirada na loja selecionada. Siga para pagamento.'
-          : simulacaoFrete
-            ? 'Frete calculado e pronto para pagamento.'
-            : 'Calcule o frete para continuar.',
+        totalLabel: simulacaoFrete
+          ? `Total com entrega ${formatarMoeda(totalComFreteAtual)}`
+          : `Total com entrega ${formatarMoeda(Number(resumo.total || 0) + Number(taxaServicoAtual || 0))}`,
+        caption: simulacaoFrete ? '' : 'Calcule a entrega para continuar',
         primaryLabel: 'Ir para pagamento',
         onPrimaryClick: () => setEtapaAtual(ETAPAS.PAGAMENTO),
-        primaryDisabled: !podeAvancarParaPagamento,
-        secondaryLabel: 'Voltar ao carrinho',
-        onSecondaryClick: () => setEtapaAtual(ETAPAS.CARRINHO)
+        primaryDisabled: !podeAvancarParaPagamento
       };
     }
 
@@ -2332,35 +2541,32 @@ export default function PagamentoPage() {
       {etapaAtual === ETAPAS.ENTREGA ? (
         <div className="checkout-delivery-layout">
           <div className="card-box checkout-delivery-main">
-            <div className="checkout-delivery-header">
-              <p className="muted-text">
-                {retiradaSelecionada
-                  ? 'Retirada ativa, sem frete.'
-                  : 'Informe o CEP e escolha a entrega.'}
-              </p>
-            </div>
+            <p className="checkout-delivery-step-clean">Etapa 2 de 5</p>
+            <h2 className="checkout-delivery-title-clean">Entrega</h2>
+            <p className="checkout-delivery-sub-clean">Escolha como receber</p>
 
-            <DeliveryModeSelector
-              tipoEntrega={tipoEntrega}
-              onChange={(proximoTipo) => {
-                const tipoNormalizado = proximoTipo === 'retirada' ? 'retirada' : 'entrega';
-
-                if (tipoNormalizado === tipoEntrega) {
-                  return;
-                }
-
-                if (tipoNormalizado === 'retirada') {
-                  const freteAnterior = Number(simulacaoFrete?.frete || 0);
-                  if (freteAnterior > 0) {
-                    setUltimoFreteEntrega(freteAnterior);
+            <div className="checkout-delivery-compact-head">
+              <span aria-hidden="true">📍</span>
+              <div>
+                <p className="checkout-delivery-compact-label">Entregar em:</p>
+                <strong>{enderecoEntregaResumo}</strong>
+                {enderecoEntregaComplemento ? (
+                  <p className="checkout-delivery-compact-subline">{enderecoEntregaComplemento}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="checkout-delivery-compact-switch"
+                onClick={() => {
+                  const campoCep = document.getElementById('cep-entrega');
+                  if (campoCep) {
+                    campoCep.focus();
                   }
-                  setSimulacaoFrete(null);
-                  setErroEntrega('');
-                }
-
-                setTipoEntrega(tipoNormalizado);
-              }}
-            />
+                }}
+              >
+                Trocar
+              </button>
+            </div>
 
             {retiradaSelecionada ? (
               <>
@@ -2376,12 +2582,14 @@ export default function PagamentoPage() {
               </>
             ) : (
               <>
-                <section className="checkout-delivery-section" aria-label="Cálculo de frete por CEP">
-                  <label htmlFor="cep-entrega"><strong>CEP de entrega</strong></label>
+                <section className="checkout-delivery-section checkout-delivery-compact checkout-delivery-minimal" aria-label="Entrega">
+                  <div className="delivery-input-labels" aria-hidden="true">
+                    <span>CEP</span>
+                    <span>Número</span>
+                  </div>
 
                   <div className="delivery-cep-row">
                     <div className="delivery-cep-input-wrap">
-                      <span className="delivery-cep-icon" aria-hidden="true">📍</span>
                       <input
                         id="cep-entrega"
                         className="field-input entrega-cep-input"
@@ -2396,7 +2604,6 @@ export default function PagamentoPage() {
                           const cepNormalizado = normalizarCep(cepFormatado);
 
                           setCepEntrega(cepFormatado);
-                          setSimulacaoFrete(null);
                           setErroEntrega('');
 
                           if (cepNormalizado !== cepEnderecoConsultado) {
@@ -2407,18 +2614,28 @@ export default function PagamentoPage() {
                         }}
                       />
                     </div>
-
-                    <button
-                      className="btn-primary entrega-calcular-btn"
-                      type="button"
-                      onClick={() => {
-                        void executarSimulacaoFrete();
-                      }}
-                      disabled={simulandoFrete || !cepEntregaValido}
-                    >
-                      {simulandoFrete ? 'Calculando frete...' : 'Calcular frete'}
-                    </button>
+                    <input
+                      id="numero-entrega"
+                      className="field-input entrega-numero-input"
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={10}
+                      placeholder="Número"
+                      value={numeroEntrega}
+                      onChange={(event) => setNumeroEntrega(String(event.target.value || '').replace(/\D/g, '').slice(0, 10))}
+                    />
                   </div>
+
+                  <button
+                    type="button"
+                    className="btn-secondary entrega-calcular-btn"
+                    onClick={() => {
+                      void executarSimulacaoFrete({ mostrarErro: true });
+                    }}
+                    disabled={!cepEntregaValido || !String(numeroEntrega || '').trim() || simulandoFrete}
+                  >
+                    {simulandoFrete ? 'Calculando...' : 'Calcular entrega'}
+                  </button>
 
                   {cepEntregaNormalizado ? (
                     <DeliveryAddressLookupCard
@@ -2430,14 +2647,6 @@ export default function PagamentoPage() {
                     />
                   ) : null}
 
-                  <p className="delivery-cep-helper">
-                    Origem da loja: CEP {CEP_MERCADO}, nº {NUMERO_MERCADO}. Bike disponível até {LIMITE_BIKE_KM.toFixed(1)} km.
-                  </p>
-
-                  <p className="delivery-cep-helper delivery-cep-helper-secondary">
-                    Dica: tenha número, complemento e referência do endereço em mãos para agilizar a confirmação da entrega.
-                  </p>
-
                   <p
                     className={`delivery-feedback is-${mensagemFrete.tone}`}
                     role={mensagemFrete.tone === 'error' || mensagemFrete.tone === 'warning' ? 'alert' : 'status'}
@@ -2445,28 +2654,42 @@ export default function PagamentoPage() {
                   >
                     {mensagemFrete.text}
                   </p>
-                </section>
 
-                <section className="checkout-delivery-section" aria-label="Opções de veículo de entrega">
-                  <div className="checkout-delivery-section-head">
-                    <h3>Escolha o tipo de entrega</h3>
-                    <p>Selecione o veículo para estimar prazo operacional e custo do frete.</p>
-                  </div>
+                  {avisoRestricaoVeiculo ? (
+                    <p className="delivery-feedback is-warning" role="status">{avisoRestricaoVeiculo}</p>
+                  ) : null}
 
-                  <div className="delivery-options-grid" role="radiogroup" aria-label="Seleção de veículo de entrega">
-                    {Object.entries(VEICULOS_ENTREGA).map(([key, veiculo]) => (
+                  {veiculoEntrega === 'uber' && simulacaoUber ? (
+                    <p className="delivery-feedback is-neutral" role="status">Modal definido automaticamente para seu pedido</p>
+                  ) : null}
+
+                  <div className="delivery-options-grid" role="radiogroup" aria-label="Escolha como receber">
+                    {opcoesEntregaCompactas.map((key) => {
+                      const veiculo = key === 'bike'
+                        ? VEICULOS_ENTREGA.bike
+                        : { ...VEICULOS_ENTREGA.moto, label: 'Entrega Uber' };
+                      const sim = simulacoesFretePorVeiculo[key];
+                      const disabledBike = key === 'bike' && !bikeDisponivel;
+                      const titulo = key === 'bike' ? 'Bike' : 'Entrega Uber';
+                      const descricao = key === 'bike'
+                        ? `Entrega local até ${LIMITE_BIKE_KM.toFixed(1)} km`
+                        : 'Entrega para fora do raio da bike ou pedidos maiores';
+
+                      return (
                       <DeliveryOptionCard
                         key={key}
-                        veiculo={veiculo}
+                        veiculo={{ ...veiculo, label: titulo, descricao }}
                         selecionado={veiculoEntrega === key}
-                        recomendado={veiculoRecomendado === key}
+                        precoLabel={sim ? formatarMoeda(Number(sim.frete || 0)) : 'A calcular'}
+                        disabled={disabledBike}
+                        disabledReason={disabledBike ? `Disponível apenas até ${LIMITE_BIKE_KM.toFixed(1)} km` : ''}
                         onSelect={() => {
                           setVeiculoEntrega(key);
-                          setSimulacaoFrete(null);
+                          setSimulacaoFrete(sim || null);
                           setErroEntrega('');
                         }}
                       />
-                    ))}
+                    );})}
                   </div>
                 </section>
 
@@ -2479,55 +2702,9 @@ export default function PagamentoPage() {
                     </div>
                   </div>
                 ) : null}
-
-                <DeliverySummaryCard
-                  veiculoLabel={veiculoSelecionadoEntrega.label}
-                  cepDestino={simulacaoFrete?.cep_destino || formatarCep(cepEntrega) || '-'}
-                  distanciaTexto={simulacaoFrete ? `${Number(simulacaoFrete.distancia_km || 0).toFixed(2)} km` : '-'}
-                  freteTexto={simulacaoFrete ? formatarMoeda(freteAtual) : 'A calcular'}
-                  totalTexto={simulacaoFrete ? formatarMoeda(totalComFreteAtual) : '-'}
-                  cepOrigem={CEP_MERCADO}
-                  numeroOrigem={NUMERO_MERCADO}
-                />
               </>
             )}
           </div>
-
-          <aside className="checkout-delivery-side">
-            <OrderSummaryCard
-              itens={resumo.itens}
-              subtotal={resumo.total}
-              frete={retiradaSelecionada ? 0 : simulacaoFrete ? freteAtual : null}
-              taxaServico={taxaServicoAtual}
-              total={retiradaSelecionada ? Number((Number(resumo.total || 0) + taxaServicoAtual).toFixed(2)) : simulacaoFrete ? totalComFreteAtual : Number((Number(resumo.total || 0) + taxaServicoAtual).toFixed(2))}
-              tipoEntrega={tipoEntrega}
-              economiaFrete={economiaFreteRetirada}
-              veiculoLabel={atendimentoSelecionadoLabel}
-            />
-
-            <div className="card-box checkout-delivery-actions-card">
-              <div className="entrega-acoes-row checkout-delivery-actions-row">
-                <BotaoVoltarSeta
-                  onClick={() => setEtapaAtual(ETAPAS.CARRINHO)}
-                  label="Voltar ao carrinho"
-                  text="Voltar ao carrinho"
-                />
-
-                <button
-                  className="btn-primary entrega-ir-pagamento-btn checkout-primary-cta"
-                  type="button"
-                  onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}
-                  disabled={!podeAvancarParaPagamento}
-                >
-                  {retiradaSelecionada
-                    ? `Ir para pagamento • Total ${formatarMoeda(Number(resumo.total || 0))}`
-                    : simulacaoFrete
-                      ? `Ir para pagamento • Total ${formatarMoeda(totalComFreteAtual)}`
-                      : 'Ir para pagamento'}
-                </button>
-              </div>
-            </div>
-          </aside>
         </div>
       ) : null}
 

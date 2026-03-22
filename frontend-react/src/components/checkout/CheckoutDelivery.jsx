@@ -9,6 +9,9 @@ export function DeliveryOptionCard({
   veiculo,
   selecionado,
   recomendado,
+  precoLabel,
+  disabled = false,
+  disabledReason = '',
   onSelect
 }) {
   return (
@@ -16,8 +19,10 @@ export function DeliveryOptionCard({
       type="button"
       role="radio"
       aria-checked={selecionado}
+      aria-disabled={disabled ? 'true' : undefined}
       className={`delivery-option-card ${selecionado ? 'is-selected' : ''}`}
-      onClick={onSelect}
+      onClick={disabled ? undefined : onSelect}
+      disabled={disabled}
     >
       <div className="delivery-option-head">
         <div className="delivery-option-icon-wrap" aria-hidden="true">
@@ -35,10 +40,8 @@ export function DeliveryOptionCard({
         {selecionado ? <span className="delivery-option-check" aria-hidden="true">✓</span> : null}
       </div>
 
-      <p className="delivery-option-advantage">{veiculo.vantagem}</p>
-      <p className="delivery-option-meta">
-        {veiculo.icone} {veiculo.consumo} • {veiculo.observacao}
-      </p>
+      <p className="delivery-option-price">{precoLabel}</p>
+      {disabledReason ? <p className="delivery-option-disabled-reason">{disabledReason}</p> : null}
     </button>
   );
 }
