@@ -14,7 +14,7 @@ Cada item deve ser marcado por quem executou, com data.
 ## 2) Controles ja aplicados nesta release
 
 - Endpoint `/metrics` protegido por ambiente e token em producao.
-- Fail-fast de startup em producao para variaveis criticas (`BASE_URL`, `PAGBANK_TOKEN`, `METRICS_TOKEN`).
+- Fail-fast de startup em producao para variaveis criticas (`BASE_URL`, `MP_ACCESS_TOKEN`, `METRICS_TOKEN`).
 - Antiabuso no checkout com reCAPTCHA em criacao de pedido e pagamentos (PIX/cartao) via flags.
 - Validacoes extras em pagamento para impedir novo pagamento em pedido finalizado.
 - Sanitizacao de logs para evitar vazamento de token em URL de webhook.
@@ -26,7 +26,7 @@ Cada item deve ser marcado por quem executou, com data.
 - Hardcodes de contato centralizados em config/store.js.
 - Logger estruturado (JSON em producao) em todos os caminhos criticos incluindo webhooks.
 - Sentry preparado com stubs (zero crash sem DSN).
-- Idempotencia de webhooks PagBank via BoundedCache (2000 entradas, TTL 10min).
+- Idempotencia de webhooks de pagamento via BoundedCache (2000 entradas, TTL 10min).
 - Deteccao de duplicatas de mensagens Evolution via BoundedCache.
 - ErrorBoundary global no frontend com fallback e retry.
 
@@ -42,8 +42,8 @@ Cada item deve ser marcado por quem executou, com data.
 | `DATABASE_URL` | Conexao MySQL |
 | `BASE_URL=https://...` | URL publica do backend (HTTPS obrigatorio) |
 | `JWT_SECRET` | Chave secreta JWT (minimo 32 caracteres) |
-| `PAGBANK_TOKEN` | Token do PagBank (producao) |
-| `PAGBANK_WEBHOOK_TOKEN` | Token de validacao de webhooks |
+| `MP_ACCESS_TOKEN` | Token privado do Mercado Pago |
+| `MP_WEBHOOK_SECRET` | Segredo de validacao do webhook |
 | `CORS_ORIGINS` | Origens permitidas (incluir dominio Vercel) |
 | `COOKIE_SECURE=true` | Cookies seguros via HTTPS |
 | `COOKIE_SAME_SITE=none` | Necessario para frontend em dominio diferente |
@@ -57,7 +57,7 @@ Cada item deve ser marcado por quem executou, com data.
 | `SENTRY_DSN` | Captura de erros (requer `npm install @sentry/node`) |
 | `LOG_LEVEL` | Nivel de log (default: info) |
 | `METRICS_ENABLED` + `METRICS_TOKEN` | Metricas operacionais |
-| `PAGBANK_PUBLIC_KEY` | Criptografia de cartao no frontend |
+| `MP_PUBLIC_KEY` | Tokenizacao de cartao no frontend |
 
 ### 3.3 Frontend (obrigatorias em producao)
 
@@ -77,7 +77,7 @@ Cada item deve ser marcado por quem executou, com data.
 ## 4) Infra e Ambiente
 
 - [ ] Env vars obrigatorias configuradas no Render (backend) e Vercel (frontend)
-- [ ] Secrets validos (JWT_SECRET, PAGBANK_TOKEN, PAGBANK_WEBHOOK_TOKEN)
+- [ ] Secrets validos (JWT_SECRET, MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET)
 - [ ] Dominio/origem correta em CORS_ORIGINS
 - [ ] Render com plano adequado (nao free tier para producao critica)
 - [ ] Vercel com Root Directory = `frontend-react`
@@ -104,7 +104,7 @@ Cada item deve ser marcado por quem executou, com data.
 - [ ] Logger estruturado ativo (JSON no stdout)
 - [ ] Sentry pronto (ativar com `npm install @sentry/node` + `SENTRY_DSN`)
 - [ ] Health checks respondendo: `GET /health`, `GET /ready`, `GET /api`
-- [ ] Webhooks PagBank respondendo: `POST /api/webhooks/pagbank`
+- [ ] Webhook Mercado Pago respondendo: `POST /api/webhooks/mercadopago`
 - [ ] Webhook Evolution respondendo (se ativo)
 - [ ] 84 testes passando (`npm test`)
 - [ ] Rate limiting ativo em rotas sensiveis
@@ -125,14 +125,13 @@ Cada item deve ser marcado por quem executou, com data.
 
 ## 8) Pagamentos
 
-- [ ] PagBank credenciais de producao validas
+- [ ] Mercado Pago credenciais de producao validas
 - [ ] PIX testado end-to-end (pedido → QR code → webhook → status atualizado)
 - [ ] Cartao de credito testado (tokenizacao → cobranca → webhook)
-- [ ] Debito/3DS testado (fluxo de autenticacao → cobranca)
-- [ ] Webhook PagBank recebido e processado corretamente
+- [ ] Webhook Mercado Pago recebido e processado corretamente
 - [ ] Idempotencia validada (webhook duplicado nao gera duplicidade)
-- [ ] PAGBANK_PUBLIC_KEY configurada para criptografia frontend
-- [ ] notification_url com HTTPS e token correto
+- [ ] MP_PUBLIC_KEY configurada para tokenizacao frontend
+- [ ] MP_WEBHOOK_URL com HTTPS e endpoint correto
 
 ---
 
@@ -155,7 +154,7 @@ Cada item deve ser marcado por quem executou, com data.
 - [ ] Erros criticos rastreaveis (stack trace no logger)
 - [ ] Sentry ativo ou pronto para ativacao (SENTRY_DSN + @sentry/node)
 - [ ] Web Vitals coletando (se VITE_ENABLE_WEB_VITALS=true)
-- [ ] Pagbank debug logs configuravel (PAGBANK_DEBUG_LOGS)
+- [ ] Logs de debug de pagamento configuraveis por ambiente
 
 ---
 
@@ -190,7 +189,7 @@ Esperado: 84 testes passando, 6 suites.
 Teste negativo (deve falhar):
 
 ```bash
-NODE_ENV=production BASE_URL=http://inseguro.local PAGBANK_TOKEN=teste node server.js
+NODE_ENV=production BASE_URL=http://inseguro.local MP_ACCESS_TOKEN=teste node server.js
 ```
 
 Esperado: erro de startup por `BASE_URL` sem HTTPS.
@@ -225,7 +224,7 @@ Esperado: `200` quando habilitado.
 - [ ] Monitorar erros 4xx/5xx no backend
 - [ ] Validar 1 pedido real em PIX
 - [ ] Validar 1 pedido real em cartao (se ativo)
-- [ ] Validar recebimento de webhook PagBank
+- [ ] Validar recebimento de webhook Mercado Pago
 - [ ] Validar fluxo de status no painel admin
 - [ ] Verificar logs JSON no Render (stdout)
 - [ ] Registrar hora de go-live e responsavel tecnico
@@ -245,7 +244,7 @@ Esperado: `200` quando habilitado.
 ## 14) Pendencias conhecidas
 
 ### Bloqueantes (resolver antes do go-live)
-- Credenciais PagBank de producao configuradas e validadas
+- Credenciais Mercado Pago de producao configuradas e validadas
 - BASE_URL com HTTPS real
 - DATABASE_URL apontando para banco de producao
 

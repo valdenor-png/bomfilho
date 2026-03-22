@@ -1,5 +1,0 @@
-{
-  "method": "POST /api/webhooks/pagbank",
-  "http_status": 200,
-  "body": ""
-}

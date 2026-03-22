@@ -5,25 +5,25 @@ import ReCAPTCHA from 'react-google-recaptcha';
 import {
   buscarEnderecoViaCep,
   criarPedido,
-  criarSessao3DSPagBank,
+  criarSessao3DSGateway,
   gerarPix,
   getProdutos,
   getMe,
-  getPagBankPublicKey,
   getPedidos,
   getPedidoStatus,
   isAuthErrorMessage,
   mpGerarPix,
+  mpGetPublicKey,
   mpPagarCartao,
   pagarCartao,
   getUberDeliveryQuote,
   simularFretePorCep
 } from '../lib/api';
 import {
-  autenticar3DSPagBank,
-  configurarSessao3DSPagBank,
-  criptografarCartaoPagBank
-} from '../lib/pagbank';
+  authenticate3DS,
+  configure3DSSession,
+  tokenizeCard
+} from '../lib/paymentTokenization';
 import {
   CHECKOUT_RECAPTCHA_ENABLED,
   IS_DEVELOPMENT,
@@ -70,7 +70,7 @@ import {
   possuiDigitosRepetidos,
   validarCpf,
   validarCnpj,
-  validarDocumentoFiscalPagBank3DS,
+  validarDocumentoFiscal3DS,
   formatarDocumentoFiscal,
   normalizarNumeroCartao,
   formatarNumeroCartao,
@@ -87,7 +87,7 @@ import {
   sanitizarErrorMessages3DS,
   sanitizarRequestPagamentoCartaoHomologacao,
   extrairStatusThreeDSChargeHomologacao,
-  montarResumoRespostaPagBankHomologacao,
+  montarResumoRespostaGatewayHomologacao,
   resolverModalEntregaUber,
   estimarPesoCarrinhoKg,
   resolverStatusPix,
@@ -154,7 +154,7 @@ export default function PagamentoPage() {
   const [documentoPagador, setDocumentoPagador] = useState('');
   const [documentoTocado, setDocumentoTocado] = useState(false);
   const [formaPagamento, setFormaPagamento] = useState('pix');
-  const [pagBankPublicKey, setPagBankPublicKey] = useState('');
+  const [gatewayPublicKey, setGatewayPublicKey] = useState('');
   const [buscandoChavePublica, setBuscandoChavePublica] = useState(false);
   const [tokenCartao, setTokenCartao] = useState('');
   const [criptografandoCartao, setCriptografandoCartao] = useState(false);
@@ -954,7 +954,7 @@ export default function PagamentoPage() {
           || (resultadoPedido?.pedido_id ? `pedido_${resultadoPedido.pedido_id}` : '')
       ).trim() || null,
       payment_summary: resultadoCartao
-        ? montarResumoRespostaPagBankHomologacao({
+        ? montarResumoRespostaGatewayHomologacao({
           responsePayload: resultadoCartao,
           pedidoId: resultadoPedido?.pedido_id
         })
@@ -995,7 +995,7 @@ export default function PagamentoPage() {
   async function obterSessao3DSComRenovacao({ forceRefresh = false, pedidoId } = {}) {
     if (!forceRefresh && sessao3DSValida) {
       registrarEventoHomologacao3DS('sessao_3ds_cache', {
-        endpoint: '/api/pagbank/3ds/session',
+        endpoint: '/api/checkout/3ds/session',
         reference_id: pedidoId ? `pedido_${pedidoId}` : null,
         env: sessao3DSEnv,
         session_masked: mascararValorHomologacao(sessao3DS, { prefixo: 8, sufixo: 4 }),
@@ -1009,7 +1009,7 @@ export default function PagamentoPage() {
     }
 
     const referencia = pedidoId ? `pedido_${pedidoId}` : '';
-    const data = await criarSessao3DSPagBank({ referenceId: referencia });
+    const data = await criarSessao3DSGateway({ referenceId: referencia });
     const session = String(data?.session || '').trim();
     const env = String(data?.env || 'SANDBOX').trim().toUpperCase() || 'SANDBOX';
 
@@ -1022,7 +1022,7 @@ export default function PagamentoPage() {
     setSessao3DSGeradaEm(Date.now());
 
     registrarEventoHomologacao3DS('geracao_sessao_3ds', {
-      endpoint: '/api/pagbank/3ds/session',
+      endpoint: '/api/checkout/3ds/session',
       reference_id: referencia || null,
       force_refresh: Boolean(forceRefresh),
       env,
@@ -1068,7 +1068,7 @@ export default function PagamentoPage() {
       phones: [telefoneCliente]
     };
 
-    if (validarDocumentoFiscalPagBank3DS(documentoFiscal3DS)) {
+    if (validarDocumentoFiscal3DS(documentoFiscal3DS)) {
       customerPayload.taxId = documentoFiscal3DS;
     }
 
@@ -1123,7 +1123,7 @@ export default function PagamentoPage() {
           pedidoId
         });
 
-        await configurarSessao3DSPagBank({
+        await configure3DSSession({
           session: sessaoAtual.session,
           env: sessaoAtual.env
         });
@@ -1150,7 +1150,7 @@ export default function PagamentoPage() {
           shipping_address_present: Boolean(request3DS?.data?.shippingAddress),
           billing_address_present: Boolean(request3DS?.data?.billingAddress)
         });
-        const resultado = await autenticar3DSPagBank(request3DS);
+        const resultado = await authenticate3DS(request3DS);
         const status = String(resultado?.status || '').trim().toUpperCase();
         const authId = String(resultado?.id || '').trim();
         const traceId = String(
@@ -1267,20 +1267,20 @@ export default function PagamentoPage() {
     throw new Error('Sessao 3DS expirada. Gere uma nova autenticacao e tente novamente.');
   }
 
-  async function carregarChavePublicaPagBank() {
-    if (pagBankPublicKey) {
-      return pagBankPublicKey;
+  async function carregarChavePublicaGateway() {
+    if (gatewayPublicKey) {
+      return gatewayPublicKey;
     }
 
     setBuscandoChavePublica(true);
     try {
-      const data = await getPagBankPublicKey();
+      const data = await mpGetPublicKey();
       const chave = String(data?.public_key || '').trim();
       if (!chave) {
         throw new Error('Não foi possível iniciar o pagamento com cartão no momento.');
       }
 
-      setPagBankPublicKey(chave);
+      setGatewayPublicKey(chave);
       return chave;
     } finally {
       setBuscandoChavePublica(false);
@@ -1323,14 +1323,15 @@ export default function PagamentoPage() {
 
     setCriptografandoCartao(true);
     try {
-      const publicKey = await carregarChavePublicaPagBank();
-      const encryptedCard = await criptografarCartaoPagBank({
+      const publicKey = await carregarChavePublicaGateway();
+      const encryptedCard = await tokenizeCard({
         publicKey,
         holder,
         number,
         expMonth,
         expYear,
-        securityCode
+        securityCode,
+        identificationNumber: normalizarDocumentoFiscal(documentoPagador)
       });
 
       setTokenCartao(encryptedCard);
@@ -1401,7 +1402,7 @@ export default function PagamentoPage() {
       return;
     }
 
-    if (formaPagamento === 'debito' && !validarDocumentoFiscalPagBank3DS(documentoDigits)) {
+    if (formaPagamento === 'debito' && !validarDocumentoFiscal3DS(documentoDigits)) {
       setErro('Para débito com autenticação 3DS, informe um CPF ou CNPJ válido.');
       setEtapaAtual(ETAPAS.PAGAMENTO);
       return;
@@ -1409,7 +1410,7 @@ export default function PagamentoPage() {
 
     if (pagamentoCartaoSelecionado) {
       try {
-        await carregarChavePublicaPagBank();
+        await carregarChavePublicaGateway();
       } catch (error) {
         setErro(error.message || 'Não foi possível preparar o pagamento com cartão.');
         setEtapaAtual(ETAPAS.PAGAMENTO);
@@ -1777,7 +1778,7 @@ export default function PagamentoPage() {
 
     const conteudo = JSON.stringify(montarPacoteEvidenciaHomologacao3DS(), null, 2);
     const pedidoIdArquivo = Number.parseInt(String(resultadoPedido?.pedido_id || ''), 10) || 'sem-pedido';
-    const nomeArquivo = `pagbank-hml-debito-3ds-pedido-${pedidoIdArquivo}-${Date.now()}.json`;
+    const nomeArquivo = `gateway-hml-debito-3ds-pedido-${pedidoIdArquivo}-${Date.now()}.json`;
     const blob = new Blob([conteudo], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -1810,7 +1811,7 @@ export default function PagamentoPage() {
       return;
     }
 
-    if (debitoSelecionado && !validarDocumentoFiscalPagBank3DS(documentoDigits)) {
+    if (debitoSelecionado && !validarDocumentoFiscal3DS(documentoDigits)) {
       setErro('Para débito com autenticação 3DS, informe um CPF ou CNPJ válido.');
       return;
     }
@@ -1889,17 +1890,17 @@ export default function PagamentoPage() {
 
       if (debitoSelecionado) {
         registrarEventoHomologacao3DS(
-          'response_final_pagbank',
-          montarResumoRespostaPagBankHomologacao({
+          'response_final_gateway',
+          montarResumoRespostaGatewayHomologacao({
             responsePayload: data,
             pedidoId
           })
         );
       }
 
-      const statusPagBank = String(data?.status || '').toUpperCase();
+      const statusGateway = String(data?.status || '').toUpperCase();
       const statusInterno = String(data?.status_interno || '').toLowerCase();
-      if (statusPagBank === 'PAID' || statusInterno === 'pago' || statusInterno === 'entregue') {
+      if (statusGateway === 'PAID' || statusInterno === 'pago' || statusInterno === 'entregue') {
         setStatusPedidoAtual(statusInterno || 'pago');
         setPagamentoConfirmado(true);
 
@@ -3203,7 +3204,7 @@ export default function PagamentoPage() {
                   <>
                     <p>Status do pagamento: {formatarStatusPagamento(resultadoCartao.status)}</p>
                     <p>Status do pedido: {formatarStatusPedido(resultadoCartao.status_interno || 'pendente')}</p>
-                    <p>Referência do pedido no PagBank: {resultadoCartao.pagbank_order_id || '-'}</p>
+                    <p>Referência do gateway: {resultadoCartao.payment_id || resultadoCartao.gateway_order_id || '-'}</p>
                     <p>Referência lógica: {resultadoCartao.reference_id || '-'}</p>
                     <p>Referência da transação: {resultadoCartao.payment_id || '-'}</p>
                     <p>Método: {resultadoCartao.tipo_cartao === 'debito' ? 'Cartão de Débito' : 'Cartão de Crédito'}</p>

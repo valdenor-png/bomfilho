@@ -159,7 +159,9 @@ DATABASE_URL=mysql://root:sua_senha@localhost:3306/railway
 PORT=3000
 JWT_SECRET=sua_chave_secreta_com_32_ou_mais_caracteres
 BASE_URL=http://localhost:3000
-PAGBANK_WEBHOOK_TOKEN=token_grande_e_aleatorio
+MP_ACCESS_TOKEN=seu_access_token_do_mercado_pago
+MP_PUBLIC_KEY=sua_public_key_do_mercado_pago
+MP_WEBHOOK_SECRET=seu_webhook_secret_do_mercado_pago
 ```
 
 ### 4) Iniciar backend
@@ -236,12 +238,11 @@ Com a build gerada, o backend serve o frontend React no mesmo host/porta da API.
 
 ### Pagamentos e webhooks
 
-- `GET /api/pagbank/public-key`
-- `GET /api/pagbank/status`
-- `POST /api/pagbank/test-pix`
-- `POST /api/pagamentos/pix`
-- `POST /api/pagamentos/cartao`
-- `POST /api/webhooks/pagbank`
+- `GET /api/mercadopago/public-key`
+- `GET /api/mercadopago/status`
+- `POST /api/mercadopago/criar-pix`
+- `POST /api/mercadopago/criar-cartao`
+- `POST /api/webhooks/mercadopago`
 
 ## Segurança
 

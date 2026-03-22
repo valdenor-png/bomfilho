@@ -17573,6 +17573,32 @@ a {
   color: #ffffff !important;
 }
 
+/* Garante contraste: botoes com fundo verde devem manter texto branco */
+.btn-primary,
+.btn-primary *,
+.entrega-calcular-btn,
+.entrega-calcular-btn *,
+.checkout-mobile-primary-btn,
+.checkout-mobile-primary-btn *,
+.checkout-cart-summary-btn-desktop,
+.checkout-cart-summary-btn-desktop *,
+.checkout-payment-primary-btn,
+.checkout-payment-primary-btn *,
+.checkout-cross-sell-add-btn,
+.checkout-cross-sell-add-btn *,
+.produto-add-btn,
+.produto-add-btn *,
+.produto-quick-add,
+.produto-quick-add *,
+.btn-aprovar-revisao,
+.btn-aprovar-revisao *,
+.btn-confirmar-recebimento,
+.btn-confirmar-recebimento *,
+.orders-filter-btn.active,
+.orders-filter-btn.active * {
+  color: #ffffff !important;
+}
+
 @media (max-width: 900px) {
   .ck-command-top,
   .ck-command-bottom {

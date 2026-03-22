@@ -24,7 +24,7 @@ Cancelamento deve usar `cancelado` apenas quando nao houver possibilidade de ent
 
 - Pedido em status finalizado (`entregue` ou `cancelado`) nao aceita novo pagamento.
 - Checkout com reCAPTCHA ativo exige token valido para criar pedido e/ou pagar.
-- Pagamentos via PagBank dependem de token valido e conectividade com provedor.
+- Pagamentos via Mercado Pago dependem de credenciais validas e conectividade com provedor.
 
 ## 5) Incidentes comuns e acao
 
@@ -41,22 +41,12 @@ Acao:
 ### 5.2 Erro no PIX indisponivel
 
 Sintoma:
-- Resposta `503` para `/api/pagamentos/pix`.
+- Resposta `503` para `/api/mercadopago/criar-pix`.
 
 Acao:
-1. Verificar `PAGBANK_TOKEN` e conectividade externa.
-2. Checar logs de backend para operacao `api.pagamentos.pix`.
+1. Verificar `MP_ACCESS_TOKEN` e conectividade externa.
+2. Checar logs de backend para operacao de criacao PIX no Mercado Pago.
 3. Orientar cliente a repetir tentativa apos estabilizacao.
-
-### 5.3 Falha de 3DS no debito
-
-Sintoma:
-- Erro de autenticacao 3DS no pagamento de debito.
-
-Acao:
-1. Solicitar nova tentativa com autenticacao completa no banco emissor.
-2. Se persistir, orientar PIX ou cartao de credito.
-3. Registrar trace_id/transacao para suporte tecnico.
 
 ### 5.4 Erro de reCAPTCHA
 
@@ -71,7 +61,7 @@ Acao:
 ## 6) Observabilidade operacional
 
 - Endpoint de saude: `/api`
-- Endpoint tecnico de PagBank: `/api/pagbank/status`
+- Endpoint tecnico de gateway: `/api/mercadopago/status`
 - Metricas: `/metrics` (somente com politica definida por ambiente/token)
 
 ## 7) Rotina diaria sugerida
@@ -88,4 +78,4 @@ Quando escalar para time tecnico:
 
 - mais de 3 falhas consecutivas no mesmo meio de pagamento;
 - aumento anormal de `401/403/409/503` no checkout;
-- webhook do PagBank sem atualizacao por janela superior a 30 minutos.
+- webhook do Mercado Pago sem atualizacao por janela superior a 30 minutos.

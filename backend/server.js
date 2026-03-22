@@ -65,51 +65,6 @@ const {
   normalizarTipoEntregaPedidoInput,
   normalizarItensPedidoInput
 } = require('./services/pedidoPagamentoHelpers');
-const {
-  extrairStatusPagamentoPagBank,
-  extrairPedidoIdReferencePagBank,
-  mapearStatusPedido,
-  persistirAtualizacaoPedidoWebhookPagBank,
-  resolverDadosWebhookPagBank,
-  validarTokenWebhookPagBank
-} = require('./services/pagbankWebhookService');
-const {
-  criarRegistradorLogPagBank,
-  extrairTraceIdPagBank,
-  sanitizarPayloadPagBankParaLog
-} = require('./services/pagbankLogService');
-const {
-  normalizarParcelasCartao,
-  normalizarTipoCartao,
-  normalizarAuthenticationMethodPagBank,
-  validarAuthenticationMethodPagBank,
-  montarAuthenticationMethodMock3DS,
-  validarResultadoAutenticacao3DSPagBank
-} = require('./services/pagbankPaymentHelpers');
-const {
-  enviarPostPagBankOrders: enviarPostPagBankOrdersClient,
-  obterPedidoPagBank: obterPedidoPagBankClient,
-  criarSessaoAutenticacao3DSPagBank: criarSessaoAutenticacao3DSPagBankClient
-} = require('./services/pagbankClientService');
-const {
-  gerarLogsHomologacaoPagBank,
-  gerarLog3DSAuth,
-  gerarLogOrderRequest,
-  gerarLogOrderResponse
-} = require('./services/pagbankHomologacaoLogService');
-const {
-  criarPagamentoPixFactory,
-  criarPagamentoCartaoFactory
-} = require('./services/pagbankOrdersService');
-const {
-  montarWebhookPagBankUrlFactory,
-  analisarChavePublicaPagBank: analisarChavePublicaPagBankService,
-  traduzirMotivoChavePublicaPagBank: traduzirMotivoChavePublicaPagBankService,
-  registrarLogEndpointDiagnostico: registrarLogEndpointDiagnosticoService
-} = require('./services/pagbankHelpersService');
-const {
-  criarDiagnosticoPagBank
-} = require('./services/pagbankDiagnosticoService');
 
 const app = express();
 
@@ -120,9 +75,6 @@ const {
   NODE_ENV, IS_PRODUCTION, PORT, SERVICE_NAME, API_VERSION,
   FRONTEND_DIST_PATH, REACT_DIST_INDEX, FRONTEND_APP_URL, SHOULD_SERVE_REACT,
   DATABASE_URL, TRUST_PROXY, BASE_URL_ENV,
-  PAGBANK_ENV, PAGBANK_TOKEN, PAGBANK_PUBLIC_KEY,
-  PAGBANK_WEBHOOK_TOKEN, PAGBANK_DEBUG_LOGS, ALLOW_PIX_MOCK, ALLOW_DEBIT_3DS_MOCK,
-  PAGBANK_TIMEOUT_MS, PAGBANK_API_URL, PAGBANK_SDK_API_URL, PAGBANK_3DS_SDK_ENV,
   TAMANHO_MAXIMO_IMPORTACAO_BYTES,
   EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE, EVOLUTION_WEBHOOK_TOKEN,
   WHATSAPP_AUTO_REPLY_ENABLED, WHATSAPP_AUTO_REPLY_TEXT, WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS,
@@ -152,66 +104,9 @@ const {
 } = config;
 
 // Runtime instances (dependem de config, não podem ficar no módulo config)
-const registrarLogPagBank = criarRegistradorLogPagBank({ ativo: PAGBANK_DEBUG_LOGS });
 const cepGeoCache = new BoundedCache({ maxSize: 2000, ttlMs: CEP_GEO_TTL_MS, name: 'cepGeo' });
 const produtosQueryCache = new BoundedCache({ maxSize: 200, ttlMs: PRODUTOS_QUERY_CACHE_TTL_MS, name: 'produtosQuery' });
 const readQueryCache = new BoundedCache({ maxSize: 500, ttlMs: READ_QUERY_CACHE_TTL_MS, name: 'readQuery' });
-
-// ── PagBank service instances (factories → funções prontas) ─────────────
-const montarWebhookPagBankUrl = montarWebhookPagBankUrlFactory({ BASE_URL_ENV, PAGBANK_WEBHOOK_TOKEN });
-const analisarChavePublicaPagBank = () => analisarChavePublicaPagBankService(undefined, PAGBANK_PUBLIC_KEY);
-const traduzirMotivoChavePublicaPagBank = traduzirMotivoChavePublicaPagBankService;
-const registrarLogEndpointDiagnostico = registrarLogEndpointDiagnosticoService;
-
-function obterPagBankPublicKeyAtual() {
-  const info = analisarChavePublicaPagBank();
-  return info.valid ? info.publicKey : '';
-}
-
-function registrarFalhaOperacaoPagBank({
-  operacao, endpoint, method = 'POST', httpStatus, requestPayload, responsePayload, extra
-} = {}) {
-  const traceId = String(
-    extra?.trace_id || extra?.traceId || extrairTraceIdPagBank(responsePayload) || ''
-  ).trim();
-  registrarLogPagBank({
-    operacao, endpoint, method, httpStatus, requestPayload, responsePayload,
-    extra: { ...(extra || {}), trace_id: traceId || undefined }
-  });
-}
-
-function enviarPostPagBankOrders({ headers, payload }) {
-  return enviarPostPagBankOrdersClient({
-    apiUrl: PAGBANK_API_URL, headers, payload, registrarLogPagBank, timeoutMs: PAGBANK_TIMEOUT_MS
-  });
-}
-
-function criarSessaoAutenticacao3DSPagBank() {
-  return criarSessaoAutenticacao3DSPagBankClient({
-    sdkApiUrl: PAGBANK_SDK_API_URL, token: PAGBANK_TOKEN, registrarLogPagBank, timeoutMs: PAGBANK_TIMEOUT_MS
-  });
-}
-
-function obterPedidoPagBank(orderId) {
-  return obterPedidoPagBankClient({
-    apiUrl: PAGBANK_API_URL, token: PAGBANK_TOKEN, orderId, registrarLogPagBank, timeoutMs: PAGBANK_TIMEOUT_MS
-  });
-}
-
-const criarPagamentoPix = criarPagamentoPixFactory({
-  PAGBANK_TOKEN, PAGBANK_DEBUG_LOGS, IS_PRODUCTION,
-  enviarPostPagBankOrders, montarWebhookPagBankUrl, registrarLogPagBank, registrarFalhaOperacaoPagBank
-});
-
-const criarPagamentoCartao = criarPagamentoCartaoFactory({
-  PAGBANK_TOKEN, PAGBANK_ENV, IS_PRODUCTION, PAGBANK_DEBUG_LOGS, ALLOW_DEBIT_3DS_MOCK,
-  enviarPostPagBankOrders, montarWebhookPagBankUrl, registrarLogPagBank, registrarFalhaOperacaoPagBank
-});
-
-const { verificarCredencialPagBank, getLastAuthCheck: getPagbankLastAuthCheck } = criarDiagnosticoPagBank({
-  PAGBANK_TOKEN, PAGBANK_API_URL, enviarPostPagBankOrders
-});
-// pagbankLastAuthCheck agora é gerenciado pelo serviço; getter via getPagbankLastAuthCheck()
 
 // ── Mercado Pago service instance ───────────────────────────────────────
 const { criarMercadoPagoService } = require('./services/mercadoPagoService');
@@ -1245,16 +1140,6 @@ function salvarCacheProdutos(chave, payload) {
   produtosQueryCache.set(chave, payload);
 }
 
-function validarWebhookPagBank(req) {
-  return validarTokenWebhookPagBank({
-    tokenHeader: req.headers['x-webhook-token'],
-    tokenQuery: req.query?.token,
-    webhookToken: PAGBANK_WEBHOOK_TOKEN,
-    isProduction: IS_PRODUCTION,
-    compararTextoSegura
-  });
-}
-
 function validarWebhookEvolution(req) {
   if (!EVOLUTION_WEBHOOK_TOKEN) {
     return true;
@@ -1299,24 +1184,6 @@ function isJidGrupoOuBroadcast(remoteJid) {
 
 const evolutionProcessedMessageIds = new BoundedCache({ maxSize: 5000, ttlMs: 30 * 60 * 1000, name: 'evolutionMsgIds' });
 const evolutionLastReplyByNumber = new BoundedCache({ maxSize: 2000, ttlMs: 24 * 60 * 60 * 1000, name: 'evolutionReply' });
-
-if (PAGBANK_TOKEN) {
-  logger.info('✅ PagBank configurado com sucesso!');
-  // Check não-bloqueante para avisar cedo se a credencial está inválida
-  setTimeout(() => {
-    verificarCredencialPagBank()
-      .then((r) => {
-        if (r.ok) {
-          logger.info(`✅ PagBank token OK (${r.message})`);
-        } else {
-          logger.warn(`⚠️ PagBank token inválido/erro (${r.status}): ${r.message}`);
-        }
-      })
-      .catch((e) => logger.warn('⚠️ Falha ao checar token PagBank:', e?.message));
-  }, 0);
-} else {
-  logger.warn('⚠️ PAGBANK_TOKEN não configurado; PIX desabilitado.');
-}
 
 // ============================================
 // MIDDLEWARES
@@ -1442,7 +1309,6 @@ const globalLimiter = rateLimit({
     const pathAtual = req.path || '';
 
     if (!pathAtual.startsWith('/api/')) return true;
-    if (pathAtual.startsWith('/api/pagbank/')) return true;
     if (pathAtual.startsWith('/api/webhook/')) return true;
     if (pathAtual.startsWith('/api/webhooks/')) return true;
     if (pathAtual.startsWith('/api/admin/')) return true;
@@ -1519,8 +1385,7 @@ const orderCreateLimiter = rateLimit({
 const csrfIgnoredPaths = new Set([
   '/api/auth/login',
   '/api/auth/cadastro',
-  '/api/admin/login',
-  '/api/pagbank/test-pix'
+  '/api/admin/login'
 ]);
 
 const metodosMutaveis = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -1536,7 +1401,7 @@ app.use((req, res, next) => {
     return next();
   }
 
-  if (pathAtual.startsWith('/api/webhooks/') || pathAtual === '/api/pagbank/webhook') {
+  if (pathAtual.startsWith('/api/webhooks/')) {
     return next();
   }
 
@@ -1892,33 +1757,10 @@ app.use(require('./routes/admin-catalogo')({
 }));
 
 // ============================================
-// ROTAS PAGBANK — diagnóstico + pagamento (routes/pagbank.js)
-// ============================================
-app.post('/api/pagamentos/pix', paymentLimiter);
-app.post('/api/pagamentos/cartao', paymentLimiter);
-app.use(require('./routes/pagbank')({
-  autenticarToken,
-  protegerDiagnostico,
-  validarRecaptcha,
-  registrarLogPagBank,
-  registrarFalhaOperacaoPagBank,
-  registrarLogEndpointDiagnostico,
-  analisarChavePublicaPagBank,
-  traduzirMotivoChavePublicaPagBank,
-  montarWebhookPagBankUrl,
-  verificarCredencialPagBank,
-  criarPagamentoPix,
-  criarPagamentoCartao,
-  criarSessaoAutenticacao3DSPagBank,
-  enviarPostPagBankOrders,
-  obterPedidoPagBank,
-  getPagbankLastAuthCheck,
-  pool
-}));
-
-// ============================================
 // ROTAS MERCADO PAGO (routes/mercadopago.js)
 // ============================================
+app.post('/api/mercadopago/criar-pix', paymentLimiter);
+app.post('/api/mercadopago/criar-cartao', paymentLimiter);
 app.use(require('./routes/mercadopago')({
   autenticarToken,
   mercadoPagoService,
@@ -1976,11 +1818,10 @@ app.use(require('./routes/admin-operacional')({
 // WEBHOOKS (routes/webhooks.js)
 // ============================================
 app.use(require('./routes/webhooks')({
-  validarWebhookEvolution, validarWebhookPagBank,
+  validarWebhookEvolution,
   extrairDadosMensagemEvolution, isJidGrupoOuBroadcast,
   formatarTelefoneWhatsapp, enviarWhatsappTexto, limparCacheEvolution,
   evolutionProcessedMessageIds, evolutionLastReplyByNumber,
-  registrarLogPagBank, obterPedidoPagBank,
   mercadoPagoService, enviarWhatsappPedido,
 }));
 

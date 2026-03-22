@@ -178,13 +178,13 @@ function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
     return 'Não foi possível validar sua sessão. Verifique se os cookies do navegador estão habilitados e tente novamente.';
   }
 
-  const isPagamentoPath = normalizedPath.startsWith('/api/pagamentos/') || normalizedPath.startsWith('/api/pagbank/');
+  const isPagamentoPath = normalizedPath.startsWith('/api/pagamentos/') || normalizedPath.startsWith('/api/mercadopago/');
   if (isPagamentoPath) {
     if (normalizedMessage.includes('nao aceita novo pagamento') || normalizedMessage.includes('já esta pago')) {
       return 'Este pedido já foi finalizado e não aceita novo pagamento.';
     }
 
-    if (normalizedMessage.includes('pagbank não configurado')) {
+    if (normalizedMessage.includes('gateway não configurado') || normalizedMessage.includes('mercado pago não configurado')) {
       return 'Esta forma de pagamento está temporariamente indisponível. Tente novamente em instantes.';
     }
 
@@ -774,40 +774,16 @@ export function criarPedido({ itens, formaPagamento = 'pix', tipoEntrega = 'entr
 }
 
 export function gerarPix(pedidoId, taxId, recaptchaToken = '') {
-  const taxIdDigits = String(taxId || '').replace(/\D/g, '');
-  const body = { pedido_id: pedidoId };
-
-  if (taxIdDigits) {
-    body.tax_id = taxIdDigits;
-  }
-
-  const recaptchaTokenNormalizado = String(recaptchaToken || '').trim();
-  if (recaptchaTokenNormalizado) {
-    body.recaptcha_token = recaptchaTokenNormalizado;
-  }
-
-  return request('/api/pagamentos/pix', {
-    method: 'POST',
-    body
-  });
+  return mpGerarPix(pedidoId, taxId);
 }
 
-export function getPagBankPublicKey() {
-  return request('/api/pagbank/public-key');
+export function getGatewayPublicKey() {
+  return mpGetPublicKey();
 }
 
-export function criarSessao3DSPagBank({ referenceId } = {}) {
-  const body = {};
-  const referenceIdNormalizado = String(referenceId || '').trim();
-
-  if (referenceIdNormalizado) {
-    body.reference_id = referenceIdNormalizado;
-  }
-
-  return request('/api/pagbank/3ds/session', {
-    method: 'POST',
-    body
-  });
+export function criarSessao3DSGateway({ referenceId } = {}) {
+  void referenceId;
+  return Promise.reject(new Error('Fluxo 3DS indisponível no gateway atual.'));
 }
 
 export function pagarCartao(
@@ -822,40 +798,10 @@ export function pagarCartao(
     recaptchaToken
   } = {}
 ) {
-  const taxIdDigits = String(taxId || '').replace(/\D/g, '');
-  const tokenNormalizado = String(tokenCartao || '').trim();
-  const parcelasNormalizadas = Number.parseInt(parcelas, 10);
-  const tipoCartaoNormalizado = String(tipoCartao || '').trim().toLowerCase();
-  const body = {
-    pedido_id: pedidoId,
-    parcelas: Number.isFinite(parcelasNormalizadas) ? parcelasNormalizadas : 1,
-    tipo_cartao: ['debito', 'debit', 'debit_card'].includes(tipoCartaoNormalizado) ? 'debito' : 'credito'
-  };
-
-  if (taxIdDigits) {
-    body.tax_id = taxIdDigits;
-  }
-
-  if (tokenNormalizado) {
-    body.token_cartao = tokenNormalizado;
-  }
-
-  if (authenticationMethod && typeof authenticationMethod === 'object') {
-    body.authentication_method = authenticationMethod;
-  }
-
-  if (threeDSResult && typeof threeDSResult === 'object') {
-    body.three_ds_result = threeDSResult;
-  }
-
-  const recaptchaTokenNormalizado = String(recaptchaToken || '').trim();
-  if (recaptchaTokenNormalizado) {
-    body.recaptcha_token = recaptchaTokenNormalizado;
-  }
-
-  return request('/api/pagamentos/cartao', {
-    method: 'POST',
-    body
+  return mpPagarCartao(pedidoId, {
+    token: String(tokenCartao || '').trim(),
+    parcelas,
+    taxId
   });
 }
 

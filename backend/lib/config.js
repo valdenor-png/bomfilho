@@ -47,6 +47,7 @@ if (!DATABASE_URL) {
 // ============================================
 // PAGBANK
 // ============================================
+const PAGBANK_ENABLED = parseBooleanEnv('PAGBANK_ENABLED', false);
 const PAGBANK_CONFIG = construirConfiguracaoPagBank({ env: process.env, isProductionApp: IS_PRODUCTION });
 const PAGBANK_ENV = PAGBANK_CONFIG.env;
 const PAGBANK_TOKEN = PAGBANK_CONFIG.token;
@@ -100,16 +101,16 @@ const WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS = Number.parseInt(
 // ============================================
 // PAGBANK VALIDATIONS
 // ============================================
-if (IS_PRODUCTION && !PAGBANK_WEBHOOK_TOKEN) {
+if (PAGBANK_ENABLED && IS_PRODUCTION && !PAGBANK_WEBHOOK_TOKEN) {
   throw new Error('PAGBANK_WEBHOOK_TOKEN é obrigatório em produção para validação segura dos webhooks PagBank.');
 }
-if (!PAGBANK_WEBHOOK_TOKEN) {
+if (PAGBANK_ENABLED && !PAGBANK_WEBHOOK_TOKEN) {
   console.warn('⚠️ PAGBANK_WEBHOOK_TOKEN não configurado. Em produção o servidor não inicializa sem essa variável.');
 }
-if (IS_PRODUCTION && ALLOW_PIX_MOCK) {
+if (PAGBANK_ENABLED && IS_PRODUCTION && ALLOW_PIX_MOCK) {
   throw new Error('ALLOW_PIX_MOCK nao pode ser true em producao.');
 }
-if (IS_PRODUCTION && ALLOW_DEBIT_3DS_MOCK) {
+if (PAGBANK_ENABLED && IS_PRODUCTION && ALLOW_DEBIT_3DS_MOCK) {
   throw new Error('ALLOW_DEBIT_3DS_MOCK nao pode ser true em producao.');
 }
 
@@ -152,7 +153,7 @@ if (IS_PRODUCTION) {
   if (!BASE_URL_ENV) throw new Error('BASE_URL obrigatoria em producao para notificacoes e webhooks.');
   if (!/^https:\/\//i.test(BASE_URL_ENV)) throw new Error('BASE_URL deve usar HTTPS em producao.');
   if (FRONTEND_APP_URL && !/^https:\/\//i.test(FRONTEND_APP_URL)) throw new Error('FRONTEND_APP_URL deve usar HTTPS em producao.');
-  if (!PAGBANK_TOKEN) throw new Error('PAGBANK_TOKEN e obrigatorio em producao para habilitar pagamentos.');
+  if (PAGBANK_ENABLED && !PAGBANK_TOKEN) throw new Error('PAGBANK_TOKEN e obrigatorio em producao quando PAGBANK_ENABLED=true.');
   if (METRICS_ENABLED && !METRICS_TOKEN) throw new Error('METRICS_TOKEN e obrigatorio quando METRICS_ENABLED=true em producao.');
 }
 
@@ -299,6 +300,7 @@ module.exports = {
   FRONTEND_DIST_PATH, REACT_DIST_INDEX, FRONTEND_APP_URL, SHOULD_SERVE_REACT,
   DATABASE_URL, TRUST_PROXY, BASE_URL_ENV,
   // pagbank
+  PAGBANK_ENABLED,
   PAGBANK_CONFIG, PAGBANK_ENV, PAGBANK_TOKEN, PAGBANK_PUBLIC_KEY,
   PAGBANK_WEBHOOK_TOKEN, PAGBANK_DEBUG_LOGS, ALLOW_PIX_MOCK, ALLOW_DEBIT_3DS_MOCK,
   PAGBANK_TIMEOUT_MS, PAGBANK_API_URL, PAGBANK_SDK_API_URL, PAGBANK_3DS_SDK_ENV,

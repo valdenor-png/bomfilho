@@ -337,7 +337,7 @@ export function validarCnpj(cnpj) {
   return Number(digits[12]) === digito1 && Number(digits[13]) === digito2;
 }
 
-export function validarDocumentoFiscalPagBank3DS(valor) {
+export function validarDocumentoFiscal3DS(valor) {
   const digits = normalizarDocumentoFiscal(valor);
   if (digits.length === 11) return validarCpf(digits);
   if (digits.length === 14) return validarCnpj(digits);
@@ -500,7 +500,7 @@ export function extrairStatusThreeDSChargeHomologacao(responsePayload) {
   return null;
 }
 
-export function montarResumoRespostaPagBankHomologacao({ responsePayload, pedidoId } = {}) {
+export function montarResumoRespostaGatewayHomologacao({ responsePayload, pedidoId } = {}) {
   const payload = (responsePayload && typeof responsePayload === 'object' && !Array.isArray(responsePayload)) ? responsePayload : {};
   const raw = (payload?.raw && typeof payload.raw === 'object' && !Array.isArray(payload.raw)) ? payload.raw : null;
   const charge = Array.isArray(raw?.charges) ? raw.charges[0] || null : null;
@@ -518,7 +518,7 @@ export function montarResumoRespostaPagBankHomologacao({ responsePayload, pedido
     endpoint: '/api/pagamentos/cartao',
     pedido_id: Number.parseInt(String(pedidoId || payload?.pedido_id || ''), 10) || null,
     reference_id: refId || null,
-    pagbank_order_id: String(payload?.pagbank_order_id || raw?.id || '').trim() || null,
+    gateway_order_id: String(payload?.gateway_order_id || raw?.id || '').trim() || null,
     charges: { status: chargesStatus, threeds: { status: threeDSStatus } },
     payment_response: { code: prCode, message: prMsg },
     three_ds_validation: {
@@ -527,7 +527,7 @@ export function montarResumoRespostaPagBankHomologacao({ responsePayload, pedido
       authentication_id_masked: authId ? mascararValorHomologacao(authId, { prefixo: 6, sufixo: 4 }) : null
     },
     trace_id_masked: traceId ? mascararTraceHomologacao(traceId) : null,
-    response_final_pagbank_masked: raw
+    response_final_gateway_masked: raw
       ? {
         id: String(raw?.id || '').trim() || null,
         reference_id: String(raw?.reference_id || '').trim() || null,

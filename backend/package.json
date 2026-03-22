@@ -4,7 +4,7 @@
   "description": "Backend API para supermercado Bom Filho",
   "main": "server.js",
   "engines": {
-    "node": ">=18"
+    "node": "18.x"
   },
   "packageManager": "npm@10.9.0",
   "scripts": {
@@ -31,6 +31,12 @@
     "enrichment:ai:stats": "node scripts/enrich-ai-descriptions.js --mode stats",
     "enrichment:ai:dry-run": "node scripts/enrich-ai-descriptions.js --mode dry-run",
     "enrichment:ai:apply": "node scripts/enrich-ai-descriptions.js --mode apply",
+    "catalogo:sync:dry-run": "node scripts/catalogo-atualizacao-massa.js --mode dry-run",
+    "catalogo:sync:apply": "node scripts/catalogo-atualizacao-massa.js --mode apply --apply true",
+    "catalogo:categorizar:preview": "node scripts/catalogo-categorizar-por-nome.js --mode preview",
+    "catalogo:categorizar:preview:lote-higiene-limpeza": "node scripts/catalogo-categorizar-por-nome.js --mode preview --applyCategories \"Limpeza,Lavanderia,Higiene Pessoal,Descartaveis,Utilidades Domesticas\" --minApplyConfidence 0.90",
+    "catalogo:categorizar:apply": "node scripts/catalogo-categorizar-por-nome.js --mode apply --apply true",
+    "catalogo:categorizar:apply:sync-departamento": "node scripts/catalogo-categorizar-por-nome.js --mode apply --apply true --syncDepartamento true",
     "migrate": "node migrate.js",
     "migrate:dry-run": "node migrate.js --dry-run",
     "lint": "eslint .",

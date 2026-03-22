@@ -94,7 +94,7 @@ export function TaxIdInput({ value, onChange, onBlur, requiredError, invalidErro
       ? 'Documento inválido. Digite CPF com 11 dígitos ou CNPJ com 14 dígitos.'
       : validFeedback
         ? 'Documento válido para processar o pagamento.'
-        : 'Obrigatório para pagamentos via PIX e cartão no PagBank.';
+          : 'Obrigatório para pagamentos via PIX e cartão no Mercado Pago.';
 
   return (
     <div className={`payment-taxid ${feedbackTone}`.trim()}>

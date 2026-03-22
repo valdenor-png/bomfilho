@@ -1,8 +1,0 @@
-{
-  "method": "GET",
-  "url": "https://api.pagseguro.com/orders/ORDE_XXXXXXXXXXXX",
-  "headers": {
-    "Authorization": "Bearer {{PAGBANK_TOKEN}}",
-    "Content-Type": "application/json"
-  }
-}

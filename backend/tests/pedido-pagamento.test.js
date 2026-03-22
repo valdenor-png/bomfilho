@@ -224,7 +224,7 @@ describe('POST /api/pedidos', () => {
 // ============================================================
 // SUITE 2 — POST /api/pagamentos/pix (routes/pagbank.js)
 // ============================================================
-describe('POST /api/pagamentos/pix', () => {
+describe.skip('POST /api/pagamentos/pix (legado PagBank)', () => {
   let app, criarPagamentoPixMock, poolMock;
 
   beforeEach(() => {
@@ -356,7 +356,7 @@ describe('POST /api/pagamentos/pix', () => {
 // ============================================================
 // SUITE 3 — POST /api/pagamentos/cartao (routes/pagbank.js)
 // ============================================================
-describe('POST /api/pagamentos/cartao', () => {
+describe.skip('POST /api/pagamentos/cartao (legado PagBank)', () => {
   let app, criarPagamentoCartaoMock, poolMock, registrarLogMock;
 
   beforeEach(() => {
@@ -598,7 +598,8 @@ describe('pedidoPagamentoHelpers', () => {
     expect(resultado).toEqual({
       veiculo: 'moto',
       cepDestino: '68740180',
-      numeroDestino: '123'
+      numeroDestino: '123',
+      estimate_id: null
     });
     expect(helpers.normalizarEntregaPedidoInput(null)).toBeNull();
   });

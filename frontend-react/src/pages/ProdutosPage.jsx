@@ -2327,7 +2327,7 @@ export default function ProdutosPage() {
 
     container.scrollLeft = proximoScrollLeft;
 
-    if (conseguiuRolar && Math.abs(deltaY) >= Math.abs(deltaX)) {
+    if (conseguiuRolar && Math.abs(deltaY) >= Math.abs(deltaX) && event.cancelable) {
       event.preventDefault();
     }
   }, []);

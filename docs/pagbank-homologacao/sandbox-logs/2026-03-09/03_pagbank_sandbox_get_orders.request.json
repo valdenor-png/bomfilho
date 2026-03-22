@@ -1,7 +1,0 @@
-﻿{
-    "body":  null,
-    "method":  "GET",
-    "url":  "https://sandbox.api.pagseguro.com/orders",
-    "headers":  null,
-    "timestamp":  "2026-03-09T19:28:28"
-}

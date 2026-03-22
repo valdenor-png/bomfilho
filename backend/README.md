@@ -70,19 +70,11 @@ RECAPTCHA_MIN_SCORE=0.5
 # Proteção opcional para rotas de diagnóstico
 DIAGNOSTIC_TOKEN=
 
-# PagBank (PIX + Cartão)
-PAGBANK_ENV=sandbox
-PAGBANK_TOKEN=SEU_TOKEN_PAGBANK
-PAGBANK_PUBLIC_KEY=SUA_CHAVE_PUBLICA_PAGBANK
-PAGBANK_DEBUG_LOGS=true
-PAGBANK_TIMEOUT_MS=15000
-ALLOW_PIX_MOCK=false
-ALLOW_DEBIT_3DS_MOCK=true
-
-# Proteção do webhook PagBank
-PAGBANK_WEBHOOK_TOKEN=troque_por_um_token_grande_e_aleatorio
-# O backend inclui este token na notification_url como ?token=...
-# e valida por query (ou pelo header x-webhook-token quando enviado)
+# Mercado Pago (PIX + Cartão)
+MP_ACCESS_TOKEN=SEU_ACCESS_TOKEN_MERCADO_PAGO
+MP_PUBLIC_KEY=SUA_PUBLIC_KEY_MERCADO_PAGO
+MP_WEBHOOK_SECRET=SEU_WEBHOOK_SECRET_MERCADO_PAGO
+MP_WEBHOOK_URL=https://SUA_URL_PUBLICA/api/webhooks/mercadopago
 BASE_URL=https://SUA_URL_PUBLICA
 
 # Evolution API (WhatsApp)
@@ -97,57 +89,22 @@ WHATSAPP_AUTO_REPLY_TEXT=Estamos com o site do Bom Filho no ar. Faça seu pedido
 WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS=0
 ```
 
-## PIX automático (PagBank)
+## PIX automático (Mercado Pago)
 
 O fluxo do PIX automático funciona assim:
 
-- Ao criar o pedido com `forma_pagamento = pix`, o backend cria uma cobrança PIX no PagBank e devolve `pix_codigo`/`pix_qrcode`.
-- Quando o cliente paga, o PagBank chama o webhook `POST /api/webhooks/pagbank` e o backend atualiza o status do pedido para `pago`.
+- Ao criar o pedido com `forma_pagamento = pix`, o backend cria uma cobrança PIX no Mercado Pago e devolve `pix_codigo`/`pix_qrcode`.
+- Quando o cliente paga, o Mercado Pago chama o webhook `POST /api/webhooks/mercadopago` e o backend atualiza o status do pedido para `pago`.
 
 Para esse fluxo funcionar localmente, o webhook precisa estar acessível publicamente.
 
 ### 1) Preencher variáveis no `.env`
 
-- `PAGBANK_TOKEN`: token do Portal PagBank
-- `PAGBANK_ENV`: `sandbox` (teste) ou `production`
-- `PAGBANK_PUBLIC_KEY`: chave pública usada para criptografar cartão no frontend
-- `PAGBANK_TIMEOUT_MS`: timeout das chamadas HTTP ao PagBank (ms)
-- `ALLOW_PIX_MOCK`: `true` apenas para desenvolvimento local com PIX simulado
-- `ALLOW_DEBIT_3DS_MOCK`: `true` apenas em sandbox para fallback 3DS mock no débito
-- `PAGBANK_WEBHOOK_TOKEN`: token compartilhado validado no webhook PagBank
+- `MP_ACCESS_TOKEN`: token privado do Mercado Pago
+- `MP_PUBLIC_KEY`: chave pública para tokenização de cartão no frontend
+- `MP_WEBHOOK_SECRET`: segredo para validar assinatura do webhook
+- `MP_WEBHOOK_URL`: URL pública para receber eventos de pagamento
 - `BASE_URL`: URL pública do seu backend (ex.: ngrok/Cloudflare Tunnel)
-
-### Pagamento com cartão de débito (3DS)
-
-- Em débito, o PagBank exige `authentication_method` com `type=THREEDS`.
-- Em produção, envie `authentication_method` real no `POST /api/pagamentos/cartao`.
-- Em sandbox, se `ALLOW_DEBIT_3DS_MOCK=true`, o backend injeta dados 3DS mock quando o campo não for enviado.
-
-### Sessão 3DS para SDK PagBank
-
-Use a rota abaixo antes de chamar `PagSeguro.setUp()` no frontend:
-
-```http
-POST /api/pagbank/3ds/session
-x-csrf-token: TOKEN_CSRF
-Content-Type: application/json
-
-{
-  "reference_id": "pedido_123"
-}
-```
-
-Resposta:
-
-```json
-{
-  "session": "SUA_SESSAO_3DS",
-  "env": "SANDBOX",
-  "expires_in_seconds": 1800
-}
-```
-
-Importante: libere execucao de JS/iframe do dominio `*.cardinalcommerce.com` na sua politica de seguranca (CSP), conforme orientacao do PagBank para challenge 3DS.
 
 ### 2) Rodar migração do PIX no MySQL
 
@@ -163,29 +120,29 @@ ngrok http 3000
 
 Depois, coloque a URL HTTPS que o ngrok gerar em `BASE_URL`.
 
-### 3.1) (Opcional) Validar credencial PagBank
+### 3.1) (Opcional) Validar credencial do gateway
 
 Com o backend rodando, você pode validar rapidamente se a credencial está aceitando autenticação:
 
 ```http
-GET /api/pagbank/status
+GET /api/mercadopago/status
 ```
 
-Ele retorna `auth_check` com `ok=true/false` e também mostra qual `webhook_url` está sendo usado.
+Ele retorna se o gateway está configurado e se a public key está disponível para tokenização.
 
 ### 3.2) (Opcional) Expor chave pública para checkout com cartão
 
 ```http
-GET /api/pagbank/public-key
+GET /api/mercadopago/public-key
 ```
 
-Retorna a chave pública (`public_key`) usada no frontend para criptografia do cartão via `PagSeguro.encryptCard`.
+Retorna a chave pública (`public_key`) usada no frontend para tokenização do cartão.
 
 Resposta esperada:
 
 ```json
 {
-  "public_key": "SUA_PUBLIC_KEY_PAGBANK"
+  "public_key": "SUA_PUBLIC_KEY_MERCADO_PAGO"
 }
 ```
 
@@ -371,35 +328,17 @@ Content-Type: application/json
 {
   "pedido_id": 123,
   "tax_id": "12345678909",
-  "token_cartao": "TOKEN_OU_CARTAO_CRIPTOGRAFADO_PAGBANK",
+  "token_cartao": "TOKEN_CARTAO_MERCADO_PAGO",
   "tipo_cartao": "credito",
   "parcelas": 1
 }
 ```
 
-`tipo_cartao` aceito: `credito` ou `debito`.
+`tipo_cartao` aceito: `credito`.
 
-Para `debito`, envie `parcelas=1`.
-
-Exemplo para débito com 3DS:
-
-```json
-{
-  "pedido_id": 123,
-  "tax_id": "12345678909",
-  "token_cartao": "TOKEN_OU_CARTAO_CRIPTOGRAFADO_PAGBANK",
-  "tipo_cartao": "debito",
-  "parcelas": 1,
-  "authentication_method": {
-    "type": "THREEDS",
-    "id": "3DS_15CB7893-4D23-44FA-97B7-AC1BE516D418"
-  }
-}
-```
-
-#### Webhook PagBank
+#### Webhook Mercado Pago
 ```http
-POST /api/webhooks/pagbank
+POST /api/webhooks/mercadopago
 ```
 
 ## 🔒 Segurança
@@ -426,9 +365,9 @@ POST /api/webhooks/pagbank
 
 ```
 backend/
-├── server.js              # Servidor principal (~6000 linhas) — middleware, helpers, rotas admin/pagbank/pedido-criação
+├── server.js              # Servidor principal (~6000 linhas) — middleware, helpers, rotas admin e pedido-criação
 ├── lib/
-│   ├── config.js          # Configuração centralizada (env vars, PagBank, cookies, CORS)
+│   ├── config.js          # Configuração centralizada (env vars, cookies, CORS)
 │   ├── db.js              # Pool MySQL + queryWithRetry + testConnection
 │   ├── logger.js          # Logger estruturado (info/warn/error/debug + child)
 │   ├── cache.js           # BoundedCache com TTL e LRU eviction
@@ -436,14 +375,14 @@ backend/
 ├── routes/
 │   ├── auth.js            # POST /api/auth/cadastro, login, logout; admin login/me
 │   ├── health.js          # GET /api, /health, /ready, /metrics, /version
-│   ├── webhooks.js        # POST /api/webhooks/evolution, /api/webhooks/pagbank
+│   ├── webhooks.js        # POST /api/webhooks/evolution, /api/webhooks/mercadopago
 │   ├── enderecos.js       # GET/POST /api/endereco
 │   ├── produtos.js        # GET /api/produtos, /api/categorias, /api/banners
 │   ├── pedidos.js         # GET /api/pedidos, /api/pedidos/:id
 │   ├── cupons.js          # POST /api/cupons/validar, GET /api/cupons/disponiveis
 │   ├── avaliacoes.js      # GET/POST /api/avaliacoes
 │   └── frete.js           # GET /api/frete/simular
-├── services/              # Serviços de domínio (pagbank, barcode lookup, etc.)
+├── services/              # Serviços de domínio (mercadopago, barcode lookup, etc.)
 ├── tests/
 │   ├── cache.test.js      # 7 testes
 │   ├── config.test.js     # 7 testes
@@ -470,7 +409,7 @@ Dependências específicas do servidor (middleware, helpers) são passadas via `
 ### Rotas que permanecem no server.js
 
 - **POST /api/pedidos** — criação de pedido (transação + PIX + frete + WhatsApp)
-- **Rotas PagBank** — 3DS, pagamento com cartão, diagnóstico
+- **Rotas de pagamento** — Mercado Pago (pix/cartão) e webhooks
 - **Rotas admin** — pedidos, dashboard, catálogo, fase 2/3
 - Estas rotas têm muitas dependências cruzadas e serão extraídas em fases futuras
 
