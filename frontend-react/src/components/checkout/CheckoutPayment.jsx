@@ -8,7 +8,6 @@ export function PaymentMethodCard({
   icon,
   title,
   headline,
-  details,
   selecionado,
   onSelect,
   disabled = false
@@ -26,20 +25,12 @@ export function PaymentMethodCard({
         <p className="payment-method-title-row">
           <span className="payment-method-icon" aria-hidden="true">{icon}</span>
           <span className="payment-method-title">{title}</span>
-          {selecionado ? <span className="payment-method-badge">Selecionado</span> : null}
+          {selecionado ? <span className="payment-method-badge">Ativo</span> : null}
         </p>
         {selecionado ? <span className="payment-method-check" aria-hidden="true">✓</span> : null}
       </div>
 
       <p className="payment-method-headline">{headline}</p>
-
-      {selecionado ? (
-        <ul className="payment-method-list">
-          {details.map((detail) => (
-            <li key={detail}>{detail}</li>
-          ))}
-        </ul>
-      ) : null}
     </button>
   );
 }
@@ -61,6 +52,7 @@ export function PaymentSelectionSummary({ title, description }) {
 
 export function PaymentOrderSummary({ itens, subtotal, frete, taxaServico = 0, total, metodo, tipoEntrega = 'entrega', economiaFrete = 0, className = '' }) {
   const retirada = String(tipoEntrega || '').trim().toLowerCase() === 'retirada';
+  const taxaServicoNumero = Number(taxaServico || 0);
 
   return (
     <aside className={`payment-order-summary ${className}`.trim()} aria-label="Resumo financeiro da etapa de pagamento">
@@ -76,39 +68,62 @@ export function PaymentOrderSummary({ itens, subtotal, frete, taxaServico = 0, t
         <strong>{frete === null ? 'A calcular' : retirada ? 'Grátis' : formatarMoeda(frete)}</strong>
       </div>
 
+      {taxaServicoNumero > 0 ? (
+        <div className="payment-order-summary-row">
+          <span>Taxa de serviço</span>
+          <strong>{formatarMoeda(taxaServicoNumero)}</strong>
+        </div>
+      ) : null}
+
       <div className="payment-order-summary-divider" aria-hidden="true" />
 
       <div className="payment-order-summary-row is-total">
         <span>Total</span>
         <strong>{formatarMoeda(total)}</strong>
       </div>
+
+      <p className="payment-order-summary-meta">Pagamento por {metodo}</p>
     </aside>
   );
 }
 
-export function TaxIdInput({ value, onChange, onBlur, requiredError, invalidError, validFeedback }) {
+export function TaxIdInput({
+  value,
+  onChange,
+  onBlur,
+  requiredError,
+  invalidError,
+  validFeedback,
+  id = 'documento-pagador',
+  label = 'CPF/CNPJ do pagador',
+  placeholder = '000.000.000-00 ou 00.000.000/0000-00',
+  helperText = 'Obrigatório para pagamentos via PIX e cartão no Mercado Pago.',
+  requiredMessage = 'Campo obrigatório para concluir o pagamento.',
+  invalidMessage = 'Documento inválido. Digite CPF com 11 dígitos ou CNPJ com 14 dígitos.',
+  validMessage = 'Documento válido para processar o pagamento.'
+}) {
   const feedbackTone = requiredError || invalidError ? 'is-error' : validFeedback ? 'is-valid' : 'is-neutral';
   const feedbackText = requiredError
-    ? 'Campo obrigatório para concluir o pagamento.'
+    ? requiredMessage
     : invalidError
-      ? 'Documento inválido. Digite CPF com 11 dígitos ou CNPJ com 14 dígitos.'
+      ? invalidMessage
       : validFeedback
-        ? 'Documento válido para processar o pagamento.'
-          : 'Obrigatório para pagamentos via PIX e cartão no Mercado Pago.';
+        ? validMessage
+        : helperText;
 
   return (
     <div className={`payment-taxid ${feedbackTone}`.trim()}>
-      <label htmlFor="documento-pagador" className="payment-taxid-label">
-        CPF/CNPJ do pagador
+      <label htmlFor={id} className="payment-taxid-label">
+        {label}
       </label>
 
       <input
-        id="documento-pagador"
+        id={id}
         className="field-input"
         type="text"
         inputMode="numeric"
         autoComplete="off"
-        placeholder="000.000.000-00 ou 00.000.000/0000-00"
+        placeholder={placeholder}
         maxLength={18}
         value={value}
         onChange={onChange}

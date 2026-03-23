@@ -8,14 +8,17 @@ import { formatarMoeda } from '../../lib/checkoutUtils';
 export function CartItemRow({
   item,
   onUpdateQuantity,
-  onRemove
+  onRemove,
+  warningMessage = ''
 }) {
   const quantidade = Math.max(1, Number(item?.quantidade || 1));
   const precoUnitario = Number(item?.preco || 0);
   const subtotal = Number((precoUnitario * quantidade).toFixed(2));
   const imagem = String(item?.imagem || '').trim();
   const [imagemFalhou, setImagemFalhou] = useState(false);
+  const [warningOpen, setWarningOpen] = useState(false);
   const exibirImagem = Boolean(imagem) && !imagemFalhou;
+  const warningId = `cart-item-warning-${item.id}`;
 
   return (
     <article className="cart-item-row" aria-label={`Item ${item.nome}`}>
@@ -35,6 +38,33 @@ export function CartItemRow({
 
       <div className="cart-item-main">
         <p className="cart-item-name">{item.nome}</p>
+        {warningMessage ? (
+          <div className="cart-item-warning-wrap">
+            <button
+              type="button"
+              className="cart-item-warning-trigger"
+              aria-label="Aviso de entrega para este item"
+              aria-expanded={warningOpen}
+              aria-describedby={warningOpen ? warningId : undefined}
+              title={warningMessage}
+              onMouseEnter={() => setWarningOpen(true)}
+              onMouseLeave={() => setWarningOpen(false)}
+              onFocus={() => setWarningOpen(true)}
+              onBlur={() => setWarningOpen(false)}
+              onClick={() => setWarningOpen((current) => !current)}
+            >
+              !
+            </button>
+
+            <div
+              id={warningId}
+              role="tooltip"
+              className={`cart-item-warning-popover${warningOpen ? ' is-visible' : ''}`}
+            >
+              {warningMessage}
+            </div>
+          </div>
+        ) : null}
         <p className="cart-item-unitary"><strong>{formatarMoeda(precoUnitario)}</strong></p>
       </div>
 

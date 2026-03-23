@@ -7,6 +7,7 @@ import {
   criarPedido,
   criarSessao3DSGateway,
   gerarPix,
+  getEndereco,
   getProdutos,
   getMe,
   getPedidos,
@@ -118,6 +119,73 @@ import {
   PixInstructionsCard
 } from '../components/checkout';
 
+const CHECKOUT_ENDERECO_CACHE_KEY = 'bf_checkout_endereco_preferido';
+const CHECKOUT_CPF_NOTA_CACHE_KEY = 'bf_checkout_cpf_nota';
+
+function salvarEnderecoCheckoutNoCache(endereco = {}) {
+  try {
+    localStorage.setItem(CHECKOUT_ENDERECO_CACHE_KEY, JSON.stringify({
+      cep: String(endereco?.cep || '').trim(),
+      numero: String(endereco?.numero || '').trim(),
+      logradouro: String(endereco?.logradouro || '').trim(),
+      bairro: String(endereco?.bairro || '').trim(),
+      cidade: String(endereco?.cidade || '').trim(),
+      estado: String(endereco?.estado || '').trim().toUpperCase()
+    }));
+  } catch {
+    // Fallback silencioso quando storage não está disponível.
+  }
+}
+
+function lerEnderecoCheckoutDoCache() {
+  try {
+    const raw = localStorage.getItem(CHECKOUT_ENDERECO_CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    return {
+      cep: String(parsed.cep || '').trim(),
+      numero: String(parsed.numero || '').trim(),
+      logradouro: String(parsed.logradouro || '').trim(),
+      bairro: String(parsed.bairro || '').trim(),
+      cidade: String(parsed.cidade || '').trim(),
+      estado: String(parsed.estado || '').trim().toUpperCase()
+    };
+  } catch {
+    return null;
+  }
+}
+
+function salvarCpfNotaNoCache(cpf = '') {
+  try {
+    const digits = normalizarDocumentoFiscal(cpf);
+    if (digits.length === 11) {
+      localStorage.setItem(CHECKOUT_CPF_NOTA_CACHE_KEY, digits);
+      return;
+    }
+
+    localStorage.removeItem(CHECKOUT_CPF_NOTA_CACHE_KEY);
+  } catch {
+    // Fallback silencioso quando storage não está disponível.
+  }
+}
+
+function lerCpfNotaDoCache() {
+  try {
+    const raw = localStorage.getItem(CHECKOUT_CPF_NOTA_CACHE_KEY);
+    const digits = normalizarDocumentoFiscal(raw);
+    return digits.length === 11 ? digits : '';
+  } catch {
+    return '';
+  }
+}
+
 export default function PagamentoPage() {
   const { itens, resumo, addItem, updateItemQuantity, removeItem } = useCart();
   const [resultadoPedido, setResultadoPedido] = useState(null);
@@ -141,6 +209,7 @@ export default function PagamentoPage() {
   const [tipoEntrega, setTipoEntrega] = useState('entrega');
   const [cepEntrega, setCepEntrega] = useState('');
   const [numeroEntrega, setNumeroEntrega] = useState('');
+  const [enderecoContaSalvo, setEnderecoContaSalvo] = useState(null);
   const [veiculoEntrega, setVeiculoEntrega] = useState('uber');
   const [ultimoFreteEntrega, setUltimoFreteEntrega] = useState(0);
   const [simulacaoFrete, setSimulacaoFrete] = useState(null);
@@ -153,6 +222,9 @@ export default function PagamentoPage() {
   const [cepEnderecoConsultado, setCepEnderecoConsultado] = useState('');
   const [documentoPagador, setDocumentoPagador] = useState('');
   const [documentoTocado, setDocumentoTocado] = useState(false);
+  const [cpfNotaFiscal, setCpfNotaFiscal] = useState('');
+  const [cpfNotaFiscalAtivo, setCpfNotaFiscalAtivo] = useState(false);
+  const [cpfNotaFiscalTocado, setCpfNotaFiscalTocado] = useState(false);
   const [formaPagamento, setFormaPagamento] = useState('pix');
   const [gatewayPublicKey, setGatewayPublicKey] = useState('');
   const [buscandoChavePublica, setBuscandoChavePublica] = useState(false);
@@ -193,9 +265,6 @@ export default function PagamentoPage() {
   const growthCheckoutPaymentEnabled = Boolean(growthCheckoutPaymentConfig.enabled);
   const growthCheckoutPaymentPriceClass = growthCheckoutPaymentEnabled
     ? `is-growth-${String(growthCheckoutPaymentConfig.priceHighlight || 'none').trim() || 'none'}`
-    : '';
-  const growthCheckoutPaymentBadge = growthCheckoutPaymentEnabled
-    ? String(growthCheckoutPaymentConfig.badgeLabel || '').trim()
     : '';
 
   const normalizarTextoSugestao = useCallback((valor) => String(valor || '')
@@ -356,6 +425,48 @@ export default function PagamentoPage() {
     ? 0
     : Number(resultadoPedido?.distancia_entrega_km ?? simulacaoFrete?.distancia_km ?? 0);
   const distanciaSelecionadaTexto = distanciaSelecionada > 0 ? `${distanciaSelecionada.toFixed(2)} km` : '-';
+  const limiteBikeTexto = LIMITE_BIKE_KM.toFixed(1).replace('.', ',');
+  const avisosRestricaoEntregaPorItem = useMemo(() => {
+    const avisos = new Map();
+    const distanciaValida = Number(distanciaSelecionada || 0) > 0;
+
+    if (tipoEntrega !== 'entrega') {
+      return avisos;
+    }
+
+    itens.forEach((item) => {
+      const nomeNormalizado = normalizarTextoSugestao(item?.nome || '');
+      const ehAgua = nomeNormalizado.includes('agua') || nomeNormalizado.includes('água');
+      const ehVolume20l =
+        nomeNormalizado.includes('20l')
+        || nomeNormalizado.includes('20 l')
+        || nomeNormalizado.includes('20lt')
+        || nomeNormalizado.includes('20 litros')
+        || nomeNormalizado.includes('20litros')
+        || nomeNormalizado.includes('galao 20')
+        || nomeNormalizado.includes('galão 20');
+
+      if (!ehAgua || !ehVolume20l) {
+        return;
+      }
+
+      let mensagem = `Água 20L: entregamos só por Bike, em até ${limiteBikeTexto} km do mercado.`;
+
+      if (veiculoEntrega !== 'bike') {
+        mensagem += ' Selecione Bike para continuar.';
+      }
+
+      if (distanciaValida && Number(distanciaSelecionada) > LIMITE_BIKE_KM) {
+        mensagem += ` Distância atual: ${distanciaSelecionada.toFixed(2)} km (acima do limite).`;
+      } else if (!distanciaValida) {
+        mensagem += ' Calcule a entrega para validar a distância.';
+      }
+
+      avisos.set(Number(item?.id), mensagem);
+    });
+
+    return avisos;
+  }, [distanciaSelecionada, itens, limiteBikeTexto, normalizarTextoSugestao, tipoEntrega, veiculoEntrega]);
   const veiculoSelecionadoResumo = retiradaSelecionada
     ? null
     : (VEICULOS_ENTREGA[resultadoPedido?.veiculo_entrega] || VEICULOS_ENTREGA[simulacaoFrete?.veiculo] || VEICULOS_ENTREGA.moto);
@@ -437,13 +548,87 @@ export default function PagamentoPage() {
     const partes = [bairro, cidade && estado ? `${cidade}/${estado}` : (cidade || estado)].filter(Boolean);
     return partes.join(' - ');
   }, [enderecoCepEntrega]);
+  const temEnderecoContaSalvo = useMemo(() => {
+    const cep = normalizarCep(enderecoContaSalvo?.cep || '');
+    return cep.length === 8;
+  }, [enderecoContaSalvo]);
+  const enderecoContaSalvoResumo = useMemo(() => {
+    if (!temEnderecoContaSalvo) {
+      return '';
+    }
+
+    const logradouro = String(enderecoContaSalvo?.logradouro || '').trim();
+    const numero = String(enderecoContaSalvo?.numero || '').trim();
+    const bairro = String(enderecoContaSalvo?.bairro || '').trim();
+    const cidade = String(enderecoContaSalvo?.cidade || '').trim();
+    const estado = String(enderecoContaSalvo?.estado || '').trim().toUpperCase();
+    const cep = formatarCep(enderecoContaSalvo?.cep || '');
+
+    const linhaPrincipal = [logradouro, numero].filter(Boolean).join(', ');
+    const linhaSecundaria = [bairro, cidade && estado ? `${cidade}/${estado}` : (cidade || estado), cep].filter(Boolean).join(' - ');
+    return [linhaPrincipal, linhaSecundaria].filter(Boolean).join(' • ');
+  }, [enderecoContaSalvo, temEnderecoContaSalvo]);
+  const enderecoSalvoJaSelecionado = useMemo(() => {
+    if (!temEnderecoContaSalvo) {
+      return false;
+    }
+
+    const cepAtual = normalizarCep(cepEntrega);
+    const cepSalvo = normalizarCep(enderecoContaSalvo?.cep || '');
+    const numeroAtual = String(numeroEntrega || '').replace(/\D/g, '').slice(0, 10);
+    const numeroSalvo = String(enderecoContaSalvo?.numero || '').replace(/\D/g, '').slice(0, 10);
+    if (!numeroSalvo) {
+      return cepAtual === cepSalvo;
+    }
+
+    return cepAtual === cepSalvo && numeroAtual === numeroSalvo;
+  }, [cepEntrega, enderecoContaSalvo, numeroEntrega, temEnderecoContaSalvo]);
   const freteCalculado = retiradaSelecionada ? true : Boolean(simulacaoFrete);
+  const temAgua20LNoCarrinho = useMemo(() => {
+    return itens.some((item) => {
+      const nome = normalizarTextoSugestao(item?.nome || '');
+      const ehAgua = nome.includes('agua') || nome.includes('água');
+      const ehVolume20l =
+        nome.includes('20l')
+        || nome.includes('20 l')
+        || nome.includes('20lt')
+        || nome.includes('20 litros')
+        || nome.includes('20litros')
+        || nome.includes('galao 20')
+        || nome.includes('galão 20');
+
+      return ehAgua && ehVolume20l;
+    });
+  }, [itens, normalizarTextoSugestao]);
+  const distanciaEntregaAtualKm = Number(simulacaoFrete?.distancia_km || 0);
+  const bloqueioAgua20LMotivo = useMemo(() => {
+    if (retiradaSelecionada || !temAgua20LNoCarrinho) {
+      return '';
+    }
+
+    const limiteTexto = LIMITE_BIKE_KM.toFixed(1).replace('.', ',');
+
+    if (veiculoEntrega !== 'bike') {
+      return `Água 20L: selecione Bike. Esse item só vai por Bike em até ${limiteTexto} km.`;
+    }
+
+    if (!freteCalculado || distanciaEntregaAtualKm <= 0) {
+      return 'Água 20L: calcule a entrega para validar a distância máxima da Bike.';
+    }
+
+    if (distanciaEntregaAtualKm > LIMITE_BIKE_KM) {
+      return `Água 20L: distância ${distanciaEntregaAtualKm.toFixed(2)} km. Limite para Bike: ${limiteTexto} km.`;
+    }
+
+    return '';
+  }, [distanciaEntregaAtualKm, freteCalculado, retiradaSelecionada, temAgua20LNoCarrinho, veiculoEntrega]);
+  const bloqueioAgua20LAtivo = Boolean(bloqueioAgua20LMotivo);
   const semOpcaoEntregaDisponivel = retiradaSelecionada
     ? false
     : (!simulandoFrete && !simulacaoFrete && erroEntregaEhCobertura(erroEntrega));
   const podeAvancarParaPagamento = retiradaSelecionada
     ? (itens.length > 0 && !simulandoFrete)
-    : (itens.length > 0 && freteCalculado && !simulandoFrete && !semOpcaoEntregaDisponivel && String(numeroEntrega || '').trim().length > 0);
+    : (itens.length > 0 && freteCalculado && !simulandoFrete && !semOpcaoEntregaDisponivel && !bloqueioAgua20LAtivo && String(numeroEntrega || '').trim().length > 0);
   const simulacaoBike = simulacoesFretePorVeiculo.bike || null;
   const simulacaoUber = simulacoesFretePorVeiculo.uber || null;
   const distanciaBikeKm = Number(simulacaoBike?.distancia_km || 0);
@@ -457,6 +642,53 @@ export default function PagamentoPage() {
   const avisoRestricaoVeiculo = itensRestritosEntrega
     ? 'Alguns itens exigem entrega em veículo maior'
     : '';
+
+  useEffect(() => {
+    if (etapaAtual === ETAPAS.PAGAMENTO && bloqueioAgua20LAtivo) {
+      setEtapaAtual(ETAPAS.ENTREGA);
+    }
+  }, [bloqueioAgua20LAtivo, etapaAtual]);
+
+  const aplicarEnderecoSalvoNoCheckout = useCallback(() => {
+    if (!temEnderecoContaSalvo) {
+      return;
+    }
+
+    const cepNormalizado = normalizarCep(enderecoContaSalvo?.cep || '');
+    const numeroNormalizado = String(enderecoContaSalvo?.numero || '').replace(/\D/g, '').slice(0, 10);
+    if (cepNormalizado.length !== 8) {
+      return;
+    }
+
+    const enderecoMapeado = {
+      cep: formatarCep(cepNormalizado),
+      logradouro: String(enderecoContaSalvo?.logradouro || '').trim(),
+      bairro: String(enderecoContaSalvo?.bairro || '').trim(),
+      cidade: String(enderecoContaSalvo?.cidade || '').trim(),
+      estado: String(enderecoContaSalvo?.estado || '').trim().toUpperCase(),
+      complemento: String(enderecoContaSalvo?.complemento || '').trim()
+    };
+
+    setCepEntrega(formatarCep(cepNormalizado));
+    if (numeroNormalizado) {
+      setNumeroEntrega(numeroNormalizado);
+    }
+    setEnderecoCepEntrega(enderecoMapeado);
+    setCepEnderecoConsultado(cepNormalizado);
+    setErroEnderecoCepEntrega('');
+    setErroEntrega('');
+
+    if (numeroNormalizado) {
+      salvarEnderecoCheckoutNoCache({
+        cep: formatarCep(cepNormalizado),
+        numero: numeroNormalizado,
+        logradouro: enderecoMapeado.logradouro,
+        bairro: enderecoMapeado.bairro,
+        cidade: enderecoMapeado.cidade,
+        estado: enderecoMapeado.estado
+      });
+    }
+  }, [enderecoContaSalvo, temEnderecoContaSalvo]);
 
   // Consolida feedback da simulação para manter mensagens consistentes na UX da entrega.
   const mensagemFrete = useMemo(() => {
@@ -718,11 +950,82 @@ export default function PagamentoPage() {
   }, [formaPagamento, parcelamentoCreditoDisponivel, parcelasCartao]);
 
   useEffect(() => {
+    const cpfCache = lerCpfNotaDoCache();
+    if (cpfCache.length === 11) {
+      setCpfNotaFiscal(formatarDocumentoFiscal(cpfCache));
+      setCpfNotaFiscalAtivo(true);
+      setCpfNotaFiscalTocado(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!cpfNotaFiscalAtivo) {
+      salvarCpfNotaNoCache('');
+      return;
+    }
+
+    salvarCpfNotaNoCache(cpfNotaFiscal);
+  }, [cpfNotaFiscal, cpfNotaFiscalAtivo]);
+
+  useEffect(() => {
+    const cache = lerEnderecoCheckoutDoCache();
+    if (!cache) {
+      return;
+    }
+
+    setEnderecoContaSalvo((atual) => {
+      if (atual && normalizarCep(atual.cep || '').length === 8) {
+        return atual;
+      }
+
+      const cepCache = normalizarCep(cache.cep);
+      if (cepCache.length !== 8) {
+        return atual;
+      }
+
+      return {
+        cep: formatarCep(cepCache),
+        numero: String(cache.numero || '').trim(),
+        logradouro: String(cache.logradouro || '').trim(),
+        bairro: String(cache.bairro || '').trim(),
+        cidade: String(cache.cidade || '').trim(),
+        estado: String(cache.estado || '').trim().toUpperCase(),
+        complemento: ''
+      };
+    });
+
+    const cepCacheNormalizado = normalizarCep(cache.cep);
+    if (cepCacheNormalizado.length === 8) {
+      setCepEntrega((atual) => (normalizarCep(atual).length === 8 ? atual : formatarCep(cepCacheNormalizado)));
+      setCepEnderecoConsultado(cepCacheNormalizado);
+      setEnderecoCepEntrega((atual) => {
+        if (atual && String(atual.logradouro || '').trim()) {
+          return atual;
+        }
+
+        return {
+          cep: formatarCep(cepCacheNormalizado),
+          logradouro: cache.logradouro,
+          bairro: cache.bairro,
+          cidade: cache.cidade,
+          estado: cache.estado,
+          complemento: ''
+        };
+      });
+    }
+
+    const numeroCache = String(cache.numero || '').replace(/\D/g, '').slice(0, 10);
+    if (numeroCache) {
+      setNumeroEntrega((atual) => (String(atual || '').trim() ? atual : numeroCache));
+    }
+  }, []);
+
+  useEffect(() => {
     let ativo = true;
     setVerificandoSessao(true);
 
     getMe()
-      .then((data) => {
+      .then(async (data) => {
         if (ativo) {
           setAutenticado(true);
           const usuario = data?.usuario || null;
@@ -734,6 +1037,65 @@ export default function PagamentoPage() {
               const atualNormalizado = String(atual || '').trim();
               return atualNormalizado || nomeUsuario;
             });
+          }
+
+          try {
+            const dataEndereco = await getEndereco();
+            if (!ativo) {
+              return;
+            }
+
+            const enderecoConta = dataEndereco?.endereco || null;
+            const cepContaNormalizado = normalizarCep(enderecoConta?.cep || '');
+            const numeroConta = String(enderecoConta?.numero || '').trim();
+            const numeroContaNormalizado = numeroConta.replace(/\D/g, '').slice(0, 10);
+            const enderecoContaMapeado = {
+              cep: formatarCep(cepContaNormalizado),
+              numero: numeroConta,
+              logradouro: String(enderecoConta?.rua || enderecoConta?.logradouro || '').trim(),
+              bairro: String(enderecoConta?.bairro || '').trim(),
+              cidade: String(enderecoConta?.cidade || '').trim(),
+              estado: String(enderecoConta?.estado || '').trim().toUpperCase(),
+              complemento: String(enderecoConta?.complemento || '').trim()
+            };
+            setEnderecoContaSalvo(cepContaNormalizado.length === 8 ? enderecoContaMapeado : null);
+
+            if (cepContaNormalizado.length === 8) {
+              setCepEntrega((atual) => (normalizarCep(atual).length === 8 ? atual : formatarCep(cepContaNormalizado)));
+              setCepEnderecoConsultado((atual) => (atual || cepContaNormalizado));
+              setEnderecoCepEntrega((atual) => {
+                if (atual && String(atual.logradouro || '').trim()) {
+                  return atual;
+                }
+
+                return {
+                  cep: formatarCep(cepContaNormalizado),
+                  logradouro: enderecoContaMapeado.logradouro,
+                  bairro: enderecoContaMapeado.bairro,
+                  cidade: enderecoContaMapeado.cidade,
+                  estado: enderecoContaMapeado.estado,
+                  complemento: enderecoContaMapeado.complemento
+                };
+              });
+            }
+
+            if (numeroContaNormalizado) {
+              setNumeroEntrega((atual) => (String(atual || '').trim() ? atual : numeroContaNormalizado));
+            }
+
+            if (cepContaNormalizado.length === 8) {
+              salvarEnderecoCheckoutNoCache({
+                cep: formatarCep(cepContaNormalizado),
+                numero: numeroContaNormalizado,
+                logradouro: enderecoContaMapeado.logradouro,
+                bairro: enderecoContaMapeado.bairro,
+                cidade: enderecoContaMapeado.cidade,
+                estado: enderecoContaMapeado.estado
+              });
+            }
+          } catch {
+            // Se não houver endereço salvo, mantém fallback atual.
+            setEnderecoContaSalvo(null);
           }
         }
       })
@@ -759,6 +1121,23 @@ export default function PagamentoPage() {
       ativo = false;
     };
   }, []);
+
+  useEffect(() => {
+    const cepNormalizado = normalizarCep(cepEntrega);
+    const numeroNormalizado = String(numeroEntrega || '').replace(/\D/g, '').slice(0, 10);
+    if (cepNormalizado.length !== 8 || !numeroNormalizado) {
+      return;
+    }
+
+    salvarEnderecoCheckoutNoCache({
+      cep: formatarCep(cepNormalizado),
+      numero: numeroNormalizado,
+      logradouro: String(enderecoCepEntrega?.logradouro || '').trim(),
+      bairro: String(enderecoCepEntrega?.bairro || '').trim(),
+      cidade: String(enderecoCepEntrega?.cidade || '').trim(),
+      estado: String(enderecoCepEntrega?.estado || '').trim().toUpperCase()
+    });
+  }, [cepEntrega, numeroEntrega, enderecoCepEntrega]);
 
   useEffect(() => {
     if (!resultadoPedido?.pedido_id || autenticado !== true) {
@@ -1447,6 +1826,7 @@ export default function PagamentoPage() {
         formaPagamento,
         tipoEntrega,
         taxId: documentoDigits,
+        cpfNota: cpfNotaValido ? cpfNotaDigits : '',
         recaptchaToken: recaptchaTokenAcao,
         entrega: entregaPayload
       });
@@ -1961,6 +2341,9 @@ export default function PagamentoPage() {
     return 'Confirmação';
   })();
   const subtituloEtapaAtual = `Etapa ${etapaIndex + 1} de 5`;
+  const subtituloEtapaAtualTexto = etapaAtual === ETAPAS.PAGAMENTO
+    ? 'Escolha como pagar e confirme seu pedido em segundos.'
+    : subtituloEtapaAtual;
   const labelStatus = formatarStatusPedido(statusPedidoAtual || resultadoPedido?.status || 'pendente');
   const carrinhoVazio = itens.length === 0;
   const statusCartaoAtual = String(resultadoCartao?.status || '').toUpperCase();
@@ -1979,6 +2362,13 @@ export default function PagamentoPage() {
   const documentoObrigatorioNaoPreenchido = documentoTocado && documentoDigits.length === 0;
   const documentoInvalidoPagamento = documentoTocado && documentoDigits.length > 0 && !documentoValidoPagamento;
   const documentoValidoFeedback = documentoTocado && documentoValidoPagamento;
+  const cpfPagadorSugestao = documentoDigits.length === 11 && validarCpf(documentoDigits)
+    ? formatarDocumentoFiscal(documentoDigits)
+    : '';
+  const cpfNotaDigits = normalizarDocumentoFiscal(cpfNotaFiscal).slice(0, 11);
+  const cpfNotaValido = cpfNotaDigits.length === 11 && validarCpf(cpfNotaDigits);
+  const cpfNotaInvalido = cpfNotaFiscalTocado && cpfNotaDigits.length > 0 && !cpfNotaValido;
+  const cpfNotaFeedbackValido = cpfNotaFiscalTocado && cpfNotaValido;
   const recaptchaCheckoutPronto = !recaptchaCheckoutEnabled || Boolean(String(recaptchaCheckoutToken || '').trim());
   const nomeTitularCartaoValido = String(nomeTitularCartao || '').trim().length >= 3;
   const numeroCartaoValido = normalizarNumeroCartao(numeroCartao).length >= 13;
@@ -2053,35 +2443,6 @@ export default function PagamentoPage() {
     : codigoPixAtual || qrCodePixSrc
       ? 'Atualizar QR Code'
       : 'Gerar QR Code PIX';
-  const checklistPagamento = [
-    {
-      id: 'itens',
-      label: 'Itens do pedido prontos',
-      ok: !pagamentoSemItens || Boolean(resultadoPedido?.pedido_id)
-    },
-    {
-      id: 'frete',
-      label: retiradaSelecionada ? 'Retirada na loja (sem frete)' : 'Frete calculado',
-      ok: retiradaSelecionada ? true : !pagamentoSemFreteCalculado
-    },
-    {
-      id: 'documento',
-      label: 'CPF/CNPJ válido',
-      ok: documentoValidoPagamento
-    },
-    {
-      id: 'recaptcha',
-      label: 'Validacao reCAPTCHA concluida',
-      ok: recaptchaCheckoutPronto
-    },
-    pagamentoCartaoSelecionado
-      ? {
-        id: 'cartao',
-        label: tokenCartao ? 'Dados do cartão validados' : 'Dados do cartão preenchidos',
-        ok: cartaoProntoParaContinuar
-      }
-      : null
-  ].filter(Boolean);
   const itensResumoPix = Number(resultadoPedido?.itens_count || resumoPedidoSnapshot?.itens || 0);
   const itensResumoPixExibicao = itensResumoPix > 0
     ? itensResumoPix
@@ -2115,12 +2476,16 @@ export default function PagamentoPage() {
     }
 
     if (etapaAtual === ETAPAS.ENTREGA) {
+      const captionEntrega = bloqueioAgua20LAtivo
+        ? bloqueioAgua20LMotivo
+        : (simulacaoFrete ? '' : 'Calcule a entrega para continuar');
+
       return {
         stepLabel: 'Etapa 2 de 5',
         totalLabel: simulacaoFrete
           ? `Total com entrega ${formatarMoeda(totalComFreteAtual)}`
           : `Total com entrega ${formatarMoeda(Number(resumo.total || 0) + Number(taxaServicoAtual || 0))}`,
-        caption: simulacaoFrete ? '' : 'Calcule a entrega para continuar',
+        caption: captionEntrega,
         primaryLabel: 'Ir para pagamento',
         onPrimaryClick: () => setEtapaAtual(ETAPAS.PAGAMENTO),
         primaryDisabled: !podeAvancarParaPagamento
@@ -2131,8 +2496,8 @@ export default function PagamentoPage() {
       return {
         stepLabel: 'Etapa 3 de 5',
         totalLabel: `Total do pedido: ${formatarMoeda(resumoTotalPagamento)}`,
-        caption: `Forma atual: ${formaPagamentoAtual.title}`,
-        primaryLabel: carregando ? 'Processando...' : 'Revisar pedido',
+        caption: mensagemBloqueioPagamento || `Forma atual: ${formaPagamentoAtual.title}`,
+        primaryLabel: carregando ? 'Processando...' : `Revisar pedido • ${formatarMoeda(resumoTotalPagamento)}`,
         onPrimaryClick: () => {
           void handleContinuarPagamento();
         },
@@ -2427,7 +2792,7 @@ export default function PagamentoPage() {
     <section className={`page checkout-page ${exibirBarraMobileCheckout ? 'has-mobile-action-bar' : ''}`.trim()}>
       <header className="checkout-stage-header">
         <h1>{tituloEtapaAtual}</h1>
-        <p className="checkout-stage-subtitle">{subtituloEtapaAtual}</p>
+        <p className="checkout-stage-subtitle">{subtituloEtapaAtualTexto}</p>
       </header>
 
       {erro ? (
@@ -2510,6 +2875,7 @@ export default function PagamentoPage() {
                   <CartItemRow
                     key={item.id}
                     item={item}
+                    warningMessage={avisosRestricaoEntregaPorItem.get(Number(item.id)) || ''}
                     onUpdateQuantity={handleAtualizarQuantidadeCarrinho}
                     onRemove={handleRemoverItemCarrinho}
                   />
@@ -2584,6 +2950,21 @@ export default function PagamentoPage() {
             ) : (
               <>
                 <section className="checkout-delivery-section checkout-delivery-compact checkout-delivery-minimal" aria-label="Entrega">
+                  {temEnderecoContaSalvo ? (
+                    <div className="checkout-saved-address-option" role="status" aria-live="polite">
+                      <p className="checkout-saved-address-label">Endereço salvo na conta</p>
+                      <p className="checkout-saved-address-text">{enderecoContaSalvoResumo}</p>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={aplicarEnderecoSalvoNoCheckout}
+                        disabled={enderecoSalvoJaSelecionado}
+                      >
+                        {enderecoSalvoJaSelecionado ? 'Endereço salvo em uso' : 'Usar endereço salvo'}
+                      </button>
+                    </div>
+                  ) : null}
+
                   <div className="delivery-input-labels" aria-hidden="true">
                     <span>CEP</span>
                     <span>Número</span>
@@ -2660,6 +3041,10 @@ export default function PagamentoPage() {
                     <p className="delivery-feedback is-warning" role="status">{avisoRestricaoVeiculo}</p>
                   ) : null}
 
+                  {bloqueioAgua20LAtivo ? (
+                    <p className="delivery-feedback is-warning" role="alert">{bloqueioAgua20LMotivo}</p>
+                  ) : null}
+
                   {veiculoEntrega === 'uber' && simulacaoUber ? (
                     <p className="delivery-feedback is-neutral" role="status">Modal definido automaticamente para seu pedido</p>
                   ) : null}
@@ -2705,6 +3090,24 @@ export default function PagamentoPage() {
                 ) : null}
               </>
             )}
+
+            <div className="checkout-delivery-actions-desktop">
+              <BotaoVoltarSeta
+                onClick={() => setEtapaAtual(ETAPAS.CARRINHO)}
+                label="Voltar para carrinho"
+                text="Voltar para carrinho"
+                className="entrega-voltar-carrinho-btn"
+              />
+
+              <button
+                type="button"
+                className="btn-primary entrega-ir-pagamento-btn"
+                onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}
+                disabled={!podeAvancarParaPagamento}
+              >
+                Ir para pagamento
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -2713,9 +3116,8 @@ export default function PagamentoPage() {
         <div className="checkout-payment-layout">
           <div className="card-box checkout-payment-main">
             <div className="checkout-payment-header">
-              <p className="muted-text">
-                Escolha a forma de pagamento e confirme seus dados.
-              </p>
+              <h2>Pagamento</h2>
+              <p className="muted-text">Escolha o método e revise seus dados de forma rápida.</p>
             </div>
 
             <p className={`payment-frete-info ${(retiradaSelecionada || simulacaoFrete || resultadoPedido?.pedido_id) ? 'is-ready' : 'is-warning'}`}>
@@ -2726,27 +3128,13 @@ export default function PagamentoPage() {
                   : 'Frete não calculado. Volte para entrega e simule o CEP antes de continuar.'}
             </p>
 
-            {growthCheckoutPaymentBadge ? (
-              <p className={`payment-growth-badge ${growthCheckoutPaymentPriceClass}`.trim()}>
-                {growthCheckoutPaymentBadge}
-              </p>
-            ) : null}
-
-            <CheckoutSecurityTrust
-              formaPagamento={formaPagamento}
-              total={resumoTotalPagamento}
-              frete={resumoFretePagamento}
-              retiradaSelecionada={retiradaSelecionada}
-              recaptchaEnabled={recaptchaCheckoutEnabled}
-            />
-
             {autenticado === true ? (
               <>
                 {/* Cards de método com destaque explícito para a opção ativa. */}
                 <section className="checkout-payment-section" aria-label="Métodos de pagamento disponíveis">
                   <div className="checkout-payment-section-head">
                     <h3>Forma de pagamento</h3>
-                    <p>Selecione o método mais adequado para concluir seu pedido.</p>
+                    <p>Selecione uma opção para continuar.</p>
                   </div>
 
                   <div className="payment-methods-grid" role="radiogroup" aria-label="Seleção da forma de pagamento">
@@ -2754,7 +3142,6 @@ export default function PagamentoPage() {
                       icon={FORMAS_PAGAMENTO_OPCOES.pix.icon}
                       title={FORMAS_PAGAMENTO_OPCOES.pix.title}
                       headline={FORMAS_PAGAMENTO_OPCOES.pix.headline}
-                      details={FORMAS_PAGAMENTO_OPCOES.pix.details}
                       selecionado={formaPagamento === 'pix'}
                       onSelect={() => {
                         setFormaPagamento('pix');
@@ -2767,9 +3154,6 @@ export default function PagamentoPage() {
                       icon={FORMAS_PAGAMENTO_OPCOES.credito.icon}
                       title={FORMAS_PAGAMENTO_OPCOES.credito.title}
                       headline={FORMAS_PAGAMENTO_OPCOES.credito.headline}
-                      details={buscandoChavePublica
-                        ? [...FORMAS_PAGAMENTO_OPCOES.credito.details, 'Temporariamente indisponível: preparando conexão segura.']
-                        : FORMAS_PAGAMENTO_OPCOES.credito.details}
                       selecionado={formaPagamento === 'credito'}
                       disabled={buscandoChavePublica}
                       onSelect={() => {
@@ -2783,9 +3167,6 @@ export default function PagamentoPage() {
                       icon={FORMAS_PAGAMENTO_OPCOES.debito.icon}
                       title={FORMAS_PAGAMENTO_OPCOES.debito.title}
                       headline={FORMAS_PAGAMENTO_OPCOES.debito.headline}
-                      details={buscandoChavePublica
-                        ? [...FORMAS_PAGAMENTO_OPCOES.debito.details, 'Temporariamente indisponível: preparando conexão segura.']
-                        : FORMAS_PAGAMENTO_OPCOES.debito.details}
                       selecionado={formaPagamento === 'debito'}
                       disabled={buscandoChavePublica}
                       onSelect={() => {
@@ -2811,6 +3192,9 @@ export default function PagamentoPage() {
 
                 <TaxIdInput
                   value={documentoPagador}
+                  id="documento-pagador"
+                  label="CPF/CNPJ do pagador"
+                  helperText="Necessário para processar PIX e cartão com segurança."
                   onChange={(event) => {
                     setDocumentoPagador(formatarDocumentoFiscal(event.target.value));
                     if (erro) {
@@ -2822,6 +3206,79 @@ export default function PagamentoPage() {
                   invalidError={documentoInvalidoPagamento}
                   validFeedback={documentoValidoFeedback}
                 />
+
+                <section className="checkout-payment-section checkout-payment-fiscal" aria-label="CPF na nota fiscal">
+                  <div className="checkout-payment-section-head">
+                    <h3>CPF na nota</h3>
+                    <p>Opcional. Use apenas para emissão fiscal.</p>
+                  </div>
+
+                  {!cpfNotaFiscalAtivo ? (
+                    <div className="payment-fiscal-actions">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => {
+                          setCpfNotaFiscalAtivo(true);
+                          setCpfNotaFiscalTocado(false);
+                        }}
+                      >
+                        Adicionar CPF na nota
+                      </button>
+
+                      {cpfPagadorSugestao ? (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => {
+                            setCpfNotaFiscal(cpfPagadorSugestao);
+                            setCpfNotaFiscalAtivo(true);
+                            setCpfNotaFiscalTocado(true);
+                          }}
+                        >
+                          Usar CPF do pagador ({cpfPagadorSugestao})
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="payment-fiscal-editor">
+                      <TaxIdInput
+                        value={cpfNotaFiscal}
+                        id="cpf-nota-fiscal"
+                        label="CPF na nota (opcional)"
+                        placeholder="000.000.000-00"
+                        helperText="Se informado, será usado apenas para emissão da nota fiscal."
+                        invalidMessage="CPF inválido. Confira os 11 dígitos."
+                        validMessage="CPF fiscal válido."
+                        onChange={(event) => {
+                          const documentoFormatado = formatarDocumentoFiscal(event.target.value);
+                          setCpfNotaFiscal(documentoFormatado);
+                          if (erro) {
+                            setErro('');
+                          }
+                        }}
+                        onBlur={() => setCpfNotaFiscalTocado(true)}
+                        requiredError={false}
+                        invalidError={cpfNotaInvalido}
+                        validFeedback={cpfNotaFeedbackValido}
+                      />
+
+                      <div className="payment-fiscal-actions">
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={() => {
+                            setCpfNotaFiscal('');
+                            setCpfNotaFiscalAtivo(false);
+                            setCpfNotaFiscalTocado(false);
+                          }}
+                        >
+                          Remover CPF da nota
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </section>
 
                 {pagamentoCartaoSelecionado ? (
                   <section className="payment-card-panel" aria-label="Dados do cartão">
@@ -3023,22 +3480,12 @@ export default function PagamentoPage() {
 
             {autenticado === true ? (
               <div className="card-box checkout-payment-actions-card">
-                <article className="payment-readiness-card" aria-label="Checklist para continuar">
-                  <p className="payment-readiness-title">Checklist antes de continuar</p>
-
-                  <ul className="payment-readiness-list">
-                    {checklistPagamento.map((item) => (
-                      <li key={item.id} className={item.ok ? 'is-ok' : 'is-pending'}>
-                        <span className="payment-readiness-icon" aria-hidden="true">{item.ok ? '✓' : '•'}</span>
-                        <span>{item.label}</span>
-                      </li>
-                    ))}
-                  </ul>
+                <article className="payment-readiness-card" aria-label="Estado da etapa de pagamento">
+                  <p className="payment-readiness-title">Pronto para revisar</p>
+                  <p className="payment-readiness-description">
+                    {mensagemBloqueioPagamento || `Método selecionado: ${formaPagamentoAtual.title}.`}
+                  </p>
                 </article>
-
-                {mensagemBloqueioPagamento ? (
-                  <p className="payment-action-feedback is-warning" role="status">{mensagemBloqueioPagamento}</p>
-                ) : null}
 
                 {buscandoChavePublica ? (
                   <p className="payment-action-feedback is-loading" role="status">Preparando conexão segura com o gateway de cartão...</p>
@@ -3062,7 +3509,7 @@ export default function PagamentoPage() {
                   >
                     {carregando
                       ? 'Processando...'
-                      : 'Revisar pedido'}
+                      : `Revisar pedido • ${formatarMoeda(resumoTotalPagamento)}`}
                   </button>
                 </div>
               </div>

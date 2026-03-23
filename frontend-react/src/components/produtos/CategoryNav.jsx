@@ -25,9 +25,12 @@ const CategoryNav = React.memo(function CategoryNav({
             className={`products-quick-cat-item${isActive ? ' is-active' : ''}`}
             onClick={() => onSelect?.(id)}
             aria-pressed={isActive}
+            title={label}
           >
             <span className="products-quick-cat-icon" aria-hidden="true">{icon}</span>
-            <span className="products-quick-cat-label">{label}</span>
+            <span className="products-quick-cat-label-wrap">
+              <span className="products-quick-cat-label">{label}</span>
+            </span>
           </button>
         );
       })}

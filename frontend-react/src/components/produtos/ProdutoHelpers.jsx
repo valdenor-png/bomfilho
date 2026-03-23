@@ -7,7 +7,7 @@ export const ProdutoImageFallback = React.memo(function ProdutoImageFallback({ p
       <span className="produto-image-fallback-icon" aria-hidden="true">
         {getPlaceholderIconePorCategoria(produto)}
       </span>
-      <span className="produto-image-fallback-text">Foto em breve</span>
+      <span className="produto-image-fallback-text">Sem foto</span>
     </div>
   );
 });

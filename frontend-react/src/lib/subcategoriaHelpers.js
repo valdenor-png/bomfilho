@@ -11,12 +11,16 @@ export const SUBCATEGORIAS_POR_CATEGORIA = {
     { id: 'agua', label: 'Águas', matchers: ['agua', 'mineral', 'sem gas', 'com gas', 'agua de coco'] },
     { id: 'refrigerante', label: 'Refrigerantes', matchers: ['refrigerante', 'coca', 'pepsi', 'guarana', 'guaraná', 'fanta', 'sprite', 'kuat', 'sukita', 'dolly', 'tubaina', 'h2o'] },
     { id: 'sucos', label: 'Sucos', matchers: ['suco', 'nectar', 'tang', 'clight', 'del valle', 'kapo', 'limonada', 'juice', 'laranjada'] },
-    { id: 'cervejas', label: 'Cervejas', matchers: ['cerveja', 'heineken', 'brahma', 'skol', 'antarctica', 'itaipava', 'chopp', 'pilsen', 'lager', 'ipa'] },
     { id: 'energeticos', label: 'Energéticos', matchers: ['energetico', 'energético', 'isotonico', 'isotônico', 'gatorade', 'powerade', 'monster', 'red bull', 'tonica', 'tônica'] },
-    { id: 'vinho', label: 'Vinhos', matchers: ['vinho', 'tinto', 'branco', 'rose', 'rosé', 'sangria', 'espumante'] },
-    { id: 'destilados', label: 'Destilados', matchers: ['vodka', 'whisky', 'rum', 'gin', 'cachaça', 'cachaca', 'tequila', 'licor', 'pitu', '51 ', 'smirnoff'] },
     { id: 'chas-cafes', label: 'Chás e Cafés', matchers: ['cha ', 'cafe', 'café', 'cappuccino', 'nescafe', 'nescafé', 'mate', 'kombucha'] },
     { id: 'achocolatados', label: 'Achocolatados', matchers: ['achocolatado', 'toddy', 'nescau', 'toddynho'] },
+  ],
+  'bebidas-alcoolicas': [
+    { id: 'cervejas', label: 'Cervejas', matchers: ['cerveja', 'heineken', 'brahma', 'skol', 'antarctica', 'itaipava', 'chopp', 'pilsen', 'lager', 'ipa'] },
+    { id: 'vinhos', label: 'Vinhos', matchers: ['vinho', 'tinto', 'branco', 'rose', 'rosé', 'sangria', 'espumante'] },
+    { id: 'destilados', label: 'Destilados', matchers: ['vodka', 'whisky', 'rum', 'gin', 'cachaça', 'cachaca', 'tequila', 'conhaque', 'pitu', '51 ', 'smirnoff'] },
+    { id: 'licores', label: 'Licores e Aperitivos', matchers: ['licor', 'campari', 'aperol', 'vermouth', 'vermute', 'martini'] },
+    { id: 'drinks-prontos', label: 'Drinks Prontos', matchers: ['ice', 'beats', 'skyy', 'caipirinha pronta', 'drink pronto', 'cooler', 'sidra'] }
   ],
   mercearia: [
     {
@@ -125,12 +129,63 @@ export const SUBCATEGORIAS_POR_CATEGORIA = {
     { id: 'empanados', label: 'Congelados', matchers: ['empan', 'nuggets', 'steak', 'congelado', 'lasanha congelada', 'pizza congelada'] },
   ],
   limpeza: [
-    { id: 'detergente', label: 'Detergente e Lava-louça', matchers: ['detergente', 'lava louca', 'lava louça', 'lava-louça'] },
-    { id: 'desinfetante', label: 'Desinfetante', matchers: ['desinfetante', 'pinho', 'pinho sol', 'lysoform'] },
-    { id: 'sabao-po', label: 'Sabão em Pó', matchers: ['sabao em po', 'sabão em pó', 'lava roupa', 'lava-roupa', 'omo', 'surf', 'brilhante'] },
-    { id: 'amaciante', label: 'Amaciante', matchers: ['amaciante', 'comfort', 'downy'] },
-    { id: 'agua-sanitaria', label: 'Água Sanitária', matchers: ['agua sanitaria', 'água sanitária', 'cloro'] },
-    { id: 'esponja', label: 'Esponjas e Panos', matchers: ['esponja', 'pano', 'flanela', 'luva'] },
+    {
+      id: 'higiene',
+      label: 'Higiene',
+      matchers: [
+        'detergente',
+        'desinfetante',
+        'multiuso',
+        'limpa vidro',
+        'limpa pisos',
+        'agua sanitaria',
+        'água sanitária',
+        'cloro',
+        'esponja',
+        'pano',
+        'flanela',
+        'luva'
+      ]
+    },
+    {
+      id: 'lavanderia',
+      label: 'Lavanderia',
+      matchers: [
+        'sabao em po',
+        'sabão em pó',
+        'sabao liquido',
+        'sabão líquido',
+        'lava roupa',
+        'lava-roupa',
+        'amaciante',
+        'tira manchas',
+        'omo',
+        'surf',
+        'brilhante',
+        'comfort',
+        'downy'
+      ]
+    },
+    {
+      id: 'higiene-pessoal',
+      label: 'Higiene Pessoal',
+      matchers: [
+        'shampoo',
+        'condicionador',
+        'sabonete',
+        'creme dental',
+        'pasta de dente',
+        'escova de dente',
+        'enxaguante',
+        'fio dental',
+        'desodorante',
+        'absorvente',
+        'papel higienico',
+        'papel higiênico',
+        'lenço',
+        'lenco'
+      ]
+    },
   ],
   salgadinhos: [
     { id: 'chips', label: 'Batata e Chips', matchers: ['batata', 'chips', 'ruffles', 'lays', 'pringles', 'doritos', 'cheetos'] },

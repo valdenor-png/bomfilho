@@ -25,6 +25,26 @@ const {
   falharOperacaoDistribuida
 } = require('../services/distributedIdempotencyService');
 
+async function getTableColumns(connection, tableName) {
+  const [rows] = await connection.query(
+    `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?`,
+    [tableName]
+  );
+
+  return new Set(
+    (rows || [])
+      .map((row) => String(row?.COLUMN_NAME || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function hasColumn(columns, columnName) {
+  return columns.has(String(columnName || '').trim().toLowerCase());
+}
+
 function montarFingerprintCriacaoPedido(payload = {}) {
   const itens = Array.isArray(payload?.itens)
     ? payload.itens
@@ -123,6 +143,8 @@ module.exports = function createPedidoCriarRoute(deps) {
 
       const { itens, forma_pagamento, cupom_id, entrega, tipo_entrega } = req.body || {};
       let usuarioPedido = null;
+      const pedidosColumns = await getTableColumns(connection, 'pedidos');
+      const usuariosColumns = await getTableColumns(connection, 'usuarios');
 
       const itensNormalizados = normalizarItensPedidoInput(itens);
       if (itensNormalizados.length === 0) {
@@ -204,8 +226,11 @@ module.exports = function createPedidoCriarRoute(deps) {
         };
       }
 
+      const selectWhatsappOptIn = hasColumn(usuariosColumns, 'whatsapp_opt_in')
+        ? 'whatsapp_opt_in'
+        : '1 AS whatsapp_opt_in';
       const [usuarioPedidoRows] = await connection.query(
-        'SELECT nome, email, telefone, whatsapp_opt_in FROM usuarios WHERE id = ? LIMIT 1',
+        `SELECT nome, email, telefone, ${selectWhatsappOptIn} FROM usuarios WHERE id = ? LIMIT 1`,
         [req.usuario.id]
       );
       usuarioPedido = usuarioPedidoRows.length ? usuarioPedidoRows[0] : null;
@@ -319,22 +344,58 @@ module.exports = function createPedidoCriarRoute(deps) {
         throw criarErroHttp(400, 'O total do pedido deve ser maior que zero.');
       }
 
+      const colunasObrigatoriasPedido = ['usuario_id', 'total', 'status', 'forma_pagamento', 'tipo_entrega'];
+      const colunasAusentes = colunasObrigatoriasPedido.filter((coluna) => !hasColumn(pedidosColumns, coluna));
+      if (colunasAusentes.length) {
+        logger.error('Tabela pedidos sem colunas obrigatórias para criação.', { colunasAusentes });
+        throw criarErroHttp(500, 'Estrutura de pedidos inválida no banco. Contate o suporte.');
+      }
+
       // Criar pedido — entra como "aguardando_revisao" para que a equipe confira disponibilidade
+      const insertColumns = [];
+      const insertValuesSql = [];
+      const insertParams = [];
+
+      const appendInsertValue = (columnName, value) => {
+        insertColumns.push(columnName);
+        insertValuesSql.push('?');
+        insertParams.push(value);
+      };
+
+      const appendInsertNow = (columnName) => {
+        insertColumns.push(columnName);
+        insertValuesSql.push('NOW()');
+      };
+
+      appendInsertValue('usuario_id', req.usuario.id);
+      appendInsertValue('total', totalFinal);
+      appendInsertValue('status', 'aguardando_revisao');
+      appendInsertValue('forma_pagamento', formaPagamento);
+      appendInsertValue('tipo_entrega', tipoEntrega);
+
+      if (hasColumn(pedidosColumns, 'taxa_servico')) {
+        appendInsertValue('taxa_servico', taxaServico);
+      }
+
+      if (hasColumn(pedidosColumns, 'frete_cobrado_cliente')) {
+        appendInsertValue('frete_cobrado_cliente', freteEntrega);
+      }
+
+      if (hasColumn(pedidosColumns, 'uber_estimate_id')) {
+        appendInsertValue('uber_estimate_id', estimateIdEntrega);
+      }
+
+      if (hasColumn(pedidosColumns, 'margem_pedido')) {
+        appendInsertValue('margem_pedido', freteEntrega);
+      }
+
+      if (hasColumn(pedidosColumns, 'revisao_em')) {
+        appendInsertNow('revisao_em');
+      }
+
       const [pedidoResultado] = await connection.query(
-        `INSERT INTO pedidos
-          (usuario_id, total, status, forma_pagamento, tipo_entrega, taxa_servico, frete_cobrado_cliente, uber_estimate_id, margem_pedido, revisao_em)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
-        [
-          req.usuario.id,
-          totalFinal,
-          'aguardando_revisao',
-          formaPagamento,
-          tipoEntrega,
-          taxaServico,
-          freteEntrega,
-          estimateIdEntrega,
-          freteEntrega,
-        ]
+        `INSERT INTO pedidos (${insertColumns.join(', ')}) VALUES (${insertValuesSql.join(', ')})`,
+        insertParams
       );
 
       const pedidoId = pedidoResultado.insertId;

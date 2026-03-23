@@ -198,16 +198,19 @@ export const CATEGORY_IMAGES = {
 export const CATEGORIAS_LEGADO = [
   { id: CATEGORIA_TODAS, label: 'Todas' },
   { id: CATEGORIA_PROMOCOES, label: 'Promoções', destaque: true },
-  { id: 'cervejas', label: 'Cervejas', destaque: true },
-  { id: 'mercearia', label: 'Mercearia' },
-  { id: 'limpeza', label: 'Limpeza' },
-  { id: 'biscoitos', label: 'Biscoitos' },
-  { id: 'doces', label: 'Doces' },
   { id: CATEGORIA_BEBIDAS, label: 'Bebidas' },
-  { id: 'higiene', label: 'Higiene' },
+  { id: 'bebidas-alcoolicas', label: 'Bebidas Alcoólicas' },
+  { id: 'mercearia', label: 'Mercearia' },
   { id: 'hortifruti', label: 'Hortifruti' },
+  { id: 'limpeza', label: 'Limpeza' },
+  { id: CATEGORIA_FRIOS, label: 'Frios e Laticínios' },
+  { id: 'acougue', label: 'Açougue' },
+  { id: 'descartaveis', label: 'Descartáveis' },
   { id: 'salgadinhos', label: 'Salgadinhos' },
-  { id: CATEGORIA_FRIOS, label: 'Frios e Laticínios' }
+  { id: 'doces', label: 'Doces' },
+  { id: 'biscoitos', label: 'Biscoitos' },
+  { id: 'cervejas', label: 'Cervejas' },
+  { id: 'higiene', label: 'Higiene' }
 ];
 
 export const ORDENACOES_PRODUTOS = [
@@ -277,7 +280,9 @@ export const CATEGORIA_ICONE_FALLBACK = {
   frios: '🧊',
   refrigerantes: '🥤',
   bebidas: '🍹',
+  'bebidas-alcoolicas': '🥃',
   cervejas: '🍺',
+  acougue: '🥩',
   agua: '💧',
   salgadinhos: '🍿',
   doces: '🍫',
@@ -287,7 +292,8 @@ export const CATEGORIA_ICONE_FALLBACK = {
   mercearia: '🛒',
   hortifruti: '🥦',
   limpeza: '🧽',
-  higiene: '🧴'
+  higiene: '🧴',
+  descartaveis: '🧻'
 };
 
 export const TOKENS_MAIS_VENDIDOS = [
@@ -364,6 +370,84 @@ export function isFriosCategoria(value) {
 
 export function getCategoriaAgrupada(categoriaOriginal) {
   return SUBCATEGORIA_TO_SUPER[categoriaOriginal] || categoriaOriginal;
+}
+
+const VITRINE_HORTIFRUTI_MATCHERS = normalizeMatchers([
+  'fruta', 'banana', 'maca', 'manga', 'uva', 'pera', 'abacaxi', 'morango', 'melao', 'melancia',
+  'verdura', 'alface', 'couve', 'repolho', 'rucula', 'espinafre', 'coentro', 'cebolinha',
+  'legume', 'batata', 'cenoura', 'tomate', 'cebola', 'abobora', 'pepino', 'chuchu', 'beterraba',
+  'hortifruti', 'in natura', 'hortali'
+]);
+
+const VITRINE_HORTIFRUTI_EXCLUDE_MATCHERS = normalizeMatchers([
+  'palha', 'chips', 'salgadinho', 'snack', 'biscoito', 'wafer', 'chocolate', 'refrigerante',
+  'detergente', 'sabonete', 'amaciante', 'condensado', 'creme de leite', 'leite em po', 'embalagem',
+  'plastico', 'descartavel', 'papel aluminio'
+]);
+
+const VITRINE_BEBIDAS_EXCLUDE_MATCHERS = normalizeMatchers([
+  'leite condensado', 'condensado', 'creme de leite', 'creme culinario', 'composto lacteo',
+  'leite em po', 'po lacteo', 'margarina', 'manteiga', 'queijo', 'requeijao', 'coalhada'
+]);
+
+const VITRINE_BEBIDAS_INCLUDE_MATCHERS = normalizeMatchers([
+  'agua', 'mineral', 'refrigerante', 'suco', 'nectar', 'energetico', 'isotonico',
+  'cha', 'cafe', 'cerveja', 'vinho', 'whisky', 'vodka', 'gin', 'licor', 'achocolatado',
+  'bebida lactea', 'iogurte liquido', 'leite uht', 'integral', 'desnatado', 'semidesnatado',
+  'longa vida'
+]);
+
+const VITRINE_FRIOS_MATCHERS = normalizeMatchers([
+  'leite', 'iogurte', 'queijo', 'manteiga', 'margarina', 'requeijao', 'fermentado', 'lacteo', 'laticinio'
+]);
+
+const VITRINE_MERCEARIA_MATCHERS = normalizeMatchers([
+  'leite condensado', 'creme de leite', 'leite de coco', 'leite coco', 'leite coc', 'composto lacteo', 'po lacteo'
+]);
+
+export function getCategoriaVitrineDefensiva({ categoriaAgrupada, categoriaOriginal, textoBusca }) {
+  const categoria = normalizeText(categoriaAgrupada || categoriaOriginal || '');
+  const texto = normalizeText(textoBusca);
+
+  if (!categoria) {
+    return 'outros';
+  }
+
+  if (categoria === 'hortifruti') {
+    const hasHortiToken = textoContemMatcher(texto, VITRINE_HORTIFRUTI_MATCHERS);
+    const hasExcludeToken = textoContemMatcher(texto, VITRINE_HORTIFRUTI_EXCLUDE_MATCHERS);
+
+    if (hasExcludeToken && !hasHortiToken) {
+      return 'mercearia';
+    }
+
+    if (!hasHortiToken && texto) {
+      return 'mercearia';
+    }
+
+    return 'hortifruti';
+  }
+
+  if (categoria === 'bebidas') {
+    if (textoContemMatcher(texto, VITRINE_MERCEARIA_MATCHERS)) {
+      return 'mercearia';
+    }
+
+    if (textoContemMatcher(texto, VITRINE_FRIOS_MATCHERS)) {
+      return 'frios';
+    }
+
+    const hasExcludeToken = textoContemMatcher(texto, VITRINE_BEBIDAS_EXCLUDE_MATCHERS);
+    const hasIncludeToken = textoContemMatcher(texto, VITRINE_BEBIDAS_INCLUDE_MATCHERS);
+
+    if (hasExcludeToken && !hasIncludeToken) {
+      return 'mercearia';
+    }
+
+    return 'bebidas';
+  }
+
+  return categoria;
 }
 
 export function getTextoProduto(produto) {

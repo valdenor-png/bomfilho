@@ -4,6 +4,40 @@ const express = require('express');
 const { pool } = require('../lib/db');
 const logger = require('../lib/logger');
 
+async function getPedidosColumns() {
+  const [rows] = await pool.query(
+    `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'pedidos'`
+  );
+
+  return new Set(
+    (rows || [])
+      .map((row) => String(row?.COLUMN_NAME || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function selectOptional(columns, columnName, alias, tableAlias = 'p') {
+  const normalized = String(columnName || '').trim().toLowerCase();
+  return columns.has(normalized)
+    ? `${tableAlias}.${columnName} AS ${alias}`
+    : `NULL AS ${alias}`;
+}
+
+function getOrderByClause(columns, tableAlias = 'p') {
+  if (columns.has('criado_em')) {
+    return `${tableAlias}.criado_em DESC`;
+  }
+
+  if (columns.has('atualizado_em')) {
+    return `${tableAlias}.atualizado_em DESC`;
+  }
+
+  return `${tableAlias}.id DESC`;
+}
+
 /**
  * Customer-facing pedido read routes (list + detail).
  * POST /api/pedidos (creation) remains in server.js due to complex dependencies.
@@ -19,19 +53,41 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
   // Listar pedidos do usuário
   router.get('/api/pedidos', autenticarToken, async (req, res) => {
     try {
+      const columns = await getPedidosColumns();
+      const selectPedidosList = [
+        'p.id',
+        'p.usuario_id',
+        'p.total',
+        selectOptional(columns, 'taxa_servico', 'taxa_servico'),
+        'p.status',
+        selectOptional(columns, 'forma_pagamento', 'forma_pagamento'),
+        selectOptional(columns, 'tipo_entrega', 'tipo_entrega'),
+        selectOptional(columns, 'pix_codigo', 'pix_codigo'),
+        selectOptional(columns, 'pix_qrcode', 'pix_qrcode'),
+        selectOptional(columns, 'pix_id', 'pix_id'),
+        selectOptional(columns, 'pix_status', 'pix_status'),
+        selectOptional(columns, 'frete_cobrado_cliente', 'frete_cobrado_cliente'),
+        selectOptional(columns, 'frete_real_uber', 'frete_real_uber'),
+        selectOptional(columns, 'margem_pedido', 'margem_pedido'),
+        selectOptional(columns, 'uber_delivery_id', 'uber_delivery_id'),
+        selectOptional(columns, 'uber_tracking_url', 'uber_tracking_url'),
+        selectOptional(columns, 'uber_vehicle_type', 'uber_vehicle_type'),
+        selectOptional(columns, 'uber_eta_seconds', 'uber_eta_seconds'),
+        selectOptional(columns, 'entrega_status', 'entrega_status'),
+        selectOptional(columns, 'criado_em', 'criado_em'),
+        selectOptional(columns, 'atualizado_em', 'atualizado_em')
+      ].join(',\n                ');
+      const orderByClause = getOrderByClause(columns);
+
       const usarPaginacao = ['page', 'pagina', 'limit', 'limite']
         .some((chave) => req.query?.[chave] !== undefined);
 
       if (!usarPaginacao) {
         const [pedidos] = await pool.query(
-          `SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega,
-                  pix_codigo, pix_qrcode, pix_id, pix_status,
-                  frete_cobrado_cliente, frete_real_uber, margem_pedido,
-                  uber_delivery_id, uber_tracking_url, uber_vehicle_type, uber_eta_seconds, entrega_status,
-                  criado_em, atualizado_em
-             FROM pedidos
-            WHERE usuario_id = ?
-            ORDER BY criado_em DESC`,
+          `SELECT ${selectPedidosList}
+             FROM pedidos p
+            WHERE p.usuario_id = ?
+            ORDER BY ${orderByClause}`,
           [req.usuario.id]
         );
 
@@ -60,14 +116,10 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
       const offset = (paginacao.pagina - 1) * paginacao.limite;
 
       const [pedidos] = await pool.query(
-        `SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega,
-                pix_codigo, pix_qrcode, pix_id, pix_status,
-                frete_cobrado_cliente, frete_real_uber, margem_pedido,
-                uber_delivery_id, uber_tracking_url, uber_vehicle_type, uber_eta_seconds, entrega_status,
-                criado_em, atualizado_em
-           FROM pedidos
-          WHERE usuario_id = ?
-          ORDER BY criado_em DESC
+        `SELECT ${selectPedidosList}
+           FROM pedidos p
+          WHERE p.usuario_id = ?
+          ORDER BY ${orderByClause}
           LIMIT ? OFFSET ?`,
         [req.usuario.id, paginacao.limite, offset]
       );
@@ -92,14 +144,32 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
   // Detalhes de um pedido
   router.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     try {
+      const columns = await getPedidosColumns();
+
       const [pedidos] = await pool.query(
-        `SELECT id, usuario_id, total, taxa_servico, status, forma_pagamento, tipo_entrega,
-                pix_codigo, pix_qrcode, pix_id, pix_status,
-                frete_cobrado_cliente, frete_real_uber, margem_pedido,
-                uber_delivery_id, uber_tracking_url, uber_vehicle_type, uber_eta_seconds, entrega_status,
-                criado_em, atualizado_em
-           FROM pedidos
-          WHERE id = ? AND usuario_id = ?`,
+        `SELECT p.id,
+                p.usuario_id,
+                p.total,
+                ${selectOptional(columns, 'taxa_servico', 'taxa_servico')},
+                p.status,
+                ${selectOptional(columns, 'forma_pagamento', 'forma_pagamento')},
+                ${selectOptional(columns, 'tipo_entrega', 'tipo_entrega')},
+                ${selectOptional(columns, 'pix_codigo', 'pix_codigo')},
+                ${selectOptional(columns, 'pix_qrcode', 'pix_qrcode')},
+                ${selectOptional(columns, 'pix_id', 'pix_id')},
+                ${selectOptional(columns, 'pix_status', 'pix_status')},
+                ${selectOptional(columns, 'frete_cobrado_cliente', 'frete_cobrado_cliente')},
+                ${selectOptional(columns, 'frete_real_uber', 'frete_real_uber')},
+                ${selectOptional(columns, 'margem_pedido', 'margem_pedido')},
+                ${selectOptional(columns, 'uber_delivery_id', 'uber_delivery_id')},
+                ${selectOptional(columns, 'uber_tracking_url', 'uber_tracking_url')},
+                ${selectOptional(columns, 'uber_vehicle_type', 'uber_vehicle_type')},
+                ${selectOptional(columns, 'uber_eta_seconds', 'uber_eta_seconds')},
+                ${selectOptional(columns, 'entrega_status', 'entrega_status')},
+                ${selectOptional(columns, 'criado_em', 'criado_em')},
+                ${selectOptional(columns, 'atualizado_em', 'atualizado_em')}
+           FROM pedidos p
+          WHERE p.id = ? AND p.usuario_id = ?`,
         [req.params.id, req.usuario.id]
       );
 
@@ -136,13 +206,32 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
   // Consultar status em tempo real (polling leve — sem itens, só status)
   router.get('/api/pedidos/:id/status', autenticarToken, async (req, res) => {
     try {
+      const columns = await getPedidosColumns();
+
       const [rows] = await pool.query(
-        `SELECT id, status, tipo_entrega, forma_pagamento,
-          uber_delivery_id, uber_tracking_url, uber_vehicle_type, uber_eta_seconds,
-          entrega_status, frete_cobrado_cliente, frete_real_uber, margem_pedido,
-                pago_em, em_preparo_em, pronto_em, saiu_entrega_em, entregue_em, retirado_em, cancelado_em,
-                atualizado_em
-         FROM pedidos WHERE id = ? AND usuario_id = ? LIMIT 1`,
+        `SELECT p.id,
+                p.status,
+                ${selectOptional(columns, 'tipo_entrega', 'tipo_entrega')},
+                ${selectOptional(columns, 'forma_pagamento', 'forma_pagamento')},
+                ${selectOptional(columns, 'uber_delivery_id', 'uber_delivery_id')},
+                ${selectOptional(columns, 'uber_tracking_url', 'uber_tracking_url')},
+                ${selectOptional(columns, 'uber_vehicle_type', 'uber_vehicle_type')},
+                ${selectOptional(columns, 'uber_eta_seconds', 'uber_eta_seconds')},
+                ${selectOptional(columns, 'entrega_status', 'entrega_status')},
+                ${selectOptional(columns, 'frete_cobrado_cliente', 'frete_cobrado_cliente')},
+                ${selectOptional(columns, 'frete_real_uber', 'frete_real_uber')},
+                ${selectOptional(columns, 'margem_pedido', 'margem_pedido')},
+                ${selectOptional(columns, 'pago_em', 'pago_em')},
+                ${selectOptional(columns, 'em_preparo_em', 'em_preparo_em')},
+                ${selectOptional(columns, 'pronto_em', 'pronto_em')},
+                ${selectOptional(columns, 'saiu_entrega_em', 'saiu_entrega_em')},
+                ${selectOptional(columns, 'entregue_em', 'entregue_em')},
+                ${selectOptional(columns, 'retirado_em', 'retirado_em')},
+                ${selectOptional(columns, 'cancelado_em', 'cancelado_em')},
+                ${selectOptional(columns, 'atualizado_em', 'atualizado_em')}
+           FROM pedidos p
+          WHERE p.id = ? AND p.usuario_id = ?
+          LIMIT 1`,
         [req.params.id, req.usuario.id]
       );
       if (!rows.length) {

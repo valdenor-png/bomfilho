@@ -746,7 +746,7 @@ export function getUberDeliveryQuote({ endereco, carrinho, valorCarrinho = 0 }) 
   });
 }
 
-export function criarPedido({ itens, formaPagamento = 'pix', tipoEntrega = 'entrega', entrega, taxId, recaptchaToken }) {
+export function criarPedido({ itens, formaPagamento = 'pix', tipoEntrega = 'entrega', entrega, taxId, cpfNota, recaptchaToken }) {
   const body = {
     itens,
     forma_pagamento: formaPagamento,
@@ -760,6 +760,11 @@ export function criarPedido({ itens, formaPagamento = 'pix', tipoEntrega = 'entr
   const taxIdDigits = String(taxId || '').replace(/\D/g, '');
   if (taxIdDigits) {
     body.tax_id = taxIdDigits;
+  }
+
+  const cpfNotaDigits = String(cpfNota || '').replace(/\D/g, '').slice(0, 11);
+  if (cpfNotaDigits.length === 11) {
+    body.cpf_nota = cpfNotaDigits;
   }
 
   const recaptchaTokenNormalizado = String(recaptchaToken || '').trim();

@@ -377,18 +377,47 @@ module.exports = function createDeliveryRoutes({
 
   router.get('/api/admin/delivery/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, async (_req, res) => {
     try {
+      const [columnRows] = await pool.query(
+        `SELECT COLUMN_NAME
+           FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'pedidos'`
+      );
+      const availableColumns = new Set(
+        (columnRows || [])
+          .map((row) => String(row?.COLUMN_NAME || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+
+      const selectPedidosColumn = (columnName, alias) => {
+        const normalized = String(columnName || '').trim().toLowerCase();
+        return availableColumns.has(normalized)
+          ? `p.${columnName} AS ${alias}`
+          : `NULL AS ${alias}`;
+      };
+
       const [rows] = await pool.query(
-        `SELECT p.id, p.status, p.tipo_entrega, p.total, p.criado_em, p.pronto_em,
-                p.entrega_status, p.uber_delivery_id, p.uber_tracking_url,
-          p.uber_estimate_id,
-                p.frete_cobrado_cliente, p.frete_real_uber, p.margem_pedido,
-                p.uber_vehicle_type, p.uber_eta_seconds,
+        `SELECT p.id,
+                p.status,
+                p.tipo_entrega,
+                p.total,
+                p.criado_em,
+                ${selectPedidosColumn('pronto_em', 'pronto_em')},
+                ${selectPedidosColumn('entrega_status', 'entrega_status')},
+                ${selectPedidosColumn('uber_delivery_id', 'uber_delivery_id')},
+                ${selectPedidosColumn('uber_tracking_url', 'uber_tracking_url')},
+                ${selectPedidosColumn('uber_estimate_id', 'uber_estimate_id')},
+                ${selectPedidosColumn('frete_cobrado_cliente', 'frete_cobrado_cliente')},
+                ${selectPedidosColumn('frete_real_uber', 'frete_real_uber')},
+                ${selectPedidosColumn('margem_pedido', 'margem_pedido')},
+                ${selectPedidosColumn('uber_vehicle_type', 'uber_vehicle_type')},
+                ${selectPedidosColumn('uber_eta_seconds', 'uber_eta_seconds')},
                 u.nome AS cliente_nome, u.telefone AS cliente_telefone
            FROM pedidos p
            LEFT JOIN usuarios u ON u.id = p.usuario_id
           WHERE p.tipo_entrega = 'entrega'
             AND p.status IN ('preparando', 'pronto_para_retirada', 'enviado', 'erro_entrega')
-          ORDER BY p.atualizado_em DESC
+          ORDER BY ${availableColumns.has('atualizado_em') ? 'p.atualizado_em' : 'p.criado_em'} DESC
           LIMIT 200`
       );
 

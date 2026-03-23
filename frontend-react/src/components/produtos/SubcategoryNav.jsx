@@ -39,7 +39,10 @@ const SubcategoryNav = React.memo(function SubcategoryNav({
               onClick={() => onSelect?.(id)}
               aria-pressed={activeSubcategoryId === id}
             >
-              {label}{count > 0 ? ` (${count})` : ''}
+              <span className="subcategoria-chip-label">{label}</span>
+              {count > 0 ? (
+                <span className="subcategoria-chip-count" aria-hidden="true">{count}</span>
+              ) : null}
             </button>
           );
         })}

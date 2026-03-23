@@ -24,7 +24,12 @@ import {
   getSubcategoriasComContagem,
   SUBCATEGORIAS_POR_CATEGORIA
 } from '../lib/subcategoriaHelpers';
-import { CATEGORIA_CERVEJAS, classifyCategoriaComercial } from '../lib/categoryUtils';
+import {
+  CATEGORIA_CERVEJAS,
+  CATEGORIAS_PRINCIPAIS_NAVEGACAO,
+  classifyCategoriaComercial,
+  resolveCategoriaPrincipalVitrine
+} from '../lib/categoryUtils';
 import {
   CATEGORIA_TODAS,
   CATEGORIA_PROMOCOES,
@@ -64,6 +69,7 @@ import {
   isBebidasCategoria,
   isFriosCategoria,
   getCategoriaAgrupada,
+  getCategoriaVitrineDefensiva,
   getTextoProduto,
   textoContemMatcher,
   getBebidaSubcategoriaIdByTexto,
@@ -392,7 +398,10 @@ export default function ProdutosPage() {
 
   useEffect(() => {
     setBusca(String(searchParams.get('busca') || ''));
-    const categoriaParam = String(searchParams.get('categoria') || CATEGORIA_TODAS).toLowerCase();
+    const categoriaParamRaw = String(searchParams.get('categoria') || CATEGORIA_TODAS).toLowerCase();
+    const categoriaParam = categoriaParamRaw === CATEGORIA_TODAS || categoriaParamRaw === CATEGORIA_PROMOCOES
+      ? categoriaParamRaw
+      : resolveCategoriaPrincipalVitrine(categoriaParamRaw);
     setCategoria(categoriaParam);
     setCategoriaNavAtiva(categoriaParam || CATEGORIA_TODAS);
     setSubcategoriaNavAtiva('todas');
@@ -436,7 +445,10 @@ export default function ProdutosPage() {
         const categoriasBrutas = Array.isArray(data?.categorias) ? data.categorias : [];
         const categoriasNormalizadas = Array.from(new Set(
           categoriasBrutas
-            .map((categoriaRaw) => getCategoriaAgrupada(String(categoriaRaw || '').trim().toLowerCase()))
+            .map((categoriaRaw) => {
+              const categoriaAgrupada = getCategoriaAgrupada(String(categoriaRaw || '').trim().toLowerCase());
+              return resolveCategoriaPrincipalVitrine(categoriaAgrupada);
+            })
             .filter(Boolean)
             .filter((categoriaId) => categoriaId !== CATEGORIA_TODAS && categoriaId !== CATEGORIA_PROMOCOES)
         ));
@@ -777,7 +789,10 @@ export default function ProdutosPage() {
   }, []);
 
   const handleCategoriaSelectChange = useCallback((event) => {
-    const categoriaAlvo = String(event.target.value || CATEGORIA_TODAS).toLowerCase();
+    const categoriaAlvoRaw = String(event.target.value || CATEGORIA_TODAS).toLowerCase();
+    const categoriaAlvo = categoriaAlvoRaw === CATEGORIA_TODAS || categoriaAlvoRaw === CATEGORIA_PROMOCOES
+      ? categoriaAlvoRaw
+      : resolveCategoriaPrincipalVitrine(categoriaAlvoRaw);
     setCategoria(categoriaAlvo);
     setCategoriaNavAtiva(categoriaAlvo);
     setSubcategoriaAtiva('todas');
@@ -791,7 +806,10 @@ export default function ProdutosPage() {
   }, []);
 
   const handleCategoriaLegadoClick = useCallback((categoriaId) => {
-    const categoriaAlvo = String(categoriaId || CATEGORIA_TODAS).toLowerCase();
+    const categoriaAlvoRaw = String(categoriaId || CATEGORIA_TODAS).toLowerCase();
+    const categoriaAlvo = categoriaAlvoRaw === CATEGORIA_TODAS || categoriaAlvoRaw === CATEGORIA_PROMOCOES
+      ? categoriaAlvoRaw
+      : resolveCategoriaPrincipalVitrine(categoriaAlvoRaw);
     setCategoriaNavAtiva(categoriaAlvo);
     setSubcategoriaNavAtiva('todas');
     setSubcategoriaAtiva('todas');
@@ -842,7 +860,10 @@ export default function ProdutosPage() {
   }, []);
 
   const handleAplicarSugestaoBusca = useCallback(({ termo = '', categoria: categoriaSugestao = CATEGORIA_TODAS } = {}) => {
-    const categoriaAlvo = String(categoriaSugestao || CATEGORIA_TODAS).toLowerCase();
+    const categoriaAlvoRaw = String(categoriaSugestao || CATEGORIA_TODAS).toLowerCase();
+    const categoriaAlvo = categoriaAlvoRaw === CATEGORIA_TODAS || categoriaAlvoRaw === CATEGORIA_PROMOCOES
+      ? categoriaAlvoRaw
+      : resolveCategoriaPrincipalVitrine(categoriaAlvoRaw);
     setCategoria(categoriaAlvo);
     setCategoriaNavAtiva(categoriaAlvo);
     setBusca(String(termo || ''));
@@ -975,6 +996,13 @@ export default function ProdutosPage() {
         categoriaAgrupada: catAgrupada,
         textoBusca
       });
+      const categoriaVitrineBase = getCategoriaVitrineDefensiva({
+        categoriaAgrupada: categoriaComercial,
+        categoriaOriginal,
+        textoBusca
+      });
+      const categoriaVitrine = resolveCategoriaPrincipalVitrine(categoriaVitrineBase, textoBusca);
+      const subcategoriaVitrineId = getSubcategoriaId(textoBusca, categoriaVitrine);
 
       const indexadoBase = {
         chaveReact: getProdutoStableKey(produto),
@@ -986,6 +1014,7 @@ export default function ProdutosPage() {
         textoBusca,
         categoriaOriginal,
         categoriaAgrupada: categoriaComercial,
+        categoriaVitrine,
         categoriaNormalizada,
         categoriaEhBebida: categoriaNormalizada.includes(TOKEN_BEBIDA),
         estoqueInfo,
@@ -994,7 +1023,7 @@ export default function ProdutosPage() {
         emPromocao: precoInfo.emPromocao,
         bebidaSubcategoriaId: getBebidaSubcategoriaIdByTexto(textoBusca),
         friosSubcategoriaId: getFriosSubcategoriaIdByTexto(textoBusca),
-        _subcategoriaId: getSubcategoriaId(textoBusca, categoriaComercial),
+        _subcategoriaId: subcategoriaVitrineId,
         imagemResponsiva,
         conversaoProduto
       };
@@ -1278,10 +1307,14 @@ export default function ProdutosPage() {
         }
       } else if (filtroCategoriaAtivo) {
         if (categoria === CATEGORIA_BEBIDAS) {
-          if (item.categoriaAgrupada !== CATEGORIA_BEBIDAS) {
+          if (item.categoriaVitrine !== CATEGORIA_BEBIDAS) {
             continue;
           }
-        } else if (item.categoriaAgrupada !== categoria && item.categoriaOriginal !== categoria) {
+        } else if (
+          item.categoriaVitrine !== categoria
+          && item.categoriaAgrupada !== categoria
+          && item.categoriaOriginal !== categoria
+        ) {
           continue;
         }
       }
@@ -1543,30 +1576,8 @@ export default function ProdutosPage() {
     && !categoriaEhBebidas
     && !categoriaEhFrios;
 
-  // Ordem comercial fixa para as seções da vitrine
-  const ORDEM_CATEGORIAS_VITRINE = ['bebidas', CATEGORIA_CERVEJAS, 'mercearia', 'higiene', 'hortifruti', 'limpeza', CATEGORIA_FRIOS, 'salgadinhos', 'doces', 'biscoitos'];
-
-  const categoriasVitrineIds = useMemo(() => {
-    const idsOrdenados = [];
-    const vistos = new Set();
-
-    const pushCategoria = (categoriaId) => {
-      const normalizada = String(categoriaId || '').trim().toLowerCase();
-      if (!normalizada || vistos.has(normalizada) || normalizada === 'outros' || normalizada === CATEGORIA_TODAS || normalizada === CATEGORIA_PROMOCOES) {
-        return;
-      }
-      vistos.add(normalizada);
-      idsOrdenados.push(normalizada);
-    };
-
-    ORDEM_CATEGORIAS_VITRINE.forEach(pushCategoria);
-    categoriasCatalogo.forEach(pushCategoria);
-    produtosIndexados.forEach((item) => {
-      pushCategoria(item.categoriaAgrupada || item.categoriaOriginal || 'outros');
-    });
-
-    return idsOrdenados;
-  }, [categoriasCatalogo, produtosIndexados]);
+  const ORDEM_CATEGORIAS_VITRINE = CATEGORIAS_PRINCIPAIS_NAVEGACAO.map((item) => item.id);
+  const categoriasVitrineIds = ORDEM_CATEGORIAS_VITRINE;
 
   const categoriaLabelById = useMemo(() => {
     return new Map(
@@ -1642,7 +1653,7 @@ export default function ProdutosPage() {
       return [];
     }
 
-    return produtosIndexados.filter((item) => item.categoriaAgrupada === categoriaNavAtiva);
+    return produtosIndexados.filter((item) => item.categoriaVitrine === categoriaNavAtiva);
   }, [categoriaNavAtiva, produtosIndexados]);
 
   const subcategoriasVitrineAtiva = useMemo(() => {
@@ -1674,7 +1685,7 @@ export default function ProdutosPage() {
     );
 
     produtosIndexados.forEach((item) => {
-      const catKey = item.categoriaAgrupada || 'outros';
+      const catKey = item.categoriaVitrine || item.categoriaAgrupada || 'outros';
       const catEntry = CATEGORIAS_LEGADO.find((c) => c.id === catKey);
       const catLabel = catEntry?.label || item.categoriaLabel || 'Outros';
 

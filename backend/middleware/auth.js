@@ -28,7 +28,29 @@ module.exports = function createAuthMiddleware({
 
   function isIpLocal(ip) {
     const ipNormalizado = normalizarIp(ip);
-    return ipNormalizado === '127.0.0.1' || ipNormalizado === '::1' || ipNormalizado === 'localhost';
+
+    if (!ipNormalizado) {
+      return false;
+    }
+
+    if (ipNormalizado === '127.0.0.1' || ipNormalizado === '::1' || ipNormalizado === 'localhost') {
+      return true;
+    }
+
+    // Ambientes locais com Docker, VM ou proxy costumam chegar como IP privado.
+    if (ipNormalizado.startsWith('10.') || ipNormalizado.startsWith('192.168.')) {
+      return true;
+    }
+
+    const match172 = ipNormalizado.match(/^172\.(\d{1,3})\./);
+    if (match172) {
+      const segundoOcteto = Number(match172[1]);
+      if (Number.isInteger(segundoOcteto) && segundoOcteto >= 16 && segundoOcteto <= 31) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   const autenticarToken = (req, res, next) => {

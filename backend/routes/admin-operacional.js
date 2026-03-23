@@ -528,12 +528,17 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       const pedidoId = req.params.id;
       const { observacao } = req.body || {};
 
-      const [pedidos] = await pool.query('SELECT id, status, usuario_id FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
+      const [pedidos] = await pool.query('SELECT id, status, usuario_id, revisao_em, revisao_aprovada_em FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
       if (!pedidos.length) {
         return res.status(404).json({ erro: 'Pedido não encontrado.' });
       }
 
-      if (pedidos[0].status !== 'aguardando_revisao') {
+      const statusAtual = String(pedidos[0].status || '').trim().toLowerCase();
+      const revisaoAbertaEmPendente = statusAtual === 'pendente'
+        && Boolean(pedidos[0].revisao_em)
+        && !pedidos[0].revisao_aprovada_em;
+
+      if (statusAtual !== 'aguardando_revisao' && !revisaoAbertaEmPendente) {
         return res.status(400).json({ erro: `Pedido não está aguardando revisão (status atual: ${pedidos[0].status}).` });
       }
 
@@ -810,15 +815,29 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       let aguardandoRevisao = [];
       try {
         const [rows] = await pool.query(
-          `SELECT p.id, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.status, p.revisao_em,
+          `SELECT p.id, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.status, p.revisao_em, p.revisao_aprovada_em,
                   u.nome AS cliente_nome, u.telefone AS cliente_telefone,
-                  TIMESTAMPDIFF(MINUTE, p.revisao_em, NOW()) AS minutos_parado
+                  TIMESTAMPDIFF(MINUTE, COALESCE(p.revisao_em, p.criado_em), NOW()) AS minutos_parado
            FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
            WHERE p.status = 'aguardando_revisao'
-           ORDER BY p.revisao_em ASC LIMIT 50`
+              OR (p.status = 'pendente' AND p.revisao_em IS NOT NULL AND p.revisao_aprovada_em IS NULL)
+           ORDER BY COALESCE(p.revisao_em, p.criado_em) ASC LIMIT 50`
         );
         aguardandoRevisao = rows;
-      } catch (_) {}
+      } catch (_) {
+        // Fallback para bases antigas sem colunas de revisão.
+        try {
+          const [rowsFallback] = await pool.query(
+            `SELECT p.id, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.status,
+                    u.nome AS cliente_nome, u.telefone AS cliente_telefone,
+                    TIMESTAMPDIFF(MINUTE, p.criado_em, NOW()) AS minutos_parado
+             FROM pedidos p LEFT JOIN usuarios u ON p.usuario_id = u.id
+             WHERE p.status = 'aguardando_revisao'
+             ORDER BY p.criado_em ASC LIMIT 50`
+          );
+          aguardandoRevisao = rowsFallback;
+        } catch (_) {}
+      }
       filas.aguardando_revisao = aguardandoRevisao;
 
       // Pendentes de pagamento

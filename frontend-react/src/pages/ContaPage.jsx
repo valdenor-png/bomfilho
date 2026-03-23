@@ -348,11 +348,11 @@ export default function ContaPage() {
     setEnderecoEmEdicao(false);
   }
 
-  function handleCepChange(event) {
+  function handleCepChange(valorCep) {
     setErroEnderecoForm('');
     setSucessoEnderecoForm('');
     setMensagemCepEndereco('');
-    atualizarCampoEndereco('cep', formatarCepEndereco(event.target.value));
+    atualizarCampoEndereco('cep', formatarCepEndereco(valorCep));
   }
 
   function handleCepBlur() {
