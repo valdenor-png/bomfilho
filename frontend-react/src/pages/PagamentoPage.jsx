@@ -2835,7 +2835,7 @@ export default function PagamentoPage() {
   }
 
   return (
-    <section className={`page checkout-page ${exibirBarraMobileCheckout ? 'has-mobile-action-bar' : ''}`.trim()}>
+    <section className={`page checkout-page ${etapaAtual !== ETAPAS.STATUS ? 'has-mobile-action-bar' : ''}`.trim()}>
       <header className="checkout-stage-header">
         <h1>{tituloEtapaAtual}</h1>
         <p className="checkout-stage-subtitle">{subtituloEtapaAtualTexto}</p>

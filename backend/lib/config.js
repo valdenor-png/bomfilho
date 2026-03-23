@@ -235,11 +235,25 @@ const ADMIN_AUTH_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
 const CSRF_COOKIE_MAX_AGE = 12 * 60 * 60 * 1000;
 const COOKIE_SECURE = parseBooleanEnv('COOKIE_SECURE', IS_PRODUCTION);
 const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim() || null;
-const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || 'strict').trim().toLowerCase();
+const COOKIE_SAME_SITE_RAW = String(process.env.COOKIE_SAME_SITE || (IS_PRODUCTION ? 'none' : 'strict')).trim().toLowerCase();
 const COOKIE_SAME_SITE = ['strict', 'lax', 'none'].includes(COOKIE_SAME_SITE_RAW) ? COOKIE_SAME_SITE_RAW : 'strict';
 if (IS_PRODUCTION && !COOKIE_SECURE) throw new Error('COOKIE_SECURE deve ser true em producao.');
 if (COOKIE_SAME_SITE === 'none' && !COOKIE_SECURE) {
   throw new Error('COOKIE_SAME_SITE=none requer COOKIE_SECURE=true.');
+}
+if (IS_PRODUCTION && FRONTEND_APP_URL && BASE_URL_ENV) {
+  try {
+    const frontendHost = new URL(FRONTEND_APP_URL).host;
+    const backendHost = new URL(BASE_URL_ENV).host;
+    if (frontendHost !== backendHost && COOKIE_SAME_SITE !== 'none') {
+      throw new Error('COOKIE_SAME_SITE deve ser "none" em producao quando frontend e backend estao em dominios diferentes.');
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('COOKIE_SAME_SITE')) {
+      throw err;
+    }
+    console.warn('⚠️ Nao foi possivel validar hosts de FRONTEND_APP_URL/BASE_URL para politica de cookies.');
+  }
 }
 
 // ============================================
