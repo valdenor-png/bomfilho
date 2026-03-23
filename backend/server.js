@@ -1869,6 +1869,16 @@ if (SHOULD_SERVE_REACT && fs.existsSync(REACT_DIST_INDEX)) {
       '<h1>Bom Filho API online</h1><p>Frontend nao esta hospedado neste servico.</p><p>Use <a href="/api">/api</a> para status da API.</p>'
     );
   });
+
+  app.get(/^\/(?!api).*/, (req, res) => {
+    if (FRONTEND_APP_URL) {
+      const caminho = String(req.originalUrl || req.url || '/').trim() || '/';
+      const destinoBase = FRONTEND_APP_URL.replace(/\/+$/, '');
+      return res.redirect(`${destinoBase}${caminho.startsWith('/') ? caminho : `/${caminho}`}`);
+    }
+
+    return res.status(404).send('Rota de frontend indisponivel neste servico.');
+  });
 }
 
 // ============================================

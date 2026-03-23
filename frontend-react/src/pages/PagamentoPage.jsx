@@ -213,6 +213,7 @@ export default function PagamentoPage() {
   const [ultimoFreteEntrega, setUltimoFreteEntrega] = useState(0);
   const [simulacaoFrete, setSimulacaoFrete] = useState(null);
   const [simulacoesFretePorVeiculo, setSimulacoesFretePorVeiculo] = useState({});
+  const [uberQuoteDisponivel, setUberQuoteDisponivel] = useState(true);
   const [simulandoFrete, setSimulandoFrete] = useState(false);
   const [erroEntrega, setErroEntrega] = useState('');
   const [enderecoCepEntrega, setEnderecoCepEntrega] = useState(null);
@@ -408,7 +409,10 @@ export default function PagamentoPage() {
       );
     });
   }, [itens, normalizarTextoSugestao]);
-  const opcoesEntregaCompactas = useMemo(() => ['bike', 'uber'], []);
+  const opcoesEntregaCompactas = useMemo(
+    () => (uberQuoteDisponivel ? ['bike', 'uber'] : ['bike']),
+    [uberQuoteDisponivel]
+  );
   const freteAtual = retiradaSelecionada ? 0 : Number(simulacaoFrete?.frete || 0);
   const economiaFreteRetirada = Number(ultimoFreteEntrega || simulacaoFrete?.frete || 0);
   const taxaServicoAtual = Number((Number(resumo.total || 0) * (TAXA_SERVICO_PERCENTUAL / 100)).toFixed(2));
@@ -770,11 +774,18 @@ export default function PagamentoPage() {
 
       const [bikeRaw, uberRaw] = await Promise.all([
         simularFretePorCep({ cep: cepEntregaNormalizado, veiculo: 'bike' }).catch(() => null),
-        getUberDeliveryQuote({
-          endereco: enderecoPayload,
-          carrinho: carrinhoPayload,
-          valorCarrinho: Number(resumo.total || 0)
-        }).catch(() => null)
+        uberQuoteDisponivel
+          ? getUberDeliveryQuote({
+            endereco: enderecoPayload,
+            carrinho: carrinhoPayload,
+            valorCarrinho: Number(resumo.total || 0)
+          }).catch((erroUber) => {
+            if (Number(erroUber?.status || 0) === 503) {
+              setUberQuoteDisponivel(false);
+            }
+            return null;
+          })
+          : Promise.resolve(null)
       ]);
 
       if (!ativo) {
@@ -842,7 +853,7 @@ export default function PagamentoPage() {
     return () => {
       ativo = false;
     };
-  }, [retiradaSelecionada, cepEntregaNormalizado, numeroEntrega, enderecoCepEntrega, itens, resumo.total, opcoesEntregaCompactas, veiculoEntrega, modalUberInterno]);
+  }, [retiradaSelecionada, cepEntregaNormalizado, numeroEntrega, enderecoCepEntrega, itens, resumo.total, opcoesEntregaCompactas, veiculoEntrega, modalUberInterno, uberQuoteDisponivel]);
 
   const consultarEnderecoCepEntrega = useCallback(async (cep, { mostrarErro = true } = {}) => {
     const cepNormalizado = normalizarCep(cep);
@@ -1233,6 +1244,10 @@ export default function PagamentoPage() {
           modal_interno: 'bike'
         };
       } else {
+        if (!uberQuoteDisponivel) {
+          throw new Error('Entrega Uber indisponível no momento. Escolha Bike para continuar.');
+        }
+
         const data = await getUberDeliveryQuote({
           endereco: {
             cep: formatarCep(cepNormalizado),
