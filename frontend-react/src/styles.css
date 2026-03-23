@@ -5496,16 +5496,18 @@ body {
 }
 .delivery-mode-toggle {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.46rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
 }
 .delivery-mode-toggle-btn {
-  min-height: 44px;
+  min-height: 46px;
+  padding: 0.52rem 0.56rem;
   border: 1px solid #cfe0d5;
   border-radius: 10px;
   background: #ffffff;
   color: #334155;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
+  line-height: 1.2;
   font-weight: 700;
   cursor: pointer;
   transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease;
@@ -5513,6 +5515,13 @@ body {
 .delivery-mode-toggle-btn:hover {
   border-color: #9dc2ab;
   background: #f7fcf8;
+}
+.delivery-mode-toggle-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  background: #f7faf8;
+  border-color: #dbe7e0;
+  color: #7b8a99;
 }
 .delivery-mode-toggle-btn.is-active {
   border-color: #1f7a45;
@@ -13786,7 +13795,18 @@ body {
     font-size: 1.45rem;
   }
 
-  .delivery-mode-toggle,
+  .delivery-mode-toggle {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
+
+  .delivery-mode-toggle-btn {
+    min-height: 44px;
+    padding: 0.45rem 0.36rem;
+    font-size: 0.78rem;
+    border-radius: 9px;
+  }
+
   .pickup-store-grid {
     grid-template-columns: 1fr;
   }

@@ -77,6 +77,8 @@ import {
   formatarNumeroCartao,
   formatarMesCartao,
   formatarAnoCartao,
+  normalizarAnoCartaoParaComparacao,
+  normalizarAnoCartaoParaTokenizacao,
   formatarCvvCartao,
   normalizarNomeCompletoPara3DS,
   normalizarTelefonePara3DS,
@@ -229,6 +231,8 @@ export default function PagamentoPage() {
   const [gatewayPublicKey, setGatewayPublicKey] = useState('');
   const [buscandoChavePublica, setBuscandoChavePublica] = useState(false);
   const [tokenCartao, setTokenCartao] = useState('');
+  const [cartaoPaymentMethodId, setCartaoPaymentMethodId] = useState('');
+  const [cartaoIssuerId, setCartaoIssuerId] = useState(null);
   const [criptografandoCartao, setCriptografandoCartao] = useState(false);
   const [nomeTitularCartao, setNomeTitularCartao] = useState('');
   const [numeroCartao, setNumeroCartao] = useState('');
@@ -250,6 +254,8 @@ export default function PagamentoPage() {
   const [recaptchaCheckoutToken, setRecaptchaCheckoutToken] = useState('');
   const [recaptchaCheckoutErroCarregamento, setRecaptchaCheckoutErroCarregamento] = useState('');
   const recaptchaCheckoutRef = useRef(null);
+  const cartaoPaymentMethodIdRef = useRef('');
+  const cartaoIssuerIdRef = useRef(null);
   const pagandoCartaoRef = useRef(false);
   const buscaEnderecoRef = useRef(0);
   const startCheckoutTrackedRef = useRef(false);
@@ -1322,6 +1328,10 @@ export default function PagamentoPage() {
 
   function limparTokenCartaoGerado() {
     setTokenCartao('');
+    cartaoPaymentMethodIdRef.current = '';
+    cartaoIssuerIdRef.current = null;
+    setCartaoPaymentMethodId('');
+    setCartaoIssuerId(null);
     setResultadoCartao(null);
     limparResultadoAutenticacao3DS();
   }
@@ -1711,7 +1721,7 @@ export default function PagamentoPage() {
     const holder = String(nomeTitularCartao || '').trim();
     const number = normalizarNumeroCartao(numeroCartao);
     const expMonth = formatarMesCartao(mesExpiracaoCartao);
-    const expYear = formatarAnoCartao(anoExpiracaoCartao);
+    const expYear = normalizarAnoCartaoParaTokenizacao(anoExpiracaoCartao);
     const securityCode = formatarCvvCartao(cvvCartao);
 
     if (holder.length < 3) {
@@ -1727,7 +1737,7 @@ export default function PagamentoPage() {
       throw new Error('Mês de expiração inválido.');
     }
 
-    if (expYear.length !== 4) {
+    if (expYear.length !== 2) {
       throw new Error('Ano de expiração inválido.');
     }
 
@@ -1738,7 +1748,7 @@ export default function PagamentoPage() {
     setCriptografandoCartao(true);
     try {
       const publicKey = await carregarChavePublicaGateway();
-      const encryptedCard = await tokenizeCard({
+      const tokenizacao = await tokenizeCard({
         publicKey,
         holder,
         number,
@@ -1748,8 +1758,20 @@ export default function PagamentoPage() {
         identificationNumber: normalizarDocumentoFiscal(documentoPagador)
       });
 
-      setTokenCartao(encryptedCard);
-      return encryptedCard;
+      const token = String(tokenizacao?.token || '').trim();
+      if (!token) {
+        throw new Error('Não foi possível tokenizar o cartão no Mercado Pago.');
+      }
+
+      const paymentMethodId = String(tokenizacao?.paymentMethodId || '').trim();
+      const issuerId = Number.isFinite(Number(tokenizacao?.issuerId)) ? Number(tokenizacao.issuerId) : null;
+
+      setTokenCartao(token);
+      cartaoPaymentMethodIdRef.current = paymentMethodId;
+      cartaoIssuerIdRef.current = issuerId;
+      setCartaoPaymentMethodId(paymentMethodId);
+      setCartaoIssuerId(issuerId);
+      return token;
     } finally {
       setCriptografandoCartao(false);
     }
@@ -2012,20 +2034,55 @@ export default function PagamentoPage() {
 
   // ── Pagar com cartão via Mercado Pago ──────────────────────────────────
   async function handlePagarCartaoMercadoPago(pedidoId) {
-    if (!tokenCartao) {
-      setErro('Preencha os dados do cartão para continuar.');
+    const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
+    const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
+    if (!documentoValido) {
+      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagar com cartão.');
       return;
+    }
+
+    let tokenParaPagamento = String(tokenCartao || '').trim();
+    if (!tokenParaPagamento) {
+      if (!dadosCartaoCompletos) {
+        setErro('Preencha os dados do cartão para continuar.');
+        return;
+      }
+
+      try {
+        tokenParaPagamento = await handleCriptografarCartao();
+      } catch (error) {
+        setErro(error?.message || 'Não foi possível validar os dados do cartão.');
+        return;
+      }
     }
 
     setCarregando(true);
     setErro('');
     try {
-      const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
-      const data = await mpPagarCartao(pedidoId, {
-        token: tokenCartao,
+      const tentarPagamentoCartao = (tokenAtual) => mpPagarCartao(pedidoId, {
+        token: tokenAtual,
         parcelas: Number(parcelasCartao) || 1,
-        taxId: documentoDigits
+        taxId: documentoDigits,
+        paymentMethodId: cartaoPaymentMethodIdRef.current,
+        issuerId: cartaoIssuerIdRef.current
       });
+
+      let data;
+      try {
+        data = await tentarPagamentoCartao(tokenParaPagamento);
+      } catch (erroPagamento) {
+        const mensagemErro = String(erroPagamento?.serverMessage || erroPagamento?.message || '').toLowerCase();
+        const tokenInvalido = mensagemErro.includes('invalid card_token_id');
+
+        if (!tokenInvalido || !dadosCartaoCompletos) {
+          throw erroPagamento;
+        }
+
+        // Token MP pode expirar entre etapas; refaz tokenização e tenta uma única vez.
+        setTokenCartao('');
+        const novoToken = await handleCriptografarCartao();
+        data = await tentarPagamentoCartao(novoToken);
+      }
 
       if (data?.status === 'approved' || data?.status_interno === 'pago') {
         setStatusPedidoAtual('pago');
@@ -2409,7 +2466,7 @@ export default function PagamentoPage() {
   const numeroCartaoValido = normalizarNumeroCartao(numeroCartao).length >= 13;
   const mesCartaoNumero = Number.parseInt(formatarMesCartao(mesExpiracaoCartao), 10);
   const mesCartaoValido = Number.isInteger(mesCartaoNumero) && mesCartaoNumero >= 1 && mesCartaoNumero <= 12;
-  const anoCartaoNormalizado = formatarAnoCartao(anoExpiracaoCartao);
+  const anoCartaoNormalizado = normalizarAnoCartaoParaComparacao(anoExpiracaoCartao);
   const anoCartaoNumero = Number.parseInt(anoCartaoNormalizado, 10);
   const anoAtual = new Date().getFullYear();
   const mesAtual = new Date().getMonth() + 1;
@@ -3470,7 +3527,7 @@ export default function PagamentoPage() {
                           type="text"
                           inputMode="numeric"
                           autoComplete="cc-exp-year"
-                          placeholder="AAAA"
+                          placeholder="AA ou AAAA"
                           maxLength={4}
                           value={anoExpiracaoCartao}
                           onChange={(event) => {
@@ -3760,7 +3817,7 @@ export default function PagamentoPage() {
                 <button
                   className="btn-secondary"
                   type="button"
-                  disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id || !recaptchaCheckoutPronto}
+                  disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id || !recaptchaCheckoutPronto || !documentoValidoPagamento}
                   onClick={() => handlePagarCartaoMercadoPago(resultadoPedido.pedido_id)}
                 >
                   {carregando

@@ -377,6 +377,33 @@ export function formatarAnoCartao(valor) {
   return String(valor || '').replace(/\D/g, '').slice(0, 4);
 }
 
+export function normalizarAnoCartaoParaComparacao(valor) {
+  const digits = formatarAnoCartao(valor);
+  if (digits.length === 4) {
+    return digits;
+  }
+
+  if (digits.length !== 2) {
+    return '';
+  }
+
+  // Converte AA -> 20AA para tokenizacao de cartao.
+  return `20${digits}`;
+}
+
+export function normalizarAnoCartaoParaTokenizacao(valor) {
+  const digits = formatarAnoCartao(valor);
+  if (digits.length === 2) {
+    return digits;
+  }
+
+  if (digits.length === 4) {
+    return digits.slice(2);
+  }
+
+  return '';
+}
+
 export function formatarCvvCartao(valor) {
   return String(valor || '').replace(/\D/g, '').slice(0, 4);
 }

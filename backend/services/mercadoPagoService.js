@@ -51,10 +51,37 @@ function criarMercadoPagoService({
     return String(url || '').trim();
   }
 
+  function normalizarNotificationUrl(url) {
+    const raw = normalizarUrl(url);
+    if (!raw) {
+      return '';
+    }
+
+    try {
+      const parsed = new URL(raw);
+      const protocol = String(parsed.protocol || '').toLowerCase();
+      const hostname = String(parsed.hostname || '').toLowerCase();
+      const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+
+      if (!['http:', 'https:'].includes(protocol)) {
+        return '';
+      }
+
+      // Mercado Pago costuma recusar callback local/inacessível; em dev local é melhor omitir notification_url.
+      if (isLocalHost) {
+        return '';
+      }
+
+      return parsed.toString();
+    } catch {
+      return '';
+    }
+  }
+
   function montarNotificationUrl() {
     const explicit = normalizarUrl(notificationUrl);
     if (explicit) {
-      return explicit;
+      return normalizarNotificationUrl(explicit);
     }
 
     const base = normalizarUrl(baseUrl).replace(/\/+$/, '');
@@ -62,13 +89,24 @@ function criarMercadoPagoService({
       return '';
     }
 
-    return `${base}/api/webhooks/mercadopago`;
+    return normalizarNotificationUrl(`${base}/api/webhooks/mercadopago`);
   }
 
   const mpNotificationUrl = montarNotificationUrl();
   const mpSuccessUrl = normalizarUrl(successUrl);
   const mpPendingUrl = normalizarUrl(pendingUrl);
   const mpFailureUrl = normalizarUrl(failureUrl);
+
+  function normalizarTaxId(cpfOuCnpj) {
+    const digits = String(cpfOuCnpj || '').replace(/\D/g, '');
+    if (digits.length === 11) {
+      return { type: 'CPF', number: digits };
+    }
+    if (digits.length === 14) {
+      return { type: 'CNPJ', number: digits };
+    }
+    return null;
+  }
 
   // ============================================
   // HTTP Client base
@@ -151,13 +189,30 @@ function criarMercadoPagoService({
   // ============================================
   // Criar pagamento com cartão de crédito
   // ============================================
-  async function criarPagamentoCartao({ pedidoId, valor, descricao, token, parcelas, email, nome, cpf }) {
+  async function criarPagamentoCartao({
+    pedidoId,
+    valor,
+    descricao,
+    token,
+    parcelas,
+    email,
+    nome,
+    cpf,
+    paymentMethodId,
+    issuerId
+  }) {
     if (!accessToken) throw new Error('Mercado Pago não configurado.');
+
+    const identification = normalizarTaxId(cpf);
+    if (!identification) {
+      const err = new Error('Informe um CPF ou CNPJ válido para pagamento com cartão.');
+      err.status = 400;
+      throw err;
+    }
 
     const payload = {
       transaction_amount: Number(valor),
       description: descricao || `Pedido #${pedidoId} - Mercado BomFilho`,
-      payment_method_id: 'credit_card',
       token: token,
       installments: Number(parcelas) || 1,
       notification_url: mpNotificationUrl || undefined,
@@ -165,13 +220,20 @@ function criarMercadoPagoService({
         email: email,
         first_name: String(nome || 'Cliente').split(' ')[0],
         last_name: String(nome || '').split(' ').slice(1).join(' ') || 'BomFilho',
-        identification: {
-          type: 'CPF',
-          number: String(cpf || '').replace(/\D/g, '')
-        }
+        identification
       },
       external_reference: String(pedidoId)
     };
+
+    const paymentMethod = String(paymentMethodId || '').trim();
+    if (paymentMethod) {
+      payload.payment_method_id = paymentMethod;
+    }
+
+    const issuerNumeric = Number(issuerId);
+    if (Number.isFinite(issuerNumeric) && issuerNumeric > 0) {
+      payload.issuer_id = issuerNumeric;
+    }
 
     logger.info(`[MP] Criando pagamento cartão para pedido #${pedidoId}, valor R$ ${valor}, ${parcelas}x`);
     const data = await mpRequest('POST', '/v1/payments', payload);

@@ -12,6 +12,15 @@ const express = require('express');
 const logger = require('../lib/logger');
 const { MP_ACCESS_TOKEN, MP_ENV, MP_NOTIFICATION_URL, MP_WEBHOOK_SECRET } = require('../lib/config');
 
+function extrairCausasMercadoPago(mpResponse = {}) {
+  const causas = Array.isArray(mpResponse?.cause) ? mpResponse.cause : [];
+  const mensagens = causas
+    .map((item) => String(item?.description || item?.message || item?.code || '').trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(mensagens));
+}
+
 module.exports = function createMercadoPagoRoutes(deps) {
   const {
     autenticarToken,
@@ -49,7 +58,8 @@ module.exports = function createMercadoPagoRoutes(deps) {
         return res.status(403).json({ error: 'Acesso negado a este pedido.' });
       }
 
-      if (pedido.status !== 'pendente') {
+      const podeGerarPix = ['pendente', 'pagamento_recusado'].includes(String(pedido.status || '').trim().toLowerCase());
+      if (!podeGerarPix) {
         return res.status(400).json({ error: `Pedido já se encontra com status "${pedido.status}". Não é possível gerar PIX.` });
       }
 
@@ -130,7 +140,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
   // ============================================
   router.post('/api/mercadopago/criar-cartao', autenticarToken, async (req, res) => {
     try {
-      const { pedido_id, token, parcelas, tax_id } = req.body || {};
+      const { pedido_id, token, parcelas, tax_id, payment_method_id, issuer_id } = req.body || {};
       const pedidoId = Number(pedido_id);
 
       if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
@@ -144,6 +154,11 @@ module.exports = function createMercadoPagoRoutes(deps) {
       const parcelasNum = Number(parcelas) || 1;
       if (parcelasNum < 1 || parcelasNum > 12) {
         return res.status(400).json({ error: 'Número de parcelas deve ser entre 1 e 12.' });
+      }
+
+      const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
+      if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
+        return res.status(400).json({ error: 'Informe um CPF ou CNPJ válido para o pagamento com cartão.' });
       }
 
       // Buscar pedido
@@ -162,7 +177,8 @@ module.exports = function createMercadoPagoRoutes(deps) {
         return res.status(403).json({ error: 'Acesso negado a este pedido.' });
       }
 
-      if (pedido.status !== 'pendente') {
+      const podeProcessarCartao = ['pendente', 'pagamento_recusado'].includes(String(pedido.status || '').trim().toLowerCase());
+      if (!podeProcessarCartao) {
         return res.status(400).json({ error: `Pedido já se encontra com status "${pedido.status}". Não é possível processar pagamento.` });
       }
 
@@ -172,7 +188,6 @@ module.exports = function createMercadoPagoRoutes(deps) {
         [req.usuario.id]
       );
       const usuario = usuarios[0] || {};
-      const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
 
       const resultado = await mercadoPagoService.criarPagamentoCartao({
         pedidoId,
@@ -182,7 +197,9 @@ module.exports = function createMercadoPagoRoutes(deps) {
         parcelas: parcelasNum,
         email: usuario.email || 'cliente@bomfilho.com.br',
         nome: usuario.nome || 'Cliente',
-        cpf: taxIdDigits
+        cpf: taxIdDigits,
+        paymentMethodId: String(payment_method_id || '').trim(),
+        issuerId: Number(issuer_id)
       });
 
       const statusInterno = mercadoPagoService.mapearStatusPagamento(resultado.status);
@@ -210,9 +227,30 @@ module.exports = function createMercadoPagoRoutes(deps) {
         status_interno: statusInterno
       });
     } catch (erro) {
-      logger.error('[MP] Erro ao processar cartão:', erro.message);
-      const mensagem = erro.mpResponse?.message || 'Não foi possível processar o pagamento com cartão.';
-      res.status(500).json({ error: mensagem });
+      const status = Number(erro?.status || 500);
+      const causas = extrairCausasMercadoPago(erro?.mpResponse || {});
+      const mensagem =
+        erro?.mpResponse?.message
+        || erro?.mpResponse?.error
+        || erro?.message
+        || 'Não foi possível processar o pagamento com cartão.';
+      const mensagemDetalhada = causas.length
+        ? `${mensagem} (${causas.join(' | ')})`
+        : mensagem;
+
+      logger.error('[MP] Erro ao processar cartão:', {
+        status,
+        message: erro?.message,
+        causes: causas,
+        mpResponse: erro?.mpResponse || null
+      });
+
+      res.status(status).json({
+        error: mensagemDetalhada,
+        message: mensagemDetalhada,
+        causes: causas,
+        details: erro?.mpResponse || null
+      });
     }
   });
 

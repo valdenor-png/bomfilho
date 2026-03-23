@@ -98,7 +98,15 @@ export async function tokenizeCard({
     throw new Error('Não foi possível tokenizar o cartão no Mercado Pago.');
   }
 
-  return token;
+  const paymentMethodId = String(resultado?.payment_method_id || '').trim() || null;
+  const issuerIdRaw = resultado?.issuer_id ?? resultado?.issuer?.id ?? null;
+  const issuerId = Number.isFinite(Number(issuerIdRaw)) ? Number(issuerIdRaw) : null;
+
+  return {
+    token,
+    paymentMethodId,
+    issuerId
+  };
 }
 
 export async function configure3DSSession() {

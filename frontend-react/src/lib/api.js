@@ -871,7 +871,7 @@ export function mpGerarPix(pedidoId, taxId) {
   return request('/api/mercadopago/criar-pix', { method: 'POST', body });
 }
 
-export function mpPagarCartao(pedidoId, { token, parcelas = 1, taxId } = {}) {
+export function mpPagarCartao(pedidoId, { token, parcelas = 1, taxId, paymentMethodId, issuerId } = {}) {
   const body = {
     pedido_id: pedidoId,
     token,
@@ -879,6 +879,12 @@ export function mpPagarCartao(pedidoId, { token, parcelas = 1, taxId } = {}) {
   };
   const taxIdDigits = String(taxId || '').replace(/\D/g, '');
   if (taxIdDigits) body.tax_id = taxIdDigits;
+  const paymentMethod = String(paymentMethodId || '').trim();
+  if (paymentMethod) body.payment_method_id = paymentMethod;
+  const issuerNumeric = Number(issuerId);
+  if (Number.isFinite(issuerNumeric) && issuerNumeric > 0) {
+    body.issuer_id = issuerNumeric;
+  }
   return request('/api/mercadopago/criar-cartao', { method: 'POST', body });
 }
 
