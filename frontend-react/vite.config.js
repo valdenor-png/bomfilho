@@ -1,6 +1,4 @@
-import { defineConfig } from 'vite';
-
-const DEV_API_PROXY_TARGET = process.env.VITE_DEV_API_PROXY_TARGET || 'http://localhost:3000';
+import { defineConfig, loadEnv } from 'vite';
 
 function criarManualChunks(id) {
   const caminhoNormalizado = id.replace(/\\/g, '/');
@@ -40,21 +38,31 @@ function criarManualChunks(id) {
   return undefined;
 }
 
-export default defineConfig({
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: DEV_API_PROXY_TARGET,
-        changeOrigin: true
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const devApiProxyTarget = String(env.VITE_DEV_API_PROXY_TARGET || '').trim() || 'http://localhost:3000';
+  const devAdminApiProxyTarget = String(env.VITE_DEV_ADMIN_API_PROXY_TARGET || '').trim() || 'http://localhost:3000';
+
+  return {
+    server: {
+      port: 5173,
+      proxy: {
+        '/api/admin': {
+          target: devAdminApiProxyTarget,
+          changeOrigin: true
+        },
+        '/api': {
+          target: devApiProxyTarget,
+          changeOrigin: true
+        }
+      }
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: criarManualChunks
+        }
       }
     }
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: criarManualChunks
-      }
-    }
-  }
+  };
 });

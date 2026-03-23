@@ -2,6 +2,7 @@
 
 const express = require('express');
 const logger = require('../lib/logger');
+const { montarRespostaErroBanco } = require('../lib/db');
 const { criarErroHttp, toMoney } = require('../lib/helpers');
 const { calculateCartLogistics } = require('../services/cartLogisticsService');
 
@@ -423,8 +424,17 @@ module.exports = function createDeliveryRoutes({
 
       res.json({ pedidos: rows });
     } catch (error) {
-      logger.error('admin.delivery.pedidos erro', { message: error?.message });
-      res.status(500).json({ error: 'Não foi possível carregar fila de entregas.' });
+      const respostaErro = montarRespostaErroBanco(error, {
+        fallbackMessage: 'Não foi possível carregar fila de entregas.'
+      });
+      logger.error('admin.delivery.pedidos erro', {
+        ...respostaErro.logMeta,
+        route: '/api/admin/delivery/pedidos'
+      });
+      res.status(respostaErro.status).json({
+        error: respostaErro.payload.erro,
+        codigo: respostaErro.payload.codigo
+      });
     }
   });
 

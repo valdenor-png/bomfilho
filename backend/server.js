@@ -68,6 +68,8 @@ const {
 
 const app = express();
 
+let requestCounter = 0;
+
 // ============================================
 // CONFIGURAÇÃO CENTRALIZADA (lib/config.js)
 // ============================================
@@ -1254,20 +1256,60 @@ const rateLimitValidateOptions = TRUST_PROXY !== false
   ? { trustProxy: false }
   : { xForwardedForHeader: false };
 
-const REQUEST_TIMEOUT_PADRAO = '10s';
+const REQUEST_TIMEOUT_PADRAO = String(process.env.REQUEST_TIMEOUT_PADRAO || '20s').trim() || '20s';
+const REQUEST_TIMEOUT_ADMIN = String(process.env.REQUEST_TIMEOUT_ADMIN || '30s').trim() || '30s';
 const REQUEST_TIMEOUT_IMPORTACAO = String(process.env.REQUEST_TIMEOUT_IMPORTACAO || '600s').trim() || '600s';
 const ROTAS_TIMEOUT_IMPORTACAO = new Set([
   '/api/admin/catalogo/produtos/importar',
   '/api/admin/produtos/importar'
 ]);
 const timeoutPadraoMiddleware = timeout(REQUEST_TIMEOUT_PADRAO);
+const timeoutAdminMiddleware = timeout(REQUEST_TIMEOUT_ADMIN);
 const timeoutImportacaoMiddleware = timeout(REQUEST_TIMEOUT_IMPORTACAO);
+
+app.use((req, _res, next) => {
+  requestCounter += 1;
+  req.requestId = `${Date.now()}-${requestCounter}`;
+  req.requestStartMs = Date.now();
+  next();
+});
+
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    const inicio = Number(req.requestStartMs || Date.now());
+    const duracaoMs = Date.now() - inicio;
+    const statusCode = Number(res.statusCode || 0);
+
+    if (duracaoMs >= 2000 || statusCode >= 500) {
+      const payload = {
+        request_id: req.requestId,
+        method: req.method,
+        path: req.originalUrl || req.url,
+        status: statusCode,
+        duration_ms: duracaoMs,
+        timedout: Boolean(req.timedout),
+        ip: req.ip
+      };
+
+      if (statusCode >= 500) {
+        logger.error('HTTP_REQUEST_PROBLEM', payload);
+      } else {
+        logger.warn('HTTP_REQUEST_SLOW', payload);
+      }
+    }
+  });
+
+  next();
+});
 
 app.use((req, res, next) => {
   const rota = String(req.path || '');
   const metodo = String(req.method || 'GET').toUpperCase();
   const ehRotaImportacao = metodo === 'POST' && ROTAS_TIMEOUT_IMPORTACAO.has(rota);
-  const timeoutMiddleware = ehRotaImportacao ? timeoutImportacaoMiddleware : timeoutPadraoMiddleware;
+  const ehRotaAdmin = rota.startsWith('/api/admin/');
+  const timeoutMiddleware = ehRotaImportacao
+    ? timeoutImportacaoMiddleware
+    : (ehRotaAdmin ? timeoutAdminMiddleware : timeoutPadraoMiddleware);
   return timeoutMiddleware(req, res, next);
 });
 app.use(haltOnTimedout);
@@ -1954,6 +1996,61 @@ async function registrarAuditoria(pool, { acao, entidade, entidade_id, detalhes,
 // ============================================
 app.use(sentryErrorHandler());
 
+app.use((err, req, res, next) => {
+  if (!err) {
+    return next();
+  }
+
+  const isTimeoutError =
+    err.code === 'ETIMEDOUT'
+    || err.timeout === true
+    || String(err.message || '').toLowerCase().includes('response timeout');
+
+  if (isTimeoutError) {
+    logger.error('HTTP_REQUEST_TIMEOUT', {
+      request_id: req.requestId,
+      method: req.method,
+      path: req.originalUrl || req.url,
+      timeout_message: err.message,
+      ip: req.ip
+    });
+
+    if (res.headersSent) {
+      return next(err);
+    }
+
+    return res.status(503).json({
+      erro: 'O servidor demorou para responder. Tente novamente em instantes.',
+      codigo: 'REQUEST_TIMEOUT',
+      request_id: req.requestId
+    });
+  }
+
+  const status = Number(err.status || err.statusCode || 500);
+  const mensagem = status >= 500
+    ? 'Erro interno ao processar a requisição.'
+    : String(err.message || 'Não foi possível concluir a requisição.');
+
+  logger.error('HTTP_UNHANDLED_ERROR', {
+    request_id: req.requestId,
+    method: req.method,
+    path: req.originalUrl || req.url,
+    status,
+    error_message: err.message,
+    error_code: err.code,
+    ip: req.ip
+  });
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  return res.status(status).json({
+    erro: mensagem,
+    request_id: req.requestId
+  });
+});
+
 // ============================================
 // INICIAR SERVIDOR
 // ============================================
@@ -1986,6 +2083,9 @@ const server = app.listen(PORT, () => {
   }
   logger.info(`\n✅ Pronto para receber requisições!\n`);
 });
+
+server.keepAliveTimeout = 65000;
+server.headersTimeout = 70000;
 
 // Tratamento de erros não capturados com graceful shutdown
 let shuttingDown = false;
@@ -2021,7 +2121,7 @@ function gracefulShutdown(reason, err) {
 
 process.on('unhandledRejection', (reason) => {
   captureException(reason instanceof Error ? reason : new Error(String(reason)));
-  gracefulShutdown('Erro não tratado (Promise)', reason);
+  logger.error('⚠️ Promise rejeitada sem catch (não fatal):', reason);
 });
 
 process.on('uncaughtException', (err) => {

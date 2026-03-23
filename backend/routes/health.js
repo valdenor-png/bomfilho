@@ -2,7 +2,7 @@
 
 const express = require('express');
 const logger = require('../lib/logger');
-const { queryWithRetry } = require('../lib/db');
+const { queryWithRetry, montarRespostaErroBanco } = require('../lib/db');
 const { SERVICE_NAME, API_VERSION } = require('../lib/config');
 
 module.exports = function createHealthRoutes(deps) {
@@ -37,7 +37,7 @@ module.exports = function createHealthRoutes(deps) {
 
   router.get('/ready', async (req, res) => {
     try {
-      await queryWithRetry('SELECT 1 AS ok');
+      await queryWithRetry('SELECT 1 AS ok', [], { attempts: 1 });
 
       return res.status(200).json({
         status: 'ready',
@@ -45,12 +45,18 @@ module.exports = function createHealthRoutes(deps) {
         timestamp: new Date().toISOString()
       });
     } catch (erro) {
-      logger.error('Erro no readiness check:', erro);
-      return res.status(503).json({
+      const respostaErro = montarRespostaErroBanco(erro, {
+        fallbackMessage: 'Banco indisponível para readiness check.'
+      });
+      logger.error('Erro no readiness check:', {
+        ...respostaErro.logMeta,
+        route: '/ready'
+      });
+      return res.status(respostaErro.status).json({
         status: 'not-ready',
         service: SERVICE_NAME,
         timestamp: new Date().toISOString(),
-        erro: 'Falha na conexão com MySQL'
+        ...respostaErro.payload
       });
     }
   });

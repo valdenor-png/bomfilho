@@ -869,6 +869,39 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
+.home-opportunities-rail {
+  margin-top: 0.68rem;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(168px, 198px);
+  gap: 0.64rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.04rem 0.08rem 0.32rem;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.home-opportunities-rail::-webkit-scrollbar {
+  height: 6px;
+}
+
+.home-opportunities-rail::-webkit-scrollbar-track {
+  background: #ecf2ed;
+  border-radius: 999px;
+}
+
+.home-opportunities-rail::-webkit-scrollbar-thumb {
+  background: #b6c8bc;
+  border-radius: 999px;
+}
+
+.home-opportunities-rail .home-opportunity-card {
+  scroll-snap-align: start;
+  min-height: 100%;
+}
+
 .home-opportunity-card {
   position: relative;
   border: 1px solid var(--bf-border);
@@ -15655,6 +15688,11 @@ body {
   gap: 0.55rem;
 }
 
+.home-section-clean .home-opportunities-rail {
+  gap: 0.55rem;
+  grid-auto-columns: minmax(164px, 186px);
+}
+
 .home-section-clean .home-opportunity-card {
   border: 1px solid #e5e7eb;
   box-shadow: none;
@@ -16151,6 +16189,11 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .home-section-clean .home-opportunities-rail {
+    grid-auto-columns: minmax(148px, 172px);
+    gap: 0.5rem;
+  }
+
   .home-section-clean .sector-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -16194,6 +16237,11 @@ body {
 
   .home-section-clean .home-opportunities-grid {
     grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+  }
+
+  .home-section-clean .home-opportunities-rail {
+    grid-auto-columns: minmax(140px, 160px);
     gap: 0.4rem;
   }
 

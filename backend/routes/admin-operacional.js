@@ -2,6 +2,7 @@
 
 const express = require('express');
 const logger = require('../lib/logger');
+const { montarRespostaErroBanco } = require('../lib/db');
 const { parsePositiveInt, montarPaginacao } = require('../lib/helpers');
 
 // Mapeamento status → coluna de timestamp (métricas operacionais)
@@ -230,8 +231,14 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
       return res.json({ pedidos });
     } catch (erro) {
-      logger.error('Erro ao buscar pedidos (admin):', erro);
-      res.status(500).json({ erro: 'Não foi possível carregar os pedidos no painel.' });
+      const respostaErro = montarRespostaErroBanco(erro, {
+        fallbackMessage: 'Não foi possível carregar os pedidos no painel.'
+      });
+      logger.error('Erro ao buscar pedidos (admin):', {
+        ...respostaErro.logMeta,
+        route: '/api/admin/pedidos'
+      });
+      res.status(respostaErro.status).json(respostaErro.payload);
     }
   });
 

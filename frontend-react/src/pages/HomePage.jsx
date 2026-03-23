@@ -239,14 +239,14 @@ export default function HomePage() {
         {carregando ? (
           <HomeShelfSkeleton quantidade={4} />
         ) : oportunidadesComerciais.length > 0 ? (
-          <div className="home-opportunities-grid">
+          <div className="home-opportunities-rail" role="list" aria-label="Lista horizontal de ofertas do dia">
             {oportunidadesComerciais.map(({ produto, id }, index) => {
               const temOferta = isProdutoEmPromocao(produto);
               const blurSrc = getProdutoImagemBlur(produto);
               const precoLabel = Number(produto.preco || 0).toFixed(2);
 
               return (
-                <article className="home-opportunity-card" key={`home-opportunity-${id || produto.nome}`}>
+                <article className="home-opportunity-card" role="listitem" key={`home-opportunity-${id || produto.nome}`}>
                   {temOferta ? (
                     <span className="home-opportunity-badge">{getOfertaComercialLabel(produto)}</span>
                   ) : null}

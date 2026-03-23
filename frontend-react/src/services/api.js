@@ -67,6 +67,14 @@ function aguardar(ms) {
   });
 }
 
+function calcularAtrasoRetry(baseMs, tentativaAtual) {
+  const base = Math.max(0, Number(baseMs) || 0);
+  const tentativa = Math.max(0, Number(tentativaAtual) || 0);
+  const exponencial = Math.min(5000, base * (2 ** tentativa));
+  const jitter = Math.floor(Math.random() * 300);
+  return exponencial + jitter;
+}
+
 async function parseJsonOuTexto(response) {
   const contentType = String(response?.headers?.get('content-type') || '').toLowerCase();
 
@@ -156,7 +164,7 @@ export async function apiRequest(path, options = {}) {
 
   const maxRetries = Number.isFinite(Number(retryCount))
     ? Math.max(0, Number(retryCount))
-    : (methodUpper === 'GET' ? 1 : 0);
+    : (methodUpper === 'GET' ? (IS_DEVELOPMENT ? 0 : 2) : 0);
   const retryDelay = Math.max(0, Number(retryDelayMs) || 0);
 
   for (let tentativa = 0; tentativa <= maxRetries; tentativa += 1) {
@@ -201,15 +209,17 @@ export async function apiRequest(path, options = {}) {
         const podeRetentar = tentativa < maxRetries && [502, 503, 504].includes(statusCode) && methodUpper === 'GET';
 
         if (podeRetentar) {
+          const atraso = calcularAtrasoRetry(retryDelay, tentativa);
           logApi('API RETRY', {
             method: methodUpper,
             path,
             url,
             status: statusCode,
             tentativaAtual: tentativa + 1,
-            proximaTentativa: tentativa + 2
+            proximaTentativa: tentativa + 2,
+            delayMs: atraso
           });
-          await aguardar(retryDelay);
+          await aguardar(atraso);
           continue;
         }
 
@@ -249,15 +259,17 @@ export async function apiRequest(path, options = {}) {
       const podeRetentar = tentativa < maxRetries && methodUpper === 'GET' && (timeoutError || !erroComStatus);
 
       if (podeRetentar) {
+        const atraso = calcularAtrasoRetry(retryDelay, tentativa);
         logApi('API RETRY', {
           method: methodUpper,
           path,
           url,
           reason: timeoutError ? 'timeout' : 'network',
           tentativaAtual: tentativa + 1,
-          proximaTentativa: tentativa + 2
+          proximaTentativa: tentativa + 2,
+          delayMs: atraso
         });
-        await aguardar(retryDelay);
+        await aguardar(atraso);
         continue;
       }
 
