@@ -713,6 +713,20 @@ export function getPedidoStatus(pedidoId) {
   return request(`/api/pedidos/${pedidoId}/status`);
 }
 
+export function getPedidoDeliveryTracking(pedidoId) {
+  return request(`/api/pedidos/${pedidoId}/delivery-tracking`);
+}
+
+export function registrarPedidoDeliveryEvento(pedidoId, { action, metadata } = {}) {
+  return request(`/api/pedidos/${pedidoId}/delivery-event`, {
+    method: 'POST',
+    body: {
+      action: String(action || '').trim(),
+      metadata: metadata && typeof metadata === 'object' ? metadata : undefined
+    }
+  });
+}
+
 export function confirmarRecebimentoPedido(pedidoId) {
   return request(`/api/pedidos/${pedidoId}/confirmar-recebimento`, { method: 'PUT' });
 }
@@ -869,9 +883,14 @@ export function mpPagarCartao(pedidoId, { token, parcelas = 1, taxId } = {}) {
 }
 
 export function mpGetPublicKey() {
-  const envKey = import.meta.env.VITE_MP_PUBLIC_KEY || '';
-  if (envKey) return Promise.resolve({ public_key: envKey });
-  return request('/api/mercadopago/public-key');
+  const envKey = String(import.meta.env.VITE_MP_PUBLIC_KEY || '').trim();
+  if (envKey) {
+    return Promise.resolve({ public_key: envKey });
+  }
+
+  return Promise.reject(
+    new Error('Configuração de pagamento ausente. Defina VITE_MP_PUBLIC_KEY para habilitar cartão no Mercado Pago.')
+  );
 }
 
 export function mpGetStatus() {

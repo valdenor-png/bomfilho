@@ -1,0 +1,12 @@
+{
+  "event_id": "qa-evt-08-regression",
+  "event_type": "pickup_started",
+  "delivery_id": "__DELIVERY_ID__",
+  "eta_seconds": 1800,
+  "courier": {
+    "name": "Entregador QA",
+    "vehicle_type": "bike",
+    "phone_number": "11977778888"
+  },
+  "note": "Enviar este evento apos delivered/canceled para validar nao regressao"
+}

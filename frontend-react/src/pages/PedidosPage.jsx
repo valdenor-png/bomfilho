@@ -5,6 +5,7 @@ import useDocumentHead from '../hooks/useDocumentHead';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
 import { getPedidoById, getPedidos, getPedidoStatus, confirmarRecebimentoPedido, isAuthErrorMessage } from '../lib/api';
+import DeliveryTrackingPanel from '../components/pedidos/DeliveryTrackingPanel';
 
 const PEDIDOS_POR_PAGINA = 20;
 const PRELOAD_RESUMO_LIMITE = 6;
@@ -232,6 +233,7 @@ export default function PedidosPage() {
   const [carregandoMais, setCarregandoMais] = useState(false);
   const [pedidoRepetindoId, setPedidoRepetindoId] = useState(null);
   const [confirmandoRecebimento, setConfirmandoRecebimento] = useState(null);
+  const [trackingPedidoId, setTrackingPedidoId] = useState(null);
   const [autenticado, setAutenticado] = useState(null);
   const [erro, setErro] = useState('');
   const [mensagemSucesso, setMensagemSucesso] = useState('');
@@ -764,6 +766,16 @@ export default function PedidosPage() {
                     >
                       {pedidoRepetindoId === Number(pedido.id) ? 'Repetindo...' : 'Pedir novamente'}
                     </button>
+
+                    {pedido?.tipo_entrega === 'entrega' ? (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => setTrackingPedidoId(Number(pedido.id))}
+                      >
+                        Central da entrega
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -835,6 +847,21 @@ export default function PedidosPage() {
             {carregandoMais ? 'Carregando mais pedidos...' : 'Carregar pedidos anteriores'}
           </button>
         </div>
+      ) : null}
+
+      {trackingPedidoId ? (
+        <DeliveryTrackingPanel
+          pedidoId={trackingPedidoId}
+          open={Boolean(trackingPedidoId)}
+          pedidoResumo={pedidos.find((pedido) => Number(pedido?.id) === Number(trackingPedidoId)) || null}
+          onClose={() => setTrackingPedidoId(null)}
+          onRepeatOrder={() => {
+            const pedido = pedidos.find((item) => Number(item?.id) === Number(trackingPedidoId));
+            if (pedido) {
+              void handlePedirNovamente(pedido);
+            }
+          }}
+        />
       ) : null}
     </section>
   );

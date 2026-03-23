@@ -1,0 +1,17 @@
+{
+  "event_id": "qa-evt-04-near",
+  "event_type": "arriving_soon",
+  "delivery_id": "__DELIVERY_ID__",
+  "eta_seconds": 420,
+  "tracking_url": "https://tracking.uber.example/order/__DELIVERY_ID__",
+  "pin_code": "845211",
+  "courier": {
+    "name": "Entregador QA",
+    "vehicle_type": "bike",
+    "phone_number": "11977778888",
+    "location": {
+      "lat": -23.5514,
+      "lng": -46.6322
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "event_id": "qa-evt-03-transit",
+  "event_type": "dropoff_started",
+  "delivery_id": "__DELIVERY_ID__",
+  "eta_seconds": 1500,
+  "tracking_url": "https://tracking.uber.example/order/__DELIVERY_ID__",
+  "courier": {
+    "name": "Entregador QA",
+    "vehicle_type": "bike",
+    "phone_number": "11977778888",
+    "location": {
+      "lat": -23.55052,
+      "lng": -46.63331
+    }
+  }
+}

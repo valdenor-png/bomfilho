@@ -1,8 +1,4 @@
 import React from 'react';
-import {
-  normalizarCepEndereco,
-  formatarCepEndereco
-} from '../../lib/contaUtils';
 
 function IconPin() {
   return (
@@ -33,13 +29,15 @@ export default function AddressSection({
   onCepChange,
   onCepBlur
 }) {
+  const tituloAcaoEndereco = enderecoPrincipal ? 'Editar endereço' : 'Adicionar endereço';
+
   return (
     <article className="card-box conta-section-card">
       <div className="conta-section-head">
         <span className="conta-section-icon"><IconPin /></span>
         <div>
           <h3>Endereços</h3>
-          <p>Resumo do endereço principal com edição sob demanda.</p>
+          <p>Seu ponto principal de entrega com edição rápida quando precisar.</p>
         </div>
       </div>
 
@@ -49,6 +47,7 @@ export default function AddressSection({
         ) : !enderecoEmEdicao ? (
           <div className="conta-address-summary">
             <div className="conta-address-preview">
+              <span className="conta-address-badge">Principal</span>
               <p className="conta-address-title">{resumoEndereco.titulo}</p>
               <p>{resumoEndereco.linha1}</p>
               <p className="muted-text conta-address-muted">{resumoEndereco.linha2}</p>
@@ -67,7 +66,7 @@ export default function AddressSection({
 
             <div className="conta-address-summary-actions">
               <button className="btn-secondary" type="button" onClick={onIniciarEdicao}>
-                {enderecoPrincipal ? 'Editar endereço' : 'Adicionar endereço'}
+                {tituloAcaoEndereco}
               </button>
             </div>
 

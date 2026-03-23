@@ -23,11 +23,52 @@ const MP_API_BASE = 'https://api.mercadopago.com';
  * @param {string} opts.accessToken - MP_ACCESS_TOKEN
  * @param {string} opts.webhookSecret - MP_WEBHOOK_SECRET (para validar x-signature)
  * @param {number} [opts.timeoutMs=15000]
+ * @param {string} [opts.env='test']
+ * @param {string} [opts.notificationUrl='']
+ * @param {string} [opts.successUrl='']
+ * @param {string} [opts.pendingUrl='']
+ * @param {string} [opts.failureUrl='']
+ * @param {string} [opts.baseUrl='']
  */
-function criarMercadoPagoService({ accessToken, webhookSecret, timeoutMs = 15000 }) {
+function criarMercadoPagoService({
+  accessToken,
+  webhookSecret,
+  timeoutMs = 15000,
+  env = 'test',
+  notificationUrl = '',
+  successUrl = '',
+  pendingUrl = '',
+  failureUrl = '',
+  baseUrl = ''
+}) {
   if (!accessToken) {
     logger.warn('⚠️ MP_ACCESS_TOKEN não configurado. Pagamentos Mercado Pago indisponíveis.');
   }
+
+  const mpEnv = String(env || 'test').trim().toLowerCase() === 'production' ? 'production' : 'test';
+
+  function normalizarUrl(url) {
+    return String(url || '').trim();
+  }
+
+  function montarNotificationUrl() {
+    const explicit = normalizarUrl(notificationUrl);
+    if (explicit) {
+      return explicit;
+    }
+
+    const base = normalizarUrl(baseUrl).replace(/\/+$/, '');
+    if (!base) {
+      return '';
+    }
+
+    return `${base}/api/webhooks/mercadopago`;
+  }
+
+  const mpNotificationUrl = montarNotificationUrl();
+  const mpSuccessUrl = normalizarUrl(successUrl);
+  const mpPendingUrl = normalizarUrl(pendingUrl);
+  const mpFailureUrl = normalizarUrl(failureUrl);
 
   // ============================================
   // HTTP Client base
@@ -74,6 +115,7 @@ function criarMercadoPagoService({ accessToken, webhookSecret, timeoutMs = 15000
       transaction_amount: Number(valor),
       description: descricao || `Pedido #${pedidoId} - Mercado BomFilho`,
       payment_method_id: 'pix',
+      notification_url: mpNotificationUrl || undefined,
       payer: {
         email: email,
         first_name: String(nome || 'Cliente').split(' ')[0],
@@ -118,6 +160,7 @@ function criarMercadoPagoService({ accessToken, webhookSecret, timeoutMs = 15000
       payment_method_id: 'credit_card',
       token: token,
       installments: Number(parcelas) || 1,
+      notification_url: mpNotificationUrl || undefined,
       payer: {
         email: email,
         first_name: String(nome || 'Cliente').split(' ')[0],
@@ -212,6 +255,11 @@ function criarMercadoPagoService({ accessToken, webhookSecret, timeoutMs = 15000
   }
 
   return {
+    env: mpEnv,
+    notificationUrl: mpNotificationUrl,
+    successUrl: mpSuccessUrl,
+    pendingUrl: mpPendingUrl,
+    failureUrl: mpFailureUrl,
     criarPagamentoPix,
     criarPagamentoCartao,
     consultarPagamento,

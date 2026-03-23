@@ -57,13 +57,15 @@ Cada item deve ser marcado por quem executou, com data.
 | `SENTRY_DSN` | Captura de erros (requer `npm install @sentry/node`) |
 | `LOG_LEVEL` | Nivel de log (default: info) |
 | `METRICS_ENABLED` + `METRICS_TOKEN` | Metricas operacionais |
-| `MP_PUBLIC_KEY` | Tokenizacao de cartao no frontend |
+| `MP_ENV` | Ambiente do Mercado Pago (`test` ou `production`) |
+| `MP_NOTIFICATION_URL` | URL de notificação (fallback usa BASE_URL) |
 
 ### 3.3 Frontend (obrigatorias em producao)
 
 | Variavel | Descricao |
 |----------|-----------|
 | `VITE_API_URL=https://...` | URL publica do backend |
+| `VITE_MP_PUBLIC_KEY` | Chave publica para tokenizacao no checkout |
 
 ### 3.4 Frontend (recomendadas)
 
@@ -130,8 +132,8 @@ Cada item deve ser marcado por quem executou, com data.
 - [ ] Cartao de credito testado (tokenizacao → cobranca → webhook)
 - [ ] Webhook Mercado Pago recebido e processado corretamente
 - [ ] Idempotencia validada (webhook duplicado nao gera duplicidade)
-- [ ] MP_PUBLIC_KEY configurada para tokenizacao frontend
-- [ ] MP_WEBHOOK_URL com HTTPS e endpoint correto
+- [ ] VITE_MP_PUBLIC_KEY configurada para tokenizacao frontend
+- [ ] MP_NOTIFICATION_URL com HTTPS e endpoint correto (ou fallback via BASE_URL)
 
 ---
 

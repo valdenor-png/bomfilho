@@ -5,13 +5,12 @@
  *
  * POST /api/mercadopago/criar-pix     — Gera pagamento PIX para pedido já aprovado
  * POST /api/mercadopago/criar-cartao  — Processa pagamento com cartão de crédito
- * GET  /api/mercadopago/public-key    — Retorna Public Key para tokenização no frontend
  * GET  /api/mercadopago/status        — Health check do gateway
  */
 
 const express = require('express');
 const logger = require('../lib/logger');
-const { MP_ACCESS_TOKEN, MP_PUBLIC_KEY } = require('../lib/config');
+const { MP_ACCESS_TOKEN, MP_ENV, MP_NOTIFICATION_URL, MP_WEBHOOK_SECRET } = require('../lib/config');
 
 module.exports = function createMercadoPagoRoutes(deps) {
   const {
@@ -218,23 +217,15 @@ module.exports = function createMercadoPagoRoutes(deps) {
   });
 
   // ============================================
-  // PUBLIC KEY para tokenização no frontend
-  // ============================================
-  router.get('/api/mercadopago/public-key', (req, res) => {
-    if (!MP_PUBLIC_KEY) {
-      return res.status(503).json({ error: 'Mercado Pago não configurado.' });
-    }
-    res.json({ public_key: MP_PUBLIC_KEY });
-  });
-
-  // ============================================
   // STATUS / Health Check
   // ============================================
   router.get('/api/mercadopago/status', (req, res) => {
     res.json({
       gateway: 'mercadopago',
       configurado: Boolean(MP_ACCESS_TOKEN),
-      public_key_configurada: Boolean(MP_PUBLIC_KEY)
+      env: MP_ENV,
+      notification_url_configurada: Boolean(MP_NOTIFICATION_URL),
+      webhook_secret_configurado: Boolean(MP_WEBHOOK_SECRET)
     });
   });
 

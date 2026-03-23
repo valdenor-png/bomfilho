@@ -1,0 +1,11 @@
+{
+  "event_id": "qa-evt-02-pickup",
+  "event_type": "pickup_started",
+  "delivery_id": "__DELIVERY_ID__",
+  "eta_seconds": 2400,
+  "courier": {
+    "name": "Entregador QA",
+    "vehicle_type": "bike",
+    "phone_number": "11977778888"
+  }
+}

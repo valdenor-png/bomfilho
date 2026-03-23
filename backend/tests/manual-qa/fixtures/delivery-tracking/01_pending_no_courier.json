@@ -1,0 +1,7 @@
+{
+  "event_id": "qa-evt-01-pending",
+  "event_type": "delivery_created",
+  "delivery_id": "__DELIVERY_ID__",
+  "eta_seconds": 3600,
+  "status": "pending"
+}

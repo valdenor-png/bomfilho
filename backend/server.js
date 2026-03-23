@@ -110,9 +110,23 @@ const readQueryCache = new BoundedCache({ maxSize: 500, ttlMs: READ_QUERY_CACHE_
 
 // ── Mercado Pago service instance ───────────────────────────────────────
 const { criarMercadoPagoService } = require('./services/mercadoPagoService');
-const { MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET } = config;
+const {
+  MP_ACCESS_TOKEN,
+  MP_ENV,
+  MP_NOTIFICATION_URL,
+  MP_SUCCESS_URL,
+  MP_PENDING_URL,
+  MP_FAILURE_URL,
+  MP_WEBHOOK_SECRET
+} = config;
 const mercadoPagoService = criarMercadoPagoService({
   accessToken: MP_ACCESS_TOKEN,
+  env: MP_ENV,
+  notificationUrl: MP_NOTIFICATION_URL,
+  successUrl: MP_SUCCESS_URL,
+  pendingUrl: MP_PENDING_URL,
+  failureUrl: MP_FAILURE_URL,
+  baseUrl: BASE_URL_ENV,
   webhookSecret: MP_WEBHOOK_SECRET,
   timeoutMs: 15000
 });
@@ -1891,7 +1905,7 @@ const server = app.listen(PORT, () => {
   logger.info(`\n🚀 Servidor rodando na porta ${PORT}`);
   logger.info(`📍 URL: http://localhost:${PORT}`);
   logger.info(`🌍 CORS_ORIGINS: ${CORS_ORIGINS.join(', ') || '(nenhuma origem explícita)'}`);
-  logger.info(`💳 Mercado Pago: access_token=${config.MP_ACCESS_TOKEN ? '✅ configurado' : '❌ ausente'} | public_key=${config.MP_PUBLIC_KEY ? '✅' : '❌'} | webhook_secret=${config.MP_WEBHOOK_SECRET ? '✅' : '❌'}`);
+  logger.info(`💳 Mercado Pago: access_token=${config.MP_ACCESS_TOKEN ? '✅ configurado' : '❌ ausente'} | env=${config.MP_ENV} | notification_url=${config.MP_NOTIFICATION_URL ? '✅' : 'fallback(BASE_URL)'} | webhook_secret=${config.MP_WEBHOOK_SECRET ? '✅' : '❌'}`);
   logger.info(`🍪 Cookies: secure=${COOKIE_SECURE} sameSite=${COOKIE_SAME_SITE} domain=${COOKIE_DOMAIN || '(sem domínio)'}`);
   logger.info(`\n📚 Endpoints disponíveis:`);
   logger.info(`   POST   /api/auth/cadastro`);

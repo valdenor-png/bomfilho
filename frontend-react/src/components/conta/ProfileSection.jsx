@@ -31,26 +31,27 @@ export default function ProfileSection({
   telefoneExibicao,
   iniciaisAvatar,
   textoStatusConta,
+  resumoCadastro,
   carregando,
   onAcaoEmBreve
 }) {
   return (
-    <article className="card-box conta-profile-card">
-      <div className="conta-profile-top">
+    <article className="card-box conta-profile-card conta-hero-card">
+      <div className="conta-profile-top conta-hero-main">
         <div className="conta-avatar" aria-hidden="true">{iniciaisAvatar}</div>
 
-        <div className="conta-profile-copy">
+        <div className="conta-profile-copy conta-hero-copy">
           <span className="conta-pill">Conta ativa</span>
           <h2>{nomeExibicao}</h2>
           <p className="muted-text conta-profile-subtitle">{textoStatusConta}</p>
         </div>
 
-        <div className="conta-profile-actions">
+        <div className="conta-profile-actions conta-hero-actions">
           <Link to="/pedidos" className="btn-primary conta-profile-orders">
-            Ver meus pedidos
+            Meus pedidos
           </Link>
           <button
-            className="btn-secondary conta-profile-edit is-subtle"
+            className="btn-secondary conta-profile-edit"
             type="button"
             disabled={carregando}
             onClick={() => onAcaoEmBreve('Edição de perfil')}
@@ -81,7 +82,7 @@ export default function ProfileSection({
           <span className="conta-line-icon"><IconUser /></span>
           <span className="conta-line-copy">
             <small>Cadastro</small>
-            <strong>Cliente desde {new Date().getFullYear()}</strong>
+            <strong>{resumoCadastro}</strong>
           </span>
         </p>
       </div>

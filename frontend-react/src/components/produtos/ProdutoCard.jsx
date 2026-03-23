@@ -3,6 +3,7 @@ import SmartImage from '../ui/SmartImage';
 import { ProdutoImageFallback, ProdutoBadge } from './ProdutoHelpers';
 import {
   formatCurrency,
+  getEstoqueBadge,
   getProdutoBadges,
   prefetchProductImage
 } from '../../lib/produtosUtils';
@@ -82,6 +83,7 @@ const ProdutoCard = React.memo(function ProdutoCard({
   const medidaProduto = produtoIndexado.medidaProduto;
   const precoInfo = produtoIndexado.precoInfo;
   const estoqueInfo = produtoIndexado.estoqueInfo;
+  const estoqueBadge = useMemo(() => getEstoqueBadge(estoqueInfo), [estoqueInfo]);
   const growthCatalogConfig = growthExperimento?.catalog || null;
   const growthCatalogEnabled = Boolean(growthCatalogConfig?.enabled);
   const growthCatalogBadge = growthCatalogEnabled
@@ -219,6 +221,12 @@ const ProdutoCard = React.memo(function ProdutoCard({
         <h3 className="produto-title" title={nomeProduto}>{nomeProduto}</h3>
         {detalhesProduto && detalhesProduto !== 'Unidade' && !detalhesProduto.startsWith('Sele') ? (
           <p className="produto-details">{detalhesProduto}</p>
+        ) : null}
+
+        {estoqueInfo?.informado ? (
+          <p className={`produto-stock-badge ${estoqueBadge?.cor === 'green' ? 'is-green' : ''} ${estoqueBadge?.cor === 'yellow' ? 'is-yellow' : ''}`.trim()}>
+            {estoqueBadge?.cor === 'yellow' ? 'Pouco estoque' : 'Em estoque'}
+          </p>
         ) : null}
 
         <div className={priceAreaClassName}>

@@ -65,14 +65,30 @@ const PAGBANK_3DS_SDK_ENV = PAGBANK_CONFIG.sdkEnv;
 // MERCADO PAGO
 // ============================================
 const MP_ACCESS_TOKEN = String(process.env.MP_ACCESS_TOKEN || '').trim();
-const MP_PUBLIC_KEY = String(process.env.MP_PUBLIC_KEY || '').trim();
+const MP_ENV_RAW = String(process.env.MP_ENV || '').trim().toLowerCase();
+const MP_ENV = ['test', 'production'].includes(MP_ENV_RAW)
+  ? MP_ENV_RAW
+  : (IS_PRODUCTION ? 'production' : 'test');
+const MP_NOTIFICATION_URL = String(process.env.MP_NOTIFICATION_URL || '').trim();
+const MP_SUCCESS_URL = String(process.env.MP_SUCCESS_URL || '').trim();
+const MP_PENDING_URL = String(process.env.MP_PENDING_URL || '').trim();
+const MP_FAILURE_URL = String(process.env.MP_FAILURE_URL || '').trim();
 const MP_WEBHOOK_SECRET = String(process.env.MP_WEBHOOK_SECRET || '').trim();
 
 if (!MP_ACCESS_TOKEN) {
-  console.warn('⚠️ MP_ACCESS_TOKEN não configurado. Pagamentos via Mercado Pago indisponíveis.');
+  throw new Error('MP_ACCESS_TOKEN não configurado. Defina o token privado do Mercado Pago para iniciar o backend.');
+}
+if (MP_ENV_RAW && !['test', 'production'].includes(MP_ENV_RAW)) {
+  console.warn(`⚠️ MP_ENV inválido (${MP_ENV_RAW}). Usando fallback seguro: ${MP_ENV}.`);
+}
+if (IS_PRODUCTION && MP_ENV !== 'production') {
+  throw new Error('MP_ENV deve ser "production" quando NODE_ENV=production.');
+}
+if (MP_ENV === 'production' && /^test-/i.test(MP_ACCESS_TOKEN)) {
+  throw new Error('MP_ENV=production não permite MP_ACCESS_TOKEN de teste (prefixo TEST-).');
 }
 if (IS_PRODUCTION && !MP_WEBHOOK_SECRET) {
-  console.warn('⚠️ MP_WEBHOOK_SECRET não configurado em produção. Webhooks do Mercado Pago não serão validados.');
+  throw new Error('MP_WEBHOOK_SECRET é obrigatório em produção para validação de webhook do Mercado Pago.');
 }
 
 const TAMANHO_MAXIMO_IMPORTACAO_MB = (() => {
@@ -305,7 +321,7 @@ module.exports = {
   PAGBANK_WEBHOOK_TOKEN, PAGBANK_DEBUG_LOGS, ALLOW_PIX_MOCK, ALLOW_DEBIT_3DS_MOCK,
   PAGBANK_TIMEOUT_MS, PAGBANK_API_URL, PAGBANK_SDK_API_URL, PAGBANK_3DS_SDK_ENV,
   // mercado pago
-  MP_ACCESS_TOKEN, MP_PUBLIC_KEY, MP_WEBHOOK_SECRET,
+  MP_ACCESS_TOKEN, MP_ENV, MP_NOTIFICATION_URL, MP_SUCCESS_URL, MP_PENDING_URL, MP_FAILURE_URL, MP_WEBHOOK_SECRET,
   TAMANHO_MAXIMO_IMPORTACAO_MB, TAMANHO_MAXIMO_IMPORTACAO_BYTES,
   // evolution
   EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE, EVOLUTION_WEBHOOK_TOKEN,

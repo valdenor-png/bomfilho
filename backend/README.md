@@ -71,10 +71,13 @@ RECAPTCHA_MIN_SCORE=0.5
 DIAGNOSTIC_TOKEN=
 
 # Mercado Pago (PIX + Cartão)
+MP_ENV=test
 MP_ACCESS_TOKEN=SEU_ACCESS_TOKEN_MERCADO_PAGO
-MP_PUBLIC_KEY=SUA_PUBLIC_KEY_MERCADO_PAGO
 MP_WEBHOOK_SECRET=SEU_WEBHOOK_SECRET_MERCADO_PAGO
-MP_WEBHOOK_URL=https://SUA_URL_PUBLICA/api/webhooks/mercadopago
+MP_NOTIFICATION_URL=https://SUA_URL_PUBLICA/api/webhooks/mercadopago
+MP_SUCCESS_URL=https://SEU_FRONTEND/#/pagamento?status=success
+MP_PENDING_URL=https://SEU_FRONTEND/#/pagamento?status=pending
+MP_FAILURE_URL=https://SEU_FRONTEND/#/pagamento?status=failure
 BASE_URL=https://SUA_URL_PUBLICA
 
 # Evolution API (WhatsApp)
@@ -100,10 +103,11 @@ Para esse fluxo funcionar localmente, o webhook precisa estar acessível publica
 
 ### 1) Preencher variáveis no `.env`
 
+- `MP_ENV`: `test` em desenvolvimento/homologação e `production` em produção
 - `MP_ACCESS_TOKEN`: token privado do Mercado Pago
-- `MP_PUBLIC_KEY`: chave pública para tokenização de cartão no frontend
 - `MP_WEBHOOK_SECRET`: segredo para validar assinatura do webhook
-- `MP_WEBHOOK_URL`: URL pública para receber eventos de pagamento
+- `MP_NOTIFICATION_URL`: URL pública para receber eventos de pagamento (opcional; fallback usa `BASE_URL`)
+- `MP_SUCCESS_URL`, `MP_PENDING_URL`, `MP_FAILURE_URL`: URLs de retorno para fluxos de redirecionamento
 - `BASE_URL`: URL pública do seu backend (ex.: ngrok/Cloudflare Tunnel)
 
 ### 2) Rodar migração do PIX no MySQL
@@ -128,23 +132,7 @@ Com o backend rodando, você pode validar rapidamente se a credencial está acei
 GET /api/mercadopago/status
 ```
 
-Ele retorna se o gateway está configurado e se a public key está disponível para tokenização.
-
-### 3.2) (Opcional) Expor chave pública para checkout com cartão
-
-```http
-GET /api/mercadopago/public-key
-```
-
-Retorna a chave pública (`public_key`) usada no frontend para tokenização do cartão.
-
-Resposta esperada:
-
-```json
-{
-  "public_key": "SUA_PUBLIC_KEY_MERCADO_PAGO"
-}
-```
+Ele retorna se o gateway está configurado, ambiente ativo e estado da configuração de webhook.
 
 ## Auto-resposta no WhatsApp (Evolution)
 

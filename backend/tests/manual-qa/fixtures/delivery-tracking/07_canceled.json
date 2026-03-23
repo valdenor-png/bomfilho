@@ -1,0 +1,7 @@
+{
+  "event_id": "qa-evt-07-canceled",
+  "event_type": "delivery_canceled",
+  "delivery_id": "__DELIVERY_ID__",
+  "status": "canceled",
+  "reason": "customer_unavailable"
+}

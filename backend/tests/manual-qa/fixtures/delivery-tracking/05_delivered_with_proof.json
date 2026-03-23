@@ -1,0 +1,15 @@
+{
+  "event_id": "qa-evt-05-delivered-proof",
+  "event_type": "dropoff_completed",
+  "delivery_id": "__DELIVERY_ID__",
+  "eta_seconds": 0,
+  "proof": {
+    "photo_url": "https://cdn.example.com/qa/proof-photo.jpg",
+    "signature_url": "https://cdn.example.com/qa/proof-signature.jpg"
+  },
+  "courier": {
+    "name": "Entregador QA",
+    "vehicle_type": "bike",
+    "phone_number": "11977778888"
+  }
+}

@@ -1033,6 +1033,10 @@ export default function ProdutosPage() {
         scoreMaisVendido: getScoreMaisVendido(indexadoBase),
         scoreConversao: Number(conversaoProduto?.score || 0)
       };
+    }).filter((item) => {
+      const quantidade = Number(item?.estoqueInfo?.quantidade ?? 0);
+      const estoqueInformado = Boolean(item?.estoqueInfo?.informado);
+      return !estoqueInformado || quantidade > 0;
     });
   }, [growthTopProductsById, produtos]);
 
@@ -1091,6 +1095,10 @@ export default function ProdutosPage() {
         scoreMaisVendido: getScoreMaisVendido(indexadoBase),
         scoreConversao: 0
       };
+    }).filter((item) => {
+      const quantidade = Number(item?.estoqueInfo?.quantidade ?? 0);
+      const estoqueInformado = Boolean(item?.estoqueInfo?.informado);
+      return !estoqueInformado || quantidade > 0;
     });
   }, [ofertasDia]);
 
@@ -1140,6 +1148,10 @@ export default function ProdutosPage() {
         scoreMaisVendido: getScoreMaisVendido(indexadoBase),
         scoreConversao: 0
       };
+    }).filter((item) => {
+      const quantidade = Number(item?.estoqueInfo?.quantidade ?? 0);
+      const estoqueInformado = Boolean(item?.estoqueInfo?.informado);
+      return !estoqueInformado || quantidade > 0;
     });
   }, [favoritosRecorrencia]);
 

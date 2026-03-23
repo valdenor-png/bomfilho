@@ -1,0 +1,12 @@
+{
+  "event_id": "qa-evt-09-delay-no-url",
+  "event_type": "in_transit",
+  "delivery_id": "__DELIVERY_ID__",
+  "eta_seconds": 5400,
+  "courier": {
+    "name": "Entregador QA",
+    "vehicle_type": "bike",
+    "phone_number": "11977778888"
+  },
+  "status": "delayed"
+}

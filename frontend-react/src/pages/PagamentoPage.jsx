@@ -101,7 +101,6 @@ import {
 import {
   BotaoVoltarSeta,
   LinkVoltarSeta,
-  CheckoutMobileActionBar,
   CheckoutSecurityTrust,
   DeliveryOptionCard,
   PickupStoreCard,
@@ -2462,7 +2461,6 @@ export default function PagamentoPage() {
     : 'Processando as informações do seu pedido com segurança.';
   const pagamentoAprovadoCheckout = pagamentoConfirmado || pixPagamentoAprovado || cartaoAprovado;
 
-  const exibirBarraMobileCheckout = etapaAtual !== ETAPAS.STATUS;
   const mobileActionBarConfig = (() => {
     if (etapaAtual === ETAPAS.CARRINHO) {
       return {
@@ -2571,6 +2569,54 @@ export default function PagamentoPage() {
 
     return null;
   })();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const contextoCheckout = etapaAtual === ETAPAS.STATUS
+      ? null
+      : {
+          stepLabel: mobileActionBarConfig?.stepLabel || '',
+          totalLabel: mobileActionBarConfig?.totalLabel || '',
+          caption: mobileActionBarConfig?.caption || '',
+          primaryLabel: mobileActionBarConfig?.primaryLabel || '',
+          primaryDisabled: Boolean(mobileActionBarConfig?.primaryDisabled)
+        };
+
+    window.dispatchEvent(new CustomEvent('bomfilho:checkout-context', { detail: contextoCheckout }));
+
+    return () => {
+      window.dispatchEvent(new CustomEvent('bomfilho:checkout-context', { detail: null }));
+    };
+  }, [
+    etapaAtual,
+    mobileActionBarConfig?.caption,
+    mobileActionBarConfig?.primaryDisabled,
+    mobileActionBarConfig?.primaryLabel,
+    mobileActionBarConfig?.stepLabel,
+    mobileActionBarConfig?.totalLabel
+  ]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    function handleGlobalCheckoutPrimaryAction() {
+      if (!mobileActionBarConfig?.onPrimaryClick || mobileActionBarConfig?.primaryDisabled) {
+        return;
+      }
+
+      mobileActionBarConfig.onPrimaryClick();
+    }
+
+    window.addEventListener('bomfilho:checkout-primary-action', handleGlobalCheckoutPrimaryAction);
+    return () => {
+      window.removeEventListener('bomfilho:checkout-primary-action', handleGlobalCheckoutPrimaryAction);
+    };
+  }, [mobileActionBarConfig]);
 
   useEffect(() => {
     if (startCheckoutTrackedRef.current) {
@@ -3829,19 +3875,6 @@ export default function PagamentoPage() {
         </div>
       ) : null}
 
-      <CheckoutMobileActionBar
-        visible={exibirBarraMobileCheckout}
-        stepLabel={mobileActionBarConfig?.stepLabel}
-        totalLabel={mobileActionBarConfig?.totalLabel}
-        caption={mobileActionBarConfig?.caption}
-        primaryLabel={mobileActionBarConfig?.primaryLabel}
-        onPrimaryClick={mobileActionBarConfig?.onPrimaryClick}
-        primaryDisabled={Boolean(mobileActionBarConfig?.primaryDisabled)}
-        secondaryLabel={mobileActionBarConfig?.secondaryLabel}
-        secondaryTo={mobileActionBarConfig?.secondaryTo}
-        onSecondaryClick={mobileActionBarConfig?.onSecondaryClick}
-        secondaryDisabled={Boolean(mobileActionBarConfig?.secondaryDisabled)}
-      />
     </section>
   );
 }

@@ -20,7 +20,7 @@ export default function SecuritySection({
         <span className="conta-section-icon"><IconShield /></span>
         <div>
           <h3>Segurança</h3>
-          <p>Ações de acesso da sua conta.</p>
+          <p>Ações de proteção e acesso da sua conta.</p>
         </div>
       </div>
 
@@ -30,7 +30,6 @@ export default function SecuritySection({
             <strong>Alterar senha</strong>
             <small>Troque sua senha quando precisar.</small>
           </span>
-          <span className="conta-security-item-tag" aria-hidden="true">Abrir</span>
         </button>
 
         <button className="conta-security-item" type="button" onClick={() => onAcaoEmBreve('Sessões ativas')}>
@@ -38,20 +37,18 @@ export default function SecuritySection({
             <strong>Sessões ativas</strong>
             <small>Veja onde sua conta está conectada.</small>
           </span>
-          <span className="conta-security-item-tag" aria-hidden="true">Abrir</span>
         </button>
 
-        <button className="conta-security-item" type="button" onClick={onLogout} disabled={carregando}>
+        <button className="conta-security-item conta-security-item-danger" type="button" onClick={onLogout} disabled={carregando}>
           <span className="conta-security-item-copy">
             <strong>Sair da conta</strong>
             <small>Encerrar sessão neste aparelho.</small>
           </span>
-          <span className="conta-security-item-tag" aria-hidden="true">Agora</span>
         </button>
       </div>
 
       <details className="conta-security-danger">
-        <summary>Opções delicadas</summary>
+        <summary>Zona de risco</summary>
         <div className="conta-security-danger-content">
           <p className="muted-text">Use apenas quando realmente necessário.</p>
           <button className="btn-danger" type="button" onClick={onExcluirConta} disabled={carregando}>

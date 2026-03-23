@@ -1,8 +1,9 @@
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import { useCart } from './context/CartContext';
 import ErrorBoundary from './components/ErrorBoundary';
+import GlobalCartBar from './components/GlobalCartBar';
 import {
   STORE_NAME,
   STORE_CNPJ,
@@ -14,8 +15,6 @@ import {
   STORE_TELEFONE_DISPLAY,
   STORE_TELEFONE_URL
 } from './config/store';
-
-const BOTTOM_NAV_SAFE_AREA = 76;
 
 const loadProdutosPage = () => import('./pages/ProdutosPage');
 const loadPagamentoPage = () => import('./pages/PagamentoPage');
@@ -95,14 +94,28 @@ const links = [
 export default function App() {
   const { resumo } = useCart();
   const location = useLocation();
+  const [checkoutContext, setCheckoutContext] = useState(null);
   const hostname = window.location.hostname;
   const isLocalHost = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
   const isAdminRoute = location.pathname.startsWith('/admin');
-  const isPedidosRoute = location.pathname.startsWith('/pedidos');
   const isProdutosRoute = location.pathname.startsWith('/produtos');
   const isPagamentoRoute = location.pathname.startsWith('/pagamento');
-  const isContaRoute = location.pathname.startsWith('/conta');
-  const podeMostrarCarrinhoFlutuante = resumo.itens > 0 && !isPedidosRoute && !isProdutosRoute && !isPagamentoRoute;
+  const podeMostrarBarraGlobalCarrinho = Number(resumo?.itens || 0) > 0;
+
+  useEffect(() => {
+    function handleCheckoutContextEvent(event) {
+      setCheckoutContext(event?.detail || null);
+    }
+
+    window.addEventListener('bomfilho:checkout-context', handleCheckoutContextEvent);
+    return () => window.removeEventListener('bomfilho:checkout-context', handleCheckoutContextEvent);
+  }, []);
+
+  useEffect(() => {
+    if (!isPagamentoRoute) {
+      setCheckoutContext(null);
+    }
+  }, [isPagamentoRoute]);
 
   useEffect(() => {
     if (!podePrefetchNavegacao()) {
@@ -141,7 +154,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <a href="#main-content" className="skip-to-content">Pular para o conteúdo</a>
-      <main className={`content${isProdutosRoute ? ' content-produtos' : ''}`} id="main-content">
+      <main className={`content${isProdutosRoute ? ' content-produtos' : ''}${podeMostrarBarraGlobalCarrinho ? ' has-global-cart-bar' : ''}`} id="main-content">
         <ErrorBoundary>
         <Suspense fallback={<RouteLoadingFallback />}>
           <Routes>
@@ -161,25 +174,15 @@ export default function App() {
         </ErrorBoundary>
       </main>
 
-      {podeMostrarCarrinhoFlutuante ? (
-        <div
-          className={`floating-cart-wrapper ${isContaRoute ? 'is-conta-route' : ''}`.trim()}
-          style={{ right: '12px', bottom: `${BOTTOM_NAV_SAFE_AREA + 10}px` }}
-        >
-          <Link
-            to="/pagamento"
-            className="floating-cart"
-            aria-label={`Ir para o checkout com ${resumo.itens} ${resumo.itens === 1 ? 'item' : 'itens'} no carrinho`}
-          >
-            <span className="floating-cart-icon">🛒</span>
-            <span className="floating-cart-copy">
-              <span className="floating-cart-items">{resumo.itens} {resumo.itens === 1 ? 'item' : 'itens'}</span>
-              <span className="floating-cart-total">R$ {resumo.total.toFixed(2)}</span>
-            </span>
-            <span className="floating-cart-cta">Finalizar</span>
-          </Link>
-        </div>
-      ) : null}
+      <GlobalCartBar
+        visible={podeMostrarBarraGlobalCarrinho}
+        resumo={resumo}
+        isCheckoutRoute={isPagamentoRoute}
+        checkoutContext={checkoutContext}
+        onCheckoutPrimaryAction={() => {
+          window.dispatchEvent(new CustomEvent('bomfilho:checkout-primary-action'));
+        }}
+      />
 
       <section className="site-trust-bar" aria-label="Canais de atendimento e links legais">
         <p className="site-trust-contact">

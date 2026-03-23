@@ -159,10 +159,25 @@ DATABASE_URL=mysql://root:sua_senha@localhost:3306/railway
 PORT=3000
 JWT_SECRET=sua_chave_secreta_com_32_ou_mais_caracteres
 BASE_URL=http://localhost:3000
+MP_ENV=test
 MP_ACCESS_TOKEN=seu_access_token_do_mercado_pago
-MP_PUBLIC_KEY=sua_public_key_do_mercado_pago
 MP_WEBHOOK_SECRET=seu_webhook_secret_do_mercado_pago
+MP_NOTIFICATION_URL=http://localhost:3000/api/webhooks/mercadopago
+MP_SUCCESS_URL=http://localhost:5173/#/pagamento?status=success
+MP_PENDING_URL=http://localhost:5173/#/pagamento?status=pending
+MP_FAILURE_URL=http://localhost:5173/#/pagamento?status=failure
 ```
+
+No frontend (`frontend-react/.env.local`), use apenas a chave pública:
+
+```env
+VITE_MP_PUBLIC_KEY=sua_public_key_do_mercado_pago
+```
+
+Importante:
+- Nunca exponha `MP_ACCESS_TOKEN` no frontend.
+- Nunca versione `.env`, `.env.local`, `.env.production` com credenciais reais.
+- Em produção, altere apenas variáveis de ambiente (sem editar código).
 
 ### 4) Iniciar backend
 
@@ -178,6 +193,7 @@ Opcional: crie `frontend-react/.env.local` para desenvolvimento local:
 
 ```env
 VITE_API_URL=http://localhost:3000
+VITE_MP_PUBLIC_KEY=sua_public_key_do_mercado_pago
 ```
 
 ```bash
@@ -238,7 +254,6 @@ Com a build gerada, o backend serve o frontend React no mesmo host/porta da API.
 
 ### Pagamentos e webhooks
 
-- `GET /api/mercadopago/public-key`
 - `GET /api/mercadopago/status`
 - `POST /api/mercadopago/criar-pix`
 - `POST /api/mercadopago/criar-cartao`

@@ -1,17 +1,19 @@
 import React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import ReCAPTCHA from 'react-google-recaptcha';
+import { Link } from 'react-router-dom';
 import {
   atualizarPreferenciasWhatsapp,
   buscarEnderecoViaCep,
   cadastrar,
   getEndereco,
   getMe,
+  getPedidos,
   isAuthErrorMessage,
   login,
   logout,
   salvarEndereco
 } from '../lib/api';
+import { STORE_WHATSAPP_URL } from '../config/store';
 import { useRecorrencia } from '../context/RecorrenciaContext';
 import useDocumentHead from '../hooks/useDocumentHead';
 import {
@@ -34,15 +36,10 @@ import {
   obterIniciais,
   montarResumoEndereco
 } from '../lib/contaUtils';
-import {
-  ProfileSection,
-  AddressSection,
-  PreferencesSection,
-  SecuritySection,
-  AccessibilitySection,
-  ShortcutsSection,
-  AuthSection
-} from '../components/conta';
+import AccessibilitySection from '../components/conta/AccessibilitySection';
+import AuthSection from '../components/conta/AuthSection';
+import AccountMenuList from '../components/conta/AccountMenuList';
+import PaymentsHub from '../components/conta/PaymentsHub';
 
 export default function ContaPage() {
   useDocumentHead({ title: 'Minha Conta', description: 'Gerencie seu perfil, endereço e preferências na sua conta BomFilho.' });
@@ -75,10 +72,15 @@ export default function ContaPage() {
   const [erro, setErro] = useState('');
   const [mensagemInfo, setMensagemInfo] = useState('');
   const [carregando, setCarregando] = useState(false);
+  const [pedidosResumo, setPedidosResumo] = useState({
+    total: 0,
+    ultimoPedidoTexto: ''
+  });
   const [preferencias, setPreferencias] = useState(() => lerPreferenciasLocais());
   const [fontScale, setFontScale] = useState(() => getStoredFontScale());
   const [highContrast, setHighContrast] = useState(() => getStoredHighContrast());
   const [reducedMotion, setReducedMotion] = useState(() => getStoredReducedMotion());
+  const [painelContaAtivo, setPainelContaAtivo] = useState('dados');
 
   useEffect(() => {
     let ativo = true;
@@ -303,6 +305,77 @@ export default function ContaPage() {
       }
     })();
   }, [enderecoForm.cep, usuario]);
+
+  useEffect(() => {
+    let ativo = true;
+
+    if (!usuario) {
+      setPedidosResumo({ total: 0, ultimoPedidoTexto: '' });
+      return () => {
+        ativo = false;
+      };
+    }
+
+    (async () => {
+      try {
+        const data = await getPedidos({ page: 1, limit: 1 });
+        if (!ativo) {
+          return;
+        }
+
+        const total = Number(data?.paginacao?.total || 0);
+        const ultimoPedido = Array.isArray(data?.pedidos) ? data.pedidos[0] : null;
+        const dataUltimoPedido = ultimoPedido?.created_at || ultimoPedido?.criado_em || ultimoPedido?.data_criacao || '';
+        const dataFormatada = formatarDataConta(dataUltimoPedido);
+
+        setPedidosResumo({
+          total,
+          ultimoPedidoTexto: dataFormatada ? `Último pedido em ${dataFormatada}` : ''
+        });
+      } catch {
+        if (!ativo) {
+          return;
+        }
+
+        setPedidosResumo({ total: 0, ultimoPedidoTexto: '' });
+      }
+    })();
+
+    return () => {
+      ativo = false;
+    };
+  }, [usuario]);
+
+  function formatarDataConta(valor) {
+    const texto = String(valor || '').trim();
+    if (!texto) {
+      return '';
+    }
+
+    const data = new Date(texto);
+    if (Number.isNaN(data.getTime())) {
+      return '';
+    }
+
+    return data.toLocaleDateString('pt-BR');
+  }
+
+  function obterResumoCadastro(usuarioAtual) {
+    const dataCadastroBruta =
+      usuarioAtual?.created_at
+      || usuarioAtual?.createdAt
+      || usuarioAtual?.criado_em
+      || usuarioAtual?.data_cadastro
+      || usuarioAtual?.cadastro_em
+      || '';
+
+    const dataCadastro = formatarDataConta(dataCadastroBruta);
+    if (dataCadastro) {
+      return `Cliente desde ${dataCadastro}`;
+    }
+
+    return 'Cadastro ativo no BomFilho';
+  }
 
   function atualizarCampoEndereco(campo, valor) {
     setEnderecoForm((current) => ({
@@ -566,6 +639,15 @@ export default function ContaPage() {
     setMensagemInfo(`${rotulo} estará disponível em breve.`);
   }
 
+  function abrirWhatsappSuporte() {
+    const mensagem = encodeURIComponent('Olá! Preciso de ajuda com meu pedido no BomFilho.');
+    const base = String(STORE_WHATSAPP_URL || '').trim();
+    const separador = base.includes('?') ? '&' : '?';
+    const url = `${base}${separador}text=${mensagem}`;
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
   function handleExcluirContaPlaceholder() {
     const confirmou = window.confirm('Deseja iniciar a solicitação de exclusão da conta? Esta ação será liberada na próxima versão.');
     if (!confirmou) {
@@ -626,14 +708,254 @@ export default function ContaPage() {
   const confirmacaoSenhaInvalida = modo === 'cadastro' && confirmacaoSenha.length > 0 && senha !== confirmacaoSenha;
   const iniciaisAvatar = obterIniciais(nomeExibicao);
   const resumoEndereco = useMemo(() => montarResumoEndereco(enderecoPrincipal), [enderecoPrincipal]);
-  const cidadeUfEndereco = [enderecoPrincipal?.cidade, enderecoPrincipal?.estado].filter(Boolean).join(' / ') || 'Não informado';
-  const cepEnderecoExibicao = enderecoPrincipal?.cep
-    ? formatarCepEndereco(enderecoPrincipal.cep)
-    : 'Não informado';
+  const resumoCadastro = obterResumoCadastro(usuario);
 
   const textoStatusConta = usuario?.whatsapp_opt_in
     ? 'Conta verificada e com canal WhatsApp ativo'
     : 'Conta ativa, com notificações de WhatsApp desativadas';
+  const totalFavoritos = Number(recorrenciaStats?.favoritos || 0);
+  const mostrarCupons = false;
+
+  const painelConta = (() => {
+    if (painelContaAtivo === 'pagamentos') {
+      return <PaymentsHub onActionSoon={handleAcaoEmBreve} />;
+    }
+
+    if (painelContaAtivo === 'enderecos') {
+      return (
+        <section className="account-hub-panel" aria-label="Endereços">
+          <header className="account-hub-head">
+            <h3>Endereços</h3>
+            <p>Seu endereço principal com edição rápida.</p>
+          </header>
+
+          {!enderecoEmEdicao ? (
+            <div className="account-hub-card-list">
+              <article className="account-hub-card">
+                <p className="account-hub-card-title">Endereço principal</p>
+                <p>{resumoEndereco.titulo}</p>
+                <p>{resumoEndereco.linha1}</p>
+                <p>{resumoEndereco.linha2}</p>
+                <div className="account-inline-actions">
+                  <button type="button" className="btn-secondary" onClick={handleIniciarEdicaoEndereco}>
+                    {enderecoPrincipal ? 'Editar endereço' : 'Adicionar endereço'}
+                  </button>
+                </div>
+              </article>
+            </div>
+          ) : (
+            <form className="account-address-form" onSubmit={handleSalvarEndereco}>
+              <div className="account-address-grid">
+                <label>
+                  <span>CEP</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={9}
+                    placeholder="00000-000"
+                    value={enderecoForm.cep}
+                    onChange={(event) => handleCepChange(event.target.value)}
+                    onBlur={handleCepBlur}
+                  />
+                </label>
+
+                <label>
+                  <span>Número</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    inputMode="numeric"
+                    value={enderecoForm.numero}
+                    onChange={(event) => atualizarCampoEndereco('numero', event.target.value)}
+                  />
+                </label>
+
+                <label className="is-span-2">
+                  <span>Logradouro</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    value={enderecoForm.rua}
+                    onChange={(event) => atualizarCampoEndereco('rua', event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  <span>Bairro</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    value={enderecoForm.bairro}
+                    onChange={(event) => atualizarCampoEndereco('bairro', event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  <span>Cidade</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    value={enderecoForm.cidade}
+                    onChange={(event) => atualizarCampoEndereco('cidade', event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  <span>UF</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    maxLength={2}
+                    value={enderecoForm.estado}
+                    onChange={(event) => atualizarCampoEndereco('estado', String(event.target.value || '').toUpperCase())}
+                  />
+                </label>
+
+                <label>
+                  <span>Complemento</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    value={enderecoForm.complemento}
+                    onChange={(event) => atualizarCampoEndereco('complemento', event.target.value)}
+                  />
+                </label>
+
+                <label className="is-span-2">
+                  <span>Referência</span>
+                  <input
+                    className="field-input"
+                    type="text"
+                    value={enderecoForm.referencia}
+                    onChange={(event) => atualizarCampoEndereco('referencia', event.target.value)}
+                  />
+                </label>
+              </div>
+
+              {mensagemCepEndereco ? <p className="conta-info-text">{mensagemCepEndereco}</p> : null}
+              {erroEnderecoForm ? <p className="error-text" role="alert">{erroEnderecoForm}</p> : null}
+              {sucessoEnderecoForm ? <p className="conta-info-text">{sucessoEnderecoForm}</p> : null}
+
+              <div className="account-inline-actions">
+                <button type="button" className="btn-secondary" onClick={handleCancelarEdicaoEndereco}>Cancelar</button>
+                <button type="button" className="btn-secondary" onClick={resetarFormularioEndereco}>Restaurar dados</button>
+                <button type="submit" className="btn-primary" disabled={salvandoEndereco || buscandoCepEndereco}>
+                  {salvandoEndereco ? 'Salvando endereço...' : 'Salvar endereço'}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+      );
+    }
+
+    if (painelContaAtivo === 'seguranca') {
+      return (
+        <section className="account-hub-panel" aria-label="Segurança">
+          <header className="account-hub-head">
+            <h3>Segurança</h3>
+            <p>Controle de acesso e sessão da sua conta.</p>
+          </header>
+
+          <div className="account-hub-card-list">
+            <article className="account-hub-card">
+              <p className="account-hub-card-title">Ações rápidas</p>
+              <div className="account-inline-actions">
+                <button type="button" className="btn-secondary" onClick={() => handleAcaoEmBreve('Troca de senha')}>
+                  Alterar senha
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => handleAcaoEmBreve('Sessões ativas')}>
+                  Sessões
+                </button>
+                <button type="button" className="btn-secondary" onClick={handleLogout} disabled={carregando}>
+                  Sair da conta
+                </button>
+              </div>
+            </article>
+          </div>
+        </section>
+      );
+    }
+
+    if (painelContaAtivo === 'cupons') {
+      return (
+        <section className="account-hub-panel" aria-label="Cupons">
+          <header className="account-hub-head">
+            <h3>Cupons</h3>
+            <p>Espaço reservado para campanhas e benefícios.</p>
+          </header>
+          <div className="account-hub-card-list">
+            <article className="account-hub-card">
+              <p>Sem cupons ativos no momento.</p>
+            </article>
+          </div>
+        </section>
+      );
+    }
+
+    return (
+      <section className="account-hub-panel" aria-label="Dados da conta">
+        <header className="account-hub-head">
+          <h3>Dados da conta</h3>
+          <p>Cadastro simples, claro e fácil de revisar.</p>
+        </header>
+
+        <div className="account-hub-card-list">
+          <article className="account-hub-card">
+            <p className="account-hub-card-title">Nome</p>
+            <p>{nomeExibicao}</p>
+          </article>
+
+          <article className="account-hub-card">
+            <p className="account-hub-card-title">E-mail</p>
+            <p>{emailExibicao}</p>
+          </article>
+
+          <article className="account-hub-card">
+            <p className="account-hub-card-title">Telefone</p>
+            <p>{telefoneExibicao}</p>
+          </article>
+
+          <article className="account-hub-card">
+            <p className="account-hub-card-title">Preferências básicas</p>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={preferencias.promocoesWhatsapp}
+                onChange={(event) => { void handleTogglePromocoesWhatsapp(event.target.checked); }}
+              />
+              Receber promoções no WhatsApp
+            </label>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={preferencias.promocoesEmail}
+                onChange={(event) => atualizarPreferencia('promocoesEmail', event.target.checked)}
+              />
+              Receber promoções por e-mail
+            </label>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={preferencias.notificacoesPedidos}
+                onChange={(event) => atualizarPreferencia('notificacoesPedidos', event.target.checked)}
+              />
+              Notificações de pedidos
+            </label>
+          </article>
+
+          <article className="account-hub-card">
+            <p className="account-hub-card-title">Senha</p>
+            <p>Você pode atualizar sua senha com segurança em breve nesta área.</p>
+            <button type="button" className="btn-secondary" onClick={() => handleAcaoEmBreve('Editar perfil')}>
+              Editar perfil
+            </button>
+          </article>
+        </div>
+      </section>
+    );
+  })();
 
   return (
     <section className="page conta-page">
@@ -649,51 +971,37 @@ export default function ContaPage() {
 
       {usuario ? (
         <>
-          <ProfileSection
-            nomeExibicao={nomeExibicao}
-            emailExibicao={emailExibicao}
-            telefoneExibicao={telefoneExibicao}
-            iniciaisAvatar={iniciaisAvatar}
-            textoStatusConta={textoStatusConta}
-            carregando={carregando}
-            onAcaoEmBreve={handleAcaoEmBreve}
-          />
+          <section className="account-mobile-shell">
+            <article className="account-mobile-hero">
+              <div className="account-mobile-avatar" aria-hidden="true">{iniciaisAvatar}</div>
+              <div className="account-mobile-hero-copy">
+                <h2>{nomeExibicao}</h2>
+                <p>{textoStatusConta}</p>
+                <small>{resumoCadastro}</small>
+              </div>
+              <div className="account-mobile-hero-actions">
+                <Link to="/pedidos" className="btn-primary">Ver meus pedidos</Link>
+                <button type="button" className="btn-secondary" onClick={() => setPainelContaAtivo('dados')}>
+                  Editar perfil
+                </button>
+              </div>
+            </article>
 
-          <div className="conta-sections-grid">
-            <AddressSection
-              carregandoEndereco={carregandoEndereco}
-              enderecoEmEdicao={enderecoEmEdicao}
-              enderecoPrincipal={enderecoPrincipal}
-              resumoEndereco={resumoEndereco}
-              cidadeUfEndereco={cidadeUfEndereco}
-              cepEnderecoExibicao={cepEnderecoExibicao}
-              erroEnderecoForm={erroEnderecoForm}
-              sucessoEnderecoForm={sucessoEnderecoForm}
-              enderecoForm={enderecoForm}
-              mensagemCepEndereco={mensagemCepEndereco}
-              buscandoCepEndereco={buscandoCepEndereco}
-              salvandoEndereco={salvandoEndereco}
-              onIniciarEdicao={handleIniciarEdicaoEndereco}
-              onCancelarEdicao={handleCancelarEdicaoEndereco}
-              onSalvarEndereco={handleSalvarEndereco}
-              onResetarFormulario={resetarFormularioEndereco}
-              onAtualizarCampo={atualizarCampoEndereco}
-              onCepChange={handleCepChange}
-              onCepBlur={handleCepBlur}
+            <AccountMenuList
+              onOpenWhatsapp={abrirWhatsappSuporte}
+              onSelectPanel={setPainelContaAtivo}
+              activePanel={painelContaAtivo}
+              showCupons={mostrarCupons}
             />
 
-            <PreferencesSection
-              preferencias={preferencias}
-              onToggleWhatsapp={handleTogglePromocoesWhatsapp}
-              onAtualizarPreferencia={atualizarPreferencia}
-            />
+            {painelConta}
 
-            <SecuritySection
-              carregando={carregando}
-              onLogout={handleLogout}
-              onAcaoEmBreve={handleAcaoEmBreve}
-              onExcluirConta={handleExcluirContaPlaceholder}
-            />
+            <section className="account-extra-light">
+              <p className="muted-text">
+                Pedidos: {pedidosResumo.total} • Favoritos: {totalFavoritos}
+              </p>
+              {pedidosResumo.ultimoPedidoTexto ? <p className="muted-text">{pedidosResumo.ultimoPedidoTexto}</p> : null}
+            </section>
 
             <AccessibilitySection
               fontScale={fontScale}
@@ -702,10 +1010,15 @@ export default function ContaPage() {
               onFontScaleChange={handleFontScaleChange}
               onHighContrastChange={handleHighContrastChange}
               onReducedMotionChange={handleReducedMotionChange}
+              descricao="Ajustes de leitura e contraste"
             />
+          </section>
 
-            <ShortcutsSection recorrenciaStats={recorrenciaStats} />
-          </div>
+          <section className="account-danger-zone">
+            <button className="btn-secondary" type="button" onClick={handleExcluirContaPlaceholder} disabled={carregando}>
+              Solicitar exclusão da conta
+            </button>
+          </section>
         </>
       ) : (
         <>

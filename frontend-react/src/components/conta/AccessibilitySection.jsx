@@ -19,17 +19,29 @@ export default function AccessibilitySection({
   onReducedMotionChange,
   descricao
 }) {
+  const previewClassName = fontScale === 1.15
+    ? 'is-large'
+    : fontScale === 0.9
+      ? 'is-compact'
+      : 'is-default';
+
   return (
     <article className="card-box conta-section-card conta-accessibility-card">
       <div className="conta-section-head">
         <span className="conta-section-icon"><IconAccessibility /></span>
         <div>
-          <h3>Acessibilidade</h3>
+          <h3>Aparência e acessibilidade</h3>
           <p>{descricao || 'Ajustes rápidos para leitura e conforto visual.'}</p>
         </div>
       </div>
 
-      <p className="conta-font-hint">Tamanho do texto</p>
+      <div className="conta-accessibility-type-head">
+        <p className="conta-font-hint">Tamanho do texto</p>
+        <p className={`conta-font-preview ${previewClassName}`.trim()} aria-live="polite">
+          Visualização de leitura
+        </p>
+      </div>
+
       <div className="conta-font-row" role="group" aria-label="Ajustar tamanho da fonte">
         {FONT_SCALE_OPTIONS.map((option) => (
           <button
