@@ -2,7 +2,7 @@
 
 const express = require('express');
 const logger = require('../lib/logger');
-const { LIMITE_BIKE_KM } = require('../lib/config');
+const { LIMITE_BIKE_KM, CEP_MERCADO, NUMERO_MERCADO } = require('../lib/config');
 
 /**
  * @param {object} deps
@@ -17,6 +17,26 @@ module.exports = function createFreteRoutes({ calcularEntregaPorCep }) {
       const cep = String(req.query?.cep || '').trim();
       const numero = String(req.query?.numero || '').trim();
       const veiculo = String(req.query?.veiculo || 'moto').trim().toLowerCase();
+
+      if (veiculo === 'retirada' || veiculo === 'retirada_loja') {
+        return res.json({
+          mensagem: 'Retirada na loja selecionada',
+          veiculo: 'retirada',
+          frete: 0,
+          distancia_km: 0,
+          distancia_cobrada_km: 0,
+          metodo_distancia: 'retirada_loja',
+          distancia_base_km: 0,
+          endereco_loja: true,
+          cep_origem: CEP_MERCADO,
+          numero_origem: NUMERO_MERCADO,
+          cep_destino: CEP_MERCADO,
+          numero_destino: NUMERO_MERCADO,
+          cidade_destino: null,
+          bairro_destino: null,
+          limite_bike_km: LIMITE_BIKE_KM
+        });
+      }
 
       const entrega = await calcularEntregaPorCep({
         cepDestino: cep,

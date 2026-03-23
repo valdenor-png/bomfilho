@@ -791,8 +791,32 @@ async function calcularEntregaPorCep({ cepDestino, veiculo, numeroDestino = '' }
     numero: numeroDestino,
     tipoLocal: 'destino'
   });
-  const distanciaInfo = calcularDistanciaEntregaAjustada(origem, destino);
-  const distanciaKm = Number(distanciaInfo.distancia_km);
+  const cepOrigemNormalizado = normalizarCep(origem.cep);
+  const cepDestinoNormalizado = normalizarCep(destino.cep);
+  const numeroOrigemNormalizado = String(NUMERO_MERCADO || '').replace(/\D/g, '');
+  const numeroDestinoNormalizado = String(numeroDestino || '').replace(/\D/g, '');
+  const mesmoNumeroLoja = Boolean(
+    numeroOrigemNormalizado
+    && numeroDestinoNormalizado
+    && numeroOrigemNormalizado === numeroDestinoNormalizado
+  );
+  const mesmaRua = textoCompativel(origem.rua, destino.rua);
+  const mesmoBairro = textoCompativel(origem.bairro, destino.bairro);
+  const enderecoEhLoja = cepOrigemNormalizado === cepDestinoNormalizado && (mesmoNumeroLoja || (mesmaRua && mesmoBairro));
+
+  let distanciaInfo = calcularDistanciaEntregaAjustada(origem, destino);
+  let distanciaKm = Number(distanciaInfo.distancia_km);
+
+  if (enderecoEhLoja) {
+    distanciaInfo = {
+      ...distanciaInfo,
+      distancia_base_km: Number(distanciaInfo.distancia_base_km || 0),
+      distancia_km: 0,
+      ajuste_aplicado: true,
+      metodo_distancia: 'endereco_loja_zerado'
+    };
+    distanciaKm = 0;
+  }
 
   if (!Number.isFinite(distanciaKm)) {
     throw criarErroHttp(500, 'Não foi possível calcular a distância da entrega.');
@@ -805,7 +829,18 @@ async function calcularEntregaPorCep({ cepDestino, veiculo, numeroDestino = '' }
     );
   }
 
-  const freteDetalhado = calcularFreteEntregaDetalhado(veiculoKey, distanciaKm);
+  const freteDetalhado = enderecoEhLoja
+    ? {
+      frete: 0,
+      distancia_bruta_km: Number(distanciaInfo.distancia_base_km || 0),
+      distancia_cobrada_km: 0,
+      taxa_base: 0,
+      custo_combustivel_km: 0,
+      custo_manutencao_km: 0,
+      fator_reparo: 1,
+      custo_operacional_km: 0
+    }
+    : calcularFreteEntregaDetalhado(veiculoKey, distanciaKm);
 
   registrarLogFreteDebug('simulacao_frete', {
     origem: {
@@ -856,6 +891,7 @@ async function calcularEntregaPorCep({ cepDestino, veiculo, numeroDestino = '' }
     distancia_cobrada_km: freteDetalhado.distancia_cobrada_km,
     metodo_distancia: distanciaInfo.metodo_distancia,
     distancia_base_km: Number(distanciaInfo.distancia_base_km),
+    endereco_loja: enderecoEhLoja,
     cep_origem: origem.cep,
     numero_origem: NUMERO_MERCADO,
     fonte_coordenadas_origem: distanciaInfo.fonte_origem,
