@@ -113,7 +113,8 @@ export function CheckoutSummaryCard({
   tipoEntrega = 'entrega',
   economiaFrete = 0,
   onContinue,
-  disabled
+  disabled,
+  showContinueButton = true
 }) {
   const retirada = String(tipoEntrega || '').trim().toLowerCase() === 'retirada';
   const taxaServicoNumerico = Number(taxaServico || 0);
@@ -140,14 +141,16 @@ export function CheckoutSummaryCard({
         <strong>{formatarMoeda(totalPrevisto)}</strong>
       </div>
 
-      <button
-        className="btn-primary checkout-cart-summary-btn checkout-cart-summary-btn-desktop"
-        type="button"
-        onClick={onContinue}
-        disabled={disabled}
-      >
-        Ir para entrega
-      </button>
+      {showContinueButton ? (
+        <button
+          className="btn-primary checkout-cart-summary-btn checkout-cart-summary-btn-desktop"
+          type="button"
+          onClick={onContinue}
+          disabled={disabled}
+        >
+          Ir para entrega
+        </button>
+      ) : null}
 
       {disabled ? <p className="checkout-cart-summary-note">Adicione itens para continuar</p> : null}
     </aside>
@@ -187,6 +190,12 @@ export function CheckoutCrossSellRail({
               )}
             </div>
 
+            {Number.isFinite(Number(produto?.estoque)) ? (
+              <span className={`checkout-cross-sell-stock ${Number(produto.estoque) > 0 ? 'is-in-stock' : 'is-low-stock'}`.trim()}>
+                {Number(produto.estoque) > 0 ? 'Disponível' : 'Estoque baixo'}
+              </span>
+            ) : null}
+
             <p className="checkout-cross-sell-name">{produto.nome}</p>
             <strong className="checkout-cross-sell-price">{formatarMoeda(produto.preco)}</strong>
 
@@ -196,7 +205,7 @@ export function CheckoutCrossSellRail({
               onClick={() => onAdd(produto)}
               aria-label={`Adicionar ${produto.nome}`}
             >
-              +
+              Adicionar
             </button>
           </article>
         ))}

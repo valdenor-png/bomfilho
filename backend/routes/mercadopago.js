@@ -37,9 +37,14 @@ module.exports = function createMercadoPagoRoutes(deps) {
     try {
       const { pedido_id, tax_id } = req.body || {};
       const pedidoId = Number(pedido_id);
+      const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
 
       if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
         return res.status(400).json({ error: 'Informe um pedido_id válido.' });
+      }
+
+      if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
+        return res.status(400).json({ error: 'Informe um CPF ou CNPJ válido para gerar o PIX.' });
       }
 
       // Buscar pedido — só permite gerar PIX para pedido do próprio usuário com status pendente
@@ -91,7 +96,6 @@ module.exports = function createMercadoPagoRoutes(deps) {
         [req.usuario.id]
       );
       const usuario = usuarios[0] || {};
-      const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
 
       const resultado = await mercadoPagoService.criarPagamentoPix({
         pedidoId,
@@ -130,8 +134,30 @@ module.exports = function createMercadoPagoRoutes(deps) {
         ticket_url: resultado.ticket_url || ''
       });
     } catch (erro) {
-      logger.error('[MP] Erro ao criar PIX:', erro.message);
-      res.status(500).json({ error: 'Não foi possível gerar o pagamento PIX. Tente novamente.' });
+      const status = Number(erro?.status || 500);
+      const causas = extrairCausasMercadoPago(erro?.mpResponse || {});
+      const mensagem =
+        erro?.mpResponse?.message
+        || erro?.mpResponse?.error
+        || erro?.message
+        || 'Não foi possível gerar o pagamento PIX. Tente novamente.';
+      const mensagemDetalhada = causas.length
+        ? `${mensagem} (${causas.join(' | ')})`
+        : mensagem;
+
+      logger.error('[MP] Erro ao criar PIX:', {
+        status,
+        message: erro?.message,
+        causes: causas,
+        mpResponse: erro?.mpResponse || null
+      });
+
+      res.status(status).json({
+        error: mensagemDetalhada,
+        message: mensagemDetalhada,
+        causes: causas,
+        details: erro?.mpResponse || null
+      });
     }
   });
 

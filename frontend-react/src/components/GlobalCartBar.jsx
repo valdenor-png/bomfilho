@@ -14,6 +14,7 @@ export default function GlobalCartBar({
   visible,
   resumo,
   isCheckoutRoute,
+  hasBottomNav = false,
   checkoutContext,
   onCheckoutPrimaryAction
 }) {
@@ -37,7 +38,7 @@ export default function GlobalCartBar({
   const disabled = isCheckoutRoute && Boolean(checkoutContext?.primaryDisabled);
 
   return (
-    <div className="global-cart-bar" role="region" aria-label="Resumo rápido do carrinho">
+    <div className={`global-cart-bar ${hasBottomNav ? 'is-with-bottom-nav' : ''}`.trim()} role="region" aria-label="Resumo rápido do carrinho">
       <div className="global-cart-bar-meta">
         <p className="global-cart-bar-kicker">{itensLabel}</p>
         <strong className="global-cart-bar-total">{totalLabel}</strong>

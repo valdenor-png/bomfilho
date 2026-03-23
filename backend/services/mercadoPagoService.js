@@ -149,6 +149,13 @@ function criarMercadoPagoService({
   async function criarPagamentoPix({ pedidoId, valor, descricao, email, nome, cpf }) {
     if (!accessToken) throw new Error('Mercado Pago não configurado.');
 
+    const identification = normalizarTaxId(cpf);
+    if (!identification) {
+      const err = new Error('Informe um CPF ou CNPJ válido para gerar o PIX.');
+      err.status = 400;
+      throw err;
+    }
+
     const payload = {
       transaction_amount: Number(valor),
       description: descricao || `Pedido #${pedidoId} - Mercado BomFilho`,
@@ -158,10 +165,7 @@ function criarMercadoPagoService({
         email: email,
         first_name: String(nome || 'Cliente').split(' ')[0],
         last_name: String(nome || '').split(' ').slice(1).join(' ') || 'BomFilho',
-        identification: {
-          type: 'CPF',
-          number: String(cpf || '').replace(/\D/g, '')
-        }
+        identification
       },
       external_reference: String(pedidoId)
     };

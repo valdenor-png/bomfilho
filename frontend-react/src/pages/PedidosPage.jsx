@@ -1,11 +1,12 @@
 import React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import useDocumentHead from '../hooks/useDocumentHead';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
 import { getPedidoById, getPedidos, getPedidoStatus, confirmarRecebimentoPedido, isAuthErrorMessage } from '../lib/api';
 import DeliveryTrackingPanel from '../components/pedidos/DeliveryTrackingPanel';
+import InternalTopBar from '../components/navigation/InternalTopBar';
 
 const PEDIDOS_POR_PAGINA = 20;
 const PRELOAD_RESUMO_LIMITE = 6;
@@ -223,6 +224,7 @@ function OrdersSkeletonList() {
 export default function PedidosPage() {
   useDocumentHead({ title: 'Meus Pedidos', description: 'Acompanhe seus pedidos, histórico e status de entrega.' });
   const navigate = useNavigate();
+  const location = useLocation();
   const { addItem } = useCart();
   const { registrarRecompraItens, registrarAcaoCarrinho } = useRecorrencia();
   const [pedidos, setPedidos] = useState([]);
@@ -242,6 +244,12 @@ export default function PedidosPage() {
   const [temMaisPedidos, setTemMaisPedidos] = useState(false);
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [buscaPedido, setBuscaPedido] = useState('');
+  const [pedidoPagoAgoraId, setPedidoPagoAgoraId] = useState(null);
+
+  const pedidoRecemPagoIdDaRota = useMemo(() => {
+    const id = Number(location.state?.pedidoRecemPagoId || 0);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  }, [location.state]);
 
   async function carregarPedidosIniciais() {
     setCarregando(true);
@@ -346,6 +354,20 @@ export default function PedidosPage() {
   useEffect(() => {
     void carregarPedidosIniciais();
   }, []);
+
+  useEffect(() => {
+    if (!pedidoRecemPagoIdDaRota) {
+      return;
+    }
+
+    setPedidoPagoAgoraId(pedidoRecemPagoIdDaRota);
+    setFiltroStatus('todos');
+    setBuscaPedido('');
+    setPedidoAbertoId(pedidoRecemPagoIdDaRota);
+    void carregarDetalhesPedido(pedidoRecemPagoIdDaRota, { silencioso: true });
+
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [carregarDetalhesPedido, location.pathname, navigate, pedidoRecemPagoIdDaRota]);
 
   // Polling automático: atualiza status de pedidos ativos a cada 20s
   useEffect(() => {
@@ -536,8 +558,25 @@ export default function PedidosPage() {
     });
   }, [buscaPedido, filtroStatus, pedidos]);
 
+  const pedidosFiltradosOrdenados = useMemo(() => {
+    if (!pedidoPagoAgoraId) {
+      return pedidosFiltrados;
+    }
+
+    return [...pedidosFiltrados].sort((a, b) => {
+      const aPagoAgora = Number(a?.id) === Number(pedidoPagoAgoraId);
+      const bPagoAgora = Number(b?.id) === Number(pedidoPagoAgoraId);
+
+      if (aPagoAgora === bPagoAgora) {
+        return 0;
+      }
+
+      return aPagoAgora ? -1 : 1;
+    });
+  }, [pedidoPagoAgoraId, pedidosFiltrados]);
+
   const pedidoMaisRecenteId = Number(pedidos?.[0]?.id || 0) || null;
-  const totalFiltrados = pedidosFiltrados.length;
+  const totalFiltrados = pedidosFiltradosOrdenados.length;
   const contadorPedidosTexto = totalPedidos > 0
     ? `${totalFiltrados} de ${totalPedidos} pedido(s)`
     : `${totalFiltrados} pedido(s)`;
@@ -546,12 +585,13 @@ export default function PedidosPage() {
   if (autenticado === false) {
     return (
       <section className="page orders-page">
-        <header className="orders-header">
-          <div>
-            <h1>Pedidos</h1>
-            <p className="orders-subtitle">Acompanhe seus pedidos em um único lugar.</p>
-          </div>
-        </header>
+        <InternalTopBar
+          title="Pedidos"
+          subtitle="Acompanhe seus pedidos em um único lugar"
+          showBack={false}
+          fallbackTo="/"
+          backLabel="Voltar para início"
+        />
 
         <div className="orders-state-card">
           <div className="orders-empty-icon" aria-hidden="true">🔐</div>
@@ -567,10 +607,17 @@ export default function PedidosPage() {
 
   return (
     <section className="page orders-page">
+      <InternalTopBar
+        title="Pedidos"
+        subtitle="Acompanhe o andamento de cada compra"
+        showBack={false}
+        fallbackTo="/"
+        backLabel="Voltar para início"
+      />
+
       <header className="orders-header">
         <div>
-          <h1>Pedidos</h1>
-          <p className="orders-subtitle">Acompanhe o andamento de cada compra e repita pedidos com rapidez.</p>
+          <p className="orders-subtitle">Histórico recente com status em tempo real.</p>
         </div>
 
         <div className="orders-counter" aria-label="Resumo de pedidos">
@@ -605,6 +652,12 @@ export default function PedidosPage() {
           />
         </label>
       </section>
+
+      {pedidoPagoAgoraId ? (
+        <div className="orders-feedback is-success" role="status" aria-live="polite">
+          <p>Pagamento confirmado. Pedido #{pedidoPagoAgoraId} já está disponível para acompanhamento.</p>
+        </div>
+      ) : null}
 
       {erro ? <p className="error-text" role="alert">{erro}</p> : null}
       {mensagemSucesso ? (
@@ -648,9 +701,9 @@ export default function PedidosPage() {
         </div>
       ) : null}
 
-      {pedidosFiltrados.length > 0 ? (
+      {pedidosFiltradosOrdenados.length > 0 ? (
         <div className="orders-list">
-          {pedidosFiltrados.map((pedido) => {
+          {pedidosFiltradosOrdenados.map((pedido) => {
             const detalhesPedido = detalhesPorPedido[pedido.id];
             const estaAberto = pedidoAbertoId === pedido.id;
             const estaCarregando = Boolean(detalhesEmCarregamento[pedido.id]);
@@ -661,9 +714,10 @@ export default function PedidosPage() {
             const statusGrupo = obterGrupoStatus(pedido.status);
             const statusPrincipalLabel = statusGrupo === 'andamento' ? 'Acompanhar pedido' : 'Ver detalhes';
             const pedidoRecente = Number(pedido.id) === pedidoMaisRecenteId;
+            const pedidoPagoAgora = Number(pedido.id) === Number(pedidoPagoAgoraId);
 
             return (
-              <article className={`orders-card ${pedidoRecente ? 'is-recent' : ''}`} key={pedido.id}>
+              <article className={`orders-card ${pedidoRecente ? 'is-recent' : ''} ${pedidoPagoAgora ? 'is-paid-now' : ''}`.trim()} key={pedido.id}>
                 <div className="orders-card-top">
                   <div>
                     <p className="orders-card-id">Pedido #{pedido.id}</p>
@@ -671,6 +725,7 @@ export default function PedidosPage() {
                   </div>
 
                   <div className="orders-card-top-right">
+                    {pedidoPagoAgora ? <span className="orders-paid-chip">Pago agora</span> : null}
                     {pedidoRecente ? <span className="orders-recent-chip">Mais recente</span> : null}
                     <OrderStatusBadge status={pedido.status} />
                   </div>

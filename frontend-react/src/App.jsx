@@ -100,6 +100,7 @@ export default function App() {
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isProdutosRoute = location.pathname.startsWith('/produtos');
   const isPagamentoRoute = location.pathname.startsWith('/pagamento');
+  const mostrarBottomNavCliente = !isAdminRoute;
   const podeMostrarBarraGlobalCarrinho = Number(resumo?.itens || 0) > 0;
 
   useEffect(() => {
@@ -154,7 +155,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <a href="#main-content" className="skip-to-content">Pular para o conteúdo</a>
-      <main className={`content${isProdutosRoute ? ' content-produtos' : ''}${podeMostrarBarraGlobalCarrinho ? ' has-global-cart-bar' : ''}`} id="main-content">
+      <main className={`content${isProdutosRoute ? ' content-produtos' : ''}${podeMostrarBarraGlobalCarrinho ? ' has-global-cart-bar' : ''}${mostrarBottomNavCliente ? ' has-bottom-nav' : ''}`} id="main-content">
         <ErrorBoundary>
         <Suspense fallback={<RouteLoadingFallback />}>
           <Routes>
@@ -178,6 +179,7 @@ export default function App() {
         visible={podeMostrarBarraGlobalCarrinho}
         resumo={resumo}
         isCheckoutRoute={isPagamentoRoute}
+        hasBottomNav={mostrarBottomNavCliente}
         checkoutContext={checkoutContext}
         onCheckoutPrimaryAction={() => {
           window.dispatchEvent(new CustomEvent('bomfilho:checkout-primary-action'));
@@ -204,21 +206,24 @@ export default function App() {
         </div>
       </section>
 
-      <nav className="bottom-nav" aria-label="Navegação principal">
-        {links.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/'}
-            className={({ isActive }) =>
-              `bottom-nav-link ${isActive ? 'active' : ''}`
-            }
-          >
-            <span className="bottom-nav-icon">{item.icon}</span>
-            <span className="bottom-nav-label">{item.label}</span>
-          </NavLink>
-        ))}
-      </nav>
+      {mostrarBottomNavCliente ? (
+        <nav className="bottom-nav" aria-label="Navegação principal">
+          {links.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) =>
+                `bottom-nav-link ${isActive ? 'active' : ''}`
+              }
+            >
+              <span className="bottom-nav-icon">{item.icon}</span>
+              <span className="bottom-nav-label">{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      ) : null}
+
     </div>
   );
 }

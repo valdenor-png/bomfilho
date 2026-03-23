@@ -1377,6 +1377,16 @@ const publicLimiter = rateLimit({
   message: { erro: 'Muitas requisições. Tente novamente em alguns minutos.' }
 });
 
+const produtosPublicLimiter = rateLimit({
+  // Catalogo dispara mais chamadas por filtros, busca e navegacao de secoes.
+  windowMs: 5 * 60 * 1000,
+  max: IS_PRODUCTION ? 1200 : 5000,
+  validate: rateLimitValidateOptions,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Catálogo temporariamente sobrecarregado. Tente novamente em instantes.' }
+});
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -1408,7 +1418,7 @@ const adminAuthLimiter = rateLimit({
 app.use(globalLimiter);
 
 // Limiter para rotas públicas de maior tráfego.
-app.use('/api/produtos', publicLimiter);
+app.use('/api/produtos', produtosPublicLimiter);
 app.use('/api/pedidos', publicLimiter);
 
 // Limiters dedicados para endpoints financeiros (Q006, Q007)

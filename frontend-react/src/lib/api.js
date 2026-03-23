@@ -1128,6 +1128,14 @@ export function adminGetFilaOperacional() {
   return request('/api/admin/fila-operacional');
 }
 
+export function adminGetPedidoItensRevisao(pedidoId) {
+  return request(`/api/admin/pedidos/${pedidoId}/itens`);
+}
+
+export function adminGetPedidoDetalhes(pedidoId) {
+  return request(`/api/admin/pedidos/${pedidoId}/detalhes`);
+}
+
 export function adminGetClientes(params = {}) {
   return request(`/api/admin/clientes${buildQueryString(params)}`);
 }

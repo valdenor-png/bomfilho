@@ -40,6 +40,7 @@ import AccessibilitySection from '../components/conta/AccessibilitySection';
 import AuthSection from '../components/conta/AuthSection';
 import AccountMenuList from '../components/conta/AccountMenuList';
 import PaymentsHub from '../components/conta/PaymentsHub';
+import InternalTopBar from '../components/navigation/InternalTopBar';
 
 export default function ContaPage() {
   useDocumentHead({ title: 'Minha Conta', description: 'Gerencie seu perfil, endereço e preferências na sua conta BomFilho.' });
@@ -959,12 +960,13 @@ export default function ContaPage() {
 
   return (
     <section className="page conta-page">
-      <header className="conta-header">
-        <div>
-          <h1>Minha conta</h1>
-          <p className="muted-text conta-subtitle">Seu perfil, endereço e preferências em um só lugar.</p>
-        </div>
-      </header>
+      <InternalTopBar
+        title="Minha conta"
+        subtitle="Seu perfil, endereço e preferências em um só lugar"
+        showBack={false}
+        fallbackTo="/"
+        backLabel="Voltar para início"
+      />
 
       {erro ? <p className="error-text" role="alert">{erro}</p> : null}
       {mensagemInfo ? <p className="conta-info-text">{mensagemInfo}</p> : null}

@@ -1,6 +1,6 @@
 ﻿import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import ReCAPTCHA from 'react-google-recaptcha';
 import {
   buscarEnderecoViaCep,
@@ -101,8 +101,6 @@ import {
 
 // â”€â”€ Sub-componentes do checkout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import {
-  BotaoVoltarSeta,
-  LinkVoltarSeta,
   CheckoutSecurityTrust,
   DeliveryOptionCard,
   PickupStoreCard,
@@ -119,6 +117,7 @@ import {
   PixCopyCodeCard,
   PixInstructionsCard
 } from '../components/checkout';
+import InternalTopBar from '../components/navigation/InternalTopBar';
 
 const CHECKOUT_ENDERECO_CACHE_KEY = 'bf_checkout_endereco_preferido';
 const CHECKOUT_CPF_NOTA_CACHE_KEY = 'bf_checkout_cpf_nota';
@@ -188,7 +187,8 @@ function lerCpfNotaDoCache() {
 }
 
 export default function PagamentoPage() {
-  const { itens, resumo, addItem, updateItemQuantity, removeItem } = useCart();
+  const navigate = useNavigate();
+  const { itens, resumo, addItem, updateItemQuantity, removeItem, clearCart } = useCart();
   const [resultadoPedido, setResultadoPedido] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
@@ -198,6 +198,7 @@ export default function PagamentoPage() {
   const [qrCodePixDataUrl, setQrCodePixDataUrl] = useState('');
   const [feedbackCopiaPix, setFeedbackCopiaPix] = useState('');
   const [sugestoesCheckout, setSugestoesCheckout] = useState([]);
+  const [modoSugestoesCheckout, setModoSugestoesCheckout] = useState('inteligente');
   const [carregandoSugestoesCheckout, setCarregandoSugestoesCheckout] = useState(false);
   const [verificandoStatusPix, setVerificandoStatusPix] = useState(false);
   const [resumoPedidoSnapshot, setResumoPedidoSnapshot] = useState(null);
@@ -334,6 +335,45 @@ export default function PagamentoPage() {
 
     return unicos.slice(0, 12);
   }, [COMBO_MAP, RECEITAS_MAP, palavrasCarrinho, normalizarTextoSugestao]);
+
+  const categoriaFallbackSugestoes = useMemo(() => {
+    const contagemCategorias = new Map();
+
+    itens.forEach((item) => {
+      const categoria = String(
+        item?.categoria
+        || item?.categoria_nome
+        || item?.departamento
+        || item?.secao
+        || ''
+      ).trim();
+
+      if (!categoria) {
+        return;
+      }
+
+      const chave = normalizarTextoSugestao(categoria);
+      if (!chave) {
+        return;
+      }
+
+      const quantidade = Number(item?.quantidade || 1);
+      const peso = Number.isFinite(quantidade) && quantidade > 0 ? quantidade : 1;
+      const atual = contagemCategorias.get(chave);
+
+      if (!atual) {
+        contagemCategorias.set(chave, { categoria, score: peso });
+        return;
+      }
+
+      atual.score += peso;
+    });
+
+    const categoriaPrincipal = Array.from(contagemCategorias.values())
+      .sort((a, b) => b.score - a.score)[0];
+
+    return categoriaPrincipal?.categoria || '';
+  }, [itens, normalizarTextoSugestao]);
 
   useEffect(() => {
     if (!sessao3DSGeradaEm) {
@@ -1974,7 +2014,7 @@ export default function PagamentoPage() {
         } else if (novoStatus === 'pago') {
           setStatusPedidoAtual('pago');
           setPagamentoConfirmado(true);
-          setEtapaAtual(ETAPAS.PIX);
+          setEtapaAtual(ETAPAS.STATUS);
         } else if (novoStatus === 'cancelado') {
           setStatusPedidoAtual('cancelado');
           setErro('Seu pedido foi cancelado pela equipe. Por favor, tente novamente.');
@@ -1984,7 +2024,7 @@ export default function PagamentoPage() {
       } catch (_) {
         // Silenciar — tentará novamente no próximo tick
       }
-    }, 10000);
+    }, 3000);
 
     return () => {
       ativo = false;
@@ -1992,24 +2032,63 @@ export default function PagamentoPage() {
     };
   }, [etapaAtual, resultadoPedido?.pedido_id, statusPedidoAtual]);
 
+  useEffect(() => {
+    const statusAtual = String(statusPedidoAtual || resultadoPedido?.status || '').toLowerCase();
+    if (statusAtual !== 'pago') {
+      return;
+    }
+
+    if (etapaAtual === ETAPAS.STATUS) {
+      return;
+    }
+
+    setPagamentoConfirmado(true);
+    setEtapaAtual(ETAPAS.STATUS);
+  }, [etapaAtual, resultadoPedido?.status, statusPedidoAtual]);
+
+  useEffect(() => {
+    const statusAtual = String(statusPedidoAtual || resultadoPedido?.status || '').toLowerCase();
+    if (statusAtual !== 'pago' || !resultadoPedido?.pedido_id) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      navigate('/pedidos', {
+        replace: true,
+        state: { pedidoRecemPagoId: resultadoPedido.pedido_id }
+      });
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [navigate, resultadoPedido?.pedido_id, resultadoPedido?.status, statusPedidoAtual]);
+
   // ── Auto-gerar PIX via Mercado Pago ao entrar na etapa de pagamento ──
   useEffect(() => {
     if (etapaAtual !== ETAPAS.PIX) return;
     if (!resultadoPedido?.pedido_id) return;
     if (resultadoPix) return; // Já tem PIX gerado
     if (formaPagamento !== 'pix') return;
+    const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
+    const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
+    if (!documentoValido) return;
 
     handleGerarPixMercadoPago(resultadoPedido.pedido_id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etapaAtual, resultadoPedido?.pedido_id]);
+  }, [etapaAtual, formaPagamento, resultadoPedido?.pedido_id, resultadoPix, documentoPagador]);
 
   // ── Gerar PIX via Mercado Pago ──────────────────────────────────────────
   async function handleGerarPixMercadoPago(pedidoId) {
+    const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
+    const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
+    if (!documentoValido) {
+      setDocumentoTocado(true);
+      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para gerar o PIX.');
+      return;
+    }
+
     setResultadoPix(null);
     setFeedbackCopiaPix('');
     setErro('');
-
-    const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
 
     setCarregando(true);
     try {
@@ -2542,7 +2621,11 @@ export default function PagamentoPage() {
       ? resumoItensPagamento
       : 'â€”';
   const podeContinuarConfirmacaoPix = pixPagamentoAprovado || pagamentoConfirmado;
-  const bloqueioGeracaoPix = carregando || verificandoStatusPix || !resultadoPedido?.pedido_id || !recaptchaCheckoutPronto;
+  const bloqueioGeracaoPix = carregando
+    || verificandoStatusPix
+    || !resultadoPedido?.pedido_id
+    || !recaptchaCheckoutPronto
+    || !documentoValidoPagamento;
   const bloqueioVerificacaoPix = verificandoStatusPix || carregando || !resultadoPedido?.pedido_id;
   const pixDisponivelParaPagar = Boolean(codigoPixAtual || qrCodePixSrc);
   const itensDistintosCarrinho = itens.length;
@@ -2553,6 +2636,48 @@ export default function PagamentoPage() {
       : `Processando ${tituloFormaPagamento.toLowerCase()}. Aguarde a confirmação do gateway.`)
     : 'Processando as informações do seu pedido com segurança.';
   const pagamentoAprovadoCheckout = pagamentoConfirmado || pixPagamentoAprovado || cartaoAprovado;
+  const sugestoesPorCategoriaAtivas = modoSugestoesCheckout === 'categoria';
+  const tituloSugestoesCheckout = sugestoesPorCategoriaAtivas ? 'Produtos da mesma categoria' : 'Combine com sua compra';
+  const subtituloSugestoesCheckout = sugestoesPorCategoriaAtivas
+    ? 'Selecionamos itens próximos do que você já colocou no carrinho.'
+    : 'Sugestões rápidas para completar o pedido sem sair do checkout.';
+
+  const handleVoltarEtapaAtual = useCallback(() => {
+    if (etapaAtual === ETAPAS.CARRINHO) {
+      navigate('/produtos');
+      return;
+    }
+
+    if (etapaAtual === ETAPAS.ENTREGA) {
+      setEtapaAtual(ETAPAS.CARRINHO);
+      return;
+    }
+
+    if (etapaAtual === ETAPAS.PAGAMENTO) {
+      setEtapaAtual(ETAPAS.ENTREGA);
+      return;
+    }
+
+    if (etapaAtual === ETAPAS.REVISAO) {
+      setEtapaAtual(ETAPAS.PAGAMENTO);
+      return;
+    }
+
+    if (etapaAtual === ETAPAS.PIX) {
+      setEtapaAtual(ETAPAS.REVISAO);
+      return;
+    }
+
+    navigate('/pedidos');
+  }, [etapaAtual, navigate]);
+
+  const handleLimparCarrinhoCheckout = useCallback(() => {
+    clearCart();
+    setFeedbackCarrinho('Carrinho limpo.');
+    setSugestoesCheckout([]);
+  }, [clearCart]);
+
+  const exibirAcaoLimparNoTopo = etapaAtual === ETAPAS.CARRINHO && itens.length > 0;
 
   const mobileActionBarConfig = (() => {
     if (etapaAtual === ETAPAS.CARRINHO) {
@@ -2817,8 +2942,9 @@ export default function PagamentoPage() {
   useEffect(() => {
     let ativo = true;
 
-    if (etapaAtual !== ETAPAS.CARRINHO || !itens.length || !termosSugestaoPriorizados.length) {
+    if (etapaAtual !== ETAPAS.CARRINHO || !itens.length) {
       setSugestoesCheckout([]);
+      setModoSugestoesCheckout('inteligente');
       setCarregandoSugestoesCheckout(false);
       return () => {
         ativo = false;
@@ -2829,54 +2955,94 @@ export default function PagamentoPage() {
 
     async function carregarSugestoes() {
       setCarregandoSugestoesCheckout(true);
-
-      const consultas = termosSugestaoPriorizados.slice(0, 10).map(async (termo) => {
-        if (cacheSugestoesRef.current.has(termo)) {
-          return { termo, lista: cacheSugestoesRef.current.get(termo) };
-        }
-
-        try {
-          const data = await getProdutos({ busca: termo, page: 1, limit: 16 });
-          const lista = Array.isArray(data?.produtos) ? data.produtos : [];
-          cacheSugestoesRef.current.set(termo, lista);
-          return { termo, lista };
-        } catch {
-          cacheSugestoesRef.current.set(termo, []);
-          return { termo, lista: [] };
-        }
-      });
-
-      const lotes = await Promise.all(consultas);
-      if (!ativo) {
-        return;
-      }
-
       const vistos = new Set();
       const agregados = [];
 
-      lotes.forEach(({ termo, lista }) => {
-        lista.forEach((produto) => {
-          const id = Number(produto?.id || 0);
-          const nome = String(produto?.nome_externo || produto?.nome || '').trim();
-          const nomeNormalizado = normalizarTextoSugestao(nome);
-          if (!id || !nome || !nomeNormalizado.includes(termo) || vistos.has(id) || idsCarrinho.has(id)) {
+      const adicionarSugestao = (produto, termoBusca = '') => {
+        const id = Number(produto?.id || 0);
+        const nome = String(produto?.nome_externo || produto?.nome || '').trim();
+        const nomeNormalizado = normalizarTextoSugestao(nome);
+        const termoNormalizado = normalizarTextoSugestao(termoBusca);
+        const ativoProduto = !Object.prototype.hasOwnProperty.call(produto || {}, 'ativo') || Number(produto?.ativo) !== 0;
+        const estoqueRaw = produto?.estoque ?? produto?.quantidade_estoque ?? produto?.stock ?? null;
+        const estoqueNumerico = estoqueRaw === null ? null : Number(estoqueRaw);
+        const possuiEstoque = estoqueNumerico === null || (Number.isFinite(estoqueNumerico) ? estoqueNumerico > 0 : true);
+
+        if (!id || !nome || vistos.has(id) || idsCarrinho.has(id) || !ativoProduto || !possuiEstoque) {
+          return false;
+        }
+
+        if (termoNormalizado && !nomeNormalizado.includes(termoNormalizado)) {
+          return false;
+        }
+
+        vistos.add(id);
+        agregados.push({
+          id,
+          nome,
+          preco: Number(produto?.preco_promocional || produto?.preco || produto?.preco_venda || 0),
+          emoji: String(produto?.emoji || '🛍️'),
+          imagem: String(produto?.imagem || '').trim(),
+          categoria: String(produto?.categoria || '').trim(),
+          unidade: String(produto?.unidade || '').trim(),
+          estoque: Number.isFinite(estoqueNumerico) ? estoqueNumerico : null
+        });
+
+        return true;
+      };
+
+      if (termosSugestaoPriorizados.length) {
+        const consultas = termosSugestaoPriorizados.slice(0, 10).map(async (termo) => {
+          if (cacheSugestoesRef.current.has(termo)) {
+            return { termo, lista: cacheSugestoesRef.current.get(termo) };
+          }
+
+          try {
+            const data = await getProdutos({ busca: termo, page: 1, limit: 16 });
+            const lista = Array.isArray(data?.produtos) ? data.produtos : [];
+            cacheSugestoesRef.current.set(termo, lista);
+            return { termo, lista };
+          } catch {
+            cacheSugestoesRef.current.set(termo, []);
+            return { termo, lista: [] };
+          }
+        });
+
+        const lotes = await Promise.all(consultas);
+        if (!ativo) {
+          return;
+        }
+
+        lotes.forEach(({ termo, lista }) => {
+          lista.forEach((produto) => {
+            adicionarSugestao(produto, termo);
+          });
+        });
+      }
+
+      let usouFallbackCategoria = false;
+
+      if (agregados.length < 4 && categoriaFallbackSugestoes) {
+        try {
+          const fallbackData = await getProdutos({ categoria: categoriaFallbackSugestoes, page: 1, limit: 24 });
+          if (!ativo) {
             return;
           }
 
-          vistos.add(id);
-          agregados.push({
-            id,
-            nome,
-            preco: Number(produto?.preco_promocional || produto?.preco || produto?.preco_venda || 0),
-            emoji: String(produto?.emoji || '🛍️'),
-            imagem: String(produto?.imagem || '').trim(),
-            categoria: String(produto?.categoria || '').trim(),
-            unidade: String(produto?.unidade || '').trim()
+          const fallbackLista = Array.isArray(fallbackData?.produtos) ? fallbackData.produtos : [];
+          fallbackLista.forEach((produto) => {
+            const adicionado = adicionarSugestao(produto);
+            if (adicionado) {
+              usouFallbackCategoria = true;
+            }
           });
-        });
-      });
+        } catch {
+          // Sem fallback adicional em erro de rede.
+        }
+      }
 
-      setSugestoesCheckout(agregados.slice(0, 10));
+      setModoSugestoesCheckout(usouFallbackCategoria ? 'categoria' : 'inteligente');
+      setSugestoesCheckout(agregados.slice(0, 8));
       setCarregandoSugestoesCheckout(false);
     }
 
@@ -2885,7 +3051,7 @@ export default function PagamentoPage() {
     return () => {
       ativo = false;
     };
-  }, [etapaAtual, itens, termosSugestaoPriorizados]);
+  }, [etapaAtual, itens, termosSugestaoPriorizados, categoriaFallbackSugestoes, normalizarTextoSugestao]);
 
   useEffect(() => {
     let ativo = true;
@@ -2929,10 +3095,19 @@ export default function PagamentoPage() {
 
   return (
     <section className={`page checkout-page ${etapaAtual !== ETAPAS.STATUS ? 'has-mobile-action-bar' : ''}`.trim()}>
-      <header className="checkout-stage-header">
-        <h1>{tituloEtapaAtual}</h1>
-        <p className="checkout-stage-subtitle">{subtituloEtapaAtualTexto}</p>
-      </header>
+      <InternalTopBar
+        className={`checkout-stage-header ${etapaAtual === ETAPAS.ENTREGA ? 'is-delivery-stage' : ''}`.trim()}
+        title={tituloEtapaAtual}
+        subtitle={subtituloEtapaAtualTexto}
+        onBack={handleVoltarEtapaAtual}
+        backIconOnly
+        centerTitle
+        rightActionLabel={exibirAcaoLimparNoTopo ? 'Limpar' : ''}
+        onRightAction={exibirAcaoLimparNoTopo ? handleLimparCarrinhoCheckout : undefined}
+        rightActionAriaLabel="Limpar produtos do carrinho"
+        fallbackTo="/produtos"
+        backLabel="Voltar para etapa anterior"
+      />
 
       {erro ? (
         <article className="checkout-inline-feedback is-error" role="alert">
@@ -3023,8 +3198,8 @@ export default function PagamentoPage() {
             )}
 
             <CheckoutCrossSellRail
-              title="Pode combinar com isso 👀"
-              subtitle="Complete sua compra"
+              title={tituloSugestoesCheckout}
+              subtitle={subtituloSugestoesCheckout}
               produtos={sugestoesCheckout}
               carregando={carregandoSugestoesCheckout}
               onAdd={(produto) => addItem(produto, 1, { source: 'checkout_cross_sell' })}
@@ -3039,6 +3214,7 @@ export default function PagamentoPage() {
               economiaFrete={economiaFreteRetirada}
               onContinue={() => setEtapaAtual(ETAPAS.ENTREGA)}
               disabled={carrinhoVazio}
+              showContinueButton={false}
             />
           </aside>
         </div>
@@ -3047,14 +3223,9 @@ export default function PagamentoPage() {
       {etapaAtual === ETAPAS.ENTREGA ? (
         <div className="checkout-delivery-layout">
           <div className="card-box checkout-delivery-main">
-            <p className="checkout-delivery-step-clean">Etapa 2 de 5</p>
-            <h2 className="checkout-delivery-title-clean">Entrega</h2>
-            <p className="checkout-delivery-sub-clean">Escolha como receber</p>
-
             <section className="checkout-delivery-section" aria-label="Forma de recebimento">
               <div className="checkout-delivery-section-head">
                 <h3>Formas de recebimento</h3>
-                <p>Escolha entre retirada na loja, bike ou Uber.</p>
               </div>
               <div className="delivery-mode-toggle" role="radiogroup" aria-label="Forma de recebimento">
                 <button
@@ -3091,28 +3262,42 @@ export default function PagamentoPage() {
               </div>
             </section>
 
-            <div className="checkout-delivery-compact-head">
-              <span aria-hidden="true">📍</span>
-              <div>
-                <p className="checkout-delivery-compact-label">Entregar em:</p>
-                <strong>{enderecoEntregaResumo}</strong>
-                {enderecoEntregaComplemento ? (
-                  <p className="checkout-delivery-compact-subline">{enderecoEntregaComplemento}</p>
-                ) : null}
+            {formaRecebimentoSelecionada === 'uber' ? (
+              <article className="delivery-uber-info" role="status" aria-live="polite" aria-label="Informações da entrega via Uber">
+                <div className="delivery-uber-info-head">
+                  <span className="delivery-uber-info-icon" aria-hidden="true">!</span>
+                  <p className="delivery-uber-info-title">Entrega realizada pela Uber</p>
+                </div>
+                <p className="delivery-uber-info-text">
+                  Sua entrega será feita por um parceiro logístico da Uber. Você poderá acompanhar o andamento da entrega e terá mais segurança no processo. Quando disponível, a localização e as atualizações do entregador aparecerão para você durante a rota.
+                </p>
+              </article>
+            ) : null}
+
+            {!retiradaSelecionada ? (
+              <div className="checkout-delivery-compact-head">
+                <span aria-hidden="true">📍</span>
+                <div>
+                  <p className="checkout-delivery-compact-label">Entregar em:</p>
+                  <strong>{enderecoEntregaResumo}</strong>
+                  {enderecoEntregaComplemento ? (
+                    <p className="checkout-delivery-compact-subline">{enderecoEntregaComplemento}</p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="checkout-delivery-compact-switch"
+                  onClick={() => {
+                    const campoCep = document.getElementById('cep-entrega');
+                    if (campoCep) {
+                      campoCep.focus();
+                    }
+                  }}
+                >
+                  Trocar
+                </button>
               </div>
-              <button
-                type="button"
-                className="checkout-delivery-compact-switch"
-                onClick={() => {
-                  const campoCep = document.getElementById('cep-entrega');
-                  if (campoCep) {
-                    campoCep.focus();
-                  }
-                }}
-              >
-                Trocar
-              </button>
-            </div>
+            ) : null}
 
             {retiradaSelecionada ? (
               <>
@@ -3271,23 +3456,6 @@ export default function PagamentoPage() {
               </>
             )}
 
-            <div className="checkout-delivery-actions-desktop">
-              <BotaoVoltarSeta
-                onClick={() => setEtapaAtual(ETAPAS.CARRINHO)}
-                label="Voltar para carrinho"
-                text="Voltar para carrinho"
-                className="entrega-voltar-carrinho-btn"
-              />
-
-              <button
-                type="button"
-                className="btn-primary entrega-ir-pagamento-btn"
-                onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}
-                disabled={!podeAvancarParaPagamento}
-              >
-                Ir para pagamento
-              </button>
-            </div>
           </div>
         </div>
       ) : null}
@@ -3630,12 +3798,6 @@ export default function PagamentoPage() {
               <div className="payment-login-state">
                 <p className="muted-text">Faça login para continuar com o pagamento e acompanhar seu pedido.</p>
                 <div className="checkout-payment-actions">
-                  <BotaoVoltarSeta
-                    onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
-                    label="Voltar para entrega"
-                    text="Voltar"
-                    className="payment-back-btn"
-                  />
                   <Link to="/conta" className="btn-primary entrega-ir-pagamento-btn checkout-payment-primary-btn">
                     Ir para Conta
                   </Link>
@@ -3670,28 +3832,6 @@ export default function PagamentoPage() {
                 {buscandoChavePublica ? (
                   <p className="payment-action-feedback is-loading" role="status">Preparando conexão segura com o gateway de cartão...</p>
                 ) : null}
-
-                <div className="checkout-payment-actions">
-                  <BotaoVoltarSeta
-                    onClick={() => setEtapaAtual(ETAPAS.ENTREGA)}
-                    label="Voltar para entrega"
-                    text="Voltar para entrega"
-                    className="payment-back-btn"
-                  />
-
-                  <button
-                    className="btn-primary checkout-payment-primary-btn"
-                    type="button"
-                    onClick={() => {
-                      void handleContinuarPagamento();
-                    }}
-                    disabled={bloqueioPagamento}
-                  >
-                    {carregando
-                      ? 'Processando...'
-                      : `Revisar pedido • ${formatarMoeda(resumoTotalPagamento)}`}
-                  </button>
-                </div>
               </div>
             ) : null}
           </aside>
@@ -3898,69 +4038,24 @@ export default function PagamentoPage() {
               className={growthCheckoutPaymentPriceClass}
             />
 
-            <div className="card-box checkout-pix-actions-card">
-              <p className="pix-order-meta">Pedido #{resultadoPedido?.pedido_id || '-'}</p>
+            {formaPagamento === 'pix' ? (
+              <div className="card-box checkout-pix-actions-card">
+                <p className="pix-order-meta">Pedido #{resultadoPedido?.pedido_id || '-'}</p>
 
-              {formaPagamento === 'pix' ? (
-                <>
-                  <button
-                    className={`${pixDisponivelParaPagar ? 'btn-secondary' : 'btn-primary'} checkout-pix-generate-btn`.trim()}
-                    type="button"
-                    disabled={bloqueioGeracaoPix}
-                    onClick={() => handleGerarPixMercadoPago(resultadoPedido.pedido_id)}
-                  >
-                    {textoBotaoGerarPix}
-                  </button>
-
-                  {podeContinuarConfirmacaoPix ? (
-                    <button
-                      className="btn-primary checkout-pix-primary-btn"
-                      type="button"
-                      onClick={() => {
-                        setPagamentoConfirmado(true);
-                        setEtapaAtual(ETAPAS.STATUS);
-                      }}
-                    >
-                      Continuar para confirmação do pedido
-                    </button>
-                  ) : (
-                    <button
-                      className={`${pixDisponivelParaPagar ? 'btn-primary' : 'btn-secondary'} checkout-pix-primary-btn`.trim()}
-                      type="button"
-                      onClick={() => {
-                        void handleVerificarPagamentoPix();
-                      }}
-                      disabled={bloqueioVerificacaoPix || !pixDisponivelParaPagar}
-                    >
-                      {verificandoStatusPix ? 'Verificando pagamento PIX...' : 'Verificar pagamento PIX'}
-                    </button>
-                  )}
-
-                  {!podeContinuarConfirmacaoPix ? (
-                    <p className="pix-action-helper">A confirmação só é liberada após aprovação do pagamento PIX.</p>
-                  ) : null}
-                </>
-              ) : (
                 <button
-                  className="btn-primary checkout-pix-primary-btn"
+                  className={`${pixDisponivelParaPagar ? 'btn-secondary' : 'btn-primary'} checkout-pix-generate-btn`.trim()}
                   type="button"
-                  disabled={!cartaoProcessado}
-                  onClick={() => {
-                    setPagamentoConfirmado(cartaoAprovado);
-                    setEtapaAtual(ETAPAS.STATUS);
-                  }}
+                  disabled={bloqueioGeracaoPix}
+                  onClick={() => handleGerarPixMercadoPago(resultadoPedido.pedido_id)}
                 >
-                  Continuar para confirmação
+                  {textoBotaoGerarPix}
                 </button>
-              )}
 
-              <BotaoVoltarSeta
-                onClick={() => setEtapaAtual(ETAPAS.PAGAMENTO)}
-                label="Voltar para pagamento"
-                text="Voltar para pagamento"
-                className="payment-back-btn"
-              />
-            </div>
+                {!podeContinuarConfirmacaoPix ? (
+                  <p className="pix-action-helper">A confirmação só é liberada após aprovação do pagamento PIX.</p>
+                ) : null}
+              </div>
+            ) : null}
           </aside>
         </div>
       ) : null}
@@ -4001,11 +4096,9 @@ export default function PagamentoPage() {
             <p>Após a confirmação do pagamento, iniciamos a preparação e o envio do pedido.</p>
           </div>
 
-          <BotaoVoltarSeta
-            onClick={() => setEtapaAtual(ETAPAS.PIX)}
-            label="Voltar para pagamento"
-            text="Voltar para pagamento"
-          />
+          <Link className="btn-secondary" to="/pedidos" style={{ display: 'inline-flex', width: 'fit-content' }}>
+            Ir para meus pedidos
+          </Link>
         </div>
       ) : null}
 

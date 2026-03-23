@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   adminGetFilaOperacional,
+  adminGetPedidoDetalhes,
   adminAtualizarStatusPedido,
   adminAprovarRevisao,
   adminRejeitarRevisao,
@@ -71,10 +72,38 @@ function ProgressoEtapas({ status, tipoEntrega }) {
   );
 }
 
-function FilaPedidoCard({ pedido, filaConfig, onAcao, onRevisao, atualizandoId }) {
+function FilaPedidoCard({
+  pedido,
+  filaConfig,
+  onAcao,
+  onRevisao,
+  atualizandoId,
+  detalhesAbertos,
+  detalhesCarregando,
+  detalhesErro,
+  detalhesData,
+  onToggleDetalhes
+}) {
   const minParado = Number(pedido.minutos_parado || pedido.minutos_rota || pedido.minutos_pendente || pedido.minutos_desde_criacao || 0);
   const urgente = minParado > 30;
   const critico = minParado > 60;
+  const cliente = detalhesData?.cliente || null;
+  const pedidoDetalhes = detalhesData?.pedido || null;
+  const endereco = detalhesData?.endereco || null;
+  const detalhesItens = Array.isArray(detalhesData?.itens) ? detalhesData.itens : [];
+  const detalhesTotalItens = Number(detalhesData?.total_itens || 0);
+  const detalhesTotalProdutos = Number(detalhesData?.total_produtos || 0);
+  const enderecoTexto = endereco
+    ? [
+      String(endereco.logradouro || '').trim(),
+      String(endereco.numero || '').trim(),
+      String(endereco.complemento || '').trim(),
+      String(endereco.bairro || '').trim(),
+      String(endereco.cidade || '').trim(),
+      String(endereco.estado || '').trim(),
+      String(endereco.cep || '').trim()
+    ].filter(Boolean).join(', ')
+    : '';
 
   return (
     <div className={`fila-card ${critico ? 'is-critico' : urgente ? 'is-urgente' : ''}`}>
@@ -99,8 +128,17 @@ function FilaPedidoCard({ pedido, filaConfig, onAcao, onRevisao, atualizandoId }
 
       <ProgressoEtapas status={pedido.status} tipoEntrega={pedido.tipo_entrega} />
 
-      {filaConfig.isRevisao ? (
-        <div className="fila-card-acoes fila-card-acoes-revisao">
+      <div className={`fila-card-acoes ${filaConfig.isRevisao ? 'fila-card-acoes-revisao' : ''}`.trim()}>
+        <button
+          className="fila-btn-acao btn-detalhes-revisao"
+          disabled={atualizandoId === pedido.id}
+          onClick={() => onToggleDetalhes(pedido.id)}
+        >
+          {detalhesAbertos ? '🔽 Ocultar detalhes' : '🔎 Detalhes'}
+        </button>
+
+        {filaConfig.isRevisao ? (
+          <>
           <button
             className="fila-btn-acao btn-aprovar-revisao"
             disabled={atualizandoId === pedido.id}
@@ -115,9 +153,11 @@ function FilaPedidoCard({ pedido, filaConfig, onAcao, onRevisao, atualizandoId }
           >
             ❌ Rejeitar
           </button>
-        </div>
-      ) : filaConfig.proximoStatus && (
-        <div className="fila-card-acoes">
+          </>
+        ) : null}
+
+        {!filaConfig.isRevisao && filaConfig.proximoStatus ? (
+          <>
           <button
             className={`fila-btn-acao ${filaConfig.btnClass || ''}`}
             disabled={atualizandoId === pedido.id}
@@ -134,13 +174,67 @@ function FilaPedidoCard({ pedido, filaConfig, onAcao, onRevisao, atualizandoId }
           >
             ✕
           </button>
+          </>
+        ) : null}
+      </div>
+
+      {detalhesAbertos ? (
+        <div className="fila-revisao-detalhes" aria-live="polite">
+          {detalhesCarregando ? (
+            <p className="fila-revisao-detalhes-loading">Carregando detalhes do pedido...</p>
+          ) : detalhesErro ? (
+            <p className="fila-revisao-detalhes-erro">{detalhesErro}</p>
+          ) : detalhesItens.length === 0 ? (
+            <p className="fila-revisao-detalhes-vazio">Nenhum produto encontrado para este pedido.</p>
+          ) : (
+            <>
+              <div className="fila-detalhes-grid">
+                <div className="fila-detalhes-bloco">
+                  <p className="fila-revisao-detalhes-head">Cliente</p>
+                  <p className="fila-detalhes-linha"><strong>Nome:</strong> {cliente?.nome || pedido.cliente_nome || 'Não informado'}</p>
+                  <p className="fila-detalhes-linha"><strong>Telefone:</strong> {cliente?.telefone || pedido.cliente_telefone || 'Não informado'}</p>
+                  <p className="fila-detalhes-linha"><strong>Email:</strong> {cliente?.email || pedido.cliente_email || 'Não informado'}</p>
+                </div>
+
+                <div className="fila-detalhes-bloco">
+                  <p className="fila-revisao-detalhes-head">Pedido</p>
+                  <p className="fila-detalhes-linha"><strong>Forma pag.:</strong> {String(pedidoDetalhes?.forma_pagamento || pedido.forma_pagamento || '-')}</p>
+                  <p className="fila-detalhes-linha"><strong>Entrega:</strong> {String(pedidoDetalhes?.tipo_entrega || pedido.tipo_entrega || '-')}</p>
+                  <p className="fila-detalhes-linha"><strong>Total:</strong> {R$(pedidoDetalhes?.total || pedido.total)}</p>
+                  {enderecoTexto ? <p className="fila-detalhes-linha"><strong>Endereço:</strong> {enderecoTexto}</p> : null}
+                </div>
+              </div>
+
+              <p className="fila-revisao-detalhes-head">Carrinho ({detalhesTotalItens} itens)</p>
+              <ul className="fila-revisao-itens-lista">
+                {detalhesItens.map((item, index) => (
+                  <li key={`${pedido.id}-item-${index}`} className="fila-revisao-item-row">
+                    <span className="fila-revisao-item-qtd">{Number(item?.quantidade || 0)}x</span>
+                    <span className="fila-revisao-item-nome">{String(item?.nome_produto || item?.nome || 'Item sem nome')}</span>
+                    <span className="fila-revisao-item-subtotal">{R$(item?.subtotal)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="fila-detalhes-total"><strong>Total produtos:</strong> {R$(detalhesTotalProdutos)}</p>
+            </>
+          )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
-function FilaGrupo({ chave, pedidos, onAcao, onRevisao, atualizandoId }) {
+function FilaGrupo({
+  chave,
+  pedidos,
+  onAcao,
+  onRevisao,
+  atualizandoId,
+  detalhesRevisaoAbertos,
+  detalhesRevisaoCarregando,
+  detalhesRevisaoPorPedido,
+  onToggleDetalhesRevisao
+}) {
   const cfg = LABELS_FILA[chave];
   if (!cfg || !pedidos || pedidos.length === 0) return null;
 
@@ -159,6 +253,11 @@ function FilaGrupo({ chave, pedidos, onAcao, onRevisao, atualizandoId }) {
             onAcao={onAcao}
             onRevisao={onRevisao}
             atualizandoId={atualizandoId}
+            detalhesAbertos={Boolean(detalhesRevisaoAbertos[p.id])}
+            detalhesCarregando={Boolean(detalhesRevisaoCarregando[p.id])}
+            detalhesErro={String(detalhesRevisaoPorPedido[p.id]?.erro || '')}
+            detalhesData={detalhesRevisaoPorPedido[p.id] || null}
+            onToggleDetalhes={onToggleDetalhesRevisao}
           />
         ))}
       </div>
@@ -174,6 +273,9 @@ export default function FilaOperacional() {
   const [atualizandoId, setAtualizandoId] = useState(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [feedback, setFeedback] = useState(null);
+  const [detalhesRevisaoAbertos, setDetalhesRevisaoAbertos] = useState({});
+  const [detalhesRevisaoCarregando, setDetalhesRevisaoCarregando] = useState({});
+  const [detalhesRevisaoPorPedido, setDetalhesRevisaoPorPedido] = useState({});
   const intervaloRef = useRef(null);
   const feedbackTimerRef = useRef(null);
 
@@ -311,6 +413,50 @@ export default function FilaOperacional() {
     }
   }, [carregar]);
 
+  const handleToggleDetalhesRevisao = useCallback(async (pedidoId) => {
+    const id = Number(pedidoId || 0);
+    if (!Number.isInteger(id) || id <= 0) {
+      return;
+    }
+
+    const abrindo = !Boolean(detalhesRevisaoAbertos[id]);
+    setDetalhesRevisaoAbertos((atual) => ({
+      ...atual,
+      [id]: abrindo
+    }));
+
+    if (!abrindo || detalhesRevisaoPorPedido[id] || detalhesRevisaoCarregando[id]) {
+      return;
+    }
+
+    setDetalhesRevisaoCarregando((atual) => ({ ...atual, [id]: true }));
+    try {
+      const data = await adminGetPedidoDetalhes(id);
+      setDetalhesRevisaoPorPedido((atual) => ({
+        ...atual,
+        [id]: {
+          ...data,
+          erro: ''
+        }
+      }));
+    } catch (e) {
+      setDetalhesRevisaoPorPedido((atual) => ({
+        ...atual,
+        [id]: {
+          itens: [],
+          totalItens: 0,
+          erro: e.message || 'Não foi possível carregar os itens do pedido.'
+        }
+      }));
+    } finally {
+      setDetalhesRevisaoCarregando((atual) => {
+        const proximo = { ...atual };
+        delete proximo[id];
+        return proximo;
+      });
+    }
+  }, [detalhesRevisaoAbertos, detalhesRevisaoCarregando, detalhesRevisaoPorPedido]);
+
   if (carregando) return <LoadingSkeleton type="cards" lines={4} />;
   if (erro) return <div className="fila-erro">{erro} <button onClick={carregar}>Tentar novamente</button></div>;
   if (!dados) return null;
@@ -369,7 +515,18 @@ export default function FilaOperacional() {
       {/* Filas por prioridade */}
       <div className="fila-grupos">
         {ordemFilas.map(chave => (
-          <FilaGrupo key={chave} chave={chave} pedidos={dados[chave]} onAcao={handleAcao} onRevisao={handleRevisao} atualizandoId={atualizandoId} />
+          <FilaGrupo
+            key={chave}
+            chave={chave}
+            pedidos={dados[chave]}
+            onAcao={handleAcao}
+            onRevisao={handleRevisao}
+            atualizandoId={atualizandoId}
+            detalhesRevisaoAbertos={detalhesRevisaoAbertos}
+            detalhesRevisaoCarregando={detalhesRevisaoCarregando}
+            detalhesRevisaoPorPedido={detalhesRevisaoPorPedido}
+            onToggleDetalhesRevisao={handleToggleDetalhesRevisao}
+          />
         ))}
       </div>
 

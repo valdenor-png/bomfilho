@@ -969,6 +969,180 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
     }
   });
 
+  // Itens do pedido para revisão operacional
+  router.get('/api/admin/pedidos/:id/itens', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+    try {
+      const pedidoId = parsePositiveInt(req.params.id);
+      if (!pedidoId) {
+        return res.status(400).json({ erro: 'ID do pedido inválido.' });
+      }
+
+      const [[pedido]] = await pool.query(
+        'SELECT id, status FROM pedidos WHERE id = ? LIMIT 1',
+        [pedidoId]
+      );
+
+      if (!pedido) {
+        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+      }
+
+      let itens = [];
+      try {
+        const [rows] = await pool.query(
+          `SELECT produto_id, nome_produto, quantidade, preco, subtotal
+           FROM pedido_itens
+           WHERE pedido_id = ?
+           ORDER BY id ASC`,
+          [pedidoId]
+        );
+        itens = rows || [];
+      } catch (_) {
+        // Compatibilidade com bases legadas.
+        const [rowsLegacy] = await pool.query(
+          `SELECT produto_id, nome AS nome_produto, quantidade, preco, subtotal
+           FROM itens_pedido
+           WHERE pedido_id = ?
+           ORDER BY id ASC`,
+          [pedidoId]
+        );
+        itens = rowsLegacy || [];
+      }
+
+      const totalItens = itens.reduce((soma, item) => soma + Number(item?.quantidade || 0), 0);
+      const totalProdutos = itens.reduce((soma, item) => soma + Number(item?.subtotal || 0), 0);
+
+      return res.json({
+        pedido_id: pedidoId,
+        status: String(pedido.status || '').toLowerCase(),
+        total_itens: totalItens,
+        total_produtos: Number(totalProdutos.toFixed(2)),
+        itens
+      });
+    } catch (erro) {
+      logger.error('Erro ao listar itens do pedido para revisão operacional:', erro);
+      return res.status(500).json({ erro: 'Falha ao carregar itens do pedido.' });
+    }
+  });
+
+  // Detalhes completos do pedido (cliente + carrinho) para operação
+  router.get('/api/admin/pedidos/:id/detalhes', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+    try {
+      const pedidoId = parsePositiveInt(req.params.id);
+      if (!pedidoId) {
+        return res.status(400).json({ erro: 'ID do pedido inválido.' });
+      }
+
+      const [[pedido]] = await pool.query(
+        `SELECT
+          p.*,
+          u.nome AS cliente_nome,
+          u.email AS cliente_email,
+          u.telefone AS cliente_telefone
+         FROM pedidos p
+         LEFT JOIN usuarios u ON p.usuario_id = u.id
+         WHERE p.id = ?
+         LIMIT 1`,
+        [pedidoId]
+      );
+
+      if (!pedido) {
+        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+      }
+
+      let itens = [];
+      try {
+        const [rows] = await pool.query(
+          `SELECT produto_id, nome_produto, quantidade, preco, subtotal
+           FROM pedido_itens
+           WHERE pedido_id = ?
+           ORDER BY id ASC`,
+          [pedidoId]
+        );
+        itens = rows || [];
+      } catch (_) {
+        const [rowsLegacy] = await pool.query(
+          `SELECT produto_id, nome AS nome_produto, quantidade, preco, subtotal
+           FROM itens_pedido
+           WHERE pedido_id = ?
+           ORDER BY id ASC`,
+          [pedidoId]
+        );
+        itens = rowsLegacy || [];
+      }
+
+      const totalItens = itens.reduce((soma, item) => soma + Number(item?.quantidade || 0), 0);
+      const totalProdutos = itens.reduce((soma, item) => soma + Number(item?.subtotal || 0), 0);
+
+      const tipoEntrega = String(pedido?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
+        ? 'retirada'
+        : 'entrega';
+
+      let endereco = {
+        cep: String(pedido?.cep_destino_entrega || pedido?.cep_entrega || '').trim(),
+        logradouro: String(pedido?.logradouro_entrega || pedido?.rua_entrega || '').trim(),
+        numero: String(pedido?.numero_destino_entrega || pedido?.numero_entrega || '').trim(),
+        complemento: String(pedido?.complemento_entrega || '').trim(),
+        bairro: String(pedido?.bairro_entrega || '').trim(),
+        cidade: String(pedido?.cidade_entrega || '').trim(),
+        estado: String(pedido?.estado_entrega || '').trim(),
+        referencia: String(pedido?.referencia_entrega || '').trim()
+      };
+
+      const enderecoIncompleto = !endereco.cep && !endereco.logradouro && !endereco.numero;
+      if (tipoEntrega !== 'retirada' && enderecoIncompleto && Number(pedido?.usuario_id || 0) > 0) {
+        const [endRows] = await pool.query(
+          `SELECT rua, logradouro, numero, complemento, bairro, cidade, estado, cep, referencia
+           FROM enderecos
+           WHERE usuario_id = ?
+           ORDER BY atualizado_em DESC
+           LIMIT 1`,
+          [pedido.usuario_id]
+        );
+
+        const enderecoUsuario = endRows?.[0] || null;
+        if (enderecoUsuario) {
+          endereco = {
+            cep: String(enderecoUsuario.cep || '').trim(),
+            logradouro: String(enderecoUsuario.logradouro || enderecoUsuario.rua || '').trim(),
+            numero: String(enderecoUsuario.numero || '').trim(),
+            complemento: String(enderecoUsuario.complemento || '').trim(),
+            bairro: String(enderecoUsuario.bairro || '').trim(),
+            cidade: String(enderecoUsuario.cidade || '').trim(),
+            estado: String(enderecoUsuario.estado || '').trim(),
+            referencia: String(enderecoUsuario.referencia || '').trim()
+          };
+        }
+      }
+
+      return res.json({
+        pedido: {
+          id: Number(pedido.id),
+          status: String(pedido.status || '').toLowerCase(),
+          criado_em: pedido.criado_em,
+          forma_pagamento: String(pedido.forma_pagamento || '').toLowerCase(),
+          tipo_entrega: tipoEntrega,
+          total: Number(pedido.total || 0),
+          frete_entrega: Number(pedido.frete_entrega || 0),
+          desconto_aplicado: Number(pedido.desconto_aplicado || 0),
+          taxa_servico: Number(pedido.taxa_servico || 0),
+          instrucoes: String(pedido.instrucoes || '').trim()
+        },
+        cliente: {
+          nome: String(pedido.cliente_nome || '').trim(),
+          email: String(pedido.cliente_email || '').trim(),
+          telefone: String(pedido.cliente_telefone || '').trim()
+        },
+        endereco,
+        total_itens: totalItens,
+        total_produtos: Number(totalProdutos.toFixed(2)),
+        itens
+      });
+    } catch (erro) {
+      logger.error('Erro ao carregar detalhes completos do pedido no admin:', erro);
+      return res.status(500).json({ erro: 'Falha ao carregar detalhes do pedido.' });
+    }
+  });
+
   // ============================================
   // Clientes
   // ============================================

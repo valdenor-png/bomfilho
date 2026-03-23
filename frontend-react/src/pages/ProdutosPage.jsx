@@ -2549,10 +2549,6 @@ export default function ProdutosPage() {
     || bebidaSubcategoria !== 'todas'
     || friosSubcategoria !== 'todas';
 
-  const podeFinalizarPedido = resumo.itens > 0;
-  const itensResumoTexto = resumo.itens === 1 ? '1 item' : `${resumo.itens} itens`;
-  const subtotalTexto = formatCurrency(resumo.total);
-
   const mostrarSkeletonInicial = carregando && produtos.length === 0;
   const mostrarErro = Boolean(erro) && !carregando && produtos.length === 0;
   const mostrarAvisoAtualizacao = Boolean(erro) && !carregando && produtos.length > 0;
@@ -3047,28 +3043,6 @@ export default function ProdutosPage() {
           />
         </React.Suspense>
       ) : null}
-
-      <div className="pedido-resumo pedido-resumo-fixo pedido-resumo-fixo-clean" role="region" aria-label="Resumo do pedido">
-        <div className="pedido-resumo-fixo-conteudo">
-          <div className="pedido-resumo-fixo-info" title={`Itens: ${resumo.itens} | Total: ${subtotalTexto}`}>
-            <p className="pedido-resumo-fixo-linha">
-              <strong>{itensResumoTexto}</strong>
-              <span className="pedido-resumo-fixo-separador" aria-hidden="true">·</span>
-              <span>{subtotalTexto}</span>
-            </p>
-          </div>
-
-          {podeFinalizarPedido ? (
-            <Link to="/pagamento" className="btn-primary pedido-resumo-fixo-botao">
-              Ver carrinho
-            </Link>
-          ) : (
-            <button type="button" className="btn-primary pedido-resumo-fixo-botao" disabled>
-              Ver carrinho
-            </button>
-          )}
-        </div>
-      </div>
     </section>
   );
 }
