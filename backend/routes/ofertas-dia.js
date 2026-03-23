@@ -82,7 +82,7 @@ module.exports = function createOfertasDiaRoutes({ autenticarAdminToken }) {
       );
 
       await pool.query(
-        'INSERT INTO ofertas_dia (produto_id, ordem, ativo) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE ativo = 1, ordem = VALUES(ordem)',
+        'INSERT INTO ofertas_dia (produto_id, ordem, ativo) VALUES (?, ?, 1) ON CONFLICT (produto_id) DO UPDATE SET ativo = EXCLUDED.ativo, ordem = EXCLUDED.ordem',
         [Number(produto_id), maxOrdem + 1]
       );
 

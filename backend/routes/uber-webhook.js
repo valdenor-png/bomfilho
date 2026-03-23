@@ -4,6 +4,7 @@ const express = require('express');
 const crypto = require('crypto');
 const logger = require('../lib/logger');
 const { compararTextoSegura } = require('../lib/helpers');
+const { DB_DIALECT } = require('../lib/config');
 
 const DELIVERY_STATUS_RANK = Object.freeze({
   pending: 10,
@@ -82,12 +83,17 @@ function firstTruthy(...values) {
 }
 
 async function getPedidosColumns(pool) {
-  const [rows] = await pool.query(
-    `SELECT COLUMN_NAME
-       FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = 'pedidos'`
-  );
+  const query = DB_DIALECT === 'postgres'
+    ? `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'pedidos'`
+    : `SELECT COLUMN_NAME
+         FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'pedidos'`;
+
+  const [rows] = await pool.query(query);
 
   return new Set(
     (rows || [])
@@ -97,13 +103,17 @@ async function getPedidosColumns(pool) {
 }
 
 async function hasTable(pool, tableName) {
-  const [rows] = await pool.query(
-    `SELECT COUNT(*) AS total
-       FROM INFORMATION_SCHEMA.TABLES
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?`,
-    [tableName]
-  );
+  const query = DB_DIALECT === 'postgres'
+    ? `SELECT COUNT(*)::int AS total
+         FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = ?`
+    : `SELECT COUNT(*) AS total
+         FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?`;
+
+  const [rows] = await pool.query(query, [tableName]);
 
   return Number(rows?.[0]?.total || 0) > 0;
 }
@@ -134,12 +144,13 @@ module.exports = function createUberWebhookRoutes({ pool, webhookToken, IS_PRODU
       const trackingEventsTableExists = await hasTable(pool, 'delivery_tracking_events');
 
       await pool.query(
-        `INSERT IGNORE INTO uber_delivery_events
+        `INSERT INTO uber_delivery_events
           (event_external_id, pedido_id, uber_delivery_id, event_type, payload)
          SELECT ?, p.id, ?, ?, ?
            FROM pedidos p
           WHERE p.uber_delivery_id = ?
-          LIMIT 1`,
+          LIMIT 1
+         ON CONFLICT (event_external_id) DO NOTHING`,
         [eventExternalId, deliveryId, eventTypeInterno, JSON.stringify(payload), deliveryId]
       );
 
@@ -190,13 +201,13 @@ module.exports = function createUberWebhookRoutes({ pool, webhookToken, IS_PRODU
           `INSERT INTO delivery_tracking_events
             (pedido_id, source, provider_event_id, event_name, status_internal, status_provider, title, description, occurred_at, payload)
            VALUES (?, 'provider', ?, ?, ?, ?, ?, ?, NOW(), ?)
-           ON DUPLICATE KEY UPDATE
-            status_internal = VALUES(status_internal),
-            status_provider = VALUES(status_provider),
-            title = VALUES(title),
-            description = VALUES(description),
-            payload = VALUES(payload),
-            occurred_at = VALUES(occurred_at)`,
+           ON CONFLICT (provider_event_id) DO UPDATE SET
+            status_internal = EXCLUDED.status_internal,
+            status_provider = EXCLUDED.status_provider,
+            title = EXCLUDED.title,
+            description = EXCLUDED.description,
+            payload = EXCLUDED.payload,
+            occurred_at = EXCLUDED.occurred_at`,
           [
             pedidoId,
             eventExternalId,

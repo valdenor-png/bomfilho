@@ -223,13 +223,13 @@ class BarcodeLookupService {
       `INSERT INTO ${TABLE_CACHE}
         (barcode, status, provider, payload_json, error_message, looked_up_at, expires_at)
        VALUES (?, ?, ?, ?, ?, NOW(), ?)
-       ON DUPLICATE KEY UPDATE
-        status = VALUES(status),
-        provider = VALUES(provider),
-        payload_json = VALUES(payload_json),
-        error_message = VALUES(error_message),
-        looked_up_at = VALUES(looked_up_at),
-        expires_at = VALUES(expires_at)`,
+       ON CONFLICT (barcode) DO UPDATE SET
+        status = EXCLUDED.status,
+        provider = EXCLUDED.provider,
+        payload_json = EXCLUDED.payload_json,
+        error_message = EXCLUDED.error_message,
+        looked_up_at = EXCLUDED.looked_up_at,
+        expires_at = EXCLUDED.expires_at`,
       [
         result.barcode,
         result.status,

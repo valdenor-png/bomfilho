@@ -3,6 +3,7 @@
 const express = require('express');
 const logger = require('../lib/logger');
 const { montarRespostaErroBanco } = require('../lib/db');
+const { DB_DIALECT } = require('../lib/config');
 const { criarErroHttp, toMoney } = require('../lib/helpers');
 const { calculateCartLogistics } = require('../services/cartLogisticsService');
 
@@ -379,14 +380,19 @@ module.exports = function createDeliveryRoutes({
   router.get('/api/admin/delivery/pedidos', exigirAcessoLocalAdmin, autenticarAdminToken, async (_req, res) => {
     try {
       const [columnRows] = await pool.query(
-        `SELECT COLUMN_NAME
-           FROM INFORMATION_SCHEMA.COLUMNS
-          WHERE TABLE_SCHEMA = DATABASE()
-            AND TABLE_NAME = 'pedidos'`
+        DB_DIALECT === 'postgres'
+          ? `SELECT column_name
+               FROM information_schema.columns
+              WHERE table_schema = current_schema()
+                AND table_name = 'pedidos'`
+          : `SELECT COLUMN_NAME
+               FROM INFORMATION_SCHEMA.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'pedidos'`
       );
       const availableColumns = new Set(
         (columnRows || [])
-          .map((row) => String(row?.COLUMN_NAME || '').trim().toLowerCase())
+          .map((row) => String(row?.COLUMN_NAME || row?.column_name || '').trim().toLowerCase())
           .filter(Boolean)
       );
 

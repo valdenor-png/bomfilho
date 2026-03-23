@@ -25,44 +25,6 @@ function normalizarOrigin(origin) {
   return String(origin || '').trim().replace(/\/+$/, '').toLowerCase();
 }
 
-function buildDatabaseUrlFromParts() {
-  const host = String(process.env.DB_HOST || process.env.MYSQLHOST || '').trim();
-  const port = String(process.env.DB_PORT || process.env.MYSQLPORT || '').trim();
-  const user = String(process.env.DB_USER || process.env.MYSQLUSER || '').trim();
-  const password = String(process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || process.env.MYSQL_ROOT_PASSWORD || '').trim();
-  const database = String(process.env.DB_NAME || process.env.MYSQL_DATABASE || process.env.MYSQLDATABASE || '').trim();
-
-  if (!host || !user || !database) return '';
-
-  const auth = `${encodeURIComponent(user)}:${encodeURIComponent(password)}`;
-  const hostPort = port ? `${host}:${port}` : host;
-  return `mysql://${auth}@${hostPort}/${encodeURIComponent(database)}`;
-}
-
-function resolveDatabaseUrl() {
-  const fromDatabaseUrl = String(process.env.DATABASE_URL || '').trim();
-  if (fromDatabaseUrl) {
-    return { value: fromDatabaseUrl, source: 'DATABASE_URL' };
-  }
-
-  const fromMysqlPublicUrl = String(process.env.MYSQL_PUBLIC_URL || '').trim();
-  if (fromMysqlPublicUrl) {
-    return { value: fromMysqlPublicUrl, source: 'MYSQL_PUBLIC_URL' };
-  }
-
-  const fromMysqlUrl = String(process.env.MYSQL_URL || '').trim();
-  if (fromMysqlUrl) {
-    return { value: fromMysqlUrl, source: 'MYSQL_URL' };
-  }
-
-  const fromParts = buildDatabaseUrlFromParts();
-  if (fromParts) {
-    return { value: fromParts, source: 'DB_*|MYSQL*' };
-  }
-
-  return { value: '', source: 'UNSET' };
-}
-
 // ============================================
 // CORE
 // ============================================
@@ -75,14 +37,23 @@ const FRONTEND_DIST_PATH = path.resolve(__dirname, '..', '..', 'frontend-react',
 const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
 const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
 const SHOULD_SERVE_REACT = parseBooleanEnv('SERVE_REACT', !IS_PRODUCTION);
-const DATABASE_URL_RESOLVED = resolveDatabaseUrl();
-const DATABASE_URL = DATABASE_URL_RESOLVED.value;
-const DATABASE_URL_SOURCE = DATABASE_URL_RESOLVED.source;
+const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
 const TRUST_PROXY = parseBooleanEnv('TRUST_PROXY', IS_PRODUCTION);
 
 if (!DATABASE_URL) {
-  throw new Error('Banco nao configurado. Defina DATABASE_URL ou MYSQL_PUBLIC_URL (ou MYSQL_URL/DB_*).');
+  throw new Error('DATABASE_URL nao configurada no ambiente.');
 }
+
+const DB_DIALECT = (() => {
+  try {
+    const protocol = String(new URL(DATABASE_URL).protocol || '').toLowerCase();
+    if (protocol.includes('postgres')) return 'postgres';
+    if (protocol.includes('mysql')) return 'mysql';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
 
 // ============================================
 // PAGBANK
@@ -368,7 +339,7 @@ module.exports = {
   // core
   NODE_ENV, IS_PRODUCTION, PORT, SERVICE_NAME, API_VERSION,
   FRONTEND_DIST_PATH, REACT_DIST_INDEX, FRONTEND_APP_URL, SHOULD_SERVE_REACT,
-  DATABASE_URL, DATABASE_URL_SOURCE, TRUST_PROXY, BASE_URL_ENV,
+  DATABASE_URL, DB_DIALECT, TRUST_PROXY, BASE_URL_ENV,
   // pagbank
   PAGBANK_ENABLED,
   PAGBANK_CONFIG, PAGBANK_ENV, PAGBANK_TOKEN, PAGBANK_PUBLIC_KEY,

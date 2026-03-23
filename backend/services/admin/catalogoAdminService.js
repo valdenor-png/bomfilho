@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const XLSX = require('xlsx');
 const { normalizarBarcode, validarBarcode } = require('../barcode/utils/barcodeUtils');
+const { DB_DIALECT } = require('../../lib/config');
 
 const TABELA_IMPORT_LOGS = 'product_import_logs';
 const TABELA_ENRICHMENT_LOGS = 'product_enrichment_logs';
@@ -373,27 +374,37 @@ function construirResumoErrosEnrichment(rows = [], { includeNaoEncontrado = fals
 }
 
 async function colunaExiste(pool, tabela, coluna) {
-  const [rows] = await pool.query(
-    `SELECT COUNT(*) AS total
-       FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?
-        AND COLUMN_NAME = ?`,
-    [tabela, coluna]
-  );
+  const query = DB_DIALECT === 'postgres'
+    ? `SELECT COUNT(*)::int AS total
+         FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = ?
+          AND column_name = ?`
+    : `SELECT COUNT(*) AS total
+         FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = ?`;
+
+  const [rows] = await pool.query(query, [tabela, coluna]);
 
   return Number(rows?.[0]?.total || 0) > 0;
 }
 
 async function indiceExiste(pool, tabela, indice) {
-  const [rows] = await pool.query(
-    `SELECT COUNT(*) AS total
-       FROM INFORMATION_SCHEMA.STATISTICS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?
-        AND INDEX_NAME = ?`,
-    [tabela, indice]
-  );
+  const query = DB_DIALECT === 'postgres'
+    ? `SELECT COUNT(*)::int AS total
+         FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND tablename = ?
+          AND indexname = ?`
+    : `SELECT COUNT(*) AS total
+         FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND INDEX_NAME = ?`;
+
+  const [rows] = await pool.query(query, [tabela, indice]);
 
   return Number(rows?.[0]?.total || 0) > 0;
 }
@@ -420,10 +431,10 @@ async function ensureAdminCatalogSchema(pool) {
   await garantirColuna(pool, 'produtos', 'preco_tabela', 'ALTER TABLE produtos ADD COLUMN preco_tabela DECIMAL(10,2) NULL');
   await garantirColuna(pool, 'produtos', 'enrichment_status', "ALTER TABLE produtos ADD COLUMN enrichment_status VARCHAR(30) NOT NULL DEFAULT 'pendente'");
   await garantirColuna(pool, 'produtos', 'enrichment_provider', 'ALTER TABLE produtos ADD COLUMN enrichment_provider VARCHAR(80) NULL');
-  await garantirColuna(pool, 'produtos', 'enrichment_last_attempt_at', 'ALTER TABLE produtos ADD COLUMN enrichment_last_attempt_at DATETIME NULL');
-  await garantirColuna(pool, 'produtos', 'enrichment_updated_at', 'ALTER TABLE produtos ADD COLUMN enrichment_updated_at DATETIME NULL');
+  await garantirColuna(pool, 'produtos', 'enrichment_last_attempt_at', 'ALTER TABLE produtos ADD COLUMN enrichment_last_attempt_at TIMESTAMP NULL');
+  await garantirColuna(pool, 'produtos', 'enrichment_updated_at', 'ALTER TABLE produtos ADD COLUMN enrichment_updated_at TIMESTAMP NULL');
   await garantirColuna(pool, 'produtos', 'enrichment_last_error', 'ALTER TABLE produtos ADD COLUMN enrichment_last_error VARCHAR(255) NULL');
-  await garantirColuna(pool, 'produtos', 'ultima_importacao_em', 'ALTER TABLE produtos ADD COLUMN ultima_importacao_em DATETIME NULL');
+  await garantirColuna(pool, 'produtos', 'ultima_importacao_em', 'ALTER TABLE produtos ADD COLUMN ultima_importacao_em TIMESTAMP NULL');
 
   await garantirIndice(pool, 'produtos', 'idx_produtos_codigo_barras', 'CREATE INDEX idx_produtos_codigo_barras ON produtos(codigo_barras)');
   await garantirIndice(pool, 'produtos', 'idx_produtos_preco_tabela', 'CREATE INDEX idx_produtos_preco_tabela ON produtos(preco_tabela)');
@@ -433,36 +444,38 @@ async function ensureAdminCatalogSchema(pool) {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ${TABELA_IMPORT_LOGS} (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id BIGSERIAL PRIMARY KEY,
       arquivo_nome VARCHAR(255) NOT NULL,
       total_linhas INT NOT NULL DEFAULT 0,
       linhas_validas INT NOT NULL DEFAULT 0,
       linhas_com_erro INT NOT NULL DEFAULT 0,
       status VARCHAR(40) NOT NULL DEFAULT 'concluido',
-      resumo LONGTEXT NULL,
+      resumo TEXT NULL,
       criado_por VARCHAR(120) NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_product_import_logs_created_at (created_at),
-      INDEX idx_product_import_logs_status (status)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
   `);
+
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_product_import_logs_created_at ON product_import_logs(created_at)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_product_import_logs_status ON product_import_logs(status)');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ${TABELA_ENRICHMENT_LOGS} (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id BIGSERIAL PRIMARY KEY,
       produto_id INT NULL,
       barcode VARCHAR(32) NOT NULL,
       provider VARCHAR(80) NULL,
       status VARCHAR(40) NOT NULL,
       mensagem VARCHAR(255) NULL,
-      payload_resumido LONGTEXT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_product_enrichment_logs_produto (produto_id),
-      INDEX idx_product_enrichment_logs_barcode (barcode),
-      INDEX idx_product_enrichment_logs_status (status),
-      INDEX idx_product_enrichment_logs_created_at (created_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      payload_resumido TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
   `);
+
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_product_enrichment_logs_produto ON product_enrichment_logs(produto_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_product_enrichment_logs_barcode ON product_enrichment_logs(barcode)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_product_enrichment_logs_status ON product_enrichment_logs(status)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_product_enrichment_logs_created_at ON product_enrichment_logs(created_at)');
 
   schemaReady = true;
 }

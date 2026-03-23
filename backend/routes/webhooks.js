@@ -32,7 +32,7 @@ async function registrarWebhookProcessado(idempotencyKey, eventType) {
   if (!idempotencyKey || idempotencyKey === '__') return;
   try {
     await pool.query(
-      'INSERT IGNORE INTO webhook_events (idempotency_key, event_type) VALUES (?, ?)',
+      'INSERT INTO webhook_events (idempotency_key, event_type) VALUES (?, ?) ON CONFLICT (idempotency_key) DO NOTHING',
       [idempotencyKey, (eventType || '').slice(0, 100)]
     );
   } catch (err) {

@@ -3,18 +3,24 @@
 const express = require('express');
 const { pool } = require('../lib/db');
 const logger = require('../lib/logger');
+const { DB_DIALECT } = require('../lib/config');
 
 async function getEnderecoColumns() {
-  const [rows] = await pool.query(
-    `SELECT COLUMN_NAME
-       FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = 'enderecos'`
-  );
+  const query = DB_DIALECT === 'postgres'
+    ? `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'enderecos'`
+    : `SELECT COLUMN_NAME
+         FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'enderecos'`;
+
+  const [rows] = await pool.query(query);
 
   return new Set(
     (rows || [])
-      .map((row) => String(row?.COLUMN_NAME || '').trim().toLowerCase())
+      .map((row) => String(row?.COLUMN_NAME || row?.column_name || '').trim().toLowerCase())
       .filter(Boolean)
   );
 }

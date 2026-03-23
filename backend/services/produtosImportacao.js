@@ -3,6 +3,7 @@
 const path = require('path');
 const XLSX = require('xlsx');
 const fetch = global.fetch || require('node-fetch');
+const { DB_DIALECT } = require('../lib/config');
 
 const EXTENSOES_IMPORTACAO_ACEITAS = Object.freeze(['.csv', '.xls', '.xlsx']);
 const MIME_IMPORTACAO_ACEITOS = Object.freeze(new Set([
@@ -1184,27 +1185,37 @@ async function cederEventLoop() {
 }
 
 async function colunaExiste(pool, tabela, coluna) {
-  const [rows] = await pool.query(
-    `SELECT COUNT(*) AS total
-       FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?
-        AND COLUMN_NAME = ?`,
-    [tabela, coluna]
-  );
+  const query = DB_DIALECT === 'postgres'
+    ? `SELECT COUNT(*)::int AS total
+         FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = ?
+          AND column_name = ?`
+    : `SELECT COUNT(*) AS total
+         FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = ?`;
+
+  const [rows] = await pool.query(query, [tabela, coluna]);
 
   return Number(rows?.[0]?.total || 0) > 0;
 }
 
 async function indiceExiste(pool, tabela, indice) {
-  const [rows] = await pool.query(
-    `SELECT COUNT(*) AS total
-       FROM INFORMATION_SCHEMA.STATISTICS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?
-        AND INDEX_NAME = ?`,
-    [tabela, indice]
-  );
+  const query = DB_DIALECT === 'postgres'
+    ? `SELECT COUNT(*)::int AS total
+         FROM pg_indexes
+        WHERE schemaname = current_schema()
+          AND tablename = ?
+          AND indexname = ?`
+    : `SELECT COUNT(*) AS total
+         FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND INDEX_NAME = ?`;
+
+  const [rows] = await pool.query(query, [tabela, indice]);
 
   return Number(rows?.[0]?.total || 0) > 0;
 }
@@ -1233,11 +1244,11 @@ async function garantirEstruturaImportacaoProdutos(pool, { force = false } = {})
     },
     {
       coluna: 'ultima_importacao_em',
-      sql: 'ALTER TABLE produtos ADD COLUMN ultima_importacao_em DATETIME NULL'
+      sql: 'ALTER TABLE produtos ADD COLUMN ultima_importacao_em TIMESTAMP NULL'
     },
     {
       coluna: 'ultima_atualizacao_preco_em',
-      sql: 'ALTER TABLE produtos ADD COLUMN ultima_atualizacao_preco_em DATETIME NULL'
+      sql: 'ALTER TABLE produtos ADD COLUMN ultima_atualizacao_preco_em TIMESTAMP NULL'
     }
   ];
 
@@ -1258,7 +1269,7 @@ async function garantirEstruturaImportacaoProdutos(pool, { force = false } = {})
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS importacoes_produtos (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id BIGSERIAL PRIMARY KEY,
       nome_arquivo VARCHAR(255) NOT NULL,
       total_linhas INT NOT NULL DEFAULT 0,
       total_atualizados INT NOT NULL DEFAULT 0,
@@ -1266,14 +1277,15 @@ async function garantirEstruturaImportacaoProdutos(pool, { force = false } = {})
       total_ignorados INT NOT NULL DEFAULT 0,
       total_erros INT NOT NULL DEFAULT 0,
       status VARCHAR(40) NOT NULL DEFAULT 'concluido',
-      resumo_json LONGTEXT NULL,
+      resumo_json TEXT NULL,
       usuario_id INT NULL,
       usuario_nome VARCHAR(120) NULL,
-      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_importacoes_produtos_criado_em (criado_em),
-      INDEX idx_importacoes_produtos_status (status)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
   `);
+
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_importacoes_produtos_criado_em ON importacoes_produtos(criado_em)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_importacoes_produtos_status ON importacoes_produtos(status)');
 
   estruturaImportacaoGarantida = true;
 }

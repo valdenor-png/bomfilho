@@ -6,7 +6,8 @@ const { criarErroHttp, toMoney } = require('../lib/helpers');
 const {
   RECAPTCHA_CHECKOUT_PROTECTION_ENABLED,
   TAXA_SERVICO_PERCENTUAL,
-  DISTRIBUTED_IDEMPOTENCY_ENABLED
+  DISTRIBUTED_IDEMPOTENCY_ENABLED,
+  DB_DIALECT
 } = require('../lib/config');
 const {
   FORMAS_PAGAMENTO_PEDIDO_VALIDAS,
@@ -26,17 +27,21 @@ const {
 } = require('../services/distributedIdempotencyService');
 
 async function getTableColumns(connection, tableName) {
-  const [rows] = await connection.query(
-    `SELECT COLUMN_NAME
-       FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = ?`,
-    [tableName]
-  );
+  const query = DB_DIALECT === 'postgres'
+    ? `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = ?`
+    : `SELECT COLUMN_NAME
+         FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?`;
+
+  const [rows] = await connection.query(query, [tableName]);
 
   return new Set(
     (rows || [])
-      .map((row) => String(row?.COLUMN_NAME || '').trim().toLowerCase())
+      .map((row) => String(row?.COLUMN_NAME || row?.column_name || '').trim().toLowerCase())
       .filter(Boolean)
   );
 }
