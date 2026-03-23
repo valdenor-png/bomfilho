@@ -398,6 +398,27 @@ export default function PagamentoPage() {
   }, [itens, removeItem]);
 
   const retiradaSelecionada = tipoEntrega === 'retirada';
+  const formaRecebimentoSelecionada = retiradaSelecionada
+    ? 'retirada'
+    : (veiculoEntrega === 'bike' ? 'bike' : 'uber');
+  const selecionarFormaRecebimento = useCallback((forma) => {
+    const modo = String(forma || '').trim().toLowerCase();
+
+    if (modo === 'retirada') {
+      setTipoEntrega('retirada');
+      setErroEntrega('');
+      return;
+    }
+
+    if (modo === 'uber' && !uberQuoteDisponivel) {
+      setErroEntrega('Entrega Uber indisponível no momento. Escolha Bike ou Retirada na loja.');
+      return;
+    }
+
+    setTipoEntrega('entrega');
+    setVeiculoEntrega(modo === 'bike' ? 'bike' : 'uber');
+    setErroEntrega('');
+  }, [uberQuoteDisponivel]);
   const itensRestritosEntrega = useMemo(() => {
     return itens.some((item) => {
       const nome = normalizarTextoSugestao(item?.nome || '');
@@ -2973,6 +2994,46 @@ export default function PagamentoPage() {
             <h2 className="checkout-delivery-title-clean">Entrega</h2>
             <p className="checkout-delivery-sub-clean">Escolha como receber</p>
 
+            <section className="checkout-delivery-section" aria-label="Forma de recebimento">
+              <div className="checkout-delivery-section-head">
+                <h3>Formas de recebimento</h3>
+                <p>Escolha entre retirada na loja, bike ou Uber.</p>
+              </div>
+              <div className="delivery-mode-toggle" role="radiogroup" aria-label="Forma de recebimento">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={formaRecebimentoSelecionada === 'retirada'}
+                  className={`delivery-mode-toggle-btn ${formaRecebimentoSelecionada === 'retirada' ? 'is-active' : ''}`.trim()}
+                  onClick={() => selecionarFormaRecebimento('retirada')}
+                >
+                  Retirada na loja
+                </button>
+
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={formaRecebimentoSelecionada === 'bike'}
+                  className={`delivery-mode-toggle-btn ${formaRecebimentoSelecionada === 'bike' ? 'is-active' : ''}`.trim()}
+                  onClick={() => selecionarFormaRecebimento('bike')}
+                >
+                  Bike
+                </button>
+
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={formaRecebimentoSelecionada === 'uber'}
+                  className={`delivery-mode-toggle-btn ${formaRecebimentoSelecionada === 'uber' ? 'is-active' : ''}`.trim()}
+                  onClick={() => selecionarFormaRecebimento('uber')}
+                  disabled={!uberQuoteDisponivel}
+                  title={!uberQuoteDisponivel ? 'Uber indisponível no momento' : ''}
+                >
+                  Uber
+                </button>
+              </div>
+            </section>
+
             <div className="checkout-delivery-compact-head">
               <span aria-hidden="true">📍</span>
               <div>
@@ -3131,6 +3192,7 @@ export default function PagamentoPage() {
                         disabled={disabledBike}
                         disabledReason={disabledBike ? `Disponível apenas até ${LIMITE_BIKE_KM.toFixed(1)} km` : ''}
                         onSelect={() => {
+                          setTipoEntrega('entrega');
                           setVeiculoEntrega(key);
                           setSimulacaoFrete(sim || null);
                           setErroEntrega('');
