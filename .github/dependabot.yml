@@ -1,5 +1,5 @@
 version: 2
-updates:
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -34,3 +34,19 @@ updates:
     labels:
       - dependencies
       - frontend
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend-react"
+    schedule:
+      interval: "weekly"
+
