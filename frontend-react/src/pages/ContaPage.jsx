@@ -45,8 +45,9 @@ import InternalTopBar from '../components/navigation/InternalTopBar';
 export default function ContaPage() {
   useDocumentHead({ title: 'Minha Conta', description: 'Gerencie seu perfil, endereço e preferências na sua conta BomFilho.' });
   const { stats: recorrenciaStats } = useRecorrencia();
+  const recaptchaAuthEnabled = String(import.meta.env.VITE_RECAPTCHA_AUTH_ENABLED || (import.meta.env.PROD ? 'true' : 'false')).trim().toLowerCase() === 'true';
   const recaptchaSiteKey = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
-  const recaptchaEnabled = recaptchaSiteKey.length > 0;
+  const recaptchaEnabled = recaptchaAuthEnabled && recaptchaSiteKey.length > 0;
   const recaptchaRef = useRef(null);
   const consultaCepIdRef = useRef(0);
   const cepConsultadoRef = useRef('');

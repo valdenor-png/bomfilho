@@ -34,6 +34,9 @@ module.exports = function createOfertasDiaRoutes({ autenticarAdminToken }) {
 
       return res.json({ ofertas: rows });
     } catch (err) {
+      if (String(err?.code || '').trim().toUpperCase() === '42P01') {
+        return res.json({ ofertas: [] });
+      }
       logger.error('Erro ao buscar ofertas do dia:', err);
       return res.status(500).json({ error: 'Erro ao buscar ofertas do dia' });
     }

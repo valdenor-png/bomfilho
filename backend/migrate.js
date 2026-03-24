@@ -37,9 +37,8 @@ function splitSqlStatements(sql) {
 }
 
 function normalizeAlterAddColumn(sql) {
-  return sql
+  const normalized = sql
     .replace(/\s+AFTER\s+\w+/gi, '')
-    .replace(/ADD\s+COLUMN\s+/i, 'ADD COLUMN IF NOT EXISTS ')
     .replace(/\bDATETIME\b/gi, 'TIMESTAMP')
     .replace(/\bTINYINT\s*\(\s*1\s*\)/gi, 'SMALLINT')
     .replace(/\bLONGTEXT\b/gi, 'TEXT')
@@ -48,6 +47,22 @@ function normalizeAlterAddColumn(sql) {
     .replace(/\bENUM\s*\([^\)]*\)/gi, 'VARCHAR(64)')
     .replace(/\bUNSIGNED\b/gi, '')
     .trim();
+
+  const multiAdd = normalized.match(/^ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+ADD\s+COLUMN\s+([\s\S]+)$/i);
+  if (!multiAdd) {
+    return normalized.replace(/ADD\s+COLUMN\s+/i, 'ADD COLUMN IF NOT EXISTS ');
+  }
+
+  const tableName = multiAdd[1];
+  const columnsPart = multiAdd[2];
+  const columnDefs = columnsPart
+    .split(/\s*,\s*ADD\s+COLUMN\s+/i)
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  return columnDefs
+    .map((def) => `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS ${def}`)
+    .join(';\n');
 }
 
 function normalizeCreateIndex(sql) {
@@ -56,14 +71,29 @@ function normalizeCreateIndex(sql) {
     .trim();
 }
 
+function normalizeAlterTable(sql) {
+  const trimmed = String(sql || '').trim();
+  const addIndex = trimmed.match(/^ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+ADD\s+(?:INDEX|KEY)\s+([a-zA-Z0-9_]+)\s*\(([^\)]+)\)$/i);
+  if (addIndex) {
+    return `CREATE INDEX IF NOT EXISTS ${addIndex[2]} ON ${addIndex[1]} (${addIndex[3]})`;
+  }
+
+  if (/^ALTER\s+TABLE\s+[a-zA-Z0-9_]+\s+ADD\s+COLUMN\s+/i.test(trimmed)) {
+    return normalizeAlterAddColumn(trimmed);
+  }
+
+  return trimmed;
+}
+
 function transformCreateTableBlock(sql) {
   const indexStatements = [];
 
-  const transformed = sql.replace(/CREATE TABLE IF NOT EXISTS\s+([a-zA-Z0-9_]+)\s*\(([^]*?)\)\s*([^;]*);?/gi, (_full, tableName, rawBody, suffix) => {
+  const transformed = sql.replace(/CREATE TABLE IF NOT EXISTS\s+([a-zA-Z0-9_]+)\s*\(([\s\S]*?)\)\s*((?:ENGINE\s*=\s*InnoDB[^;]*)?);/gi, (_full, tableName, rawBody, suffix) => {
     const lines = rawBody.split('\n');
     const kept = [];
 
     for (const line of lines) {
+      const hadComma = /,\s*$/.test(line.trim());
       const trimmed = line.trim().replace(/,$/, '');
 
       if (!trimmed) {
@@ -73,7 +103,7 @@ function transformCreateTableBlock(sql) {
 
       const uniqueKey = trimmed.match(/^UNIQUE\s+KEY\s+([a-zA-Z0-9_]+)\s*\((.+)\)$/i);
       if (uniqueKey) {
-        kept.push(`  CONSTRAINT ${uniqueKey[1]} UNIQUE (${uniqueKey[2]})`);
+        kept.push(`  CONSTRAINT ${uniqueKey[1]} UNIQUE (${uniqueKey[2]})${hadComma ? ',' : ''}`);
         continue;
       }
 
@@ -88,7 +118,11 @@ function transformCreateTableBlock(sql) {
 
     const bodyNoTrailingComma = kept
       .join('\n')
-      .replace(/,\s*\n\s*\)/g, '\n)');
+      .replace(/,\s*$/m, (match, offset, source) => {
+        const tail = source.slice(offset + match.length);
+        return tail.trim() ? match : '';
+      })
+      .replace(/,\s*$/, '');
 
     const suffixNormalized = String(suffix || '')
       .replace(/ENGINE\s*=\s*InnoDB/gi, '')
@@ -106,10 +140,31 @@ function transformCreateTableBlock(sql) {
 
 function transformLegacyMysqlToPostgres(sql) {
   let out = String(sql || '');
+  const dynamicStatements = [];
 
   out = out
     .replace(/^\s*USE\s+[^;]+;\s*$/gim, '')
     .replace(/`/g, '');
+
+  // Extrai blocos dinamicos MySQL com @sql + PREPARE/EXECUTE e converte em SQL direto.
+  out = out.replace(
+    /SET\s+@\w+\s*:?=\s*[\s\S]*?;\s*PREPARE\s+\w+\s+FROM\s+@\w+;\s*EXECUTE\s+\w+;\s*(?:DEALLOCATE\s+PREPARE\s+\w+;\s*)?/gi,
+    (block) => {
+      const quotedSql = [...String(block).matchAll(/'((?:[^']|(?:''))*)'/g)]
+        .map((m) => String(m[1] || '').replace(/''/g, "'").trim())
+        .filter((candidate) => /^(ALTER\s+TABLE|CREATE\s+INDEX|CREATE\s+UNIQUE\s+INDEX)/i.test(candidate));
+
+      for (const candidate of quotedSql) {
+        if (/^ALTER\s+TABLE/i.test(candidate)) {
+          dynamicStatements.push(normalizeAlterTable(candidate));
+        } else if (/^CREATE\s+/i.test(candidate)) {
+          dynamicStatements.push(normalizeCreateIndex(candidate));
+        }
+      }
+
+      return '';
+    }
+  );
 
   out = out.replace(
     /SET\s+@\w+\s*:=?\s*\([^]*?COLUMN_NAME\s*=\s*'[^']+'[^]*?\);\s*SET\s+@sql\s*:=?\s*IF\s*\([^]*?'(ALTER TABLE[^']+ADD COLUMN[^']+)'[^]*?\);\s*PREPARE\s+stmt\s+FROM\s+@sql;\s*EXECUTE\s+stmt;\s*DEALLOCATE\s+PREPARE\s+stmt;?/gim,
@@ -121,7 +176,16 @@ function transformLegacyMysqlToPostgres(sql) {
     (_match, createIndexSql) => `${normalizeCreateIndex(createIndexSql)};`
   );
 
+  // Remove sobras de comandos de variavel/scripting do MySQL.
+  out = out
+    .replace(/^\s*SET\s+@[^;]+;\s*$/gim, '')
+    .replace(/^\s*PREPARE\s+\w+\s+FROM\s+@\w+;\s*$/gim, '')
+    .replace(/^\s*EXECUTE\s+\w+;\s*$/gim, '')
+    .replace(/^\s*DEALLOCATE\s+PREPARE\s+\w+;\s*$/gim, '');
+
   out = transformCreateTableBlock(out)
+    .replace(/ALTER\s+TABLE\s+[a-zA-Z0-9_]+\s+ADD\s+COLUMN[\s\S]*?(?=;)/gi, (statement) => normalizeAlterAddColumn(statement))
+    .replace(/ALTER\s+TABLE\s+[a-zA-Z0-9_]+\s+ADD\s+(?:INDEX|KEY)\s+[a-zA-Z0-9_]+\s*\([^\)]+\)/gi, (statement) => normalizeAlterTable(statement))
     .replace(/\bBIGINT\s+UNSIGNED\s+NOT\s+NULL\s+AUTO_INCREMENT\b/gi, 'BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL')
     .replace(/\bBIGINT\s+UNSIGNED\s+AUTO_INCREMENT\b/gi, 'BIGINT GENERATED BY DEFAULT AS IDENTITY')
     .replace(/\bINT\s+AUTO_INCREMENT\b/gi, 'INTEGER GENERATED BY DEFAULT AS IDENTITY')
@@ -135,9 +199,16 @@ function transformLegacyMysqlToPostgres(sql) {
     .replace(/\bJSON\b/gi, 'JSONB')
     .replace(/\bENUM\s*\(([^\)]*)\)/gi, 'VARCHAR(64)')
     .replace(/\bON\s+UPDATE\s+CURRENT_TIMESTAMP\b/gi, '')
+    .replace(/UPDATE\s+([a-zA-Z0-9_]+)\s+SET\s+([\s\S]*?)\s+WHERE\s+([\s\S]*?)\s+LIMIT\s+(\d+)/gi, (_m, table, setPart, wherePart, limit) => {
+      return `UPDATE ${table} SET ${setPart} WHERE ctid IN (SELECT ctid FROM ${table} WHERE ${wherePart} LIMIT ${limit})`;
+    })
     .replace(/\)\s*ENGINE\s*=\s*InnoDB\s*DEFAULT\s*CHARSET\s*=\s*utf8mb4\s*COLLATE\s*=\s*[a-zA-Z0-9_]+/gi, ')')
     .replace(/\bDATE_ADD\s*\(\s*CURDATE\s*\(\s*\)\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi, "(CURRENT_DATE + ($1 || ' days')::interval)")
     .replace(/\bCURDATE\s*\(\s*\)/gi, 'CURRENT_DATE');
+
+  if (dynamicStatements.length) {
+    out = `${dynamicStatements.join(';\n')};\n${out}`;
+  }
 
   return out;
 }
@@ -217,10 +288,12 @@ async function run() {
 
       console.log(`Executando: ${file}...`);
       const start = Date.now();
+      let currentStatement = '';
 
       try {
         await client.query('BEGIN');
         for (const statement of statements) {
+          currentStatement = statement;
           await client.query(statement);
         }
 
@@ -236,6 +309,10 @@ async function run() {
         await client.query('ROLLBACK');
         const elapsed = Date.now() - start;
         console.error(`FALHA: ${file} apos ${elapsed}ms -> ${err.message}`);
+        if (currentStatement) {
+          console.error('Statement com erro:');
+          console.error(currentStatement);
+        }
         console.error('Abortando para manter consistencia.');
         process.exit(1);
       }

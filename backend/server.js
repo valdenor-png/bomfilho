@@ -6,7 +6,7 @@ const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const compression = require('compression');
 const timeout = require('connect-timeout');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
@@ -76,12 +76,12 @@ let requestCounter = 0;
 const {
   NODE_ENV, IS_PRODUCTION, PORT, SERVICE_NAME, API_VERSION,
   FRONTEND_DIST_PATH, REACT_DIST_INDEX, FRONTEND_APP_URL, SHOULD_SERVE_REACT,
-  DATABASE_URL, TRUST_PROXY, BASE_URL_ENV,
+  DATABASE_URL, DB_DIALECT, TRUST_PROXY, BASE_URL_ENV,
   TAMANHO_MAXIMO_IMPORTACAO_BYTES,
   EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE, EVOLUTION_WEBHOOK_TOKEN,
   WHATSAPP_AUTO_REPLY_ENABLED, WHATSAPP_AUTO_REPLY_TEXT, WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS,
   RECAPTCHA_SECRET_KEY, RECAPTCHA_MIN_SCORE,
-  RECAPTCHA_CHECKOUT_PROTECTION_ENABLED, RECAPTCHA_PAYMENT_PROTECTION_ENABLED,
+  RECAPTCHA_CHECKOUT_PROTECTION_ENABLED, RECAPTCHA_PAYMENT_PROTECTION_ENABLED, RECAPTCHA_AUTH_PROTECTION_ENABLED,
   JWT_SECRET, DIAGNOSTIC_TOKEN, ALLOW_REMOTE_DIAGNOSTIC,
   METRICS_ENABLED, METRICS_TOKEN,
   ADMIN_USER, ADMIN_PASSWORD_HASH, ADMIN_PASSWORD, ADMIN_LOCAL_ONLY,
@@ -1063,6 +1063,11 @@ function extrairRecaptchaErrorCodes(payload) {
 }
 
 async function validarRecaptcha({ token, req, action = '' } = {}) {
+  const normalizedAction = String(action || '').trim().toLowerCase();
+  if (normalizedAction.startsWith('auth_') && !RECAPTCHA_AUTH_PROTECTION_ENABLED) {
+    return;
+  }
+
   if (!RECAPTCHA_SECRET_KEY) {
     return;
   }
@@ -1082,16 +1087,32 @@ async function validarRecaptcha({ token, req, action = '' } = {}) {
   }
 
   let response;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => {
+      controller.abort();
+    }, 8000)
+    : null;
+
   try {
     response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: formData.toString()
+      body: formData.toString(),
+      signal: controller?.signal
     });
-  } catch {
+  } catch (erroRecaptcha) {
+    if (erroRecaptcha?.name === 'AbortError') {
+      throw criarErroHttp(503, 'Validação de segurança indisponível no momento. Tente novamente em instantes.');
+    }
+
     throw criarErroHttp(503, 'Não foi possível validar o reCAPTCHA no momento.');
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
   }
 
   const payload = await response.json().catch(() => ({}));
@@ -1470,7 +1491,7 @@ const paymentLimiter = rateLimit({
   validate: rateLimitValidateOptions,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.usuario?.id ? `user_${req.usuario.id}` : req.ip,
+  keyGenerator: (req) => req.usuario?.id ? 'user_' + req.usuario.id : ipKeyGenerator(req.ip),
   message: { erro: 'Muitas tentativas de pagamento. Aguarde 1 minuto.' }
 });
 
@@ -1480,7 +1501,7 @@ const orderCreateLimiter = rateLimit({
   validate: rateLimitValidateOptions,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.usuario?.id ? `user_${req.usuario.id}` : req.ip,
+  keyGenerator: (req) => req.usuario?.id ? 'user_' + req.usuario.id : ipKeyGenerator(req.ip),
   message: { erro: 'Muitas tentativas de criação de pedido. Aguarde 1 minuto.' }
 });
 
@@ -1619,7 +1640,7 @@ async function preloadData() {
     await barcodeLookupService.ensureCacheSchema();
     await preloadData();
   } catch (err) {
-    logger.error('❌ Erro ao conectar ao MySQL:', err);
+    logger.error('❌ Erro ao executar inicialização do backend:', err);
   }
 })();
 
@@ -1719,8 +1740,19 @@ async function obterColunasProdutos() {
     return produtosColumnsCache;
   }
 
+  if (DB_DIALECT === 'postgres') {
+    const [colunas] = await queryWithRetry(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_schema = ANY(current_schemas(true))
+          AND table_name = 'produtos'`
+    );
+    produtosColumnsCache = new Set(colunas.map((coluna) => String(coluna.column_name || '').toLowerCase()));
+    return produtosColumnsCache;
+  }
+
   const [colunas] = await queryWithRetry('SHOW COLUMNS FROM produtos');
-  produtosColumnsCache = new Set(colunas.map((coluna) => String(coluna.Field || '').toLowerCase()));
+  produtosColumnsCache = new Set(colunas.map((coluna) => String(coluna.Field || coluna.field || '').toLowerCase()));
   return produtosColumnsCache;
 }
 

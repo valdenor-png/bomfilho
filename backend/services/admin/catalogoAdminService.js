@@ -377,7 +377,7 @@ async function colunaExiste(pool, tabela, coluna) {
   const query = DB_DIALECT === 'postgres'
     ? `SELECT COUNT(*)::int AS total
          FROM information_schema.columns
-        WHERE table_schema = current_schema()
+        WHERE table_schema = ANY(current_schemas(true))
           AND table_name = ?
           AND column_name = ?`
     : `SELECT COUNT(*) AS total
@@ -395,7 +395,7 @@ async function indiceExiste(pool, tabela, indice) {
   const query = DB_DIALECT === 'postgres'
     ? `SELECT COUNT(*)::int AS total
          FROM pg_indexes
-        WHERE schemaname = current_schema()
+        WHERE schemaname = ANY(current_schemas(true))
           AND tablename = ?
           AND indexname = ?`
     : `SELECT COUNT(*) AS total

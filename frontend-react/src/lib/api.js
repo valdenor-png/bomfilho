@@ -178,6 +178,10 @@ function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
     return 'Não foi possível validar sua sessão. Verifique se os cookies do navegador estão habilitados e tente novamente.';
   }
 
+  if (normalizedPath === '/api/auth/me' && Number(status || 0) === 404) {
+    return 'Sua sessão expirou. Faça login novamente.';
+  }
+
   const isPagamentoPath = normalizedPath.startsWith('/api/pagamentos/') || normalizedPath.startsWith('/api/mercadopago/');
   if (isPagamentoPath) {
     if (normalizedMessage.includes('nao aceita novo pagamento') || normalizedMessage.includes('já esta pago')) {
@@ -300,6 +304,18 @@ function isAuthStatus(status) {
   return statusCode === 401 || statusCode === 403;
 }
 
+function isAuthLikeResponse(path, status) {
+  const normalizedPath = String(path || '').trim().toLowerCase();
+  const statusCode = Number(status || 0);
+
+  if (isAuthStatus(statusCode)) {
+    return true;
+  }
+
+  // Compatibilidade com backend legado que retornava 404 para sessão orfa.
+  return normalizedPath === '/api/auth/me' && statusCode === 404;
+}
+
 function extrairNomeArquivoCabecalho(contentDisposition) {
   const header = String(contentDisposition || '').trim();
   if (!header) {
@@ -363,7 +379,7 @@ async function request(path, options = {}, tentativa = 0) {
       return request(path, options, 1);
     }
 
-    if (isAuthStatus(responseStatus)) {
+    if (isAuthLikeResponse(path, responseStatus)) {
       if (isAdminPath) {
         clearAdminAccessToken();
       } else {
@@ -433,7 +449,7 @@ async function requestArquivo(path, options = {}, tentativa = 0) {
       return requestArquivo(path, options, 1);
     }
 
-    if (isAuthStatus(responseStatus)) {
+    if (isAuthLikeResponse(path, responseStatus)) {
       if (isAdminPath) {
         clearAdminAccessToken();
       } else {

@@ -243,16 +243,39 @@ module.exports = function createAuthRoutes(deps) {
   // Obter dados do usuário logado
   router.get('/api/auth/me', autenticarToken, async (req, res) => {
     try {
-      const [usuarios] = await pool.query(
-        'SELECT id, nome, email, telefone, whatsapp_opt_in FROM usuarios WHERE id = ?',
-        [req.usuario.id]
-      );
+      const tokenUserId = Number(req.usuario?.id || req.usuario?.userId || 0);
+      const tokenEmail = String(req.usuario?.email || '').trim();
+      const buscarPorId = Number.isInteger(tokenUserId) && tokenUserId > 0;
+
+      const [usuarios] = buscarPorId
+        ? await pool.query(
+          'SELECT id, nome, email, telefone, whatsapp_opt_in FROM usuarios WHERE id = ?',
+          [tokenUserId]
+        )
+        : await pool.query(
+          'SELECT id, nome, email, telefone, whatsapp_opt_in FROM usuarios WHERE email = ? LIMIT 1',
+          [tokenEmail]
+        );
 
       if (usuarios.length === 0) {
-        return res.status(404).json({ erro: 'Não encontramos sua conta.' });
+        limparCookie(res, USER_AUTH_COOKIE_NAME, { httpOnly: true });
+        limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
+        return res.status(401).json({ erro: 'Sessão inválida. Faça login novamente.' });
       }
 
-      res.json({ usuario: usuarios[0] });
+      const usuarioAtual = usuarios[0];
+
+      // Compatibilidade: tokens legados podiam vir sem id; rotaciona cookie com payload completo.
+      if (!buscarPorId) {
+        const tokenAtualizado = jwt.sign(
+          { id: usuarioAtual.id, email: usuarioAtual.email },
+          JWT_SECRET,
+          { expiresIn: '7d' }
+        );
+        definirCookieAuth(res, USER_AUTH_COOKIE_NAME, tokenAtualizado, USER_AUTH_COOKIE_MAX_AGE);
+      }
+
+      res.json({ usuario: usuarioAtual });
     } catch (erro) {
       logger.error('Erro ao buscar usuário:', erro);
       res.status(500).json({ erro: 'Não foi possível carregar os dados da sua conta.' });

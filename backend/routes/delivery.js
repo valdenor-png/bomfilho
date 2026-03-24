@@ -383,7 +383,7 @@ module.exports = function createDeliveryRoutes({
         DB_DIALECT === 'postgres'
           ? `SELECT column_name
                FROM information_schema.columns
-              WHERE table_schema = current_schema()
+              WHERE table_schema = ANY(current_schemas(true))
                 AND table_name = 'pedidos'`
           : `SELECT COLUMN_NAME
                FROM INFORMATION_SCHEMA.COLUMNS
