@@ -868,7 +868,7 @@ async function monitorJobUntilTerminal(api, config, logger, jobId) {
   let lastLogMs = 0;
   let consecutivePollFailures = 0;
 
-  while (true) {
+  for (;;) {
     let response;
 
     try {
@@ -1283,7 +1283,7 @@ async function execute() {
     const phaseCursor = createPhaseCursor(config.phasePlan);
     let metricasAtuais = metricasIniciais;
 
-    while (true) {
+    for (;;) {
       if (interruptionRequested) {
         stopReason = {
           code: 'manual_interruption',

@@ -180,7 +180,7 @@ async function obterPedidoPagBank({
     }
   });
 
-  const { responseBodyText: responseText, responsePayload } = await lerRespostaHttp(response);
+  const { responseBodyText: _responseText, responsePayload } = await lerRespostaHttp(response);
   const traceId = extrairTraceIdRespostaHttp(response, responsePayload);
 
   if (typeof registrarLogPagBank === 'function') {

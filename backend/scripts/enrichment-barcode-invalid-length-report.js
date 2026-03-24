@@ -311,7 +311,7 @@ function chooseFirstExisting(columnSet, names = []) {
 }
 
 function stripDecorativeChars(value) {
-  return String(value || '').replace(/[\s\-._/\\|()\[\]{}]+/g, '');
+  return String(value || '').replace(/[\s\-._/\\|()[\]{}]+/g, '');
 }
 
 function extractDigits(value) {
@@ -498,7 +498,7 @@ function montarAnaliseRegistro(row, existingBarcodeCountMap) {
   const comprimentoNormalizadoLegado = barcodeNormalizadoLegado.length;
 
   const sinalContemCaracteresNaoNumericos = /[^0-9]/.test(barcodeTrim);
-  const sinalMascaraOuSeparadores = /[\s\-._/\\|()\[\]{}]/.test(barcodeTrim);
+  const sinalMascaraOuSeparadores = /[\s\-._/\\|()[\]{}]/.test(barcodeTrim);
   const sinalContemTexto = /[A-Za-z]/.test(barcodeTrim);
   const sinalNotacaoEstranha = isScientificNotation(barcodeTrim) || isDecimalNotation(barcodeTrim);
   const sinalTruncamentoMarcador = hasTruncationMarker(barcodeTrim);

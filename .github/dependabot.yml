@@ -4,13 +4,33 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "America/Sao_Paulo"
+    labels:
+      - "dependencies"
+      - "security"
 
   - package-ecosystem: "npm"
     directory: "/backend"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "05:15"
+      timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "backend"
 
   - package-ecosystem: "npm"
     directory: "/frontend-react"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "05:30"
+      timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "frontend"

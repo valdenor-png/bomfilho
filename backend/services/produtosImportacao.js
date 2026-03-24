@@ -1836,7 +1836,7 @@ async function importarProdutosPlanilha({
 
     const pendentesCriacao = [];
 
-    async function flushAtualizacoesPendentes() {
+    const flushAtualizacoesPendentes = async () => {
       if (simulate || !pendentesAtualizacaoPorId.size) {
         return;
       }
@@ -1931,9 +1931,9 @@ async function importarProdutosPlanilha({
       pendentesAtualizacaoPorId.clear();
       lotesAtualizacaoProcessados += 1;
       duracaoPersistenciaAtualizacaoMs += Date.now() - inicioFlushMs;
-    }
+    };
 
-    async function flushInsercoesPendentes() {
+    const flushInsercoesPendentes = async () => {
       if (simulate || !pendentesCriacao.length) {
         return;
       }
@@ -1964,7 +1964,7 @@ async function importarProdutosPlanilha({
       pendentesCriacao.length = 0;
       lotesInsercaoProcessados += 1;
       duracaoPersistenciaInsercaoMs += Date.now() - inicioFlushMs;
-    }
+    };
 
     etapaAtual = 'processamento_linhas';
     const inicioProcessamentoMs = Date.now();
