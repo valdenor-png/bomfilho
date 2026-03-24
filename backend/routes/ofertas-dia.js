@@ -12,8 +12,9 @@ const logger = require('../lib/logger');
  * - DELETE /api/admin/ofertas-dia/:id (admin)
  * - PUT /api/admin/ofertas-dia/ordenar (admin)
  */
-module.exports = function createOfertasDiaRoutes({ autenticarAdminToken }) {
+module.exports = function createOfertasDiaRoutes({ autenticarAdminToken, exigirAcessoLocalAdmin }) {
   const router = express.Router();
+  const adminGuard = [exigirAcessoLocalAdmin, autenticarAdminToken];
 
   // ── Público: listar ofertas do dia ──
   router.get('/api/ofertas-dia', async (req, res) => {
@@ -43,7 +44,7 @@ module.exports = function createOfertasDiaRoutes({ autenticarAdminToken }) {
   });
 
   // ── Admin: listar ofertas do dia (com mais detalhes) ──
-  router.get('/api/admin/ofertas-dia', autenticarAdminToken, async (req, res) => {
+  router.get('/api/admin/ofertas-dia', ...adminGuard, async (req, res) => {
     try {
       const [rows] = await pool.query(
         `SELECT od.id, od.produto_id, od.ordem, od.ativo, od.criado_em,
@@ -63,17 +64,18 @@ module.exports = function createOfertasDiaRoutes({ autenticarAdminToken }) {
   });
 
   // ── Admin: adicionar produto às ofertas do dia ──
-  router.post('/api/admin/ofertas-dia', autenticarAdminToken, async (req, res) => {
+  router.post('/api/admin/ofertas-dia', ...adminGuard, async (req, res) => {
     try {
       const { produto_id } = req.body;
-      if (!produto_id || !Number.isFinite(Number(produto_id))) {
+      const produtoIdNum = Number(produto_id);
+      if (!Number.isInteger(produtoIdNum) || produtoIdNum <= 0) {
         return res.status(400).json({ error: 'produto_id é obrigatório' });
       }
 
       // Verificar se produto existe e está ativo
       const [[prod]] = await pool.query(
         'SELECT id FROM produtos WHERE id = ? AND ativo = 1',
-        [Number(produto_id)]
+        [produtoIdNum]
       );
       if (!prod) {
         return res.status(404).json({ error: 'Produto não encontrado ou inativo' });
@@ -86,7 +88,7 @@ module.exports = function createOfertasDiaRoutes({ autenticarAdminToken }) {
 
       await pool.query(
         'INSERT INTO ofertas_dia (produto_id, ordem, ativo) VALUES (?, ?, 1) ON CONFLICT (produto_id) DO UPDATE SET ativo = EXCLUDED.ativo, ordem = EXCLUDED.ordem',
-        [Number(produto_id), maxOrdem + 1]
+        [produtoIdNum, maxOrdem + 1]
       );
 
       logger.info(`Oferta do dia adicionada: produto_id=${produto_id} por admin`);
@@ -98,7 +100,7 @@ module.exports = function createOfertasDiaRoutes({ autenticarAdminToken }) {
   });
 
   // ── Admin: remover produto das ofertas do dia ──
-  router.delete('/api/admin/ofertas-dia/:id', autenticarAdminToken, async (req, res) => {
+  router.delete('/api/admin/ofertas-dia/:id', ...adminGuard, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) {
@@ -116,20 +118,34 @@ module.exports = function createOfertasDiaRoutes({ autenticarAdminToken }) {
   });
 
   // ── Admin: reordenar ofertas ──
-  router.put('/api/admin/ofertas-dia/ordenar', autenticarAdminToken, async (req, res) => {
+  router.put('/api/admin/ofertas-dia/ordenar', ...adminGuard, async (req, res) => {
     try {
       const { ids } = req.body;
       if (!Array.isArray(ids) || ids.length === 0) {
         return res.status(400).json({ error: 'ids é obrigatório (array de IDs na nova ordem)' });
       }
 
+      if (ids.length > 500) {
+        return res.status(400).json({ error: 'ids excede o limite máximo de 500 itens por requisição' });
+      }
+
+      const idsNormalizados = ids.map((id) => Number(id));
+      if (idsNormalizados.some((id) => !Number.isInteger(id) || id <= 0)) {
+        return res.status(400).json({ error: 'ids deve conter apenas IDs numéricos positivos' });
+      }
+
+      const idsUnicos = new Set(idsNormalizados);
+      if (idsUnicos.size !== idsNormalizados.length) {
+        return res.status(400).json({ error: 'ids contém valores duplicados' });
+      }
+
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
-        for (let i = 0; i < ids.length; i++) {
+        for (let i = 0; i < idsNormalizados.length; i++) {
           await conn.query(
             'UPDATE ofertas_dia SET ordem = ? WHERE id = ?',
-            [i + 1, Number(ids[i])]
+            [i + 1, idsNormalizados[i]]
           );
         }
         await conn.commit();

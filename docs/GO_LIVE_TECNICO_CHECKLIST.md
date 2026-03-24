@@ -85,6 +85,18 @@ Cada item deve ser marcado por quem executou, com data.
 - [ ] Vercel com Root Directory = `frontend-react`
 - [ ] TLS/HTTPS ativo em ambos (Render e Vercel fornecem por padrao)
 - [ ] Cookie domain configurado se necessario
+- [ ] GitHub Secret Scanning habilitado no repositorio
+- [ ] GitHub Push Protection habilitado para bloquear push com segredo detectado
+
+### 4.1) GitHub Security (configuracao obrigatoria na UI)
+
+1. Abrir Settings > Security & analysis no repositorio.
+2. Habilitar Code scanning alerts.
+3. Habilitar Secret scanning.
+4. Habilitar Push protection.
+5. Em caso de organizacao, confirmar que a policy permite os recursos para este repositorio.
+
+Observacao: secret scanning/push protection sao controles da plataforma GitHub e nao podem ser ativados apenas via commit de codigo.
 
 ---
 

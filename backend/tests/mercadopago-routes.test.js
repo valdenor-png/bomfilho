@@ -111,6 +111,27 @@ describe('MercadoPago routes surface and error contract', () => {
     expect(res.body).toHaveProperty('payment_id', 12345);
   });
 
+  test('POST /api/mercadopago/criar-pix bloqueia pedido de outro usuario (ownership)', async () => {
+    const { app, pool, mercadoPagoService } = criarApp();
+
+    pool.query.mockResolvedValueOnce([[{
+      id: 99,
+      usuario_id: 999,
+      total: 49.9,
+      status: 'pendente',
+      gateway_pagamento: null,
+      mp_payment_id_mp: null
+    }]]);
+
+    const res = await request(app)
+      .post('/api/mercadopago/criar-pix')
+      .send({ pedido_id: 99, tax_id: '12345678909', recaptcha_token: 'token_valido' });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toHaveProperty('erro');
+    expect(mercadoPagoService.criarPagamentoPix).not.toHaveBeenCalled();
+  });
+
   test('POST /api/mercadopago/criar-cartao sem token reCAPTCHA é bloqueado', async () => {
     const { app, mercadoPagoService, validarRecaptcha } = criarApp();
 
