@@ -3,6 +3,7 @@
 const path = require('path');
 const XLSX = require('xlsx');
 const fetch = global.fetch || require('node-fetch');
+const logger = require('../lib/logger');
 const { DB_DIALECT } = require('../lib/config');
 
 const EXTENSOES_IMPORTACAO_ACEITAS = Object.freeze(['.csv', '.xls', '.xlsx']);
@@ -1611,6 +1612,7 @@ async function importarProdutosPlanilha({
   adminUser = 'admin',
   adminUserId = null
 }) {
+  const importacaoId = `imp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const inicioTotalMs = Date.now();
   const inicioLeituraMs = Date.now();
   let etapaAtual = 'validacao_arquivo';
@@ -1632,6 +1634,15 @@ async function importarProdutosPlanilha({
   }
 
   const nomeArquivo = normalizarTexto(originalName) || `importacao_${Date.now()}.csv`;
+
+  logger.info('catalogo.importacao.iniciada', {
+    importacao_id: importacaoId,
+    arquivo: nomeArquivo,
+    create_missing: Boolean(createMissing),
+    update_stock: Boolean(updateStock),
+    simulate: Boolean(simulate),
+    admin_user: adminUser || 'admin'
+  });
 
   await garantirEstruturaImportacaoProdutos(pool);
 
@@ -1672,6 +1683,7 @@ async function importarProdutosPlanilha({
   }
 
   const resumo = {
+    importacao_id: importacaoId,
     arquivo: nomeArquivo,
     formato: arquivo.extensao,
     delimitador: arquivo.delimitador,
@@ -1721,15 +1733,25 @@ async function importarProdutosPlanilha({
   }
 
   let connection;
+  let transacaoAberta = false;
 
   try {
     connection = await pool.getConnection();
-    if (!simulate) {
-      await connection.beginTransaction();
-    }
 
-    const [colunasRows] = await connection.query('SHOW COLUMNS FROM produtos');
-    const colunasProdutos = new Set(colunasRows.map((coluna) => String(coluna.Field || '').toLowerCase()));
+    const queryColunasProdutos = DB_DIALECT === 'postgres'
+      ? `SELECT column_name
+           FROM information_schema.columns
+          WHERE table_schema = ANY(current_schemas(true))
+            AND table_name = ?`
+      : 'SHOW COLUMNS FROM produtos';
+
+    const [colunasRows] = DB_DIALECT === 'postgres'
+      ? await connection.query(queryColunasProdutos, ['produtos'])
+      : await connection.query(queryColunasProdutos);
+
+    const colunasProdutos = new Set(
+      (colunasRows || []).map((coluna) => String(coluna.Field || coluna.COLUMN_NAME || coluna.column_name || '').toLowerCase())
+    );
 
     const cacheCodigoInterno = new Map();
     const cacheCodigoBarras = new Map();
@@ -1759,6 +1781,11 @@ async function importarProdutosPlanilha({
     }
 
     duracaoPreCargaMs = Date.now() - inicioPreCargaMs;
+
+    if (!simulate) {
+      await connection.beginTransaction();
+      transacaoAberta = true;
+    }
 
     const incluirPrecoPromocionalInsert = colunasProdutos.has('preco_promocional') && indices.preco_promocional >= 0;
     const camposInsertPadrao = ['nome', 'preco'];
@@ -2439,6 +2466,7 @@ async function importarProdutosPlanilha({
 
     etapaAtual = 'commit';
     await connection.commit();
+    transacaoAberta = false;
     resumo.performance.duracao_total_ms = Date.now() - inicioTotalMs;
 
     const statusImportacao = resumo.total_erros > 0 ? 'concluido_com_erros' : 'concluido';
@@ -2467,13 +2495,26 @@ async function importarProdutosPlanilha({
       status: statusImportacao
     };
 
+    logger.info('catalogo.importacao.concluida', {
+      importacao_id: importacaoId,
+      status: statusImportacao,
+      total_linhas: resumo.total_linhas,
+      total_validos: resumo.total_validos,
+      total_atualizados: resumo.total_atualizados,
+      total_criados: resumo.total_criados,
+      total_ignorados: resumo.total_ignorados,
+      total_erros: resumo.total_erros,
+      lotes_processados: resumo.performance.lotes_processados,
+      duracao_total_ms: resumo.performance.duracao_total_ms
+    });
+
     if (avisoHistorico) {
       payloadRetorno.aviso_historico = avisoHistorico;
     }
 
     return payloadRetorno;
   } catch (erro) {
-    if (!simulate && connection) {
+    if (!simulate && connection && transacaoAberta) {
       try {
         await connection.rollback();
         rollbackAplicado = true;
@@ -2536,7 +2577,15 @@ async function importarProdutosPlanilha({
     }
 
     const causaInterna = String(erro?.message || 'Erro inesperado na importacao.');
-    console.error('Falha interna durante importarProdutosPlanilha:', erro);
+    logger.error('catalogo.importacao.falha', {
+      importacao_id: importacaoId,
+      etapa_falha: etapaAtual,
+      erro: causaInterna,
+      rollback_aplicado: rollbackAplicado,
+      lotes_insercao: lotesInsercaoProcessados,
+      lotes_atualizacao: lotesAtualizacaoProcessados,
+      duracao_total_ms: Date.now() - inicioTotalMs
+    });
     throw criarErroImportacao(500, 'Nao foi possivel concluir a importacao da planilha.', {
       causa: causaInterna,
       ...detalhesFalha

@@ -10,7 +10,16 @@
 
 const express = require('express');
 const logger = require('../lib/logger');
-const { MP_ACCESS_TOKEN, MP_ENV, MP_NOTIFICATION_URL, MP_WEBHOOK_SECRET } = require('../lib/config');
+const {
+  MP_ACCESS_TOKEN,
+  MP_ENV,
+  MP_NOTIFICATION_URL,
+  MP_WEBHOOK_SECRET,
+  IS_PRODUCTION,
+  RECAPTCHA_PAYMENT_PROTECTION_ENABLED
+} = require('../lib/config');
+const { buildErrorPayload } = require('../lib/apiError');
+const { ACTIVE_PAYMENT_GATEWAY, LEGACY_PAYMENT_GATEWAYS } = require('../services/paymentRuntime');
 
 function extrairCausasMercadoPago(mpResponse = {}) {
   const causas = Array.isArray(mpResponse?.cause) ? mpResponse.cause : [];
@@ -25,26 +34,133 @@ module.exports = function createMercadoPagoRoutes(deps) {
   const {
     autenticarToken,
     mercadoPagoService,
-    pool
+    pool,
+    validarRecaptcha,
+    isProduction = IS_PRODUCTION,
+    recaptchaPaymentProtectionEnabled = RECAPTCHA_PAYMENT_PROTECTION_ENABLED
   } = deps;
 
   const router = express.Router();
+  let recaptchaRelaxadoAvisado = false;
+
+  if (!recaptchaPaymentProtectionEnabled && !isProduction && !recaptchaRelaxadoAvisado) {
+    logger.warn('[MP] Protecao reCAPTCHA de pagamento desabilitada por configuracao em ambiente nao-producao.');
+    recaptchaRelaxadoAvisado = true;
+  }
+
+  async function exigirRecaptchaPagamento(req, res, { action }) {
+    if (!recaptchaPaymentProtectionEnabled) {
+      if (!isProduction) {
+        return true;
+      }
+
+      logger.error('[MP] Protecao reCAPTCHA de pagamento desabilitada em producao.', {
+        request_id: String(req.requestId || '').trim() || null,
+        action
+      });
+
+      res.status(503).json(buildErrorPayload(
+        'Protecao de seguranca de pagamento indisponivel. Tente novamente em instantes.',
+        { code: 'RECAPTCHA_PAYMENT_DISABLED_IN_PRODUCTION' }
+      ));
+      return false;
+    }
+
+    if (typeof validarRecaptcha !== 'function') {
+      logger.error('[MP] validarRecaptcha nao foi injetado nas rotas de pagamento.', {
+        request_id: String(req.requestId || '').trim() || null,
+        action
+      });
+
+      res.status(503).json(buildErrorPayload(
+        'Validacao de seguranca indisponivel no momento. Tente novamente em instantes.',
+        { code: 'RECAPTCHA_VALIDATOR_UNAVAILABLE' }
+      ));
+      return false;
+    }
+
+    const recaptchaToken = String(req.body?.recaptcha_token || req.body?.recaptchaToken || '').trim();
+    if (!recaptchaToken) {
+      logger.warn('[MP] Requisicao de pagamento sem token reCAPTCHA.', {
+        request_id: String(req.requestId || '').trim() || null,
+        action,
+        user_id: Number(req?.usuario?.id) || null
+      });
+
+      res.status(400).json(buildErrorPayload(
+        'Confirme o reCAPTCHA de seguranca antes de continuar o pagamento.',
+        { code: 'RECAPTCHA_TOKEN_MISSING' }
+      ));
+      return false;
+    }
+
+    try {
+      await validarRecaptcha({
+        token: recaptchaToken,
+        req,
+        action
+      });
+      return true;
+    } catch (erroRecaptcha) {
+      const status = Number(erroRecaptcha?.status || 503);
+      const mensagem = String(erroRecaptcha?.message || '').trim();
+      const requestId = String(req.requestId || '').trim() || null;
+
+      if (status >= 500) {
+        logger.error('[MP] Falha ao validar reCAPTCHA no gateway externo.', {
+          request_id: requestId,
+          action,
+          status,
+          user_id: Number(req?.usuario?.id) || null
+        });
+
+        res.status(503).json(buildErrorPayload(
+          'Validacao de seguranca indisponivel no momento. Tente novamente em instantes.',
+          { code: 'RECAPTCHA_SERVICE_UNAVAILABLE' }
+        ));
+        return false;
+      }
+
+      const expirado = mensagem.toLowerCase().includes('expirado');
+
+      logger.warn('[MP] Token reCAPTCHA rejeitado para pagamento.', {
+        request_id: requestId,
+        action,
+        status,
+        motivo: expirado ? 'token_expirado' : 'token_invalido',
+        user_id: Number(req?.usuario?.id) || null
+      });
+
+      res.status(status).json(buildErrorPayload(
+        mensagem || 'Falha na validacao de seguranca. Confirme o reCAPTCHA e tente novamente.',
+        { code: expirado ? 'RECAPTCHA_TOKEN_EXPIRED' : 'RECAPTCHA_TOKEN_INVALID' }
+      ));
+      return false;
+    }
+  }
 
   // ============================================
   // CRIAR PIX via Mercado Pago
   // ============================================
+  // Observação estrutural:
+  // Este arquivo representa a superfície de pagamento ativa em runtime (Mercado Pago).
+  // O legado PagBank permanece no repositório apenas para referência/migração controlada.
   router.post('/api/mercadopago/criar-pix', autenticarToken, async (req, res) => {
     try {
+      if (!await exigirRecaptchaPagamento(req, res, { action: 'payment_pix' })) {
+        return;
+      }
+
       const { pedido_id, tax_id } = req.body || {};
       const pedidoId = Number(pedido_id);
       const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
 
       if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
-        return res.status(400).json({ error: 'Informe um pedido_id válido.' });
+        return res.status(400).json(buildErrorPayload('Informe um pedido_id válido.'));
       }
 
       if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
-        return res.status(400).json({ error: 'Informe um CPF ou CNPJ válido para gerar o PIX.' });
+        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ válido para gerar o PIX.'));
       }
 
       // Buscar pedido — só permite gerar PIX para pedido do próprio usuário com status pendente
@@ -54,18 +170,18 @@ module.exports = function createMercadoPagoRoutes(deps) {
       );
 
       if (!pedidos.length) {
-        return res.status(404).json({ error: 'Pedido não encontrado.' });
+        return res.status(404).json(buildErrorPayload('Pedido não encontrado.'));
       }
 
       const pedido = pedidos[0];
 
       if (Number(pedido.usuario_id) !== Number(req.usuario.id)) {
-        return res.status(403).json({ error: 'Acesso negado a este pedido.' });
+        return res.status(403).json(buildErrorPayload('Acesso negado a este pedido.'));
       }
 
       const podeGerarPix = ['pendente', 'pagamento_recusado'].includes(String(pedido.status || '').trim().toLowerCase());
       if (!podeGerarPix) {
-        return res.status(400).json({ error: `Pedido já se encontra com status "${pedido.status}". Não é possível gerar PIX.` });
+        return res.status(400).json(buildErrorPayload(`Pedido já se encontra com status "${pedido.status}". Não é possível gerar PIX.`));
       }
 
       // Se já tem pagamento MP criado, retornar dados existentes
@@ -152,12 +268,11 @@ module.exports = function createMercadoPagoRoutes(deps) {
         mpResponse: erro?.mpResponse || null
       });
 
-      res.status(status).json({
-        error: mensagemDetalhada,
+      res.status(status).json(buildErrorPayload(mensagemDetalhada, {
         message: mensagemDetalhada,
         causes: causas,
         details: erro?.mpResponse || null
-      });
+      }));
     }
   });
 
@@ -166,25 +281,29 @@ module.exports = function createMercadoPagoRoutes(deps) {
   // ============================================
   router.post('/api/mercadopago/criar-cartao', autenticarToken, async (req, res) => {
     try {
+      if (!await exigirRecaptchaPagamento(req, res, { action: 'payment_card' })) {
+        return;
+      }
+
       const { pedido_id, token, parcelas, tax_id, payment_method_id, issuer_id } = req.body || {};
       const pedidoId = Number(pedido_id);
 
       if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
-        return res.status(400).json({ error: 'Informe um pedido_id válido.' });
+        return res.status(400).json(buildErrorPayload('Informe um pedido_id válido.'));
       }
 
       if (!token || typeof token !== 'string') {
-        return res.status(400).json({ error: 'Token do cartão é obrigatório.' });
+        return res.status(400).json(buildErrorPayload('Token do cartão é obrigatório.'));
       }
 
       const parcelasNum = Number(parcelas) || 1;
       if (parcelasNum < 1 || parcelasNum > 12) {
-        return res.status(400).json({ error: 'Número de parcelas deve ser entre 1 e 12.' });
+        return res.status(400).json(buildErrorPayload('Número de parcelas deve ser entre 1 e 12.'));
       }
 
       const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
       if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
-        return res.status(400).json({ error: 'Informe um CPF ou CNPJ válido para o pagamento com cartão.' });
+        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ válido para o pagamento com cartão.'));
       }
 
       // Buscar pedido
@@ -194,18 +313,18 @@ module.exports = function createMercadoPagoRoutes(deps) {
       );
 
       if (!pedidos.length) {
-        return res.status(404).json({ error: 'Pedido não encontrado.' });
+        return res.status(404).json(buildErrorPayload('Pedido não encontrado.'));
       }
 
       const pedido = pedidos[0];
 
       if (Number(pedido.usuario_id) !== Number(req.usuario.id)) {
-        return res.status(403).json({ error: 'Acesso negado a este pedido.' });
+        return res.status(403).json(buildErrorPayload('Acesso negado a este pedido.'));
       }
 
       const podeProcessarCartao = ['pendente', 'pagamento_recusado'].includes(String(pedido.status || '').trim().toLowerCase());
       if (!podeProcessarCartao) {
-        return res.status(400).json({ error: `Pedido já se encontra com status "${pedido.status}". Não é possível processar pagamento.` });
+        return res.status(400).json(buildErrorPayload(`Pedido já se encontra com status "${pedido.status}". Não é possível processar pagamento.`));
       }
 
       // Buscar dados do usuário
@@ -271,12 +390,11 @@ module.exports = function createMercadoPagoRoutes(deps) {
         mpResponse: erro?.mpResponse || null
       });
 
-      res.status(status).json({
-        error: mensagemDetalhada,
+      res.status(status).json(buildErrorPayload(mensagemDetalhada, {
         message: mensagemDetalhada,
         causes: causas,
         details: erro?.mpResponse || null
-      });
+      }));
     }
   });
 
@@ -285,7 +403,9 @@ module.exports = function createMercadoPagoRoutes(deps) {
   // ============================================
   router.get('/api/mercadopago/status', (req, res) => {
     res.json({
-      gateway: 'mercadopago',
+      gateway: ACTIVE_PAYMENT_GATEWAY,
+      active_runtime_gateway: ACTIVE_PAYMENT_GATEWAY,
+      legados_presentes_no_repositorio: LEGACY_PAYMENT_GATEWAYS,
       configurado: Boolean(MP_ACCESS_TOKEN),
       env: MP_ENV,
       notification_url_configurada: Boolean(MP_NOTIFICATION_URL),

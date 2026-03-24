@@ -23,15 +23,58 @@ jobs:
 
       - run: npm ci
 
-      - run: npx eslint . --max-warnings 0
-        continue-on-error: true
+      - name: Lint backend (bloqueante)
+        run: npx eslint . --max-warnings 0
 
-      - name: Verificar sintaxe (dry load)
-        run: node -e "require('./server.js')" 2>&1 || true
+      - name: Verificar bootstrap backend (dry load)
+        run: node -e "require('./server.js')"
         env:
-          DATABASE_URL: mysql://test:test@localhost:3306/test
+          DATABASE_URL: postgres://test:test@localhost:5432/test
           JWT_SECRET: ci-test-secret
+          MP_ACCESS_TOKEN: TEST-00000000000000000000000000000000
           NODE_ENV: test
+
+      - name: Testes críticos backend (checkout/idempotência)
+        run: npm test -- --runInBand tests/pedido-pagamento.test.js tests/distributed-idempotency.test.js tests/webhooks-mercadopago.test.js tests/admin-operacional.test.js tests/mercadopago-routes.test.js tests/produtos-importacao.test.js
+
+  backend-integration-postgres:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: bomfilho_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bomfilho_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      - name: Testes de integração com PostgreSQL real
+        run: npm test -- --runInBand tests/cupons-date-semantics.integration.test.js tests/pedido-pagamento.test.js
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/bomfilho_ci
+          JWT_SECRET: ci-test-secret-ci-test-secret-32chars
+          MP_ACCESS_TOKEN: TEST-00000000000000000000000000000000
+          NODE_ENV: test
+          RUN_DB_INTEGRATION_TESTS: "true"
 
   frontend-build:
     runs-on: ubuntu-latest

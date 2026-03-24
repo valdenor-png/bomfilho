@@ -33,7 +33,7 @@ module.exports = function createCuponsRoutes({ autenticarToken, toMoney }) {
          FROM cupons
          WHERE codigo = ?
          AND ativo = TRUE
-         AND (validade IS NULL OR validade >= CURDATE())
+         AND (validade IS NULL OR validade >= CURRENT_DATE)
          AND (uso_maximo IS NULL OR uso_atual < uso_maximo)`,
         [codigoNormalizado]
       );
@@ -99,7 +99,7 @@ module.exports = function createCuponsRoutes({ autenticarToken, toMoney }) {
         `SELECT codigo, descricao, tipo, valor, valor_minimo, validade 
          FROM cupons 
          WHERE ativo = TRUE 
-         AND (validade IS NULL OR validade >= CURDATE())
+        AND (validade IS NULL OR validade >= CURRENT_DATE)
          AND (uso_maximo IS NULL OR uso_atual < uso_maximo)
          ORDER BY valor DESC`
       );

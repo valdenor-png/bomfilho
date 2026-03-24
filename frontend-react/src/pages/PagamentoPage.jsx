@@ -2068,13 +2068,22 @@ export default function PagamentoPage() {
     if (!resultadoPedido?.pedido_id) return;
     if (resultadoPix) return; // Já tem PIX gerado
     if (formaPagamento !== 'pix') return;
+    if (recaptchaCheckoutEnabled && !String(recaptchaCheckoutToken || '').trim()) return;
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) return;
 
     handleGerarPixMercadoPago(resultadoPedido.pedido_id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etapaAtual, formaPagamento, resultadoPedido?.pedido_id, resultadoPix, documentoPagador]);
+  }, [
+    etapaAtual,
+    formaPagamento,
+    resultadoPedido?.pedido_id,
+    resultadoPix,
+    documentoPagador,
+    recaptchaCheckoutEnabled,
+    recaptchaCheckoutToken
+  ]);
 
   // ── Gerar PIX via Mercado Pago ──────────────────────────────────────────
   async function handleGerarPixMercadoPago(pedidoId) {
@@ -2086,13 +2095,21 @@ export default function PagamentoPage() {
       return;
     }
 
+    let recaptchaTokenAcao = '';
+    try {
+      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
+    } catch (error) {
+      setErro(error.message || 'Confirme o reCAPTCHA de segurança para gerar o PIX.');
+      return;
+    }
+
     setResultadoPix(null);
     setFeedbackCopiaPix('');
     setErro('');
 
     setCarregando(true);
     try {
-      const data = await mpGerarPix(pedidoId, documentoDigits);
+      const data = await mpGerarPix(pedidoId, documentoDigits, recaptchaTokenAcao);
       setResultadoPix({
         status: String(data?.status || 'pending').toUpperCase() === 'PENDING' ? 'WAITING' : String(data?.status || 'WAITING').toUpperCase(),
         status_interno: 'pendente',
@@ -2108,6 +2125,9 @@ export default function PagamentoPage() {
       setErro(error.message || 'Não foi possível gerar o PIX. Tente novamente.');
     } finally {
       setCarregando(false);
+      if (recaptchaCheckoutEnabled) {
+        resetRecaptchaCheckout();
+      }
     }
   }
 
@@ -2117,6 +2137,14 @@ export default function PagamentoPage() {
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
       setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagar com cartão.');
+      return;
+    }
+
+    let recaptchaTokenAcao = '';
+    try {
+      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
+    } catch (error) {
+      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar no cartão.');
       return;
     }
 
@@ -2143,7 +2171,8 @@ export default function PagamentoPage() {
         parcelas: Number(parcelasCartao) || 1,
         taxId: documentoDigits,
         paymentMethodId: cartaoPaymentMethodIdRef.current,
-        issuerId: cartaoIssuerIdRef.current
+        issuerId: cartaoIssuerIdRef.current,
+        recaptchaToken: recaptchaTokenAcao
       });
 
       let data;
@@ -2176,6 +2205,9 @@ export default function PagamentoPage() {
       setErro(error.message || 'Não foi possível processar o pagamento.');
     } finally {
       setCarregando(false);
+      if (recaptchaCheckoutEnabled) {
+        resetRecaptchaCheckout();
+      }
     }
   }
 

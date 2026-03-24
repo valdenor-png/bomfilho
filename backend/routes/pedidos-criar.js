@@ -3,11 +3,11 @@
 const express = require('express');
 const logger = require('../lib/logger');
 const { criarErroHttp, toMoney } = require('../lib/helpers');
+const { buildErrorPayload } = require('../lib/apiError');
 const {
   RECAPTCHA_CHECKOUT_PROTECTION_ENABLED,
   TAXA_SERVICO_PERCENTUAL,
-  DISTRIBUTED_IDEMPOTENCY_ENABLED,
-  DB_DIALECT
+  DISTRIBUTED_IDEMPOTENCY_ENABLED
 } = require('../lib/config');
 const {
   FORMAS_PAGAMENTO_PEDIDO_VALIDAS,
@@ -20,63 +20,15 @@ const {
 } = require('../services/pedidoPagamentoHelpers');
 const {
   normalizarIdempotencyKey,
-  hashFingerprint,
   iniciarOperacaoDistribuida,
   concluirOperacaoDistribuida,
   falharOperacaoDistribuida
 } = require('../services/distributedIdempotencyService');
-
-async function getTableColumns(connection, tableName) {
-  const query = DB_DIALECT === 'postgres'
-    ? `SELECT column_name
-         FROM information_schema.columns
-        WHERE table_schema = ANY(current_schemas(true))
-          AND table_name = ?`
-    : `SELECT COLUMN_NAME
-         FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = ?`;
-
-  const [rows] = await connection.query(query, [tableName]);
-
-  return new Set(
-    (rows || [])
-      .map((row) => String(row?.COLUMN_NAME || row?.column_name || '').trim().toLowerCase())
-      .filter(Boolean)
-  );
-}
-
-function hasColumn(columns, columnName) {
-  return columns.has(String(columnName || '').trim().toLowerCase());
-}
-
-function montarFingerprintCriacaoPedido(payload = {}) {
-  const itens = Array.isArray(payload?.itens)
-    ? payload.itens
-      .map((item) => ({
-        produto_id: Number(item?.produto_id || 0),
-        quantidade: Number(item?.quantidade || 0)
-      }))
-      .sort((a, b) => a.produto_id - b.produto_id)
-    : [];
-
-  const entrega = payload?.entrega && typeof payload.entrega === 'object'
-    ? {
-      cep: String(payload.entrega?.cep_destino || payload.entrega?.cep || '').replace(/\D/g, '').slice(0, 8),
-      numero: String(payload.entrega?.numero_destino || payload.entrega?.numero || '').trim().slice(0, 20),
-      veiculo: String(payload.entrega?.veiculo || '').trim().toLowerCase()
-    }
-    : null;
-
-  return hashFingerprint({
-    itens,
-    forma_pagamento: String(payload?.forma_pagamento || '').trim().toLowerCase(),
-    cupom_id: payload?.cupom_id ?? null,
-    tipo_entrega: String(payload?.tipo_entrega || '').trim().toLowerCase(),
-    tax_id: String(payload?.tax_id || payload?.cpf || '').replace(/\D/g, ''),
-    entrega
-  });
-}
+const {
+  getTableColumns,
+  hasColumn,
+  montarFingerprintCriacaoPedido
+} = require('../services/pedidoCriacaoService');
 
 /**
  * @param {object} deps
@@ -100,6 +52,8 @@ module.exports = function createPedidoCriarRoute(deps) {
   const router = express.Router();
 
   router.post('/api/pedidos', autenticarToken, async (req, res) => {
+    const requestId = String(req.requestId || '').trim() || null;
+    const requestStart = Date.now();
     const chaveIdempotencia = normalizarIdempotencyKey(req.headers?.['x-idempotency-key']);
     const usarIdempotenciaDistribuida = DISTRIBUTED_IDEMPOTENCY_ENABLED && Boolean(chaveIdempotencia);
     const fingerprint = usarIdempotenciaDistribuida
@@ -111,6 +65,16 @@ module.exports = function createPedidoCriarRoute(deps) {
     let transacaoAberta = false;
 
     try {
+      logger.info('checkout.pedido_criacao.iniciada', {
+        request_id: requestId,
+        usuario_id: req.usuario?.id,
+        itens: Array.isArray(req.body?.itens) ? req.body.itens.length : 0,
+        possui_cupom: Boolean(req.body?.cupom_id),
+        tipo_entrega: req.body?.tipo_entrega || null,
+        forma_pagamento: req.body?.forma_pagamento || null,
+        idempotency_key_informada: Boolean(chaveIdempotencia)
+      });
+
       if (usarIdempotenciaDistribuida) {
         const statusIdempotencia = await iniciarOperacaoDistribuida({
           pool,
@@ -128,11 +92,11 @@ module.exports = function createPedidoCriarRoute(deps) {
         }
 
         if (statusIdempotencia.state === 'in_progress') {
-          return res.status(409).json({ erro: 'Seu pedido já está sendo processado. Aguarde alguns segundos e atualize a tela.' });
+          return res.status(409).json(buildErrorPayload('Seu pedido já está sendo processado. Aguarde alguns segundos e atualize a tela.'));
         }
 
         if (statusIdempotencia.state === 'fingerprint_mismatch') {
-          return res.status(409).json({ erro: 'A chave de idempotência enviada não corresponde a esta solicitação.' });
+          return res.status(409).json(buildErrorPayload('A chave de idempotência enviada não corresponde a esta solicitação.'));
         }
 
         idempotenciaAdquirida = statusIdempotencia.state === 'acquired';
@@ -299,7 +263,7 @@ module.exports = function createPedidoCriarRoute(deps) {
            FROM cupons
            WHERE id = ?
            AND ativo = TRUE
-           AND (validade IS NULL OR validade >= CURDATE())
+           AND (validade IS NULL OR validade >= CURRENT_DATE)
            AND (uso_maximo IS NULL OR uso_atual < uso_maximo)
            FOR UPDATE
            LIMIT 1`,
@@ -499,6 +463,15 @@ module.exports = function createPedidoCriarRoute(deps) {
         });
       }
 
+      logger.info('checkout.pedido_criacao.concluida', {
+        request_id: requestId,
+        usuario_id: req.usuario?.id,
+        pedido_id: pedidoId,
+        status: 'aguardando_revisao',
+        total: totalFinal,
+        duration_ms: Date.now() - requestStart
+      });
+
       res.status(201).json(respostaSucesso);
     } catch (erro) {
       if (usarIdempotenciaDistribuida && idempotenciaAdquirida) {
@@ -517,11 +490,23 @@ module.exports = function createPedidoCriarRoute(deps) {
       }
 
       if (erro?.httpStatus) {
-        return res.status(erro.httpStatus).json({ erro: erro.message });
+        logger.warn('checkout.pedido_criacao.falha_negocio', {
+          request_id: requestId,
+          usuario_id: req.usuario?.id,
+          status: erro.httpStatus,
+          erro: erro.message,
+          duration_ms: Date.now() - requestStart
+        });
+        return res.status(erro.httpStatus).json(buildErrorPayload(erro.message));
       }
 
-      logger.error('Erro ao criar pedido:', erro);
-      res.status(500).json({ erro: 'Não foi possível finalizar seu pedido. Tente novamente.' });
+      logger.error('checkout.pedido_criacao.falha_interna', {
+        request_id: requestId,
+        usuario_id: req.usuario?.id,
+        erro: erro?.message || 'erro_interno',
+        duration_ms: Date.now() - requestStart
+      });
+      res.status(500).json(buildErrorPayload('Não foi possível finalizar seu pedido. Tente novamente.'));
     } finally {
       connection.release();
     }

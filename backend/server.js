@@ -119,7 +119,8 @@ const {
   MP_SUCCESS_URL,
   MP_PENDING_URL,
   MP_FAILURE_URL,
-  MP_WEBHOOK_SECRET
+  MP_WEBHOOK_SECRET,
+  MP_WEBHOOK_ALLOW_INSECURE_WHEN_SECRET_MISSING
 } = config;
 const mercadoPagoService = criarMercadoPagoService({
   accessToken: MP_ACCESS_TOKEN,
@@ -130,6 +131,7 @@ const mercadoPagoService = criarMercadoPagoService({
   failureUrl: MP_FAILURE_URL,
   baseUrl: BASE_URL_ENV,
   webhookSecret: MP_WEBHOOK_SECRET,
+  allowInsecureWebhookWithoutSecret: MP_WEBHOOK_ALLOW_INSECURE_WHEN_SECRET_MISSING,
   timeoutMs: 15000
 });
 
@@ -1290,8 +1292,16 @@ const timeoutImportacaoMiddleware = timeout(REQUEST_TIMEOUT_IMPORTACAO);
 
 app.use((req, _res, next) => {
   requestCounter += 1;
-  req.requestId = `${Date.now()}-${requestCounter}`;
+  const requestIdHeader = String(req.headers['x-request-id'] || '').trim();
+  req.requestId = requestIdHeader || `${Date.now()}-${requestCounter}`;
   req.requestStartMs = Date.now();
+  next();
+});
+
+app.use((req, res, next) => {
+  if (req.requestId) {
+    res.setHeader('x-request-id', req.requestId);
+  }
   next();
 });
 
@@ -1893,12 +1903,15 @@ app.use(require('./routes/admin-catalogo')({
 // ============================================
 // ROTAS MERCADO PAGO (routes/mercadopago.js)
 // ============================================
+// Superfície de pagamento ativa em runtime: Mercado Pago.
+// Fluxos PagBank permanecem apenas como legado no repositório e não são montados aqui.
 app.post('/api/mercadopago/criar-pix', paymentLimiter);
 app.post('/api/mercadopago/criar-cartao', paymentLimiter);
 app.use(require('./routes/mercadopago')({
   autenticarToken,
   mercadoPagoService,
-  pool
+  pool,
+  validarRecaptcha
 }));
 
 // ============================================

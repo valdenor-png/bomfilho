@@ -4,114 +4,11 @@ const express = require('express');
 const logger = require('../lib/logger');
 const { montarRespostaErroBanco } = require('../lib/db');
 const { parsePositiveInt, montarPaginacao } = require('../lib/helpers');
-
-// Mapeamento status → coluna de timestamp (métricas operacionais)
-const STATUS_TIMESTAMP_COLUNA = Object.freeze({
-  pago: 'pago_em',
-  preparando: 'em_preparo_em',
-  pronto_para_retirada: 'pronto_em',
-  enviado: 'saiu_entrega_em',
-  entregue: 'entregue_em',
-  retirado: 'retirado_em',
-  cancelado: 'cancelado_em'
-});
-
-// Calcula métricas de tempo operacional a partir dos timestamps do pedido
-function calcularMetricasTempoOperacional(pedido) {
-  if (!pedido || typeof pedido !== 'object') return {};
-
-  const ts = (campo) => {
-    const val = pedido[campo];
-    if (!val) return null;
-    const d = new Date(val);
-    return Number.isNaN(d.getTime()) ? null : d.getTime();
-  };
-
-  const base = ts('pago_em') || ts('criado_em');
-  const prontoMs = ts('pronto_em');
-  const saiuMs = ts('saiu_entrega_em');
-  const entregueMs = ts('entregue_em');
-  const retiradoMs = ts('retirado_em');
-  const canceladoMs = ts('cancelado_em');
-
-  const diff = (a, b) => (a && b && a > b ? a - b : null);
-
-  const metricas = {};
-  metricas.tempo_ate_preparo_ms = diff(prontoMs, base);
-
-  // Entrega
-  metricas.tempo_aguardando_coleta_ms = diff(saiuMs, prontoMs);
-  metricas.tempo_de_rota_ms = diff(entregueMs, saiuMs);
-  metricas.tempo_total_entrega_ms = diff(entregueMs, base);
-
-  // Retirada
-  metricas.tempo_espera_retirada_ms = diff(retiradoMs, prontoMs);
-  metricas.tempo_total_retirada_ms = diff(retiradoMs, base);
-
-  // Cancelamento
-  metricas.tempo_ate_cancelamento_ms = diff(canceladoMs, base);
-
-  return metricas;
-}
-
-function calcularPeriodoDashboard(periodo, inicioCustom, fimCustom) {
-  const agora = new Date();
-  const hojeFim = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 23, 59, 59, 999);
-  const hojeInicio = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
-
-  let inicio, fim;
-
-  switch (periodo) {
-    case 'ontem': {
-      const ontem = new Date(hojeInicio);
-      ontem.setDate(ontem.getDate() - 1);
-      inicio = ontem;
-      fim = new Date(hojeInicio.getTime() - 1);
-      break;
-    }
-    case '7d': {
-      const d = new Date(hojeInicio);
-      d.setDate(d.getDate() - 6);
-      inicio = d;
-      fim = hojeFim;
-      break;
-    }
-    case '30d': {
-      const d = new Date(hojeInicio);
-      d.setDate(d.getDate() - 29);
-      inicio = d;
-      fim = hojeFim;
-      break;
-    }
-    case 'mes': {
-      inicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
-      fim = hojeFim;
-      break;
-    }
-    case 'custom': {
-      if (inicioCustom) {
-        inicio = new Date(inicioCustom + 'T00:00:00');
-      } else {
-        inicio = hojeInicio;
-      }
-      if (fimCustom) {
-        fim = new Date(fimCustom + 'T23:59:59.999');
-      } else {
-        fim = hojeFim;
-      }
-      break;
-    }
-    default: // hoje
-      inicio = hojeInicio;
-      fim = hojeFim;
-  }
-  // Período anterior de mesma duração
-  const duracao = fim.getTime() - inicio.getTime();
-  const anteriorFim = new Date(inicio.getTime() - 1);
-  const anteriorInicio = new Date(anteriorFim.getTime() - duracao);
-
-  return { inicio, fim, anteriorInicio, anteriorFim };
-}
+const {
+  STATUS_TIMESTAMP_COLUNA,
+  calcularMetricasTempoOperacional,
+  calcularPeriodoDashboard
+} = require('../services/admin/adminOperacionalMetrics');
 
 module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin, autenticarAdminToken, pool, enviarWhatsappPedido, registrarAuditoria }) {
   const router = express.Router();

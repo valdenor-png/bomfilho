@@ -29,6 +29,7 @@ const MP_API_BASE = 'https://api.mercadopago.com';
  * @param {string} [opts.pendingUrl='']
  * @param {string} [opts.failureUrl='']
  * @param {string} [opts.baseUrl='']
+ * @param {boolean} [opts.allowInsecureWebhookWithoutSecret=false]
  */
 function criarMercadoPagoService({
   accessToken,
@@ -39,7 +40,8 @@ function criarMercadoPagoService({
   successUrl = '',
   pendingUrl = '',
   failureUrl = '',
-  baseUrl = ''
+  baseUrl = '',
+  allowInsecureWebhookWithoutSecret = false
 }) {
   if (!accessToken) {
     logger.warn('⚠️ MP_ACCESS_TOKEN não configurado. Pagamentos Mercado Pago indisponíveis.');
@@ -276,8 +278,12 @@ function criarMercadoPagoService({
   // ============================================
   function validarAssinaturaWebhook(xSignature, xRequestId, dataId) {
     if (!webhookSecret) {
-      logger.warn('[MP] Webhook secret não configurado — assinatura não validada.');
-      return true;
+      if (allowInsecureWebhookWithoutSecret) {
+        logger.warn('[MP] MP_WEBHOOK_SECRET ausente. Modo inseguro explicitamente habilitado; webhook aceito sem validação criptográfica.');
+        return true;
+      }
+      logger.error('[MP] MP_WEBHOOK_SECRET ausente. Webhook rejeitado para evitar validação silenciosamente permissiva.');
+      return false;
     }
 
     if (!xSignature) return false;

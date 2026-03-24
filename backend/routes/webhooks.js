@@ -3,6 +3,7 @@
 const express = require('express');
 const logger = require('../lib/logger');
 const { pool } = require('../lib/db');
+const { buildErrorPayload } = require('../lib/apiError');
 const {
   WHATSAPP_AUTO_REPLY_ENABLED, WHATSAPP_AUTO_REPLY_TEXT, WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS,
 } = require('../lib/config');
@@ -69,7 +70,7 @@ module.exports = function createWebhookRoutes(deps) {
   router.post('/api/webhooks/evolution', async (req, res) => {
     try {
       if (!validarWebhookEvolution(req)) {
-        return res.status(401).json({ erro: 'Webhook Evolution nao autorizado' });
+        return res.status(401).json(buildErrorPayload('Webhook Evolution nao autorizado'));
       }
 
       if (!WHATSAPP_AUTO_REPLY_ENABLED || !WHATSAPP_AUTO_REPLY_TEXT) {
@@ -138,7 +139,9 @@ module.exports = function createWebhookRoutes(deps) {
   });
 
   router.post('/api/webhooks/mercadopago', async (req, res) => {
+    const requestId = String(req.requestId || req.headers['x-request-id'] || '').trim() || null;
     logger.info('[MP Webhook] Requisição recebida', {
+      request_id: requestId,
       method: req.method,
       url: req.originalUrl,
       contentType: req.headers['content-type'] || '(vazio)',
@@ -176,12 +179,13 @@ module.exports = function createWebhookRoutes(deps) {
       const assinaturaValida = mercadoPagoService.validarAssinaturaWebhook(xSignature, xRequestId, dataId);
       if (!assinaturaValida) {
         logger.warn('[MP Webhook] Assinatura inválida, rejeitando.');
-        return res.status(401).json({ erro: 'Assinatura inválida.' });
+        return res.status(401).json(buildErrorPayload('Assinatura inválida.'));
       }
 
       // Idempotência
       const idempotencyKey = `mp_${dataId}_${action}`;
       if (await webhookJaProcessado(idempotencyKey)) {
+        logger.info('[MP Webhook] Evento duplicado ignorado', { request_id: requestId, idempotency_key: idempotencyKey });
         return res.sendStatus(200);
       }
 
@@ -208,6 +212,13 @@ module.exports = function createWebhookRoutes(deps) {
       }
 
       const statusInterno = mercadoPagoService.mapearStatusPagamento(pagamento.status);
+      logger.info('[MP Webhook] Pagamento mapeado para status interno', {
+        request_id: requestId,
+        payment_id: pagamento.id,
+        payment_status: pagamento.status,
+        status_interno: statusInterno,
+        pedido_ref: pagamento.external_reference
+      });
 
       // Buscar pedido no banco
       const [pedidos] = await pool.query(

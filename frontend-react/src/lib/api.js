@@ -809,7 +809,7 @@ export function criarPedido({ itens, formaPagamento = 'pix', tipoEntrega = 'entr
 }
 
 export function gerarPix(pedidoId, taxId, recaptchaToken = '') {
-  return mpGerarPix(pedidoId, taxId);
+  return mpGerarPix(pedidoId, taxId, recaptchaToken);
 }
 
 export function getGatewayPublicKey() {
@@ -836,7 +836,8 @@ export function pagarCartao(
   return mpPagarCartao(pedidoId, {
     token: String(tokenCartao || '').trim(),
     parcelas,
-    taxId
+    taxId,
+    recaptchaToken
   });
 }
 
@@ -880,14 +881,16 @@ export function adminCancelarEntregaUber({ pedidoId, motivo = 'cancelamento_oper
 }
 
 // ── Mercado Pago ──────────────────────────────────────────────
-export function mpGerarPix(pedidoId, taxId) {
+export function mpGerarPix(pedidoId, taxId, recaptchaToken = '') {
   const body = { pedido_id: pedidoId };
   const taxIdDigits = String(taxId || '').replace(/\D/g, '');
   if (taxIdDigits) body.tax_id = taxIdDigits;
+  const recaptchaTokenNormalizado = String(recaptchaToken || '').trim();
+  if (recaptchaTokenNormalizado) body.recaptcha_token = recaptchaTokenNormalizado;
   return request('/api/mercadopago/criar-pix', { method: 'POST', body });
 }
 
-export function mpPagarCartao(pedidoId, { token, parcelas = 1, taxId, paymentMethodId, issuerId } = {}) {
+export function mpPagarCartao(pedidoId, { token, parcelas = 1, taxId, paymentMethodId, issuerId, recaptchaToken } = {}) {
   const body = {
     pedido_id: pedidoId,
     token,
@@ -900,6 +903,10 @@ export function mpPagarCartao(pedidoId, { token, parcelas = 1, taxId, paymentMet
   const issuerNumeric = Number(issuerId);
   if (Number.isFinite(issuerNumeric) && issuerNumeric > 0) {
     body.issuer_id = issuerNumeric;
+  }
+  const recaptchaTokenNormalizado = String(recaptchaToken || '').trim();
+  if (recaptchaTokenNormalizado) {
+    body.recaptcha_token = recaptchaTokenNormalizado;
   }
   return request('/api/mercadopago/criar-cartao', { method: 'POST', body });
 }

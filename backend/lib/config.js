@@ -85,6 +85,7 @@ const MP_SUCCESS_URL = String(process.env.MP_SUCCESS_URL || '').trim();
 const MP_PENDING_URL = String(process.env.MP_PENDING_URL || '').trim();
 const MP_FAILURE_URL = String(process.env.MP_FAILURE_URL || '').trim();
 const MP_WEBHOOK_SECRET = String(process.env.MP_WEBHOOK_SECRET || '').trim();
+const MP_WEBHOOK_ALLOW_INSECURE_WHEN_SECRET_MISSING = parseBooleanEnv('MP_WEBHOOK_ALLOW_INSECURE_WHEN_SECRET_MISSING', false);
 
 if (!MP_ACCESS_TOKEN) {
   throw new Error('MP_ACCESS_TOKEN não configurado. Defina o token privado do Mercado Pago para iniciar o backend.');
@@ -100,6 +101,9 @@ if (MP_ENV === 'production' && /^test-/i.test(MP_ACCESS_TOKEN)) {
 }
 if (IS_PRODUCTION && !MP_WEBHOOK_SECRET) {
   throw new Error('MP_WEBHOOK_SECRET é obrigatório em produção para validação de webhook do Mercado Pago.');
+}
+if (IS_PRODUCTION && MP_WEBHOOK_ALLOW_INSECURE_WHEN_SECRET_MISSING) {
+  throw new Error('MP_WEBHOOK_ALLOW_INSECURE_WHEN_SECRET_MISSING não pode ser true em produção.');
 }
 
 const TAMANHO_MAXIMO_IMPORTACAO_MB = (() => {
@@ -355,6 +359,7 @@ module.exports = {
   PAGBANK_TIMEOUT_MS, PAGBANK_API_URL, PAGBANK_SDK_API_URL, PAGBANK_3DS_SDK_ENV,
   // mercado pago
   MP_ACCESS_TOKEN, MP_ENV, MP_NOTIFICATION_URL, MP_SUCCESS_URL, MP_PENDING_URL, MP_FAILURE_URL, MP_WEBHOOK_SECRET,
+  MP_WEBHOOK_ALLOW_INSECURE_WHEN_SECRET_MISSING,
   TAMANHO_MAXIMO_IMPORTACAO_MB, TAMANHO_MAXIMO_IMPORTACAO_BYTES,
   // evolution
   EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE, EVOLUTION_WEBHOOK_TOKEN,

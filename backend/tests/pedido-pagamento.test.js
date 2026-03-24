@@ -72,6 +72,24 @@ const USUARIO_DB = {
   nome: 'Teste', email: 'teste@example.com', telefone: '91999999999', whatsapp_opt_in: 0
 };
 
+const PEDIDOS_COLUMNS_ROWS = [
+  { column_name: 'usuario_id' },
+  { column_name: 'total' },
+  { column_name: 'status' },
+  { column_name: 'forma_pagamento' },
+  { column_name: 'tipo_entrega' },
+  { column_name: 'revisao_em' },
+  { column_name: 'taxa_servico' },
+  { column_name: 'frete_cobrado_cliente' }
+];
+
+const USUARIOS_COLUMNS_ROWS = [
+  { column_name: 'nome' },
+  { column_name: 'email' },
+  { column_name: 'telefone' },
+  { column_name: 'whatsapp_opt_in' }
+];
+
 // ============================================================
 // SUITE 1 — POST /api/pedidos (routes/pedidos-criar.js)
 // ============================================================
@@ -109,16 +127,20 @@ describe('POST /api/pedidos', () => {
     const conn = pool._connection;
 
     // Query sequence for a successful order:
-    // 1. SELECT usuario (nome, email, telefone, whatsapp_opt_in)
+    // 1. metadados de colunas de pedidos
+    // 2. metadados de colunas de usuarios
+    // 3. SELECT usuario (nome, email, telefone, whatsapp_opt_in)
     conn.query
+      .mockResolvedValueOnce([PEDIDOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([USUARIOS_COLUMNS_ROWS])
       .mockResolvedValueOnce([[USUARIO_DB]])
-      // 2. SELECT produtos FOR UPDATE
+      // 4. SELECT produtos FOR UPDATE
       .mockResolvedValueOnce([[PRODUTO_ATIVO]])
-      // 3. INSERT pedido
+      // 5. INSERT pedido
       .mockResolvedValueOnce([{ insertId: 42 }])
-      // 4. INSERT pedido_itens (batch)
+      // 6. INSERT pedido_itens (batch)
       .mockResolvedValueOnce([{ affectedRows: 1 }])
-      // 5. UPDATE estoque
+      // 7. UPDATE estoque
       .mockResolvedValueOnce([{ affectedRows: 1 }]);
 
     const createRoute = require('../routes/pedidos-criar');
@@ -184,6 +206,8 @@ describe('POST /api/pedidos', () => {
     const conn = pool._connection;
     conn.query.mockReset();
     conn.query
+      .mockResolvedValueOnce([PEDIDOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([USUARIOS_COLUMNS_ROWS])
       .mockResolvedValueOnce([[USUARIO_DB]])
       .mockResolvedValueOnce([[{ ...PRODUTO_ATIVO, preco: 0 }]])
       .mockResolvedValueOnce([{ insertId: 44 }])
@@ -218,6 +242,158 @@ describe('POST /api/pedidos', () => {
     // O pedido deve ser criado mesmo com falha de PIX (after commit)
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('pedido_id', 42);
+  });
+
+  test('cria pedido com cupom válido — 201', async () => {
+    const conn = pool._connection;
+    conn.query.mockReset();
+    conn.query
+      .mockResolvedValueOnce([PEDIDOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([USUARIOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([[USUARIO_DB]])
+      .mockResolvedValueOnce([[PRODUTO_ATIVO]])
+      .mockResolvedValueOnce([[{ id: 7, tipo: 'percentual', valor: 10, valor_minimo: 20, uso_atual: 0, uso_maximo: 100 }]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([{ insertId: 52 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    const res = await request(app)
+      .post('/api/pedidos')
+      .send({
+        itens: [{ produto_id: 10, quantidade: 2 }],
+        forma_pagamento: 'pix',
+        tipo_entrega: 'retirada',
+        cupom_id: 7,
+        tax_id: '12345678909'
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toHaveProperty('pedido_id', 52);
+    expect(res.body).toHaveProperty('desconto_aplicado');
+  });
+
+  test('rejeita cupom expirado/inexistente no pedido — 400', async () => {
+    const conn = pool._connection;
+    conn.query.mockReset();
+    conn.query
+      .mockResolvedValueOnce([PEDIDOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([USUARIOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([[USUARIO_DB]])
+      .mockResolvedValueOnce([[PRODUTO_ATIVO]])
+      .mockResolvedValueOnce([[]]);
+
+    const res = await request(app)
+      .post('/api/pedidos')
+      .send({
+        itens: [{ produto_id: 10, quantidade: 1 }],
+        forma_pagamento: 'pix',
+        tipo_entrega: 'retirada',
+        cupom_id: 9999,
+        tax_id: '12345678909'
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.erro).toMatch(/cupom/i);
+    expect(conn.rollback).toHaveBeenCalled();
+  });
+
+  test('rejeita cupom inativo no pedido — 400', async () => {
+    const conn = pool._connection;
+    conn.query.mockReset();
+    conn.query
+      .mockResolvedValueOnce([PEDIDOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([USUARIOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([[USUARIO_DB]])
+      .mockResolvedValueOnce([[PRODUTO_ATIVO]])
+      // Cupom inativo não retorna linha pela própria query de elegibilidade
+      .mockResolvedValueOnce([[]]);
+
+    const res = await request(app)
+      .post('/api/pedidos')
+      .send({
+        itens: [{ produto_id: 10, quantidade: 1 }],
+        forma_pagamento: 'pix',
+        tipo_entrega: 'retirada',
+        cupom_id: 13,
+        tax_id: '12345678909'
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.erro).toMatch(/inválido|expirado/i);
+  });
+
+  test('query de cupom no checkout não usa CURDATE (compatibilidade PostgreSQL)', async () => {
+    const conn = pool._connection;
+    conn.query.mockReset();
+    conn.query.mockImplementation(async (sql, params = []) => {
+      const texto = String(sql || '');
+      if (/CURDATE\s*\(/i.test(texto)) {
+        throw new Error('function curdate() does not exist');
+      }
+
+      if (/information_schema\.columns/i.test(texto)) {
+        const tableName = String(params[0] || '').toLowerCase();
+        return [tableName === 'pedidos' ? PEDIDOS_COLUMNS_ROWS : USUARIOS_COLUMNS_ROWS];
+      }
+
+      if (/SELECT nome, email, telefone/i.test(texto)) return [[USUARIO_DB]];
+      if (/FROM produtos[\s\S]*FOR UPDATE/i.test(texto)) return [[PRODUTO_ATIVO]];
+      if (/FROM cupons_usados/i.test(texto)) return [[]];
+      if (/FROM cupons\s/i.test(texto)) return [[{ id: 99, tipo: 'fixo', valor: 5, valor_minimo: 0, uso_atual: 0, uso_maximo: 10 }]];
+      if (/INSERT INTO pedidos/i.test(texto)) return [{ insertId: 61 }];
+      if (/INSERT INTO pedido_itens/i.test(texto)) return [{ affectedRows: 1 }];
+      if (/UPDATE produtos SET estoque/i.test(texto)) return [{ affectedRows: 1 }];
+      if (/UPDATE cupons SET uso_atual/i.test(texto)) return [{ affectedRows: 1 }];
+      if (/INSERT INTO cupons_usados/i.test(texto)) return [{ affectedRows: 1 }];
+      return [[], null];
+    });
+
+    const res = await request(app)
+      .post('/api/pedidos')
+      .send({
+        itens: [{ produto_id: 10, quantidade: 1 }],
+        forma_pagamento: 'pix',
+        tipo_entrega: 'retirada',
+        cupom_id: 99,
+        tax_id: '12345678909'
+      });
+
+    expect(res.status).toBe(201);
+    const queryCupom = conn.query.mock.calls.find((call) => /FROM cupons/i.test(String(call[0] || '')));
+    expect(queryCupom).toBeTruthy();
+    expect(String(queryCupom[0])).toContain('CURRENT_DATE');
+    expect(String(queryCupom[0])).not.toMatch(/CURDATE\s*\(/i);
+  });
+
+  test('falha de reserva de estoque retorna 409 e rollback', async () => {
+    const conn = pool._connection;
+    conn.query.mockReset();
+    conn.query
+      .mockResolvedValueOnce([PEDIDOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([USUARIOS_COLUMNS_ROWS])
+      .mockResolvedValueOnce([[USUARIO_DB]])
+      .mockResolvedValueOnce([[PRODUTO_ATIVO]])
+      .mockResolvedValueOnce([{ insertId: 70 }])
+      .mockResolvedValueOnce([{ affectedRows: 1 }])
+      // UPDATE estoque sem affectedRows simula corrida/estoque insuficiente no commit de reserva
+      .mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+    const res = await request(app)
+      .post('/api/pedidos')
+      .send({
+        itens: [{ produto_id: 10, quantidade: 2 }],
+        forma_pagamento: 'pix',
+        tipo_entrega: 'retirada',
+        tax_id: '12345678909'
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toHaveProperty('erro');
+    expect(res.body).toHaveProperty('error');
+    expect(conn.rollback).toHaveBeenCalled();
   });
 });
 
