@@ -1,6 +1,6 @@
 'use strict';
 
-const fetch = require('node-fetch');
+const fetch = global.fetch;
 const logger = require('../lib/logger');
 const { toMoney } = require('../lib/helpers');
 

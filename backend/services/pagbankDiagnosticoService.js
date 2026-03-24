@@ -16,7 +16,7 @@ function criarDiagnosticoPagBank(deps) {
     enviarPostPagBankOrders
   } = deps;
 
-  const fetch = global.fetch || require('node-fetch');
+  const fetch = global.fetch;
   let pagbankLastAuthCheck = null;
 
   async function verificarCredencialPagBank() {

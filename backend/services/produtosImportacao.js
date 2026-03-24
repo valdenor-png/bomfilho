@@ -2,7 +2,7 @@
 
 const path = require('path');
 const XLSX = require('xlsx');
-const fetch = global.fetch || require('node-fetch');
+const fetch = global.fetch;
 const logger = require('../lib/logger');
 const { DB_DIALECT } = require('../lib/config');
 

@@ -1,6 +1,6 @@
 'use strict';
 
-const fetch = global.fetch || require('node-fetch');
+const fetch = global.fetch;
 const { extrairTraceIdPagBank } = require('./pagbankLogService');
 
 function parseJsonSafely(responseBodyText) {
