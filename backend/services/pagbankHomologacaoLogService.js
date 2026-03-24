@@ -2,7 +2,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { sanitizarPayloadPagBankParaLog } = require('./pagbankLogService');
 
 // ---------------------------------------------------------------------------
 // Mascaramento centralizado para logs de homologação
@@ -180,7 +179,7 @@ function gerarLog3DSAuth({
   };
 }
 
-function gerarLogOrderRequest({ endpoint, method, payload, headers, idempotencyKey } = {}) {
+function gerarLogOrderRequest({ endpoint: _endpoint, method: _method, payload, headers: _headers, idempotencyKey: _idempotencyKey } = {}) {
   const requestBloco = mascararPayloadHomologacao(payload);
   return {
     texto: JSON.stringify(requestBloco, null, 4),
@@ -188,7 +187,7 @@ function gerarLogOrderRequest({ endpoint, method, payload, headers, idempotencyK
   };
 }
 
-function gerarLogOrderResponse({ httpStatus, responsePayload, traceId } = {}) {
+function gerarLogOrderResponse({ httpStatus: _httpStatus, responsePayload, traceId: _traceId } = {}) {
   const responseBloco = mascararPayloadHomologacao(responsePayload);
   return {
     texto: JSON.stringify(responseBloco, null, 4),
@@ -245,8 +244,6 @@ function salvarArquivoHomologacao({ requestPayload, responsePayload }) {
   const tipo = (charge.payment_method?.type || 'DESCONHECIDO').toUpperCase();
   const refId = requestPayload?.reference_id || 'pedido';
   const pedidoNum = refId.replace(/\D/g, '') || Date.now();
-  const orderId = responsePayload?.id || '';
-
   // Verificar se tem 3DS
   const tem3DS = Boolean(charge.payment_method?.authentication_method?.type === 'THREEDS');
   const sufixo3DS = tem3DS ? '_3DS' : '';

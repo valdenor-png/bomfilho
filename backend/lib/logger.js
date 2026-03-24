@@ -11,20 +11,6 @@ function formatTimestamp() {
   return new Date().toISOString();
 }
 
-function serializeExtra(extra) {
-  if (!extra || typeof extra !== 'object') return undefined;
-  try {
-    return JSON.stringify(extra, (_key, value) => {
-      if (value instanceof Error) {
-        return { message: value.message, stack: value.stack, code: value.code };
-      }
-      return value;
-    });
-  } catch {
-    return '[unserializable]';
-  }
-}
-
 function emitLog(level, message, extra) {
   if (LEVELS[level] > CURRENT_LEVEL) return;
 

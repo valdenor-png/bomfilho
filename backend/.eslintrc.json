@@ -20,6 +20,14 @@
     "no-implied-eval": "error",
     "no-new-func": "error"
   },
+  "overrides": [
+    {
+      "files": ["tests/**/*.test.js"],
+      "env": {
+        "jest": true
+      }
+    }
+  ],
   "ignorePatterns": [
     "node_modules/",
     "logs/",

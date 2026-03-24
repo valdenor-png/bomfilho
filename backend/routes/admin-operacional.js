@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const express = require('express');
 const logger = require('../lib/logger');
@@ -129,7 +129,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       return res.json({ pedidos });
     } catch (erro) {
       const respostaErro = montarRespostaErroBanco(erro, {
-        fallbackMessage: 'Não foi possível carregar os pedidos no painel.'
+        fallbackMessage: 'NÃ£o foi possÃ­vel carregar os pedidos no painel.'
       });
       logger.error('Erro ao buscar pedidos (admin):', {
         ...respostaErro.logMeta,
@@ -140,7 +140,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
   });
 
   // ============================================
-  // DASHBOARD EXECUTIVO — Agregações server-side
+  // DASHBOARD EXECUTIVO â€” AgregaÃ§Ãµes server-side
   // ============================================
   router.get('/api/admin/dashboard/resumo', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
@@ -168,7 +168,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       const paramsPeriodo = [inicio, fim, ...paramsExtra];
       const paramsAnterior = [anteriorInicio, anteriorFim, ...paramsExtra];
 
-      // 1. KPIs do período atual
+      // 1. KPIs do perÃ­odo atual
       const [[kpisRow]] = await pool.query(
         `SELECT
           COUNT(*) AS total_pedidos,
@@ -183,7 +183,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         paramsPeriodo
       );
 
-      // 2. KPIs do período anterior (comparativo)
+      // 2. KPIs do perÃ­odo anterior (comparativo)
       const [[kpisAnteriorRow]] = await pool.query(
         `SELECT
           COUNT(*) AS total_pedidos,
@@ -281,8 +281,8 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         topBairros = bairrosRows;
       } catch (_) { /* enderecos can be empty */ }
 
-      // 11. Métricas SLA (timestamp columns can be absent)
-      let sla = { tempo_medio_preparo_ms: null, tempo_medio_rota_ms: null, tempo_medio_total_ms: null, taxa_entrega_prazo: null };
+      // 11. MÃ©tricas SLA (timestamp columns can be absent)
+      const sla = { tempo_medio_preparo_ms: null, tempo_medio_rota_ms: null, tempo_medio_total_ms: null, taxa_entrega_prazo: null };
       try {
         const [[slaRow]] = await pool.query(
           `SELECT
@@ -314,7 +314,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       } catch (_) { /* timestamp columns may not exist */ }
 
       // 12. Alertas (real-time operational status)
-      let alertas = [];
+      const alertas = [];
       try {
         // Pedidos fora do SLA (em andamento agora)
         const [[foraSlaNow]] = await pool.query(
@@ -326,14 +326,14 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
           alertas.push({ tipo: 'perigo', titulo: `${foraSlaNow.qtd} pedido(s) acima do SLA agora`, descricao: 'Pedidos ativos com tempo total superior a 45 minutos.' });
         }
 
-        // Prontos aguardando saída
+        // Prontos aguardando saÃ­da
         const [[aguardSaida]] = await pool.query(
           `SELECT COUNT(*) AS qtd FROM pedidos
            WHERE status IN ('pronto_para_retirada','preparando')
              AND pronto_em IS NOT NULL AND tipo_entrega = 'entrega'`
         );
         if (Number(aguardSaida?.qtd || 0) > 0) {
-          alertas.push({ tipo: 'atencao', titulo: `${aguardSaida.qtd} pedido(s) pronto(s) aguardando saída`, descricao: 'Aguardando entregador para coleta.' });
+          alertas.push({ tipo: 'atencao', titulo: `${aguardSaida.qtd} pedido(s) pronto(s) aguardando saÃ­da`, descricao: 'Aguardando entregador para coleta.' });
         }
 
         // Em rota acima do esperado
@@ -344,7 +344,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
              AND TIMESTAMPDIFF(MINUTE, saiu_entrega_em, NOW()) > 25`
         );
         if (Number(rotaLonga?.qtd || 0) > 0) {
-          alertas.push({ tipo: 'perigo', titulo: `${rotaLonga.qtd} entrega(s) em rota longa`, descricao: 'Entregas em rota há mais de 25 minutos.' });
+          alertas.push({ tipo: 'perigo', titulo: `${rotaLonga.qtd} entrega(s) em rota longa`, descricao: 'Entregas em rota hÃ¡ mais de 25 minutos.' });
         }
       } catch (_) { /* fallback if columns don't exist */ }
 
@@ -353,7 +353,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       const totalAtual = Number(kpisRow?.total_pedidos || 0);
       const taxaCancelAtual = totalAtual > 0 ? cancelAtual / totalAtual : 0;
       if (taxaCancelAtual > 0.15 && cancelAtual >= 3) {
-        alertas.push({ tipo: 'perigo', titulo: `Taxa de cancelamento alta: ${(taxaCancelAtual * 100).toFixed(1)}%`, descricao: `${cancelAtual} cancelamentos no período.` });
+        alertas.push({ tipo: 'perigo', titulo: `Taxa de cancelamento alta: ${(taxaCancelAtual * 100).toFixed(1)}%`, descricao: `${cancelAtual} cancelamentos no perÃ­odo.` });
       }
 
       // Alerta: queda de faturamento
@@ -361,7 +361,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       const fatAnterior = Number(kpisAnteriorRow?.faturamento_bruto || 0);
       if (fatAnterior > 0 && fatAtual < fatAnterior * 0.7) {
         const queda = Math.round((1 - fatAtual / fatAnterior) * 100);
-        alertas.push({ tipo: 'atencao', titulo: `Faturamento caiu ${queda}% vs período anterior`, descricao: `R$ ${fatAtual.toFixed(2)} atual vs R$ ${fatAnterior.toFixed(2)} anterior.` });
+        alertas.push({ tipo: 'atencao', titulo: `Faturamento caiu ${queda}% vs perÃ­odo anterior`, descricao: `R$ ${fatAtual.toFixed(2)} atual vs R$ ${fatAnterior.toFixed(2)} anterior.` });
       }
 
       // 13. Produtos muito vendidos sem imagem
@@ -420,12 +420,12 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       });
     } catch (erro) {
       logger.error('Erro no dashboard resumo:', erro);
-      res.status(500).json({ erro: 'Não foi possível carregar o resumo do dashboard.' });
+      res.status(500).json({ erro: 'NÃ£o foi possÃ­vel carregar o resumo do dashboard.' });
     }
   });
 
   // ============================================
-  // Aprovar revisão do pedido (libera para pagamento)
+  // Aprovar revisÃ£o do pedido (libera para pagamento)
   // ============================================
   router.put('/api/admin/pedidos/:id/aprovar-revisao', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
@@ -434,7 +434,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
       const [pedidos] = await pool.query('SELECT id, status, usuario_id, revisao_em, revisao_aprovada_em FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
       if (!pedidos.length) {
-        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+        return res.status(404).json({ erro: 'Pedido nÃ£o encontrado.' });
       }
 
       const statusAtual = String(pedidos[0].status || '').trim().toLowerCase();
@@ -443,7 +443,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         && !pedidos[0].revisao_aprovada_em;
 
       if (statusAtual !== 'aguardando_revisao' && !revisaoAbertaEmPendente) {
-        return res.status(400).json({ erro: `Pedido não está aguardando revisão (status atual: ${pedidos[0].status}).` });
+        return res.status(400).json({ erro: `Pedido nÃ£o estÃ¡ aguardando revisÃ£o (status atual: ${pedidos[0].status}).` });
       }
 
       // Atualizar para pendente (liberado para pagamento)
@@ -469,11 +469,11 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
             pedidoId,
             total: dados[0].total,
             pixCodigo: null,
-            mensagemExtra: '✅ Seu pedido foi revisado e aprovado! Agora é só realizar o pagamento para prosseguirmos com a separação.'
+            mensagemExtra: 'âœ… Seu pedido foi revisado e aprovado! Agora Ã© sÃ³ realizar o pagamento para prosseguirmos com a separaÃ§Ã£o.'
           });
         }
       } catch (errNotifica) {
-        logger.error('Falha ao notificar aprovação por WhatsApp:', errNotifica.message);
+        logger.error('Falha ao notificar aprovaÃ§Ã£o por WhatsApp:', errNotifica.message);
       }
 
       registrarAuditoria(pool, {
@@ -487,13 +487,13 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
       res.json({ mensagem: 'Pedido aprovado e liberado para pagamento.', status: 'pendente' });
     } catch (erro) {
-      logger.error('Erro ao aprovar revisão:', erro);
-      res.status(500).json({ erro: 'Não foi possível aprovar a revisão do pedido.' });
+      logger.error('Erro ao aprovar revisÃ£o:', erro);
+      res.status(500).json({ erro: 'NÃ£o foi possÃ­vel aprovar a revisÃ£o do pedido.' });
     }
   });
 
   // ============================================
-  // Rejeitar revisão do pedido (cancela + restaura estoque)
+  // Rejeitar revisÃ£o do pedido (cancela + restaura estoque)
   // ============================================
   router.put('/api/admin/pedidos/:id/rejeitar-revisao', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
@@ -502,16 +502,16 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
       const [pedidos] = await pool.query('SELECT id, status, usuario_id FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
       if (!pedidos.length) {
-        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+        return res.status(404).json({ erro: 'Pedido nÃ£o encontrado.' });
       }
 
       if (pedidos[0].status !== 'aguardando_revisao') {
-        return res.status(400).json({ erro: `Pedido não está aguardando revisão (status atual: ${pedidos[0].status}).` });
+        return res.status(400).json({ erro: `Pedido nÃ£o estÃ¡ aguardando revisÃ£o (status atual: ${pedidos[0].status}).` });
       }
 
-      const motivoCurado = String(motivo || 'Revisão rejeitada pela equipe').trim().slice(0, 500);
+      const motivoCurado = String(motivo || 'RevisÃ£o rejeitada pela equipe').trim().slice(0, 500);
 
-      // Restaurar estoque em transação
+      // Restaurar estoque em transaÃ§Ã£o
       const connection = await pool.getConnection();
       try {
         await connection.beginTransaction();
@@ -557,11 +557,11 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
             pedidoId,
             total: dados[0].total,
             pixCodigo: null,
-            mensagemExtra: `❌ Infelizmente não pudemos confirmar seu pedido: ${motivoCurado}. Tente novamente ou entre em contato.`
+            mensagemExtra: `âŒ Infelizmente nÃ£o pudemos confirmar seu pedido: ${motivoCurado}. Tente novamente ou entre em contato.`
           });
         }
       } catch (errNotifica) {
-        logger.error('Falha ao notificar rejeição por WhatsApp:', errNotifica.message);
+        logger.error('Falha ao notificar rejeiÃ§Ã£o por WhatsApp:', errNotifica.message);
       }
 
       registrarAuditoria(pool, {
@@ -575,8 +575,8 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
       res.json({ mensagem: 'Pedido rejeitado e estoque restaurado.', status: 'cancelado' });
     } catch (erro) {
-      logger.error('Erro ao rejeitar revisão:', erro);
-      res.status(500).json({ erro: 'Não foi possível rejeitar a revisão do pedido.' });
+      logger.error('Erro ao rejeitar revisÃ£o:', erro);
+      res.status(500).json({ erro: 'NÃ£o foi possÃ­vel rejeitar a revisÃ£o do pedido.' });
     }
   });
 
@@ -591,17 +591,17 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       const statusValidos = ['pendente', 'aguardando_revisao', 'preparando', 'enviado', 'entregue', 'cancelado', 'pronto_para_retirada', 'retirado'];
       
       if (!statusValidos.includes(status)) {
-        return res.status(400).json({ erro: 'Selecione um status de pedido válido.' });
+        return res.status(400).json({ erro: 'Selecione um status de pedido vÃ¡lido.' });
       }
 
-      // Buscar status atual para restauração condicional de estoque
+      // Buscar status atual para restauraÃ§Ã£o condicional de estoque
       const [pedidoAtual] = await pool.query('SELECT status FROM pedidos WHERE id = ? LIMIT 1', [pedidoId]);
       if (!pedidoAtual.length) {
-        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+        return res.status(404).json({ erro: 'Pedido nÃ£o encontrado.' });
       }
       const statusAnterior = pedidoAtual[0].status;
 
-      // Restaurar estoque se mudando para cancelado (e não estava cancelado antes) — Q042
+      // Restaurar estoque se mudando para cancelado (e nÃ£o estava cancelado antes) â€” Q042
       if (status === 'cancelado' && statusAnterior !== 'cancelado') {
         const connection = await pool.getConnection();
         try {
@@ -619,7 +619,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
             );
           }
 
-          // Atualizar status e timestamp na mesma transação
+          // Atualizar status e timestamp na mesma transaÃ§Ã£o
           const colunaTimestamp = STATUS_TIMESTAMP_COLUNA[status];
           if (colunaTimestamp) {
             try {
@@ -628,7 +628,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
                 [status, pedidoId]
               );
             } catch (errTs) {
-              logger.warn(`⚠️ Timestamp ${colunaTimestamp} não gravado (migration pendente?):`, errTs.message);
+              logger.warn(`Timestamp ${colunaTimestamp} nao gravado (migration pendente?):`, errTs.message);
               await connection.query('UPDATE pedidos SET status = ? WHERE id = ?', [status, pedidoId]);
             }
           } else {
@@ -644,7 +644,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
           connection.release();
         }
       } else {
-        // Gravar timestamp da etapa (sem sobrescrever se já existir)
+        // Gravar timestamp da etapa (sem sobrescrever se jÃ¡ existir)
         const colunaTimestamp = STATUS_TIMESTAMP_COLUNA[status];
         if (colunaTimestamp) {
           try {
@@ -653,7 +653,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
               [status, pedidoId]
             );
           } catch (errTs) {
-            logger.warn(`⚠️ Timestamp ${colunaTimestamp} não gravado (migration pendente?):`, errTs.message);
+            logger.warn(`Timestamp ${colunaTimestamp} nao gravado (migration pendente?):`, errTs.message);
             await pool.query('UPDATE pedidos SET status = ? WHERE id = ?', [status, pedidoId]);
           }
         } else {
@@ -675,13 +675,13 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
           if (dados.length && dados[0].whatsapp_opt_in) {
             const mensagemStatus = status === 'preparando'
-              ? 'Seu pedido está sendo separado! Em breve estará pronto.'
+              ? 'Seu pedido estÃ¡ sendo separado! Em breve estarÃ¡ pronto.'
               : status === 'enviado'
                 ? 'Seu pedido saiu pra entrega! Acompanhe em tempo real pelo app.'
                 : status === 'entregue'
-                  ? 'Seu pedido foi entregue. Obrigado pela preferência!'
+                  ? 'Seu pedido foi entregue. Obrigado pela preferÃªncia!'
                   : status === 'pronto_para_retirada'
-                    ? 'Seu pedido está preparado e pronto para retirada na loja!'
+                    ? 'Seu pedido estÃ¡ preparado e pronto para retirada na loja!'
                     : 'Seu pedido foi retirado com sucesso. Obrigado!';
 
             await enviarWhatsappPedido({
@@ -698,13 +698,13 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         }
       }
 
-      // Registrar auditoria da mudança de status
+      // Registrar auditoria da mudanÃ§a de status
       registrarAuditoria(pool, { acao: 'alterar_status_pedido', entidade: 'pedido', entidade_id: pedidoId, detalhes: { novo_status: status }, admin_usuario: 'admin', ip: req.ip });
 
       res.json({ mensagem: 'Status do pedido atualizado com sucesso.', status: status });
     } catch (erro) {
       logger.error('Erro ao atualizar status:', erro);
-      res.status(500).json({ erro: 'Não foi possível atualizar o status do pedido.' });
+      res.status(500).json({ erro: 'NÃ£o foi possÃ­vel atualizar o status do pedido.' });
     }
   });
 
@@ -715,7 +715,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
     try {
       const filas = {};
 
-      // Aguardando revisão do mercado (novo fluxo)
+      // Aguardando revisÃ£o do mercado (novo fluxo)
       let aguardandoRevisao = [];
       try {
         const [rows] = await pool.query(
@@ -729,7 +729,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         );
         aguardandoRevisao = rows;
       } catch (_) {
-        // Fallback para bases antigas sem colunas de revisão.
+        // Fallback para bases antigas sem colunas de revisÃ£o.
         try {
           const [rowsFallback] = await pool.query(
             `SELECT p.id, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.status,
@@ -740,7 +740,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
              ORDER BY p.criado_em ASC LIMIT 50`
           );
           aguardandoRevisao = rowsFallback;
-        } catch (_) {}
+        } catch (_) { /* noop: compatibilidade com schema legado */ }
       }
       filas.aguardando_revisao = aguardandoRevisao;
 
@@ -764,7 +764,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       );
       filas.pagos_aguardando_preparo = pagosAguardando;
 
-      // Em separação (status = preparando)
+      // Em separaÃ§Ã£o (status = preparando)
       let emSeparacao = [];
       try {
         const [rows] = await pool.query(
@@ -776,10 +776,10 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
            ORDER BY p.em_preparo_em ASC LIMIT 50`
         );
         emSeparacao = rows;
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
       filas.em_separacao = emSeparacao;
 
-      // Prontos aguardando saída (entrega)
+      // Prontos aguardando saÃ­da (entrega)
       let prontosAguardandoSaida = [];
       try {
         const [rows] = await pool.query(
@@ -791,7 +791,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
            ORDER BY p.pronto_em ASC LIMIT 50`
         );
         prontosAguardandoSaida = rows;
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
       filas.prontos_aguardando_saida = prontosAguardandoSaida;
 
       // Em rota (todos os pedidos em entrega)
@@ -807,7 +807,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
            ORDER BY p.saiu_entrega_em ASC LIMIT 50`
         );
         emRota = rows;
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
       filas.em_rota = emRota;
 
       // Em rota acima do SLA
@@ -823,7 +823,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
            ORDER BY p.saiu_entrega_em ASC LIMIT 50`
         );
         emRotaLonga = rows;
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
       filas.em_rota_acima_sla = emRotaLonga;
 
       // Retiradas prontas aguardando cliente
@@ -838,7 +838,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
            ORDER BY p.pronto_em ASC LIMIT 50`
         );
         retiradasProntas = rows;
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
       filas.retiradas_prontas_aguardando = retiradasProntas;
 
       // Pedidos travados (>60min no mesmo status sem ser terminal)
@@ -873,12 +873,12 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
     }
   });
 
-  // Itens do pedido para revisão operacional
+  // Itens do pedido para revisÃ£o operacional
   router.get('/api/admin/pedidos/:id/itens', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
       const pedidoId = parsePositiveInt(req.params.id);
       if (!pedidoId) {
-        return res.status(400).json({ erro: 'ID do pedido inválido.' });
+        return res.status(400).json({ erro: 'ID do pedido invÃ¡lido.' });
       }
 
       const [[pedido]] = await pool.query(
@@ -887,7 +887,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       );
 
       if (!pedido) {
-        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+        return res.status(404).json({ erro: 'Pedido nÃ£o encontrado.' });
       }
 
       let itens = [];
@@ -923,17 +923,17 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         itens
       });
     } catch (erro) {
-      logger.error('Erro ao listar itens do pedido para revisão operacional:', erro);
+      logger.error('Erro ao listar itens do pedido para revisÃ£o operacional:', erro);
       return res.status(500).json({ erro: 'Falha ao carregar itens do pedido.' });
     }
   });
 
-  // Detalhes completos do pedido (cliente + carrinho) para operação
+  // Detalhes completos do pedido (cliente + carrinho) para operaÃ§Ã£o
   router.get('/api/admin/pedidos/:id/detalhes', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
       const pedidoId = parsePositiveInt(req.params.id);
       if (!pedidoId) {
-        return res.status(400).json({ erro: 'ID do pedido inválido.' });
+        return res.status(400).json({ erro: 'ID do pedido invÃ¡lido.' });
       }
 
       const [[pedido]] = await pool.query(
@@ -950,7 +950,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       );
 
       if (!pedido) {
-        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+        return res.status(404).json({ erro: 'Pedido nÃ£o encontrado.' });
       }
 
       let itens = [];
@@ -1120,7 +1120,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       });
     } catch (erro) {
       logger.error('Erro ao listar clientes:', erro);
-      res.status(500).json({ erro: 'Não foi possível carregar os clientes.' });
+      res.status(500).json({ erro: 'NÃ£o foi possÃ­vel carregar os clientes.' });
     }
   });
 
@@ -1131,7 +1131,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
     try {
       const clienteId = Number(req.params.id);
       if (!Number.isInteger(clienteId) || clienteId <= 0) {
-        return res.status(400).json({ erro: 'ID de cliente inválido.' });
+        return res.status(400).json({ erro: 'ID de cliente invÃ¡lido.' });
       }
 
       const [[cliente]] = await pool.query(
@@ -1148,7 +1148,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         [clienteId]
       );
 
-      if (!cliente) return res.status(404).json({ erro: 'Cliente não encontrado.' });
+      if (!cliente) return res.status(404).json({ erro: 'Cliente nÃ£o encontrado.' });
 
       const [pedidos] = await pool.query(
         `SELECT id, total, status, forma_pagamento, tipo_entrega, criado_em
@@ -1173,12 +1173,12 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       });
     } catch (erro) {
       logger.error('Erro detalhe cliente:', erro);
-      res.status(500).json({ erro: 'Não foi possível carregar o cliente.' });
+      res.status(500).json({ erro: 'NÃ£o foi possÃ­vel carregar o cliente.' });
     }
   });
 
   // ============================================
-  // Conciliação financeira
+  // ConciliaÃ§Ã£o financeira
   // ============================================
   router.get('/api/admin/financeiro/conciliacao', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
@@ -1196,7 +1196,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
          ORDER BY p.criado_em ASC LIMIT 50`
       );
 
-      // Pedidos pago no sistema mas sem confirmação PIX
+      // Pedidos pago no sistema mas sem confirmaÃ§Ã£o PIX
       const [semConfirmacao] = await pool.query(
         `SELECT p.id, p.total, p.forma_pagamento, p.pix_status, p.pix_id, p.criado_em, p.status,
                 u.nome AS cliente_nome
@@ -1220,7 +1220,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         [desde]
       );
 
-      // Pedidos pagos ainda não concluídos (não entregues/retirados)
+      // Pedidos pagos ainda nÃ£o concluÃ­dos (nÃ£o entregues/retirados)
       const [pagosNaoConcluidos] = await pool.query(
         `SELECT p.id, p.total, p.status, p.forma_pagamento, p.tipo_entrega, p.criado_em,
                 u.nome AS cliente_nome,
@@ -1242,13 +1242,13 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
       res.json({ contadores, pendentes_longo: pendentesLongo, sem_confirmacao_pix: semConfirmacao, cancelados_pagos: canceladosPagos, pagos_nao_concluidos: pagosNaoConcluidos });
     } catch (erro) {
-      logger.error('Erro conciliação:', erro);
-      res.status(500).json({ erro: 'Falha ao carregar conciliação.' });
+      logger.error('Erro conciliaÃ§Ã£o:', erro);
+      res.status(500).json({ erro: 'Falha ao carregar conciliaÃ§Ã£o.' });
     }
   });
 
   // ============================================
-  // Fechamento diário
+  // Fechamento diÃ¡rio
   // ============================================
   router.get('/api/admin/financeiro/fechamento', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
@@ -1284,7 +1284,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       );
 
       // SLA do dia
-      let sla = { dentro_prazo: null, total_concluidos: null, pct: null };
+      const sla = { dentro_prazo: null, total_concluidos: null, pct: null };
       try {
         const [[slaRow]] = await pool.query(
           `SELECT
@@ -1299,9 +1299,9 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
           sla.total_concluidos = Number(slaRow.total_concluidos || 0);
           sla.pct = sla.total_concluidos > 0 ? Math.round((sla.dentro_prazo / sla.total_concluidos) * 10000) / 100 : null;
         }
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
 
-      // Pendências financeiras do dia
+      // PendÃªncias financeiras do dia
       const [[pendenciasRow]] = await pool.query(
         `SELECT COUNT(*) AS qtd FROM pedidos WHERE status = 'pendente' AND criado_em BETWEEN ? AND ?`,
         [inicio, fim]
@@ -1318,8 +1318,8 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         pendencias_financeiras: Number(pendenciasRow?.qtd || 0)
       });
     } catch (erro) {
-      logger.error('Erro fechamento diário:', erro);
-      res.status(500).json({ erro: 'Falha ao gerar fechamento diário.' });
+      logger.error('Erro fechamento diÃ¡rio:', erro);
+      res.status(500).json({ erro: 'Falha ao gerar fechamento diÃ¡rio.' });
     }
   });
 
@@ -1353,7 +1353,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       });
     } catch (erro) {
       if (erro.code === 'ER_NO_SUCH_TABLE') {
-        return res.json({ logs: [], paginacao: { pagina: 1, limite: 50, total: 0, total_paginas: 0 }, aviso: 'Tabela de auditoria ainda não foi criada. Execute migrate_admin_fase2.sql.' });
+        return res.json({ logs: [], paginacao: { pagina: 1, limite: 50, total: 0, total_paginas: 0 }, aviso: 'Tabela de auditoria ainda nÃ£o foi criada. Execute migrate_admin_fase2.sql.' });
       }
       logger.error('Erro auditoria:', erro);
       res.status(500).json({ erro: 'Falha ao carregar auditoria.' });
@@ -1361,7 +1361,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
   });
 
   // ============================================
-  // Relatórios / Exportação
+  // RelatÃ³rios / ExportaÃ§Ã£o
   // ============================================
   router.get('/api/admin/relatorios/vendas', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
@@ -1410,8 +1410,8 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
       res.json({ pedidos: rows, total: rows.length, periodo: { inicio: ini.toISOString(), fim: fi.toISOString() } });
     } catch (erro) {
-      logger.error('Erro relatório vendas:', erro);
-      res.status(500).json({ erro: 'Falha ao gerar relatório.' });
+      logger.error('Erro relatÃ³rio vendas:', erro);
+      res.status(500).json({ erro: 'Falha ao gerar relatÃ³rio.' });
     }
   });
 
@@ -1436,14 +1436,14 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
           AVG(CASE WHEN status NOT IN ('cancelado') THEN total ELSE NULL END) AS ticket_medio
          FROM pedidos WHERE criado_em BETWEEN ? AND ?`, [hojeI, hojeF]);
 
-      // KPIs ontem (comparação)
+      // KPIs ontem (comparaÃ§Ã£o)
       const [[kpiOntem]] = await pool.query(
         `SELECT COUNT(*) AS pedidos, COALESCE(SUM(CASE WHEN status NOT IN ('cancelado') THEN total ELSE 0 END),0) AS faturamento,
           SUM(CASE WHEN status NOT IN ('cancelado','pendente') THEN 1 ELSE 0 END) AS pagos,
           SUM(CASE WHEN status = 'cancelado' THEN 1 ELSE 0 END) AS cancelados
          FROM pedidos WHERE criado_em BETWEEN ? AND ?`, [ontemI, ontemF]);
 
-      // Em aberto agora (não-terminais)
+      // Em aberto agora (nÃ£o-terminais)
       const [[abertos]] = await pool.query(
         `SELECT COUNT(*) AS total, SUM(CASE WHEN status='pendente' THEN 1 ELSE 0 END) AS pendentes,
           SUM(CASE WHEN status='pago' OR status='preparando' THEN 1 ELSE 0 END) AS em_preparo,
@@ -1451,17 +1451,17 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
           SUM(CASE WHEN status='pronto_para_retirada' THEN 1 ELSE 0 END) AS aguardando_retirada
          FROM pedidos WHERE status NOT IN ('entregue','retirado','cancelado')`);
 
-      // Atrasados (>45min sem conclusão)
+      // Atrasados (>45min sem conclusÃ£o)
       let atrasados = 0;
       try {
         const [[atr]] = await pool.query(
           `SELECT COUNT(*) AS total FROM pedidos WHERE status NOT IN ('entregue','retirado','cancelado','pendente')
            AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), NOW()) > 45`);
         atrasados = Number(atr?.total || 0);
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
 
       // SLA hoje
-      let sla = { dentro: 0, total_concl: 0, pct: null };
+      const sla = { dentro: 0, total_concl: 0, pct: null };
       try {
         const [[s]] = await pool.query(
           `SELECT SUM(CASE WHEN entregue_em IS NOT NULL AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), entregue_em) <= 45 THEN 1
@@ -1471,9 +1471,9 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         sla.dentro = Number(s?.dentro || 0);
         sla.total_concl = Number(s?.total_concl || 0);
         sla.pct = sla.total_concl > 0 ? Math.round((sla.dentro / sla.total_concl) * 10000) / 100 : null;
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
 
-      // Últimos 30 min — mini feed
+      // Ãšltimos 30 min â€” mini feed
       const ultimos30min = new Date(agora.getTime() - 30 * 60000);
       const [recentes] = await pool.query(
         `SELECT p.id, p.status, p.total, p.forma_pagamento, p.tipo_entrega, p.criado_em, p.atualizado_em,
@@ -1481,12 +1481,12 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
          WHERE p.atualizado_em >= ? OR p.criado_em >= ? ORDER BY GREATEST(p.atualizado_em, p.criado_em) DESC LIMIT 20`,
         [ultimos30min, ultimos30min]);
 
-      // Hora corrente — volume por hora
+      // Hora corrente â€” volume por hora
       const [porHora] = await pool.query(
         `SELECT HOUR(criado_em) AS hora, COUNT(*) AS qtd, COALESCE(SUM(CASE WHEN status!='cancelado' THEN total ELSE 0 END),0) AS valor
          FROM pedidos WHERE criado_em BETWEEN ? AND ? GROUP BY HOUR(criado_em) ORDER BY hora`, [hojeI, hojeF]);
 
-      // Calcular variações
+      // Calcular variaÃ§Ãµes
       const varFat = kpiOntem.faturamento > 0 ? ((Number(kpiHoje.faturamento) - Number(kpiOntem.faturamento)) / Number(kpiOntem.faturamento) * 100) : null;
       const varPed = kpiOntem.pedidos > 0 ? ((Number(kpiHoje.pedidos) - Number(kpiOntem.pedidos)) / Number(kpiOntem.pedidos) * 100) : null;
 
@@ -1519,7 +1519,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       const limite = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
       const eventos = [];
 
-      // Pedidos recentes (últimas 2h)
+      // Pedidos recentes (Ãºltimas 2h)
       const desde = new Date(Date.now() - 2 * 3600000);
       const [pedRecentes] = await pool.query(
         `SELECT p.id, p.status, p.total, p.forma_pagamento, p.criado_em, p.atualizado_em, u.nome AS cliente
@@ -1529,18 +1529,18 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
       for (const p of pedRecentes) {
         const ts = new Date(Math.max(new Date(p.criado_em).getTime(), new Date(p.atualizado_em || p.criado_em).getTime()));
-        let tipo = 'pedido_criado', icone = '🛒', cor = '#3b82f6';
-        if (p.status === 'cancelado') { tipo = 'pedido_cancelado'; icone = '❌'; cor = '#ef4444'; }
-        else if (p.status === 'entregue' || p.status === 'retirado') { tipo = 'pedido_concluido'; icone = '✅'; cor = '#22c55e'; }
-        else if (p.status === 'enviado') { tipo = 'pedido_em_rota'; icone = '🚗'; cor = '#06b6d4'; }
-        else if (p.status === 'preparando') { tipo = 'pedido_preparo'; icone = '👨‍🍳'; cor = '#f59e0b'; }
-        else if (p.status === 'pago') { tipo = 'pagamento_aprovado'; icone = '💰'; cor = '#22c55e'; }
-        else if (p.status === 'pronto_para_retirada') { tipo = 'pedido_pronto'; icone = '📦'; cor = '#8b5cf6'; }
+        let tipo = 'pedido_criado', icone = 'ðŸ›’', cor = '#3b82f6';
+        if (p.status === 'cancelado') { tipo = 'pedido_cancelado'; icone = 'âŒ'; cor = '#ef4444'; }
+        else if (p.status === 'entregue' || p.status === 'retirado') { tipo = 'pedido_concluido'; icone = 'âœ…'; cor = '#22c55e'; }
+        else if (p.status === 'enviado') { tipo = 'pedido_em_rota'; icone = 'ðŸš—'; cor = '#06b6d4'; }
+        else if (p.status === 'preparando') { tipo = 'pedido_preparo'; icone = 'ðŸ‘¨â€ðŸ³'; cor = '#f59e0b'; }
+        else if (p.status === 'pago') { tipo = 'pagamento_aprovado'; icone = 'ðŸ’°'; cor = '#22c55e'; }
+        else if (p.status === 'pronto_para_retirada') { tipo = 'pedido_pronto'; icone = 'ðŸ“¦'; cor = '#8b5cf6'; }
 
         eventos.push({
           tipo, icone, cor, ts: ts.toISOString(),
-          titulo: tipo === 'pedido_criado' ? `Novo pedido #${p.id}` : `Pedido #${p.id} → ${p.status}`,
-          detalhe: `${p.cliente || 'Cliente'} • R$ ${Number(p.total).toFixed(2)} • ${p.forma_pagamento || ''}`,
+          titulo: tipo === 'pedido_criado' ? `Novo pedido #${p.id}` : `Pedido #${p.id} â†’ ${p.status}`,
+          detalhe: `${p.cliente || 'Cliente'} â€¢ R$ ${Number(p.total).toFixed(2)} â€¢ ${p.forma_pagamento || ''}`,
           entidade: 'pedido', entidade_id: p.id
         });
       }
@@ -1551,14 +1551,14 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
           `SELECT * FROM admin_audit_log WHERE criado_em >= ? ORDER BY criado_em DESC LIMIT 10`, [desde]);
         for (const a of auditRecente) {
           let det = a.detalhes;
-          if (typeof det === 'string') try { det = JSON.parse(det); } catch (_) {}
+          if (typeof det === 'string') try { det = JSON.parse(det); } catch (_) { /* noop: compatibilidade com schema legado */ }
           eventos.push({
-            tipo: 'admin_acao', icone: '⚙️', cor: '#64748b', ts: new Date(a.criado_em).toISOString(),
+            tipo: 'admin_acao', icone: 'âš™ï¸', cor: '#64748b', ts: new Date(a.criado_em).toISOString(),
             titulo: `Admin: ${a.acao}`, detalhe: a.entidade ? `${a.entidade} #${a.entidade_id || ''}` : '',
             entidade: a.entidade, entidade_id: a.entidade_id
           });
         }
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
 
       // Ordenar por timestamp desc
       eventos.sort((a, b) => new Date(b.ts) - new Date(a.ts));
@@ -1584,14 +1584,14 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         const [[r]] = await pool.query(
           `SELECT COUNT(*) AS total FROM pedidos WHERE status NOT IN ('entregue','retirado','cancelado','pendente')
            AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), NOW()) > 45`);
-        if (r.total > 0) alertas.push({ id: 'sla_fora', severidade: 'critico', tipo: 'operacional', titulo: 'Pedidos fora do SLA', descricao: `${r.total} pedido(s) acima de 45min sem conclusão`, valor: r.total, cta: { tab: 'operacao' } });
-      } catch (_) {}
+        if (r.total > 0) alertas.push({ id: 'sla_fora', severidade: 'critico', tipo: 'operacional', titulo: 'Pedidos fora do SLA', descricao: `${r.total} pedido(s) acima de 45min sem conclusÃ£o`, valor: r.total, cta: { tab: 'operacao' } });
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
 
-      // Pedidos travados (>60min sem mudança)
+      // Pedidos travados (>60min sem mudanÃ§a)
       const [[trav]] = await pool.query(
         `SELECT COUNT(*) AS total FROM pedidos WHERE status NOT IN ('entregue','retirado','cancelado')
          AND TIMESTAMPDIFF(MINUTE, atualizado_em, NOW()) > 60`);
-      if (trav.total > 0) alertas.push({ id: 'travados', severidade: 'critico', tipo: 'operacional', titulo: 'Pedidos travados', descricao: `${trav.total} pedido(s) sem atualização há +60min`, valor: trav.total, cta: { tab: 'operacao' } });
+      if (trav.total > 0) alertas.push({ id: 'travados', severidade: 'critico', tipo: 'operacional', titulo: 'Pedidos travados', descricao: `${trav.total} pedido(s) sem atualizaÃ§Ã£o hÃ¡ +60min`, valor: trav.total, cta: { tab: 'operacao' } });
 
       // Cancelamentos acima do normal (>15% hoje)
       const [[canc]] = await pool.query(
@@ -1600,29 +1600,29 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       const taxaCanc = canc.total > 3 ? (Number(canc.cancelados) / Number(canc.total) * 100) : 0;
       if (taxaCanc > 15) alertas.push({ id: 'cancelamentos_alto', severidade: 'atencao', tipo: 'financeiro', titulo: 'Cancelamentos acima do normal', descricao: `${taxaCanc.toFixed(1)}% de cancelamento hoje (${canc.cancelados}/${canc.total})`, valor: taxaCanc, cta: { tab: 'fin-avancado' } });
 
-      // Pagamentos pendentes há +30min
+      // Pagamentos pendentes hÃ¡ +30min
       const [[pend]] = await pool.query(
         `SELECT COUNT(*) AS total FROM pedidos WHERE status='pendente' AND TIMESTAMPDIFF(MINUTE, criado_em, NOW()) > 30`);
-      if (pend.total > 0) alertas.push({ id: 'pag_pendente_longo', severidade: 'atencao', tipo: 'financeiro', titulo: 'Pagamentos pendentes prolongados', descricao: `${pend.total} pagamento(s) pendentes há +30min`, valor: pend.total, cta: { tab: 'fin-avancado' } });
+      if (pend.total > 0) alertas.push({ id: 'pag_pendente_longo', severidade: 'atencao', tipo: 'financeiro', titulo: 'Pagamentos pendentes prolongados', descricao: `${pend.total} pagamento(s) pendentes hÃ¡ +30min`, valor: pend.total, cta: { tab: 'fin-avancado' } });
 
-      // Produtos sem preço ou inativos com vendas
+      // Produtos sem preÃ§o ou inativos com vendas
       try {
         const [[semPreco]] = await pool.query(`SELECT COUNT(*) AS total FROM produtos WHERE (preco IS NULL OR preco<=0) AND ativo=1`);
-        if (semPreco.total > 0) alertas.push({ id: 'produto_sem_preco', severidade: 'atencao', tipo: 'catalogo', titulo: 'Produtos sem preço', descricao: `${semPreco.total} item(ns) ativo(s) sem preço definido`, valor: semPreco.total, cta: { tab: 'catalogo' } });
-      } catch (_) {}
+        if (semPreco.total > 0) alertas.push({ id: 'produto_sem_preco', severidade: 'atencao', tipo: 'catalogo', titulo: 'Produtos sem preÃ§o', descricao: `${semPreco.total} item(ns) ativo(s) sem preÃ§o definido`, valor: semPreco.total, cta: { tab: 'catalogo' } });
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
 
       // Produtos sem imagem
       try {
         const [[semImg]] = await pool.query(`SELECT COUNT(*) AS total FROM produtos WHERE (imagem_url IS NULL OR imagem_url='') AND ativo=1`);
         if (semImg.total > 0 && semImg.total > 5) alertas.push({ id: 'produto_sem_imagem', severidade: 'info', tipo: 'catalogo', titulo: 'Produtos sem imagem', descricao: `${semImg.total} produto(s) ativo(s) sem imagem`, valor: semImg.total, cta: { tab: 'catalogo' } });
-      } catch (_) {}
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
 
-      // Fila parada — pagos sem preparo há +15min
+      // Fila parada â€” pagos sem preparo hÃ¡ +15min
       try {
         const [[fila]] = await pool.query(
           `SELECT COUNT(*) AS total FROM pedidos WHERE status='pago' AND TIMESTAMPDIFF(MINUTE, COALESCE(pago_em, criado_em), NOW()) > 15`);
-        if (fila.total > 0) alertas.push({ id: 'fila_parada', severidade: 'critico', tipo: 'operacional', titulo: 'Fila parada — preparo atrasado', descricao: `${fila.total} pedido(s) pago(s) aguardando preparo há +15min`, valor: fila.total, cta: { tab: 'operacao' } });
-      } catch (_) {}
+        if (fila.total > 0) alertas.push({ id: 'fila_parada', severidade: 'critico', tipo: 'operacional', titulo: 'Fila parada â€” preparo atrasado', descricao: `${fila.total} pedido(s) pago(s) aguardando preparo hÃ¡ +15min`, valor: fila.total, cta: { tab: 'operacao' } });
+      } catch (_) { /* noop: compatibilidade com schema legado */ }
 
       alertas.sort((a, b) => { const sev = { critico: 0, atencao: 1, info: 2 }; return (sev[a.severidade] || 9) - (sev[b.severidade] || 9); });
 
@@ -1634,7 +1634,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
   });
 
   // ============================================
-  // Saúde do catálogo
+  // SaÃºde do catÃ¡logo
   // ============================================
   router.get('/api/admin/catalogo/saude', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
@@ -1642,15 +1642,15 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         `SELECT COUNT(*) AS total, SUM(CASE WHEN ativo=1 THEN 1 ELSE 0 END) AS ativos, SUM(CASE WHEN ativo=0 THEN 1 ELSE 0 END) AS inativos FROM produtos`);
 
       let semImagem = 0, semPreco = 0, semDescricao = 0;
-      try { const [[r]] = await pool.query(`SELECT COUNT(*) AS t FROM produtos WHERE (imagem_url IS NULL OR imagem_url='') AND ativo=1`); semImagem = Number(r.t); } catch (_) {}
-      try { const [[r]] = await pool.query(`SELECT COUNT(*) AS t FROM produtos WHERE (preco IS NULL OR preco<=0) AND ativo=1`); semPreco = Number(r.t); } catch (_) {}
-      try { const [[r]] = await pool.query(`SELECT COUNT(*) AS t FROM produtos WHERE (descricao IS NULL OR descricao='') AND ativo=1`); semDescricao = Number(r.t); } catch (_) {}
+      try { const [[r]] = await pool.query(`SELECT COUNT(*) AS t FROM produtos WHERE (imagem_url IS NULL OR imagem_url='') AND ativo=1`); semImagem = Number(r.t); } catch (_) { /* noop: compatibilidade com schema legado */ }
+      try { const [[r]] = await pool.query(`SELECT COUNT(*) AS t FROM produtos WHERE (preco IS NULL OR preco<=0) AND ativo=1`); semPreco = Number(r.t); } catch (_) { /* noop: compatibilidade com schema legado */ }
+      try { const [[r]] = await pool.query(`SELECT COUNT(*) AS t FROM produtos WHERE (descricao IS NULL OR descricao='') AND ativo=1`); semDescricao = Number(r.t); } catch (_) { /* noop: compatibilidade com schema legado */ }
 
       const ativos = Number(totais.ativos || 0);
       const coberturaImagem = ativos > 0 ? Math.round((ativos - semImagem) / ativos * 100) : 100;
       const coberturaDescricao = ativos > 0 ? Math.round((ativos - semDescricao) / ativos * 100) : 100;
 
-      // Top vendidos nos últimos 30 dias
+      // Top vendidos nos Ãºltimos 30 dias
       const [topVendidos] = await pool.query(
         `SELECT pi.produto_id AS id, pi.nome_produto AS nome, COUNT(DISTINCT pi.pedido_id) AS pedidos, SUM(pi.quantidade) AS quantidade,
           SUM(pi.subtotal) AS receita, p2.imagem_url, p2.ativo
@@ -1658,13 +1658,13 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
          WHERE ped.criado_em >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND ped.status NOT IN ('cancelado')
          GROUP BY pi.produto_id ORDER BY receita DESC LIMIT 10`);
 
-      // Produtos sem saída (ativos mas sem vendas em 30 dias)
+      // Produtos sem saÃ­da (ativos mas sem vendas em 30 dias)
       const [semSaida] = await pool.query(
         `SELECT p.id, p.nome, p.preco, p.categoria FROM produtos p
          WHERE p.ativo=1 AND p.id NOT IN (SELECT DISTINCT pi.produto_id FROM pedido_itens pi JOIN pedidos ped ON pi.pedido_id=ped.id WHERE ped.criado_em >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND ped.status NOT IN ('cancelado'))
          LIMIT 20`);
 
-      // Campeões com cadastro fraco (top vendidos sem imagem ou sem descrição)
+      // CampeÃµes com cadastro fraco (top vendidos sem imagem ou sem descriÃ§Ã£o)
       const campeoesFrageis = topVendidos.filter(t => !t.imagem_url || t.imagem_url === '').map(t => ({ id: t.id, nome: t.nome, receita: Number(t.receita), problema: 'sem_imagem' }));
 
       res.json({
@@ -1677,19 +1677,19 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         score: Math.round((coberturaImagem * 0.4 + coberturaDescricao * 0.3 + (semPreco === 0 ? 30 : Math.max(0, 30 - semPreco * 3))) )
       });
     } catch (erro) {
-      logger.error('Erro saúde catálogo:', erro);
-      res.status(500).json({ erro: 'Falha ao verificar saúde do catálogo.' });
+      logger.error('Erro saÃºde catÃ¡logo:', erro);
+      res.status(500).json({ erro: 'Falha ao verificar saÃºde do catÃ¡logo.' });
     }
   });
 
   // ============================================
-  // Espelho/nota do pedido para impressão térmica
+  // Espelho/nota do pedido para impressÃ£o tÃ©rmica
   // ============================================
   router.get('/api/admin/pedidos/:id/espelho', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
       const pedidoId = parsePositiveInt(req.params.id);
       if (!pedidoId) {
-        return res.status(400).json({ erro: 'ID do pedido inválido.' });
+        return res.status(400).json({ erro: 'ID do pedido invÃ¡lido.' });
       }
 
       const [[pedido]] = await pool.query(
@@ -1701,7 +1701,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
       );
 
       if (!pedido) {
-        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+        return res.status(404).json({ erro: 'Pedido nÃ£o encontrado.' });
       }
 
       const [itens] = await pool.query(
@@ -1742,3 +1742,4 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
 
   return router;
 };
+

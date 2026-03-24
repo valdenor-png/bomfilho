@@ -968,7 +968,7 @@ async function enriquecerProdutoPorId(pool, barcodeLookupService, produtoId, opt
   });
 
   let status = 'nao_encontrado';
-  let provider = lookup?.provider || null;
+  const provider = lookup?.provider || null;
   let mensagem = lookup?.message || null;
   let atualizado = false;
   let statusOperacional = 'nao_encontrado';

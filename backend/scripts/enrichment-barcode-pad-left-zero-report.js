@@ -465,7 +465,7 @@ async function loadTargetRows(pool, { limit = 0 } = {}) {
     vendasColumn ? numberColumnExpr(columnSet, vendasColumn, 'vendas', 0) : '0 AS vendas'
   ];
 
-  let sql = `
+  const sql = `
     SELECT
       ${selectFields.join(',\n      ')}
     FROM produtos

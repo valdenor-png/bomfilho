@@ -497,10 +497,6 @@ async function fetchCollisionInfo(pool, candidateBarcode, productId) {
   };
 }
 
-function pickReason(resultType, reason, fallback = '') {
-  return toText(reason, '') || (resultType === 'revalidation_failed' ? 'revalidation_failed' : fallback);
-}
-
 function evaluateRevalidation(record, currentProduct, collisionInfo) {
   const targetErrorNormalized = normalizeMessage(TARGET_ERROR_MESSAGE);
 

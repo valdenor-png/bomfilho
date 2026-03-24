@@ -1,5 +1,4 @@
-﻿const path = require('path');
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
@@ -7,8 +6,6 @@ const helmet = require('helmet');
 const compression = require('compression');
 const timeout = require('connect-timeout');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const fetch = global.fetch || require('node-fetch');
 const crypto = require('crypto');
@@ -22,49 +19,18 @@ const {
   toLowerTrim,
   parsePositiveInt,
   toMoney,
-  parseBooleanInput,
-  parseJsonObjectInput,
-  parseOverwriteImageModeInput,
   escapeLike,
   montarPaginacao,
   compararTextoSegura
 } = require('./lib/helpers');
 const {
-  EXTENSOES_IMPORTACAO_ACEITAS,
   MENSAGEM_FORMATO_ARQUIVO_IMPORTACAO_INVALIDO,
   validarArquivoImportacao,
-  construirModeloImportacaoProdutosCsv,
-  importarProdutosPlanilha,
-  listarImportacoesProdutos
 } = require('./services/produtosImportacao');
 const { createDefaultBarcodeLookupService } = require('./services/barcode/BarcodeLookupService');
 const {
-  ensureAdminCatalogSchema,
-  getAdminProdutosDashboard,
-  listarProdutosAdmin,
-  atualizarProdutoAdmin,
-  enriquecerProdutoPorId,
-  reprocessarFalhasEnriquecimento,
-  enriquecerProdutosSemImagem,
-  enriquecerProdutosImportacaoRecente,
-  obterMetricasEnriquecimento,
-  dispararEnriquecimentoPendentesJob,
-  obterJobEnriquecimentoPorId,
-  listarEnrichmentLogs,
-  registrarProductImportLog,
-  listarImportLogs,
-  exportarProdutosParaExcel
+  ensureAdminCatalogSchema
 } = require('./services/admin/catalogoAdminService');
-const {
-  FORMAS_PAGAMENTO_PEDIDO_VALIDAS,
-  buscarPedidoDoUsuarioPorId,
-  extrairTaxIdDigits,
-  itensPedidoSaoValidos,
-  normalizarEntregaPedidoInput,
-  normalizarFormaPagamentoPedido,
-  normalizarTipoEntregaPedidoInput,
-  normalizarItensPedidoInput
-} = require('./services/pedidoPagamentoHelpers');
 
 const app = express();
 
@@ -74,20 +40,18 @@ let requestCounter = 0;
 // CONFIGURAÇÃO CENTRALIZADA (lib/config.js)
 // ============================================
 const {
-  NODE_ENV, IS_PRODUCTION, PORT, SERVICE_NAME, API_VERSION,
+  IS_PRODUCTION, PORT,
   FRONTEND_DIST_PATH, REACT_DIST_INDEX, FRONTEND_APP_URL, SHOULD_SERVE_REACT,
-  DATABASE_URL, DB_DIALECT, TRUST_PROXY, BASE_URL_ENV,
+  DB_DIALECT, TRUST_PROXY, BASE_URL_ENV,
   TAMANHO_MAXIMO_IMPORTACAO_BYTES,
   EVOLUTION_API_URL, EVOLUTION_API_KEY, EVOLUTION_INSTANCE, EVOLUTION_WEBHOOK_TOKEN,
-  WHATSAPP_AUTO_REPLY_ENABLED, WHATSAPP_AUTO_REPLY_TEXT, WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS,
   RECAPTCHA_SECRET_KEY, RECAPTCHA_MIN_SCORE,
-  RECAPTCHA_CHECKOUT_PROTECTION_ENABLED, RECAPTCHA_PAYMENT_PROTECTION_ENABLED, RECAPTCHA_AUTH_PROTECTION_ENABLED,
+  RECAPTCHA_AUTH_PROTECTION_ENABLED,
   JWT_SECRET, DIAGNOSTIC_TOKEN, ALLOW_REMOTE_DIAGNOSTIC,
   METRICS_ENABLED, METRICS_TOKEN,
-  ADMIN_USER, ADMIN_PASSWORD_HASH, ADMIN_PASSWORD, ADMIN_LOCAL_ONLY,
   CORS_ORIGINS, CORS_ORIGIN_PATTERNS,
   USER_AUTH_COOKIE_NAME, ADMIN_AUTH_COOKIE_NAME, CSRF_COOKIE_NAME,
-  USER_AUTH_COOKIE_MAX_AGE, ADMIN_AUTH_COOKIE_MAX_AGE, CSRF_COOKIE_MAX_AGE,
+  CSRF_COOKIE_MAX_AGE,
   COOKIE_SECURE, COOKIE_DOMAIN, COOKIE_SAME_SITE,
   PRECO_COMBUSTIVEL_LITRO, CEP_MERCADO, NUMERO_MERCADO, LIMITE_BIKE_KM,
   CEP_GEO_TTL_MS, PRODUTOS_QUERY_CACHE_TTL_MS, READ_QUERY_CACHE_TTL_MS,
@@ -231,7 +195,7 @@ function calcularFreteEntregaDetalhado(veiculoKey, distanciaKm) {
   };
 }
 
-function calcularFreteEntrega(veiculoKey, distanciaKm) {
+function _calcularFreteEntrega(veiculoKey, distanciaKm) {
   return calcularFreteEntregaDetalhado(veiculoKey, distanciaKm).frete;
 }
 
@@ -992,7 +956,7 @@ function extrairTokenDiagnostico(req) {
   return String(headerToken || bearerToken || '').trim();
 }
 
-function protegerDiagnostico(req, res, next) {
+function _protegerDiagnostico(req, res, next) {
   const ip = normalizarIp(req.ip || req.socket?.remoteAddress);
   const acessoLocal = ip === '127.0.0.1' || ip === '::1';
 
@@ -1730,8 +1694,7 @@ const {
   autenticarToken,
   autenticarAdminToken,
   exigirAcessoLocalAdmin,
-  extrairIpRequisicao,
-  isIpLocal
+  extrairIpRequisicao
 } = require('./middleware/auth')({
   normalizarIp,
   extrairTokenUsuarioRequest,
@@ -1784,7 +1747,7 @@ function inferirEmojiPorCategoria(categoria) {
   return '📦';
 }
 
-async function buscarProdutoOpenFoodFacts(codigo) {
+async function _buscarProdutoOpenFoodFacts(codigo) {
   const resposta = await fetch(`https://world.openfoodfacts.org/api/v2/product/${codigo}.json`);
   if (!resposta.ok) {
     return null;
@@ -1820,7 +1783,7 @@ async function buscarProdutoOpenFoodFacts(codigo) {
   };
 }
 
-async function buscarProdutoUpcItemDb(codigo) {
+async function _buscarProdutoUpcItemDb(codigo) {
   const resposta = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`);
   if (!resposta.ok) {
     return null;
@@ -1883,7 +1846,7 @@ app.use(require('./routes/produtos')({
 // ============================================
 // ROTAS OFERTAS DO DIA (routes/ofertas-dia.js)
 // ============================================
-app.use(require('./routes/ofertas-dia')({ autenticarAdminToken }));
+app.use(require('./routes/ofertas-dia')({ autenticarAdminToken, exigirAcessoLocalAdmin }));
 
 
 // ============================================
@@ -2145,7 +2108,9 @@ function gracefulShutdown(reason, err) {
     server.close(() => {
       logger.info('✅ Servidor HTTP encerrado.');
     });
-  } catch (_) {}
+  } catch (_) {
+    // Ignora erro de close em shutdown para manter encerramento resiliente.
+  }
 
   // Aguardar requests em andamento e fechar pool
   const forceExitTimeout = setTimeout(() => {

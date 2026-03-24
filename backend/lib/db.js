@@ -54,7 +54,7 @@ logger.info('PostgreSQL config', {
 // ============================================
 // SQL COMPAT LAYER
 // ============================================
-function toPgPlaceholders(sql, params = []) {
+function toPgPlaceholders(sql) {
   if (!sql || !sql.includes('?')) return sql;
 
   let idx = 0;
