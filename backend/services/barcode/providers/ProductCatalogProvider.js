@@ -114,7 +114,7 @@ class ProductCatalogProvider {
   }
 
   async fetchWithTimeout(url, options = {}) {
-    const fetchImpl = global.fetch || require('node-fetch');
+    const fetchImpl = global.fetch;
     if (typeof AbortController === 'undefined') {
       return fetchImpl(url, options);
     }
