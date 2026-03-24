@@ -27,7 +27,7 @@ jobs:
       - run: npm ci
 
       - name: Lint backend (bloqueante)
-          run: npx eslint . --max-warnings 0
+        run: npx eslint . --max-warnings 0
 
       - name: Verificar bootstrap backend (dry load)
         run: node -e "require('./server.js')"
