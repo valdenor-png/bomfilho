@@ -73,7 +73,7 @@
   "devDependencies": {
     "eslint": "^8.56.0",
     "jest": "^30.3.0",
-    "nodemon": "^3.0.2",
+    "nodemon": "^3.1.14",
     "prettier": "^3.2.0",
     "supertest": "^7.2.2"
   }
