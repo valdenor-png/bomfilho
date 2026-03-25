@@ -9,7 +9,7 @@ import useDocumentHead from '../hooks/useDocumentHead';
 import useDebouncedValue from '../hooks/useDebouncedValue';
 import usePreloadImage from '../hooks/usePreloadImage';
 import SmartImage from '../components/ui/SmartImage';
-import { getCategoriasAtivas, getOfertasDia } from '../lib/api';
+import { getCategoriasAtivas, getCategoriasNavegacao, getOfertasDia } from '../lib/api';
 import {
   buildProductEventPayload,
   captureCommerceEvent
@@ -315,6 +315,8 @@ export default function ProdutosPage() {
   const [growthVersion, setGrowthVersion] = useState(0);
   const [ofertasDia, setOfertasDia] = useState([]);
   const [categoriasCatalogo, setCategoriasCatalogo] = useState([]);
+  const [categoriasEstruturadas, setCategoriasEstruturadas] = useState([]);
+  const [subcategoriaEstruturadaAtiva, setSubcategoriaEstruturadaAtiva] = useState('todas');
   const [totaisCategoriasVitrine, setTotaisCategoriasVitrine] = useState({});
   const [secoesCategoriaExpandidas, setSecoesCategoriaExpandidas] = useState({});
   const requisicaoProdutosIdRef = useRef(0);
@@ -337,6 +339,39 @@ export default function ProdutosPage() {
   const buscaEmAtualizacao = normalizeText(termoBuscaDigitado) !== normalizeText(termoBuscaEfetivo);
   const categoriaEhBebidas = useMemo(() => isBebidasCategoria(categoria), [categoria]);
   const categoriaEhFrios = useMemo(() => isFriosCategoria(categoria), [categoria]);
+  const categoriasEstruturadasLookup = useMemo(() => {
+    const lookup = new Map();
+
+    categoriasEstruturadas.forEach((item) => {
+      const slug = String(item?.slug || '').trim().toLowerCase();
+      const nome = normalizeText(item?.nome);
+      if (slug) {
+        lookup.set(slug, item);
+      }
+
+      if (nome) {
+        lookup.set(nome, item);
+      }
+    });
+
+    return lookup;
+  }, [categoriasEstruturadas]);
+
+  const categoriaEstruturadaAtiva = useMemo(() => {
+    const chaveCategoria = String(categoria || '').trim().toLowerCase();
+    if (!chaveCategoria || chaveCategoria === CATEGORIA_TODAS || chaveCategoria === CATEGORIA_PROMOCOES) {
+      return null;
+    }
+
+    return categoriasEstruturadasLookup.get(chaveCategoria) || null;
+  }, [categoria, categoriasEstruturadasLookup]);
+
+  const categoriaEstruturadaSlugAtiva = String(categoriaEstruturadaAtiva?.slug || '').trim().toLowerCase();
+  const subcategoriaEstruturadaSlugAtiva = categoriaEstruturadaSlugAtiva
+    ? String(subcategoriaEstruturadaAtiva || 'todas').trim().toLowerCase()
+    : 'todas';
+  const usarTaxonomiaEstruturadaNaCategoria = Boolean(categoriaEstruturadaSlugAtiva);
+
   const exibirVisaoCategoriaDetalhe = categoria !== CATEGORIA_TODAS
     && categoria !== CATEGORIA_PROMOCOES
     && !normalizeText(termoBuscaEfetivo);
@@ -389,11 +424,13 @@ export default function ProdutosPage() {
   const assinaturaConsultaAtual = useMemo(
     () => JSON.stringify(buildProdutosQueryKey({
       categoria,
+      categoriaSlug: categoriaEstruturadaSlugAtiva,
+      subcategoriaSlug: subcategoriaEstruturadaSlugAtiva,
       busca: buscaDebounced,
       page: 1,
       limit: PRODUTOS_POR_PAGINA
     })),
-    [buscaDebounced, categoria]
+    [buscaDebounced, categoria, categoriaEstruturadaSlugAtiva, subcategoriaEstruturadaSlugAtiva]
   );
 
   useEffect(() => {
@@ -405,6 +442,7 @@ export default function ProdutosPage() {
     setCategoria(categoriaParam);
     setCategoriaNavAtiva(categoriaParam || CATEGORIA_TODAS);
     setSubcategoriaNavAtiva('todas');
+    setSubcategoriaEstruturadaAtiva('todas');
 
     const proximoFiltroRecorrencia = String(
       searchParams.get('recorrencia')
@@ -436,27 +474,58 @@ export default function ProdutosPage() {
   useEffect(() => {
     let cancelado = false;
 
-    getCategoriasAtivas()
+    getCategoriasNavegacao()
       .then((data) => {
         if (cancelado) {
           return;
         }
 
-        const categoriasBrutas = Array.isArray(data?.categorias) ? data.categorias : [];
-        const categoriasNormalizadas = Array.from(new Set(
-          categoriasBrutas
-            .map((categoriaRaw) => {
-              const categoriaAgrupada = getCategoriaAgrupada(String(categoriaRaw || '').trim().toLowerCase());
-              return resolveCategoriaPrincipalVitrine(categoriaAgrupada);
-            })
-            .filter(Boolean)
-            .filter((categoriaId) => categoriaId !== CATEGORIA_TODAS && categoriaId !== CATEGORIA_PROMOCOES)
-        ));
+        const categoriasEstruturadasNormalizadas = Array.isArray(data?.categorias)
+          ? data.categorias
+            .filter((item) => String(item?.slug || '').trim())
+            .map((item) => ({
+              ...item,
+              slug: String(item.slug || '').trim().toLowerCase(),
+              nome: String(item.nome || '').trim(),
+              subcategorias: Array.isArray(item?.subcategorias)
+                ? item.subcategorias.map((sub) => ({
+                  ...sub,
+                  slug: String(sub?.slug || '').trim().toLowerCase(),
+                  nome: String(sub?.nome || '').trim()
+                }))
+                : []
+            }))
+          : [];
 
-        setCategoriasCatalogo(categoriasNormalizadas);
+        if (categoriasEstruturadasNormalizadas.length > 0) {
+          setCategoriasEstruturadas(categoriasEstruturadasNormalizadas);
+          setCategoriasCatalogo(categoriasEstruturadasNormalizadas.map((item) => item.slug));
+          return;
+        }
+
+        return getCategoriasAtivas().then((fallbackData) => {
+          if (cancelado) {
+            return;
+          }
+
+          const categoriasBrutas = Array.isArray(fallbackData?.categorias) ? fallbackData.categorias : [];
+          const categoriasNormalizadas = Array.from(new Set(
+            categoriasBrutas
+              .map((categoriaRaw) => {
+                const categoriaAgrupada = getCategoriaAgrupada(String(categoriaRaw || '').trim().toLowerCase());
+                return resolveCategoriaPrincipalVitrine(categoriaAgrupada);
+              })
+              .filter(Boolean)
+              .filter((categoriaId) => categoriaId !== CATEGORIA_TODAS && categoriaId !== CATEGORIA_PROMOCOES)
+          ));
+
+          setCategoriasEstruturadas([]);
+          setCategoriasCatalogo(categoriasNormalizadas);
+        });
       })
       .catch(() => {
         if (!cancelado) {
+          setCategoriasEstruturadas([]);
           setCategoriasCatalogo([]);
         }
       });
@@ -545,6 +614,8 @@ export default function ProdutosPage() {
     const proximaPagina = Number(paginacao.pagina || paginaAtualAlvo || 1) + 1;
     const chaveCache = buildProdutosPageCacheKey({
       categoria: categoriaAlvo,
+      categoriaSlug: categoriaEstruturadaSlugAtiva,
+      subcategoriaSlug: subcategoriaEstruturadaSlugAtiva,
       busca: buscaAlvo,
       page: proximaPagina,
       limit: PRODUTOS_POR_PAGINA
@@ -562,6 +633,8 @@ export default function ProdutosPage() {
     try {
       const paginaPrefetch = await fetchProdutosPage({
         categoria: categoriaAlvo,
+        categoriaSlug: categoriaEstruturadaSlugAtiva,
+        subcategoriaSlug: subcategoriaEstruturadaSlugAtiva,
         busca: buscaAlvo,
         page: proximaPagina,
         limit: PRODUTOS_POR_PAGINA
@@ -573,7 +646,7 @@ export default function ProdutosPage() {
     } finally {
       prefetchEmAndamentoRef.current.delete(chaveCache);
     }
-  }, []);
+  }, [categoriaEstruturadaSlugAtiva, subcategoriaEstruturadaSlugAtiva]);
 
   const carregarProdutos = useCallback(async ({
     append = false,
@@ -595,6 +668,13 @@ export default function ProdutosPage() {
     try {
       const categoriaEfetiva = String(categoriaAlvo ?? categoria);
       const buscaEfetiva = String(buscaAlvo ?? buscaDebounced);
+      const categoriaEstruturadaAlvo = categoriasEstruturadasLookup.get(String(categoriaEfetiva || '').trim().toLowerCase())
+        || categoriasEstruturadasLookup.get(normalizeText(categoriaEfetiva))
+        || null;
+      const categoriaSlugEfetiva = String(categoriaEstruturadaAlvo?.slug || '').trim().toLowerCase();
+      const subcategoriaSlugEfetiva = categoriaSlugEfetiva
+        ? String(subcategoriaEstruturadaAtiva || 'todas').trim().toLowerCase()
+        : 'todas';
       const detalheCategoriaAtivo = categoriaEfetiva !== CATEGORIA_TODAS
         && categoriaEfetiva !== CATEGORIA_PROMOCOES
         && categoriaEfetiva === categoriaNavAtiva;
@@ -612,6 +692,8 @@ export default function ProdutosPage() {
         try {
           respostaProdutos = await fetchProdutosPage({
             categoria: categoriaEfetiva,
+            categoriaSlug: categoriaSlugEfetiva,
+            subcategoriaSlug: subcategoriaSlugEfetiva,
             busca: buscaEfetiva,
             page: pagina,
             limit: limiteEfetivo
@@ -700,7 +782,7 @@ export default function ProdutosPage() {
         setCarregando(false);
       }
     }
-  }, [buscaDebounced, categoria, categoriaNavAtiva, prefetchProximaPagina]);
+  }, [buscaDebounced, categoria, categoriaNavAtiva, categoriasEstruturadasLookup, prefetchProximaPagina, subcategoriaEstruturadaAtiva]);
 
   useEffect(() => {
     void carregarProdutos({
@@ -719,6 +801,8 @@ export default function ProdutosPage() {
     const proximaPagina = paginaAtual + 1;
     const chaveCache = buildProdutosPageCacheKey({
       categoria,
+      categoriaSlug: categoriaEstruturadaSlugAtiva,
+      subcategoriaSlug: subcategoriaEstruturadaSlugAtiva,
       busca: buscaDebounced,
       page: proximaPagina,
       limit: PRODUTOS_POR_PAGINA
@@ -766,8 +850,10 @@ export default function ProdutosPage() {
     carregando,
     carregandoMais,
     categoria,
+    categoriaEstruturadaSlugAtiva,
     paginaAtual,
     prefetchProximaPagina,
+    subcategoriaEstruturadaSlugAtiva,
     temMaisProdutos
   ]);
 
@@ -797,6 +883,7 @@ export default function ProdutosPage() {
     setCategoriaNavAtiva(categoriaAlvo);
     setSubcategoriaAtiva('todas');
     setSubcategoriaNavAtiva('todas');
+    setSubcategoriaEstruturadaAtiva('todas');
     setBebidaSubcategoria('todas');
     setFriosSubcategoria('todas');
   }, []);
@@ -812,6 +899,7 @@ export default function ProdutosPage() {
       : resolveCategoriaPrincipalVitrine(categoriaAlvoRaw);
     setCategoriaNavAtiva(categoriaAlvo);
     setSubcategoriaNavAtiva('todas');
+    setSubcategoriaEstruturadaAtiva('todas');
     setSubcategoriaAtiva('todas');
     setCategoriaExpandida(null);
     setBebidaSubcategoria('todas');
@@ -840,6 +928,7 @@ export default function ProdutosPage() {
     setFriosSubcategoria('todas');
     setSubcategoriaAtiva('todas');
     setSubcategoriaNavAtiva('todas');
+    setSubcategoriaEstruturadaAtiva('todas');
     setCategoriaExpandida(null);
     setFiltroRecorrencia('todos');
   }, []);
@@ -869,6 +958,7 @@ export default function ProdutosPage() {
     setBusca(String(termo || ''));
     setSubcategoriaAtiva('todas');
     setSubcategoriaNavAtiva('todas');
+    setSubcategoriaEstruturadaAtiva('todas');
     setCategoriaExpandida(null);
     if (categoriaSugestao !== CATEGORIA_BEBIDAS) {
       setBebidaSubcategoria('todas');
@@ -1630,6 +1720,18 @@ export default function ProdutosPage() {
   }, []);
 
   const categoriasTopoVitrine = useMemo(() => {
+    if (categoriasEstruturadas.length > 0) {
+      return [
+        { id: CATEGORIA_TODAS, label: 'Todos', icon: getCategoriaIconeTopo(CATEGORIA_TODAS) },
+        { id: CATEGORIA_PROMOCOES, label: 'Ofertas', icon: getCategoriaIconeTopo(CATEGORIA_PROMOCOES) },
+        ...categoriasEstruturadas.map((item) => ({
+          id: String(item.slug || '').trim().toLowerCase(),
+          label: String(item.nome || '').trim() || formatCategoriaLabel(item.slug),
+          icon: getCategoriaIconeTopo(item.slug)
+        }))
+      ];
+    }
+
     const lista = [
       { id: CATEGORIA_TODAS, label: 'Todos', icon: getCategoriaIconeTopo(CATEGORIA_TODAS) },
       { id: CATEGORIA_PROMOCOES, label: 'Ofertas', icon: getCategoriaIconeTopo(CATEGORIA_PROMOCOES) }
@@ -1650,7 +1752,23 @@ export default function ProdutosPage() {
     });
 
     return lista;
-  }, [categoriasVitrineIds, formatCategoriaLabel, getCategoriaIconeTopo]);
+  }, [categoriasEstruturadas, categoriasVitrineIds, formatCategoriaLabel, getCategoriaIconeTopo]);
+
+  const subcategoriasEstruturadasCategoria = useMemo(() => {
+    if (!categoriaEstruturadaAtiva) {
+      return [];
+    }
+
+    const subcategorias = Array.isArray(categoriaEstruturadaAtiva?.subcategorias)
+      ? categoriaEstruturadaAtiva.subcategorias
+      : [];
+
+    return subcategorias.map((sub) => ({
+      id: String(sub.slug || '').trim().toLowerCase(),
+      label: String(sub.nome || '').trim(),
+      count: Number(sub.total_produtos || 0)
+    }));
+  }, [categoriaEstruturadaAtiva]);
 
   const categoriaNavAtivaLabel = useMemo(() => {
     if (!categoriaNavAtiva || categoriaNavAtiva === CATEGORIA_TODAS || categoriaNavAtiva === CATEGORIA_PROMOCOES) {
@@ -1913,6 +2031,7 @@ export default function ProdutosPage() {
     setSecoesCategoriaExpandidas({});
     sectionRefsSubcategoriaMap.current = {};
     setSubcategoriaNavAtiva('todas');
+    setSubcategoriaEstruturadaAtiva('todas');
   }, [categoria]);
 
   const handleAlternarSecaoCategoria = useCallback((secaoId) => {
@@ -2875,13 +2994,13 @@ export default function ProdutosPage() {
           </div>
         ) : null}
 
-        {exibirVisaoCategoriaDetalhe && subcategoriasCategoriaDetalhe.length > 0 ? (
+        {exibirVisaoCategoriaDetalhe && (usarTaxonomiaEstruturadaNaCategoria ? subcategoriasEstruturadasCategoria.length > 0 : subcategoriasCategoriaDetalhe.length > 0) ? (
           <div className="products-subcategory-sticky-shell">
             <SubcategoryNav
               title={`Subcategorias de ${categoriaAtualLabel}`}
-              subcategories={subcategoriasCategoriaDetalhe}
-              activeSubcategoryId={subcategoriaNavAtiva}
-              onSelect={handleSelecionarSubcategoriaDetalhe}
+              subcategories={usarTaxonomiaEstruturadaNaCategoria ? subcategoriasEstruturadasCategoria : subcategoriasCategoriaDetalhe}
+              activeSubcategoryId={usarTaxonomiaEstruturadaNaCategoria ? subcategoriaEstruturadaAtiva : subcategoriaNavAtiva}
+              onSelect={usarTaxonomiaEstruturadaNaCategoria ? setSubcategoriaEstruturadaAtiva : handleSelecionarSubcategoriaDetalhe}
               onWheel={handleHorizontalWheel}
             />
           </div>
@@ -2952,6 +3071,7 @@ export default function ProdutosPage() {
                   setCategoriaNavAtiva(CATEGORIA_TODAS);
                   setSubcategoriaAtiva('todas');
                   setSubcategoriaNavAtiva('todas');
+                  setSubcategoriaEstruturadaAtiva('todas');
                 }}
               >
                 Categoria: {categoriaAtualLabel} <span aria-hidden="true">×</span>
@@ -2975,6 +3095,16 @@ export default function ProdutosPage() {
                 onClick={() => setFriosSubcategoria('todas')}
               >
                 Subcategoria: {friosSubcategoriaLabel} <span aria-hidden="true">×</span>
+              </button>
+            ) : null}
+
+            {usarTaxonomiaEstruturadaNaCategoria && subcategoriaEstruturadaAtiva !== 'todas' ? (
+              <button
+                type="button"
+                className="products-active-filter-chip"
+                onClick={() => setSubcategoriaEstruturadaAtiva('todas')}
+              >
+                Subcategoria: {subcategoriasEstruturadasCategoria.find((item) => item.id === subcategoriaEstruturadaAtiva)?.label || 'Selecionada'} <span aria-hidden="true">×</span>
               </button>
             ) : null}
 

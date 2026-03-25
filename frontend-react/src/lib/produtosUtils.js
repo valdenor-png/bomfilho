@@ -1044,11 +1044,13 @@ export function getCategoriaApi(categoria) {
   return valor;
 }
 
-export function buildProdutosQueryKey({ categoria, busca, page, limit }) {
+export function buildProdutosQueryKey({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit }) {
   return [
     'produtos',
     {
       categoria: getCategoriaApi(categoria) || CATEGORIA_TODAS,
+      categoriaSlug: normalizeText(categoriaSlug),
+      subcategoriaSlug: normalizeText(subcategoriaSlug),
       busca: normalizeText(busca),
       page: Number(page || 1),
       limit: Number(limit || PRODUTOS_POR_PAGINA)
@@ -1057,12 +1059,22 @@ export function buildProdutosQueryKey({ categoria, busca, page, limit }) {
 }
 
 // Mantem a assinatura de busca isolada para facilitar migracao para React Query.
-export async function fetchProdutosPage({ categoria, busca, page, limit }) {
+export async function fetchProdutosPage({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit }) {
   const categoriaOriginal = String(categoria || '').toLowerCase();
+  const categoriaSlugNormalizada = String(categoriaSlug || '').trim().toLowerCase();
+  const subcategoriaSlugNormalizada = String(subcategoriaSlug || '').trim().toLowerCase();
   const params = {
     page: Number(page || 1),
     limit: Number(limit || PRODUTOS_POR_PAGINA)
   };
+
+  if (categoriaSlugNormalizada) {
+    params.categoria_slug = categoriaSlugNormalizada;
+  }
+
+  if (subcategoriaSlugNormalizada && subcategoriaSlugNormalizada !== 'todas') {
+    params.subcategoria_slug = subcategoriaSlugNormalizada;
+  }
 
   const categoriaApi = getCategoriaApi(categoria);
   if (categoriaApi) {
@@ -1097,6 +1109,8 @@ export async function fetchProdutosPage({ categoria, busca, page, limit }) {
   return {
     queryKey: buildProdutosQueryKey({
       categoria,
+      categoriaSlug: categoriaSlugNormalizada,
+      subcategoriaSlug: subcategoriaSlugNormalizada,
       busca,
       page: params.page,
       limit: params.limit
@@ -1106,9 +1120,9 @@ export async function fetchProdutosPage({ categoria, busca, page, limit }) {
   };
 }
 
-export function buildProdutosPageCacheKey({ categoria, busca, page, limit }) {
+export function buildProdutosPageCacheKey({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit }) {
   return JSON.stringify(
-    buildProdutosQueryKey({ categoria, busca, page, limit })
+    buildProdutosQueryKey({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit })
   );
 }
 

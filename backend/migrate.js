@@ -30,10 +30,89 @@ const DRY_RUN = process.argv.includes('--dry-run');
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
 function splitSqlStatements(sql) {
-  return String(sql)
-    .split(/;\s*\n/g)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const source = String(sql || '');
+  const statements = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let dollarTag = null;
+
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    const next = i + 1 < source.length ? source[i + 1] : '';
+    const prev = i > 0 ? source[i - 1] : '';
+
+    if (!inSingle && !inDouble && !dollarTag && ch === '$') {
+      const tagMatch = source.slice(i).match(/^\$[A-Za-z0-9_]*\$/);
+      if (tagMatch) {
+        const tag = tagMatch[0];
+        dollarTag = tag;
+        current += tag;
+        i += tag.length - 1;
+        continue;
+      }
+    }
+
+    if (dollarTag) {
+      if (source.startsWith(dollarTag, i)) {
+        current += dollarTag;
+        i += dollarTag.length - 1;
+        dollarTag = null;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+
+    if (ch === "'" && !inDouble && prev !== '\\') {
+      inSingle = !inSingle;
+      current += ch;
+      continue;
+    }
+
+    if (ch === '"' && !inSingle && prev !== '\\') {
+      inDouble = !inDouble;
+      current += ch;
+      continue;
+    }
+
+    // Comentarios de linha
+    if (!inSingle && !inDouble && ch === '-' && next === '-') {
+      const lineEnd = source.indexOf('\n', i);
+      if (lineEnd === -1) {
+        current += source.slice(i);
+        break;
+      }
+      current += source.slice(i, lineEnd + 1);
+      i = lineEnd;
+      continue;
+    }
+
+    // Comentarios de bloco
+    if (!inSingle && !inDouble && ch === '/' && next === '*') {
+      const end = source.indexOf('*/', i + 2);
+      if (end === -1) {
+        current += source.slice(i);
+        break;
+      }
+      current += source.slice(i, end + 2);
+      i = end + 1;
+      continue;
+    }
+
+    if (ch === ';' && !inSingle && !inDouble) {
+      const statement = current.trim();
+      if (statement) statements.push(statement);
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
 }
 
 function normalizeAlterAddColumn(sql) {
@@ -50,6 +129,10 @@ function normalizeAlterAddColumn(sql) {
 
   const multiAdd = normalized.match(/^ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+ADD\s+COLUMN\s+([\s\S]+)$/i);
   if (!multiAdd) {
+    if (/ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS/i.test(normalized)) {
+      return normalized;
+    }
+
     return normalized.replace(/ADD\s+COLUMN\s+/i, 'ADD COLUMN IF NOT EXISTS ');
   }
 
@@ -61,7 +144,13 @@ function normalizeAlterAddColumn(sql) {
     .filter(Boolean);
 
   return columnDefs
-    .map((def) => `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS ${def}`)
+    .map((def) => {
+      const definition = /^(IF\s+NOT\s+EXISTS\s+)/i.test(def)
+        ? def
+        : `IF NOT EXISTS ${def}`;
+
+      return `ALTER TABLE ${tableName} ADD COLUMN ${definition}`;
+    })
     .join(';\n');
 }
 

@@ -3,8 +3,8 @@
 # ============================================
 
 # Dependências do Node.js
-node_modules/
-/package-lock.json
+
+**/node_modules/
 yarn.lock
 pnpm-lock.yaml
 

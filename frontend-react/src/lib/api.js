@@ -755,6 +755,14 @@ export function getCategoriasAtivas() {
   return request('/api/categorias');
 }
 
+export function getCategoriasNavegacao() {
+  return request('/api/categorias/navegacao');
+}
+
+export function getSubcategoriasCategoria(categoriaSlug) {
+  return request(`/api/categorias/${encodeURIComponent(String(categoriaSlug || '').trim())}/subcategorias`);
+}
+
 export function getOfertasDia() {
   return request('/api/ofertas-dia');
 }
