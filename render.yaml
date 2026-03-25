@@ -29,6 +29,8 @@ services:
         sync: false
       - key: RECAPTCHA_SECRET_KEY
         sync: false
+      - key: RECAPTCHA_AUTH_ENABLED
+        sync: false
       - key: RECAPTCHA_MIN_SCORE
         sync: false
       - key: RECAPTCHA_CHECKOUT_ENABLED
