@@ -1714,13 +1714,36 @@ async function obterColunasProdutos() {
   }
 
   if (DB_DIALECT === 'postgres') {
-    const [colunas] = await queryWithRetry(
-      `SELECT column_name
-         FROM information_schema.columns
-        WHERE table_schema = ANY(current_schemas(true))
-          AND table_name = 'produtos'`
+    try {
+      const [colunas] = await queryWithRetry(
+        `SELECT column_name
+           FROM information_schema.columns
+          WHERE table_name = 'produtos'
+            AND table_schema NOT IN ('pg_catalog', 'information_schema')`
+      );
+
+      if (Array.isArray(colunas) && colunas.length > 0) {
+        produtosColumnsCache = new Set(colunas.map((coluna) => String(coluna.column_name || '').toLowerCase()));
+        return produtosColumnsCache;
+      }
+    } catch (erroColunasInfoSchema) {
+      logger.warn('Falha ao listar colunas de produtos via information_schema. Tentando fallback pg_catalog.', {
+        code: erroColunasInfoSchema?.code,
+        message: erroColunasInfoSchema?.message
+      });
+    }
+
+    const [colunasPgCatalog] = await queryWithRetry(
+      `SELECT a.attname AS column_name
+         FROM pg_catalog.pg_attribute a
+         JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'produtos'
+          AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND a.attnum > 0
+          AND NOT a.attisdropped`
     );
-    produtosColumnsCache = new Set(colunas.map((coluna) => String(coluna.column_name || '').toLowerCase()));
+    produtosColumnsCache = new Set(colunasPgCatalog.map((coluna) => String(coluna.column_name || '').toLowerCase()));
     return produtosColumnsCache;
   }
 
