@@ -30,14 +30,14 @@ export const COR_STATUS = {
 };
 
 export const LABELS_ACAO = {
-  alterar_status_pedido: '📦 Status Pedido',
-  exportar_relatorio: '📊 Exportação',
-  login: '🔐 Login',
-  logout: '🚪 Logout',
-  cadastrar_produto: '📦 Cadastro Produto',
-  importar_produtos: '📥 Importação',
-  excluir_produto: '🗑️ Exclusão Produto',
-  atualizar_produto: '✏️ Atualizar Produto'
+  alterar_status_pedido: 'Status Pedido',
+  exportar_relatorio: 'Exportação',
+  login: 'Login',
+  logout: 'Logout',
+  cadastrar_produto: 'Cadastro Produto',
+  importar_produtos: 'Importação',
+  excluir_produto: 'Exclusão Produto',
+  atualizar_produto: 'Atualizar Produto'
 };
 
 export const LABELS_ENTIDADE = {
@@ -49,4 +49,4 @@ export const LABELS_ENTIDADE = {
   importacao: 'Importação'
 };
 
-export const LABELS_CANAL = { entrega: '🚗 Entrega', retirada: '🏪 Retirada' };
+export const LABELS_CANAL = { entrega: 'Entrega', retirada: 'Retirada' };

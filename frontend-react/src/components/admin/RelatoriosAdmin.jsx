@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { BarChart3, Download, FileSpreadsheet, Store, Truck } from 'lucide-react';
 import { adminGetRelatorioVendas, adminExportarRelatorioVendasCSV } from '../../lib/api';
 import { R$, LABELS_PAGAMENTO, LABELS_STATUS } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';
@@ -74,7 +75,7 @@ export default function RelatoriosAdmin() {
   return (
     <div className="relatorios-admin">
       <div className="rel-header">
-        <h2>📈 Relatórios</h2>
+        <h2><BarChart3 size={18} aria-hidden="true" /> Relatórios</h2>
       </div>
 
       {/* Filtros */}
@@ -117,11 +118,11 @@ export default function RelatoriosAdmin() {
         </div>
         <div className="rel-filtro-acoes">
           <button className="rel-btn-gerar" onClick={gerar} disabled={carregando}>
-            {carregando ? 'Gerando...' : '📊 Gerar Relatório'}
+            {carregando ? 'Gerando...' : <><FileSpreadsheet size={14} aria-hidden="true" /> Gerar Relatório</>}
           </button>
           {resultados && (
             <button className="rel-btn-exportar" onClick={exportarCSV} disabled={exportando}>
-              {exportando ? 'Exportando...' : '📥 Exportar CSV'}
+              {exportando ? 'Exportando...' : <><Download size={14} aria-hidden="true" /> Exportar CSV</>}
             </button>
           )}
         </div>
@@ -200,7 +201,7 @@ export default function RelatoriosAdmin() {
                     <td>{p.cliente_nome || '—'}</td>
                     <td><span className={`rel-status is-${p.status}`}>{LABELS_STATUS[p.status] || p.status}</span></td>
                     <td>{LABELS_PAGAMENTO[p.forma_pagamento] || p.forma_pagamento}</td>
-                    <td>{p.tipo_entrega === 'retirada' ? '🏪' : '🚗'}</td>
+                    <td>{p.tipo_entrega === 'retirada' ? <Store size={14} aria-hidden="true" /> : <Truck size={14} aria-hidden="true" />}</td>
                     <td className="rel-valor">{R$(p.total)}</td>
                   </tr>
                 ))}

@@ -110,15 +110,25 @@ function criarMercadoPagoService({
     return null;
   }
 
+  function normalizarChaveIdempotenciaGateway(rawKey) {
+    const key = String(rawKey || '').trim().toLowerCase();
+    if (!key) return '';
+
+    const sane = key.replace(/[^a-z0-9:_-]/g, '');
+    if (sane.length < 8) return '';
+    return sane.slice(0, 64);
+  }
+
   // ============================================
   // HTTP Client base
   // ============================================
-  async function mpRequest(method, path, body = null) {
+  async function mpRequest(method, path, body = null, { idempotencyKey } = {}) {
     const url = `${MP_API_BASE}${path}`;
+    const idemKey = normalizarChaveIdempotenciaGateway(idempotencyKey) || crypto.randomUUID();
     const headers = {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
-      'X-Idempotency-Key': crypto.randomUUID()
+      'X-Idempotency-Key': idemKey
     };
 
     const controller = new AbortController();
@@ -148,7 +158,7 @@ function criarMercadoPagoService({
   // ============================================
   // Criar pagamento PIX
   // ============================================
-  async function criarPagamentoPix({ pedidoId, valor, descricao, email, nome, cpf }) {
+  async function criarPagamentoPix({ pedidoId, valor, descricao, email, nome, cpf, idempotencyKey }) {
     if (!accessToken) throw new Error('Mercado Pago não configurado.');
 
     const identification = normalizarTaxId(cpf);
@@ -172,8 +182,11 @@ function criarMercadoPagoService({
       external_reference: String(pedidoId)
     };
 
-    logger.info(`[MP] Criando PIX para pedido #${pedidoId}, valor R$ ${valor}`);
-    const data = await mpRequest('POST', '/v1/payments', payload);
+    logger.info(`[MP] Criando PIX para pedido #${pedidoId}, valor R$ ${valor}`, {
+      pedido_id: Number(pedidoId) || null,
+      idempotency_key_prefix: normalizarChaveIdempotenciaGateway(idempotencyKey).slice(0, 16) || null
+    });
+    const data = await mpRequest('POST', '/v1/payments', payload, { idempotencyKey });
 
     const qrCode = data.point_of_interaction?.transaction_data?.qr_code || null;
     const qrCodeBase64 = data.point_of_interaction?.transaction_data?.qr_code_base64 || null;
@@ -205,7 +218,8 @@ function criarMercadoPagoService({
     nome,
     cpf,
     paymentMethodId,
-    issuerId
+    issuerId,
+    idempotencyKey
   }) {
     if (!accessToken) throw new Error('Mercado Pago não configurado.');
 
@@ -242,7 +256,11 @@ function criarMercadoPagoService({
     }
 
     logger.info(`[MP] Criando pagamento cartão para pedido #${pedidoId}, valor R$ ${valor}, ${parcelas}x`);
-    const data = await mpRequest('POST', '/v1/payments', payload);
+    logger.info('[MP] Contexto idempotencia cartao', {
+      pedido_id: Number(pedidoId) || null,
+      idempotency_key_prefix: normalizarChaveIdempotenciaGateway(idempotencyKey).slice(0, 16) || null
+    });
+    const data = await mpRequest('POST', '/v1/payments', payload, { idempotencyKey });
 
     logger.info(`[MP] Cartão processado: payment_id=${data.id}, status=${data.status}`);
 

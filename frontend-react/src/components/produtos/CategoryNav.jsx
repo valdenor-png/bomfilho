@@ -1,4 +1,5 @@
 import React from 'react';
+import { Tag } from 'lucide-react';
 
 const CategoryNav = React.memo(function CategoryNav({
   categories = [],
@@ -15,7 +16,7 @@ const CategoryNav = React.memo(function CategoryNav({
       {categories.map((category) => {
         const id = String(category?.id || '');
         const label = String(category?.label || 'Categoria');
-        const icon = String(category?.icon || '🛍️');
+        const Icon = typeof category?.icon === 'function' ? category.icon : Tag;
         const isActive = id === activeCategoryId;
 
         return (
@@ -27,7 +28,9 @@ const CategoryNav = React.memo(function CategoryNav({
             aria-pressed={isActive}
             title={label}
           >
-            <span className="products-quick-cat-icon" aria-hidden="true">{icon}</span>
+            <span className="products-quick-cat-icon" aria-hidden="true">
+              <Icon size={16} strokeWidth={2} />
+            </span>
             <span className="products-quick-cat-label-wrap">
               <span className="products-quick-cat-label">{label}</span>
             </span>

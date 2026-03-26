@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { ArrowLeft, ArrowRight, ClipboardList, Search } from 'lucide-react';
 import { adminGetAuditoria } from '../../lib/api';
 import { LABELS_ACAO, LABELS_ENTIDADE } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';
@@ -40,7 +41,7 @@ export default function AuditoriaAdmin() {
   return (
     <div className="auditoria-admin">
       <div className="aud-header">
-        <h2>🔍 Auditoria</h2>
+        <h2><Search size={18} aria-hidden="true" /> Auditoria</h2>
         <span className="aud-total">{paginacao.total} registros</span>
       </div>
 
@@ -65,7 +66,7 @@ export default function AuditoriaAdmin() {
         <LoadingSkeleton type="table" lines={6} />
       ) : logs.length === 0 ? (
         <EmptyState
-          icon="🔍"
+          icon={<Search size={18} aria-hidden="true" />}
           title="Nenhum registro de auditoria"
           description={filtroAcao || filtroEntidade ? 'Tente ajustar os filtros.' : 'Os registros de auditoria aparecerão aqui conforme ações forem realizadas.'}
           actionLabel={aviso ? 'Tentar novamente' : null}
@@ -94,7 +95,7 @@ export default function AuditoriaAdmin() {
                   <td className="aud-id">{l.entidade_id || '—'}</td>
                   <td>{l.admin_usuario || '—'}</td>
                   <td className="aud-ip">{l.ip || '—'}</td>
-                  <td>{l.detalhes ? <button className="aud-btn-det" onClick={e => { e.stopPropagation(); setExpandidoId(expandidoId === l.id ? null : l.id); }}>📋</button> : ''}</td>
+                  <td>{l.detalhes ? <button className="aud-btn-det" onClick={e => { e.stopPropagation(); setExpandidoId(expandidoId === l.id ? null : l.id); }}><ClipboardList size={14} aria-hidden="true" /></button> : ''}</td>
                 </tr>
               ))}
             </tbody>
@@ -115,9 +116,9 @@ export default function AuditoriaAdmin() {
 
       {paginacao.total_paginas > 1 && (
         <div className="aud-paginacao">
-          <button disabled={paginaAtual <= 1} onClick={() => setPaginaAtual(p => p - 1)}>← Anterior</button>
+          <button disabled={paginaAtual <= 1} onClick={() => setPaginaAtual(p => p - 1)}><ArrowLeft size={14} aria-hidden="true" /> Anterior</button>
           <span>Página {paginaAtual} de {paginacao.total_paginas}</span>
-          <button disabled={paginaAtual >= paginacao.total_paginas} onClick={() => setPaginaAtual(p => p + 1)}>Próxima →</button>
+          <button disabled={paginaAtual >= paginacao.total_paginas} onClick={() => setPaginaAtual(p => p + 1)}>Próxima <ArrowRight size={14} aria-hidden="true" /></button>
         </div>
       )}
     </div>

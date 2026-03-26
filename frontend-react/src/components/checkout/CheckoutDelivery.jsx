@@ -1,7 +1,8 @@
-/**
- * Componentes de entrega do checkout — extraídos de PagamentoPage.
+﻿/**
+ * Componentes de entrega do checkout â€” extraÃ­dos de PagamentoPage.
  */
 import React from 'react';
+import { CircleCheck, Package, Store } from 'lucide-react';
 import SmartImage from '../ui/SmartImage';
 import { formatarMoeda, RETIRADA_LOJA_INFO } from '../../lib/checkoutUtils';
 
@@ -37,7 +38,11 @@ export function DeliveryOptionCard({
           <p className="delivery-option-description">{veiculo.descricao}</p>
         </div>
 
-        {selecionado ? <span className="delivery-option-check" aria-hidden="true">✓</span> : null}
+        {selecionado ? (
+          <span className="delivery-option-check" aria-hidden="true">
+            <CircleCheck size={16} strokeWidth={2.2} />
+          </span>
+        ) : null}
       </div>
 
       <p className="delivery-option-price">{precoLabel}</p>
@@ -62,7 +67,9 @@ export function DeliverySummaryCard({
           <p className="delivery-summary-kicker">Entrega selecionada</p>
           <h3>{veiculoLabel}</h3>
         </div>
-        <span className="delivery-summary-icon" aria-hidden="true">📦</span>
+        <span className="delivery-summary-icon" aria-hidden="true">
+          <Package size={18} strokeWidth={2} />
+        </span>
       </div>
 
       <div className="delivery-summary-grid">
@@ -71,7 +78,7 @@ export function DeliverySummaryCard({
           <strong>{cepDestino}</strong>
         </div>
         <div>
-          <span className="delivery-summary-label">Distância estimada</span>
+          <span className="delivery-summary-label">DistÃ¢ncia estimada</span>
           <strong>{distanciaTexto}</strong>
         </div>
         <div>
@@ -84,7 +91,7 @@ export function DeliverySummaryCard({
         </div>
       </div>
 
-      <p className="delivery-summary-origin">Origem: CEP {cepOrigem}, nº {numeroOrigem}</p>
+      <p className="delivery-summary-origin">Origem: CEP {cepOrigem}, nÂº {numeroOrigem}</p>
     </article>
   );
 }
@@ -134,7 +141,9 @@ export function PickupStoreCard({ economiaFrete = 0 }) {
           <p className="pickup-store-kicker">Retirada na loja</p>
           <h3>{RETIRADA_LOJA_INFO.nome}</h3>
         </div>
-        <span className="pickup-store-icon" aria-hidden="true">🏪</span>
+        <span className="pickup-store-icon" aria-hidden="true">
+          <Store size={18} strokeWidth={2} />
+        </span>
       </div>
 
       <div className="pickup-store-grid">
@@ -190,22 +199,23 @@ export function DeliveryAddressLookupCard({
       role={estadoVisual === 'error' ? 'alert' : 'status'}
       aria-live="polite"
     >
-      <p className="delivery-address-kicker">Endereço do CEP {cep}</p>
+      <p className="delivery-address-kicker">EndereÃ§o do CEP {cep}</p>
 
       {carregando ? (
-        <p className="delivery-address-line">Buscando endereço...</p>
+        <p className="delivery-address-line">Buscando endereÃ§o...</p>
       ) : erro ? (
         <p className="delivery-address-line">{erro}</p>
       ) : endereco ? (
         <>
-          <p className="delivery-address-line">{linhaPrincipal || 'Logradouro não identificado para este CEP.'}</p>
-          <p className="delivery-address-subline">{linhaSecundaria || 'Cidade/UF não identificada.'}</p>
+          <p className="delivery-address-line">{linhaPrincipal || 'Logradouro nÃ£o identificado para este CEP.'}</p>
+          <p className="delivery-address-subline">{linhaSecundaria || 'Cidade/UF nÃ£o identificada.'}</p>
         </>
       ) : cepIncompleto ? (
-        <p className="delivery-address-line">Digite os 8 dígitos do CEP para identificar o endereço.</p>
+        <p className="delivery-address-line">Digite os 8 dÃ­gitos do CEP para identificar o endereÃ§o.</p>
       ) : (
-        <p className="delivery-address-line">Informe um CEP para consultar o endereço.</p>
+        <p className="delivery-address-line">Informe um CEP para consultar o endereÃ§o.</p>
       )}
     </article>
   );
 }
+

@@ -1,4 +1,5 @@
 import React from 'react';
+import { CreditCard, MessageCircle, Store, Truck } from 'lucide-react';
 import useDocumentHead from '../hooks/useDocumentHead';
 import { STORE_NAME, STORE_CNPJ, STORE_ENDERECO, STORE_WHATSAPP_DISPLAY, STORE_TELEFONE_DISPLAY, STORE_HORARIO_CURTO } from '../config/store';
 
@@ -10,10 +11,10 @@ export default function SobrePage() {
       <p>A loja BomFilho e um supermercado de bairro com atendimento proximo e entrega agil.</p>
 
       <section className="benefits-strip" aria-label="Benefícios da loja">
-        <div className="benefit-item"><span>🏪</span> Retirada na loja</div>
-        <div className="benefit-item"><span>🚚</span> Entrega rápida</div>
-        <div className="benefit-item"><span>💳</span> Pagamento seguro</div>
-        <div className="benefit-item"><span>📲</span> Atendimento WhatsApp</div>
+        <div className="benefit-item"><Store size={16} aria-hidden="true" /> Retirada na loja</div>
+        <div className="benefit-item"><Truck size={16} aria-hidden="true" /> Entrega rápida</div>
+        <div className="benefit-item"><CreditCard size={16} aria-hidden="true" /> Pagamento seguro</div>
+        <div className="benefit-item"><MessageCircle size={16} aria-hidden="true" /> Atendimento WhatsApp</div>
       </section>
 
       <div className="card-box">

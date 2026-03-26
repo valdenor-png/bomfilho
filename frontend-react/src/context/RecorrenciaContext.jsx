@@ -45,7 +45,7 @@ function criarSnapshotProduto(produto, fallback = {}) {
     id,
     nome: normalizarTexto(produto?.nome || produto?.nome_produto || base.nome, 'Produto'),
     preco: Math.max(0, toNumber(produto?.preco ?? produto?.preco_tabela ?? base.preco, 0)),
-    emoji: normalizarTexto(produto?.emoji || base.emoji, '📦'),
+    emoji: normalizarTexto(produto?.emoji || base.emoji, ''),
     imagem: normalizarTexto(produto?.imagem || produto?.imagem_url || base.imagem, ''),
     categoria: normalizarTexto(produto?.categoria || base.categoria, ''),
     unidade: normalizarTexto(produto?.unidade || base.unidade, ''),

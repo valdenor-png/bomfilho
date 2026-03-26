@@ -1,9 +1,12 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
+﻿import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
+import { House, Package, Search, User } from 'lucide-react';
 import HomePage from './pages/HomePage';
 import { useCart } from './context/CartContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import GlobalCartBar from './components/GlobalCartBar';
+import ReviewTrackerWidget from './components/review/ReviewTrackerWidget';
+import AlcoholAgeGateModal from './components/AlcoholAgeGateModal';
 import {
   STORE_NAME,
   STORE_CNPJ,
@@ -85,14 +88,14 @@ function RouteLoadingFallback({ message = 'Carregando pagina...' }) {
 }
 
 const links = [
-  { to: '/', icon: '🏠', label: 'Início' },
-  { to: '/produtos', icon: '🔎', label: 'Produtos' },
-  { to: '/pedidos', icon: '📦', label: 'Pedidos' },
-  { to: '/conta', icon: '👤', label: 'Conta' }
+  { to: '/', Icon: House, label: 'Inicio' },
+  { to: '/produtos', Icon: Search, label: 'Produtos' },
+  { to: '/pedidos', Icon: Package, label: 'Pedidos' },
+  { to: '/conta', Icon: User, label: 'Conta' }
 ];
 
 export default function App() {
-  const { resumo } = useCart();
+  const { resumo, alcoholAgeGate } = useCart();
   const location = useLocation();
   const [checkoutContext, setCheckoutContext] = useState(null);
   const hostname = window.location.hostname;
@@ -154,7 +157,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <a href="#main-content" className="skip-to-content">Pular para o conteúdo</a>
+      <a href="#main-content" className="skip-to-content">Pular para o conteÃºdo</a>
       <main className={`content${isProdutosRoute ? ' content-produtos' : ''}${podeMostrarBarraGlobalCarrinho ? ' has-global-cart-bar' : ''}${mostrarBottomNavCliente ? ' has-bottom-nav' : ''}`} id="main-content">
         <ErrorBoundary>
         <Suspense fallback={<RouteLoadingFallback />}>
@@ -186,6 +189,11 @@ export default function App() {
         }}
       />
 
+      <ReviewTrackerWidget
+        hasBottomNav={mostrarBottomNavCliente}
+        hasGlobalCartBar={podeMostrarBarraGlobalCarrinho}
+      />
+
       <section className="site-trust-bar" aria-label="Canais de atendimento e links legais">
         <p className="site-trust-contact">
           {STORE_NAME} | CNPJ {STORE_CNPJ} | Endereco: {STORE_ENDERECO}
@@ -207,7 +215,7 @@ export default function App() {
       </section>
 
       {mostrarBottomNavCliente ? (
-        <nav className="bottom-nav" aria-label="Navegação principal">
+        <nav className="bottom-nav" aria-label="NavegaÃ§Ã£o principal">
           {links.map((item) => (
             <NavLink
               key={item.to}
@@ -217,13 +225,24 @@ export default function App() {
                 `bottom-nav-link ${isActive ? 'active' : ''}`
               }
             >
-              <span className="bottom-nav-icon">{item.icon}</span>
+              <span className="bottom-nav-icon">
+                <item.Icon size={18} strokeWidth={2} aria-hidden="true" />
+              </span>
               <span className="bottom-nav-label">{item.label}</span>
             </NavLink>
           ))}
         </nav>
       ) : null}
 
+
+      <AlcoholAgeGateModal
+        open={Boolean(alcoholAgeGate?.open)}
+        produtoNome={alcoholAgeGate?.produtoNome}
+        onConfirm={alcoholAgeGate?.confirmar}
+        onCancel={alcoholAgeGate?.cancelar}
+      />
     </div>
   );
 }
+
+

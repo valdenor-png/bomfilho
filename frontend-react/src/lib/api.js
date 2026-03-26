@@ -729,6 +729,10 @@ export function getPedidoStatus(pedidoId) {
   return request(`/api/pedidos/${pedidoId}/status`);
 }
 
+export function getPedidoRevisaoAtiva() {
+  return request('/api/pedidos/revisao/ativa');
+}
+
 export function getPedidoDeliveryTracking(pedidoId) {
   return request(`/api/pedidos/${pedidoId}/delivery-tracking`);
 }
@@ -745,6 +749,14 @@ export function registrarPedidoDeliveryEvento(pedidoId, { action, metadata } = {
 
 export function confirmarRecebimentoPedido(pedidoId) {
   return request(`/api/pedidos/${pedidoId}/confirmar-recebimento`, { method: 'PUT' });
+}
+
+export function cancelarPedidoRevisao(pedidoId, { motivo } = {}) {
+  const motivoNormalizado = String(motivo || '').trim();
+  return request(`/api/pedidos/${pedidoId}/cancelar-revisao`, {
+    method: 'PUT',
+    body: motivoNormalizado ? { motivo: motivoNormalizado } : {}
+  });
 }
 
 export function getProdutos(params = {}) {

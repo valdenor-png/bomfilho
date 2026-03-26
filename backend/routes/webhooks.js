@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const crypto = require('crypto');
 const logger = require('../lib/logger');
 const { pool } = require('../lib/db');
 const { buildErrorPayload } = require('../lib/apiError');
@@ -9,36 +10,94 @@ const {
 } = require('../lib/config');
 
 /**
- * Verifica se um webhook já foi processado usando a tabela webhook_events.
- * Retorna true se já existe (duplicata), false caso contrário.
+ * Verifica se um webhook jÃ¡ foi processado usando a tabela webhook_events.
+ * Retorna true se jÃ¡ existe (duplicata), false caso contrÃ¡rio.
  */
-async function webhookJaProcessado(idempotencyKey) {
-  if (!idempotencyKey || idempotencyKey === '__') return false;
+function erroEhDuplicidade(err) {
+  const code = String(err?.code || '').trim().toUpperCase();
+  const msg = String(err?.message || '').toLowerCase();
+  return code === '23505' || code === 'ER_DUP_ENTRY' || code === '1062' || msg.includes('duplicate') || msg.includes('unique');
+}
+
+async function registrarInicioWebhook(idempotencyKey, eventType) {
+  if (!idempotencyKey) {
+    return { acquired: false, duplicate: false, skipped: true };
+  }
+
   try {
-    const [rows] = await pool.query(
-      'SELECT 1 FROM webhook_events WHERE idempotency_key = ? LIMIT 1',
-      [idempotencyKey]
+    await pool.query(
+      'INSERT INTO webhook_events (idempotency_key, event_type) VALUES (?, ?)',
+      [idempotencyKey, (eventType || '').slice(0, 100)]
     );
-    return rows.length > 0;
+    return { acquired: true, duplicate: false, skipped: false };
   } catch (err) {
-    logger.warn('Falha ao verificar idempotencia webhook no DB, permitindo processamento:', err.message);
-    return false;
+    if (erroEhDuplicidade(err)) {
+      return { acquired: false, duplicate: true, skipped: false };
+    }
+    logger.warn('Falha ao registrar lock de idempotencia do webhook; seguindo sem lock.', {
+      idempotency_key: idempotencyKey,
+      message: err?.message || null
+    });
+    return { acquired: false, duplicate: false, skipped: false };
   }
 }
 
-/**
- * Registra um webhook como processado na tabela webhook_events.
- */
-async function registrarWebhookProcessado(idempotencyKey, eventType) {
-  if (!idempotencyKey || idempotencyKey === '__') return;
+async function liberarWebhookParaReprocessamento(idempotencyKey) {
+  if (!idempotencyKey) return;
   try {
-    await pool.query(
-      'INSERT INTO webhook_events (idempotency_key, event_type) VALUES (?, ?) ON CONFLICT (idempotency_key) DO NOTHING',
-      [idempotencyKey, (eventType || '').slice(0, 100)]
-    );
+    await pool.query('DELETE FROM webhook_events WHERE idempotency_key = ?', [idempotencyKey]);
   } catch (err) {
-    logger.warn('Falha ao registrar idempotencia webhook no DB:', err.message);
+    logger.warn('Falha ao liberar lock de idempotencia para reprocessamento.', {
+      idempotency_key: idempotencyKey,
+      message: err?.message || null
+    });
   }
+}
+
+function construirIdempotencyKeyWebhook({ payload, action, type, dataId, xRequestId, xSignature }) {
+  const notificationId = String(payload?.id || '').trim();
+  const requestId = String(xRequestId || '').trim();
+  if (notificationId && notificationId !== dataId) {
+    return { key: `mp_notif_${notificationId}`, strategy: 'payload.id' };
+  }
+  if (requestId) {
+    return { key: `mp_req_${requestId}`, strategy: 'x-request-id' };
+  }
+  if (notificationId) {
+    return { key: `mp_notif_${notificationId}`, strategy: 'payload.id_fallback' };
+  }
+
+  const fallbackHash = crypto.createHash('sha256')
+    .update(JSON.stringify({
+      type: String(type || '').trim(),
+      action: String(action || '').trim(),
+      data_id: String(dataId || '').trim(),
+      date_created: String(payload?.date_created || '').trim(),
+      signature_prefix: String(xSignature || '').slice(0, 80)
+    }))
+    .digest('hex')
+    .slice(0, 32);
+
+  return { key: `mp_fallback_${fallbackHash}`, strategy: 'fallback_hash' };
+}
+
+function classificarFalhaConsultaPagamento(err) {
+  const status = Number(err?.status || 0);
+  const msg = String(err?.message || '').toLowerCase();
+
+  if ([408, 425, 429].includes(status) || status >= 500) {
+    return { transient: true, reason: `http_${status || '5xx'}` };
+  }
+  if (status === 404) {
+    return { transient: false, reason: 'not_found' };
+  }
+  if (status >= 400 && status < 500) {
+    return { transient: false, reason: `http_${status}` };
+  }
+  if (msg.includes('timeout') || msg.includes('timed out') || msg.includes('aborted') || msg.includes('fetch') || msg.includes('econn') || msg.includes('socket')) {
+    return { transient: true, reason: 'network' };
+  }
+  return { transient: true, reason: 'unknown' };
 }
 
 /**
@@ -119,7 +178,7 @@ module.exports = function createWebhookRoutes(deps) {
 
       if (enviado) {
         evolutionLastReplyByNumber.set(telefone, agora);
-        logger.info('✅ Auto-resposta WhatsApp enviada para:', telefone);
+        logger.info('âœ… Auto-resposta WhatsApp enviada para:', telefone);
       }
 
       return res.sendStatus(200);
@@ -133,26 +192,30 @@ module.exports = function createWebhookRoutes(deps) {
   // WEBHOOK MERCADO PAGO
   // ============================================
 
-  // Diagnóstico: GET para confirmar que a rota está viva (browser / uptime check)
+  // DiagnÃ³stico: GET para confirmar que a rota estÃ¡ viva (browser / uptime check)
   router.get('/api/webhooks/mercadopago', (_req, res) => {
-    res.json({ ok: true, route: 'mercadopago-webhook', method: 'GET', info: 'Use POST para receber notificações.' });
+    res.json({ ok: true, route: 'mercadopago-webhook', method: 'GET', info: 'Use POST para receber notificaÃ§Ãµes.' });
   });
 
   router.post('/api/webhooks/mercadopago', async (req, res) => {
     const requestId = String(req.requestId || req.headers['x-request-id'] || '').trim() || null;
-    logger.info('[MP Webhook] Requisição recebida', {
+    let idempotencyKey = '';
+    let idempotencyStrategy = '';
+    let lockAdquirido = false;
+
+    logger.info('[MP Webhook] Requisicao recebida', {
       request_id: requestId,
       method: req.method,
       url: req.originalUrl,
       contentType: req.headers['content-type'] || '(vazio)',
       hasSignature: Boolean(req.headers['x-signature']),
       hasRequestId: Boolean(req.headers['x-request-id']),
-      bodyKeys: req.body ? Object.keys(req.body).join(',') : '(sem body)',
+      bodyKeys: req.body ? Object.keys(req.body).join(',') : '(sem body)'
     });
 
     try {
       if (!mercadoPagoService) {
-        logger.warn('[MP Webhook] Mercado Pago service não configurado.');
+        logger.warn('[MP Webhook] Mercado Pago service nao configurado.');
         return res.sendStatus(200);
       }
 
@@ -160,89 +223,188 @@ module.exports = function createWebhookRoutes(deps) {
       const xRequestId = req.headers['x-request-id'] || '';
       const payload = req.body || {};
 
-      // Mercado Pago envia { action, type, data: { id } }
       const action = String(payload.action || '').trim();
       const dataId = String(payload.data?.id || payload.id || '').trim();
       const type = String(payload.type || '').trim();
 
-      // Só processar notificações de pagamento
       if (type !== 'payment' && action !== 'payment.updated' && action !== 'payment.created') {
         return res.sendStatus(200);
       }
 
       if (!dataId) {
-        logger.warn('[MP Webhook] Notificação sem data.id, ignorando.');
+        logger.warn('[MP Webhook] Notificacao sem data.id, ignorando.');
         return res.sendStatus(200);
       }
 
-      // Validar assinatura
       const assinaturaValida = mercadoPagoService.validarAssinaturaWebhook(xSignature, xRequestId, dataId);
       if (!assinaturaValida) {
-        logger.warn('[MP Webhook] Assinatura inválida, rejeitando.');
+        logger.warn('[MP Webhook] Assinatura invalida, rejeitando.', {
+          request_id: requestId,
+          payment_id: dataId,
+          x_request_id: xRequestId || null
+        });
         return res.status(401).json(buildErrorPayload('Assinatura inválida.'));
       }
 
-      // Idempotência
-      const idempotencyKey = `mp_${dataId}_${action}`;
-      if (await webhookJaProcessado(idempotencyKey)) {
-        logger.info('[MP Webhook] Evento duplicado ignorado', { request_id: requestId, idempotency_key: idempotencyKey });
+      const dedupe = construirIdempotencyKeyWebhook({
+        payload,
+        action,
+        type,
+        dataId,
+        xRequestId,
+        xSignature
+      });
+      idempotencyKey = dedupe.key;
+      idempotencyStrategy = dedupe.strategy;
+
+      if (idempotencyStrategy === 'fallback_hash') {
+        logger.warn('[MP Webhook] Identificador forte ausente; usando fallback de idempotencia.', {
+          request_id: requestId,
+          payment_id: dataId,
+          strategy: idempotencyStrategy
+        });
+      }
+
+      const lock = await registrarInicioWebhook(idempotencyKey, `mp_${action || type || 'payment'}`);
+      lockAdquirido = lock.acquired;
+      if (lock.duplicate) {
+        logger.info('[MP Webhook] Evento duplicado ignorado.', {
+          request_id: requestId,
+          payment_id: dataId,
+          idempotency_key: idempotencyKey,
+          strategy: idempotencyStrategy
+        });
         return res.sendStatus(200);
       }
 
-      // Consultar pagamento na API do Mercado Pago
       let pagamento;
       try {
         pagamento = await mercadoPagoService.consultarPagamento(dataId);
       } catch (errConsulta) {
-        // Payloads de teste do MP enviam IDs falsos (ex: 123456) que não existem na API
-        logger.warn(`[MP Webhook] Não foi possível consultar pagamento ${dataId}: ${errConsulta.message}`);
+        const classificacao = classificarFalhaConsultaPagamento(errConsulta);
+        const contextoErro = {
+          request_id: requestId,
+          pedido_id: null,
+          payment_id: dataId,
+          external_reference: null,
+          x_request_id: xRequestId || null,
+          event_id: String(payload?.id || '').trim() || null,
+          idempotency_key: idempotencyKey || null,
+          idempotency_strategy: idempotencyStrategy || null,
+          motivo: classificacao.reason,
+          etapa: 'consultar_pagamento'
+        };
+
+        if (classificacao.transient) {
+          logger.error('[MP Webhook] Falha transitoria ao consultar pagamento.', contextoErro);
+          if (lockAdquirido) {
+            await liberarWebhookParaReprocessamento(idempotencyKey);
+          }
+          return res.status(503).json(buildErrorPayload('Falha transitoria ao confirmar pagamento no gateway.', {
+            code: 'MP_WEBHOOK_PAYMENT_LOOKUP_TRANSIENT'
+          }));
+        }
+
+        logger.warn('[MP Webhook] Falha permanente ao consultar pagamento; evento ignorado.', contextoErro);
         return res.sendStatus(200);
       }
 
       if (!pagamento || !pagamento.id) {
-        logger.warn(`[MP Webhook] Pagamento ${dataId} não encontrado na API.`);
-        return res.sendStatus(200);
+        logger.error('[MP Webhook] Consulta retornou pagamento vazio; reprocessamento necessario.', {
+          request_id: requestId,
+          pedido_id: null,
+          payment_id: dataId,
+          external_reference: null,
+          x_request_id: xRequestId || null,
+          event_id: String(payload?.id || '').trim() || null,
+          idempotency_key: idempotencyKey || null,
+          idempotency_strategy: idempotencyStrategy || null,
+          motivo: 'gateway_empty_payload',
+          etapa: 'consultar_pagamento'
+        });
+        if (lockAdquirido) {
+          await liberarWebhookParaReprocessamento(idempotencyKey);
+        }
+        return res.status(503).json(buildErrorPayload('Falha transitoria ao confirmar pagamento no gateway.', {
+          code: 'MP_WEBHOOK_PAYMENT_LOOKUP_EMPTY'
+        }));
       }
 
       const pedidoId = Number(pagamento.external_reference);
       if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
-        logger.warn(`[MP Webhook] external_reference inválido: "${pagamento.external_reference}"`);
-        await registrarWebhookProcessado(idempotencyKey, `mp_${action}`);
+        logger.warn('[MP Webhook] external_reference invalido; evento ignorado.', {
+          request_id: requestId,
+          pedido_id: null,
+          payment_id: String(pagamento.id),
+          external_reference: String(pagamento.external_reference || ''),
+          x_request_id: xRequestId || null,
+          event_id: String(payload?.id || '').trim() || null,
+          idempotency_key: idempotencyKey || null,
+          idempotency_strategy: idempotencyStrategy || null,
+          motivo: 'external_reference_invalido',
+          etapa: 'mapear_pedido'
+        });
         return res.sendStatus(200);
       }
 
       const statusInterno = mercadoPagoService.mapearStatusPagamento(pagamento.status);
       logger.info('[MP Webhook] Pagamento mapeado para status interno', {
         request_id: requestId,
-        payment_id: pagamento.id,
+        pedido_id: pedidoId,
+        payment_id: String(pagamento.id),
         payment_status: pagamento.status,
         status_interno: statusInterno,
-        pedido_ref: pagamento.external_reference
+        external_reference: String(pagamento.external_reference || ''),
+        x_request_id: xRequestId || null,
+        event_id: String(payload?.id || '').trim() || null
       });
 
-      // Buscar pedido no banco
       const [pedidos] = await pool.query(
-        'SELECT id, status, usuario_id FROM pedidos WHERE id = ? LIMIT 1',
+        'SELECT id, status, usuario_id, mp_payment_id_mp FROM pedidos WHERE id = ? LIMIT 1',
         [pedidoId]
       );
 
       if (!pedidos.length) {
-        logger.warn(`[MP Webhook] Pedido #${pedidoId} não encontrado no banco.`);
-        await registrarWebhookProcessado(idempotencyKey, `mp_${action}`);
+        logger.warn('[MP Webhook] Pedido nao encontrado no banco.', {
+          request_id: requestId,
+          pedido_id: pedidoId,
+          payment_id: String(pagamento.id),
+          external_reference: String(pagamento.external_reference || ''),
+          x_request_id: xRequestId || null,
+          event_id: String(payload?.id || '').trim() || null,
+          idempotency_key: idempotencyKey || null,
+          idempotency_strategy: idempotencyStrategy || null,
+          motivo: 'pedido_nao_encontrado',
+          etapa: 'buscar_pedido'
+        });
         return res.sendStatus(200);
       }
 
       const pedidoAtual = pedidos[0];
+      const statusAtual = String(pedidoAtual.status || '').trim().toLowerCase();
+      const statusNovo = String(statusInterno || '').trim().toLowerCase();
+      const fluxoAvancado = ['preparando', 'pronto_para_retirada', 'enviado', 'entregue', 'retirado'].includes(statusAtual);
+      const statusRegressivoFinanceiro = ['pendente', 'pagamento_recusado', 'cancelado'].includes(statusNovo);
+      const bloqueioPorCancelamento = statusAtual === 'cancelado' && statusNovo !== 'cancelado';
+      const bloqueioPorRegressao = bloqueioPorCancelamento
+        || (fluxoAvancado && statusRegressivoFinanceiro)
+        || (statusAtual === 'pago' && ['pendente', 'pagamento_recusado'].includes(statusNovo));
 
-      // Não regredir status: se já está pago/preparando/enviado, não voltar para pendente
-      const statusNaoRegredir = ['pago', 'preparando', 'enviado', 'entregue', 'retirado'];
-      if (statusNaoRegredir.includes(pedidoAtual.status) && statusInterno === 'pendente') {
-        logger.info(`[MP Webhook] Pedido #${pedidoId} já em "${pedidoAtual.status}", ignorando status "${statusInterno}".`);
-        await registrarWebhookProcessado(idempotencyKey, `mp_${action}`);
+      if (bloqueioPorRegressao) {
+        logger.info('[MP Webhook] Transicao ignorada para evitar regressao indevida.', {
+          request_id: requestId,
+          pedido_id: pedidoId,
+          payment_id: String(pagamento.id),
+          external_reference: String(pagamento.external_reference || ''),
+          x_request_id: xRequestId || null,
+          event_id: String(payload?.id || '').trim() || null,
+          status_anterior: statusAtual,
+          status_novo: statusNovo,
+          origem_transicao: 'webhook_mercadopago'
+        });
         return res.sendStatus(200);
       }
 
-      // Atualizar status e payment ID
       const updateFields = ['status = ?', 'mp_payment_id_mp = ?'];
       const updateValues = [statusInterno, String(pagamento.id)];
 
@@ -261,9 +423,18 @@ module.exports = function createWebhookRoutes(deps) {
         updateValues
       );
 
-      logger.info(`[MP Webhook] Pedido #${pedidoId} atualizado: ${pedidoAtual.status} → ${statusInterno} (MP payment ${pagamento.id})`);
+      logger.info('[MP Webhook] Pedido atualizado com sucesso.', {
+        request_id: requestId,
+        pedido_id: pedidoId,
+        payment_id: String(pagamento.id),
+        external_reference: String(pagamento.external_reference || ''),
+        x_request_id: xRequestId || null,
+        event_id: String(payload?.id || '').trim() || null,
+        status_anterior: statusAtual,
+        status_novo: statusNovo,
+        origem_transicao: 'webhook_mercadopago'
+      });
 
-      // Notificar cliente via WhatsApp se pagamento foi confirmado
       if (statusInterno === 'pago' && enviarWhatsappPedido) {
         try {
           const [dadosNotifica] = await pool.query(
@@ -278,7 +449,7 @@ module.exports = function createWebhookRoutes(deps) {
               nome: dadosNotifica[0].nome,
               pedidoId,
               total: dadosNotifica[0].total,
-              mensagemExtra: '✅ Pagamento confirmado! Seu pedido está sendo preparado.'
+              mensagemExtra: 'Pagamento confirmado! Seu pedido esta sendo preparado.'
             });
           }
         } catch (errWhats) {
@@ -286,13 +457,21 @@ module.exports = function createWebhookRoutes(deps) {
         }
       }
 
-      await registrarWebhookProcessado(idempotencyKey, `mp_${action}`);
       return res.sendStatus(200);
     } catch (erro) {
-      logger.error('[MP Webhook] Erro:', erro.message);
+      if (lockAdquirido && idempotencyKey) {
+        await liberarWebhookParaReprocessamento(idempotencyKey);
+      }
+      logger.error('[MP Webhook] Erro interno no processamento.', {
+        request_id: requestId,
+        idempotency_key: idempotencyKey || null,
+        idempotency_strategy: idempotencyStrategy || null,
+        message: erro?.message || null
+      });
       return res.sendStatus(500);
     }
   });
 
   return router;
 };
+

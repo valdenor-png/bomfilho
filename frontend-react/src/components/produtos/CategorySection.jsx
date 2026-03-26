@@ -7,7 +7,7 @@ const CategorySection = React.memo(function CategorySection({
   isActive = false,
   onViewAll,
   renderRow,
-  emptyMessage = 'Carregando produtos desta categoria...'
+  emptyMessage = 'Nenhum produto disponível nesta categoria no momento.'
 }) {
   if (!section) {
     return null;

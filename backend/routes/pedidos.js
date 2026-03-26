@@ -291,6 +291,75 @@ function selectEndereco(columns, candidates, alias, tableAlias = 'e') {
   return `NULL AS ${alias}`;
 }
 
+function deriveReviewState(statusRaw) {
+  const status = toLowerTrim(statusRaw);
+
+  if (status === 'aguardando_revisao') {
+    return 'em_revisao';
+  }
+
+  if (status === 'pendente' || status === 'pagamento_recusado') {
+    return 'aprovado_para_pagamento';
+  }
+
+  if (status === 'cancelado') {
+    return 'nao_aprovado';
+  }
+
+  if (status === 'expirado') {
+    return 'expirado';
+  }
+
+  if (status === 'pago') {
+    return 'pago';
+  }
+
+  return 'finalizado';
+}
+
+function buildReviewMessage(reviewState) {
+  const state = toLowerTrim(reviewState);
+
+  if (state === 'em_revisao') {
+    return 'Seu pedido está em revisão da equipe. Você pode continuar navegando.';
+  }
+
+  if (state === 'aprovado_para_pagamento') {
+    return 'Pedido aprovado. Pagamento já está liberado para continuar.';
+  }
+
+  if (state === 'nao_aprovado') {
+    return 'Pedido não aprovado na revisão. Revise os detalhes em Meus Pedidos.';
+  }
+
+  if (state === 'expirado') {
+    return 'O prazo de revisão expirou. Consulte Meus Pedidos para próximos passos.';
+  }
+
+  if (state === 'pago') {
+    return 'Pagamento confirmado. Seu pedido segue para preparação.';
+  }
+
+  return 'Status atualizado.';
+}
+
+function enrichReviewStatusPayload(payload = {}) {
+  const status = toLowerTrim(payload?.status);
+  const reviewState = deriveReviewState(status);
+  const reviewMessage = status === 'pagamento_recusado'
+    ? 'Pagamento recusado. Atualize os dados de pagamento para concluir seu pedido.'
+    : buildReviewMessage(reviewState);
+
+  return {
+    ...payload,
+    review_state: reviewState,
+    review_message: reviewMessage,
+    estimated_review_max_minutes: 5,
+    can_proceed_payment: status === 'pendente' || status === 'pagamento_recusado',
+    is_terminal_for_review: ['cancelado', 'expirado', 'pago'].includes(status)
+  };
+}
+
 /**
  * Customer-facing pedido read routes (list + detail).
  * POST /api/pedidos (creation) remains in server.js due to complex dependencies.
@@ -394,6 +463,54 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
     }
   });
 
+  // Buscar pedido em revisão/aprovado para pagamento (retomada global no app)
+  router.get('/api/pedidos/revisao/ativa', autenticarToken, async (req, res) => {
+    try {
+      const columns = await getPedidosColumns();
+
+      const [rows] = await pool.query(
+        `SELECT p.id,
+                p.status,
+                p.total,
+                ${selectOptional(columns, 'forma_pagamento', 'forma_pagamento')},
+                ${selectOptional(columns, 'tipo_entrega', 'tipo_entrega')},
+                ${selectOptional(columns, 'revisao_em', 'revisao_em')},
+                ${selectOptional(columns, 'revisao_aprovada_em', 'revisao_aprovada_em')},
+                ${selectOptional(columns, 'revisao_obs', 'revisao_obs')},
+                ${selectOptional(columns, 'criado_em', 'criado_em')},
+                ${selectOptional(columns, 'atualizado_em', 'atualizado_em')}
+           FROM pedidos p
+          WHERE p.usuario_id = ?
+            AND p.status IN ('aguardando_revisao', 'pendente', 'pagamento_recusado')
+          ORDER BY p.id DESC
+          LIMIT 1`,
+        [req.usuario.id]
+      );
+
+      const pedido = rows?.[0] || null;
+
+      if (!pedido) {
+        return res.json({
+          possui_ativo: false,
+          pedido: null
+        });
+      }
+
+      return res.json({
+        possui_ativo: true,
+        pedido: enrichReviewStatusPayload({
+          ...pedido,
+          tipo_entrega: String(pedido?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
+            ? 'retirada'
+            : 'entrega'
+        })
+      });
+    } catch (erro) {
+      logger.error('Erro ao buscar pedido ativo em revisão:', erro);
+      return res.status(500).json({ erro: 'Não foi possível buscar pedido em revisão.' });
+    }
+  });
+
   // Detalhes de um pedido
   router.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     try {
@@ -480,7 +597,11 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
                 ${selectOptional(columns, 'saiu_entrega_em', 'saiu_entrega_em')},
                 ${selectOptional(columns, 'entregue_em', 'entregue_em')},
                 ${selectOptional(columns, 'retirado_em', 'retirado_em')},
+                ${selectOptional(columns, 'revisao_em', 'revisao_em')},
+                ${selectOptional(columns, 'revisao_aprovada_em', 'revisao_aprovada_em')},
+                ${selectOptional(columns, 'revisao_obs', 'revisao_obs')},
                 ${selectOptional(columns, 'cancelado_em', 'cancelado_em')},
+                ${selectOptional(columns, 'criado_em', 'criado_em')},
                 ${selectOptional(columns, 'atualizado_em', 'atualizado_em')}
            FROM pedidos p
           WHERE p.id = ? AND p.usuario_id = ?
@@ -490,7 +611,12 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
       if (!rows.length) {
         return res.status(404).json({ erro: 'Pedido não encontrado.' });
       }
-      res.json(rows[0]);
+      return res.json(enrichReviewStatusPayload({
+        ...rows[0],
+        tipo_entrega: String(rows[0]?.tipo_entrega || '').trim().toLowerCase() === 'retirada'
+          ? 'retirada'
+          : 'entrega'
+      }));
     } catch (erro) {
       logger.error('Erro ao buscar status do pedido:', erro);
       res.status(500).json({ erro: 'Não foi possível consultar o status.' });
@@ -811,6 +937,103 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
     } catch (error) {
       logger.error('Erro ao registrar evento de entrega do cliente:', error);
       return res.status(500).json({ erro: 'Não foi possível registrar a ação de entrega.' });
+    }
+  });
+
+  // Cliente confirma recebimento do pedido
+  router.put('/api/pedidos/:id/cancelar-revisao', autenticarToken, async (req, res) => {
+    let connection = null;
+    try {
+      const pedidoId = Number(req.params.id || 0);
+      if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+        return res.status(400).json({ erro: 'Pedido inválido para cancelamento.' });
+      }
+
+      const [rows] = await pool.query(
+        'SELECT id, status, usuario_id FROM pedidos WHERE id = ? AND usuario_id = ? LIMIT 1',
+        [pedidoId, req.usuario.id]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({ erro: 'Pedido não encontrado.' });
+      }
+
+      const statusAtual = toLowerTrim(rows[0].status);
+      const statusCancelaveis = new Set(['aguardando_revisao', 'pendente', 'pagamento_recusado']);
+
+      if (statusAtual === 'cancelado') {
+        return res.json({ mensagem: 'Pedido já estava cancelado.', status: 'cancelado' });
+      }
+
+      if (!statusCancelaveis.has(statusAtual)) {
+        return res.status(400).json({ erro: `Não é possível cancelar pedido com status "${rows[0].status}".` });
+      }
+
+      const pedidosColumns = await getPedidosColumns();
+      const motivoRaw = String(req.body?.motivo || '').trim();
+      const motivo = motivoRaw.slice(0, 500) || 'Cancelado pelo cliente durante revisão.';
+
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+
+      const [itensPedido] = await connection.query(
+        'SELECT produto_id, quantidade FROM pedido_itens WHERE pedido_id = ?',
+        [pedidoId]
+      );
+
+      for (const item of itensPedido || []) {
+        const produtoId = Number(item?.produto_id || 0);
+        const quantidade = Number(item?.quantidade || 0);
+        if (!Number.isFinite(produtoId) || produtoId <= 0 || !Number.isFinite(quantidade) || quantidade <= 0) {
+          continue;
+        }
+
+        await connection.query(
+          'UPDATE produtos SET estoque = estoque + ? WHERE id = ?',
+          [quantidade, produtoId]
+        );
+      }
+
+      const updateFields = ['status = ?'];
+      const updateValues = ['cancelado'];
+
+      if (pedidosColumns.has('revisao_obs')) {
+        updateFields.push('revisao_obs = ?');
+        updateValues.push(motivo);
+      }
+
+      if (pedidosColumns.has('cancelado_em')) {
+        updateFields.push('cancelado_em = COALESCE(cancelado_em, NOW())');
+      }
+
+      await connection.query(
+        `UPDATE pedidos
+            SET ${updateFields.join(', ')}
+          WHERE id = ? AND usuario_id = ?`,
+        [...updateValues, pedidoId, req.usuario.id]
+      );
+
+      await connection.commit();
+      connection.release();
+      connection = null;
+
+      logger.info(`Cliente ${req.usuario.id} cancelou o pedido #${pedidoId} durante revisão (status anterior: ${statusAtual}).`);
+      return res.json({
+        mensagem: 'Pedido cancelado com sucesso.',
+        status: 'cancelado',
+        estoque_restaurado: true
+      });
+    } catch (erro) {
+      if (connection) {
+        try {
+          await connection.rollback();
+        } catch {
+          // rollback best effort
+        }
+        connection.release();
+      }
+      logger.error('Erro ao cancelar pedido em revisão pelo cliente:', erro);
+      return res.status(500).json({ erro: 'Não foi possível cancelar o pedido neste momento.' });
     }
   });
 

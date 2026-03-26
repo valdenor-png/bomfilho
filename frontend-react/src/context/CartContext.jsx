@@ -4,20 +4,121 @@ import {
   buildProductEventPayload,
   captureCommerceEvent
 } from '../lib/commerceTracking';
+import {
+  buildCartItemKey,
+  buildNomeCarrinho,
+  calcularSubtotalPeso,
+  hasTruthyFlag,
+  isItemPeso,
+  isProdutoAlcoolico,
+  isProdutoVisivelNoCatalogo,
+  resolvePesoConfig,
+  resolveUnidadeVenda,
+  sanitizePesoGramas
+} from '../lib/produtoCatalogoRules';
 import { useToast } from './ToastContext';
 
 const CART_KEY = 'bomfilho_cart';
+const AGE_GATE_KEY = 'bf_alcool_18_confirmado';
 
 const CartContext = createContext(null);
+
+function normalizarQuantidade(value) {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.max(1, Math.floor(parsed));
+  }
+  return 1;
+}
+
+function calcularSubtotalItem(item) {
+  if (isItemPeso(item)) {
+    return calcularSubtotalPeso(item.preco, item.peso_gramas, item.quantidade);
+  }
+
+  return Number((Number(item.preco || 0) * normalizarQuantidade(item.quantidade)).toFixed(2));
+}
 
 function resumirCarrinho(itens = []) {
   return itens.reduce(
     (acc, item) => ({
-      itens: acc.itens + Math.max(1, Number(item?.quantidade || 1)),
-      total: acc.total + (Number(item?.preco || 0) * Math.max(1, Number(item?.quantidade || 1)))
+      itens: acc.itens + normalizarQuantidade(item?.quantidade || 1),
+      total: acc.total + calcularSubtotalItem(item)
     }),
     { itens: 0, total: 0 }
   );
+}
+
+function readAgeGateSession() {
+  try {
+    return sessionStorage.getItem(AGE_GATE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function saveAgeGateSession(value) {
+  try {
+    if (value) {
+      sessionStorage.setItem(AGE_GATE_KEY, '1');
+    } else {
+      sessionStorage.removeItem(AGE_GATE_KEY);
+    }
+  } catch {
+    // no-op
+  }
+}
+
+function normalizeCartItem(rawItem = {}) {
+  const id = Number(rawItem?.id || rawItem?.produto_id || 0);
+  if (!Number.isFinite(id) || id <= 0) {
+    return null;
+  }
+
+  if (!isProdutoVisivelNoCatalogo(rawItem)) {
+    return null;
+  }
+
+  const unidadeVenda = resolveUnidadeVenda(rawItem);
+  const quantidade = normalizarQuantidade(rawItem?.quantidade || 1);
+  const pesoConfig = resolvePesoConfig(rawItem, unidadeVenda);
+  const pesoGramas = unidadeVenda === 'peso'
+    ? sanitizePesoGramas(rawItem?.peso_gramas, pesoConfig)
+    : null;
+
+  const nomeBase = String(rawItem?.nome_base || rawItem?.nome || rawItem?.nome_produto || '').trim() || 'Produto';
+  const nome = unidadeVenda === 'peso'
+    ? buildNomeCarrinho({ ...rawItem, nome: nomeBase }, unidadeVenda, pesoGramas)
+    : nomeBase;
+
+  const cartKey = String(rawItem?.cart_key || '').trim() || buildCartItemKey({
+    id,
+    unidadeVenda,
+    pesoGramas
+  });
+
+  const ehAlcoolico = Boolean(isProdutoAlcoolico(rawItem));
+
+  return {
+    id,
+    cart_key: cartKey,
+    nome,
+    nome_base: nomeBase,
+    preco: Number(rawItem?.preco || 0),
+    emoji: String(rawItem?.emoji || ''),
+    imagem: String(rawItem?.imagem || rawItem?.imagem_url || '').trim(),
+    categoria: String(rawItem?.categoria || '').trim(),
+    unidade: String(rawItem?.unidade || '').trim(),
+    quantidade,
+    unidade_venda: unidadeVenda,
+    peso_gramas: pesoGramas,
+    peso_min_gramas: pesoConfig.peso_min_gramas,
+    peso_step_gramas: pesoConfig.peso_step_gramas,
+    peso_padrao_gramas: pesoConfig.peso_padrao_gramas,
+    permite_fracionado: hasTruthyFlag(rawItem?.permite_fracionado, true),
+    requer_maioridade: hasTruthyFlag(rawItem?.requer_maioridade, ehAlcoolico),
+    eh_alcoolico: ehAlcoolico
+  };
 }
 
 function readCart() {
@@ -26,29 +127,42 @@ function readCart() {
     if (!raw) {
       return [];
     }
+
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
       return [];
     }
+
     return parsed
-      .filter((item) => item && item.id)
-      .map((item) => ({
-        id: Number(item.id),
-        nome: String(item.nome || ''),
-        preco: Number(item.preco || 0),
-        emoji: String(item.emoji || '📦'),
-        imagem: String(item.imagem || '').trim(),
-        categoria: String(item.categoria || '').trim(),
-        unidade: String(item.unidade || '').trim(),
-        quantidade: Math.max(1, Number(item.quantidade || 1))
-      }));
+      .map((item) => normalizeCartItem(item))
+      .filter(Boolean);
   } catch {
     return [];
   }
 }
 
+function itemMatchesTarget(item, target) {
+  const targetText = String(target || '').trim();
+  if (!targetText) {
+    return false;
+  }
+
+  if (targetText.includes(':')) {
+    return item.cart_key === targetText;
+  }
+
+  const id = Number(targetText);
+  if (Number.isFinite(id) && id > 0) {
+    return item.id === id;
+  }
+
+  return false;
+}
+
 export function CartProvider({ children }) {
   const [itens, setItens] = useState(() => readCart());
+  const [ageGateConfirmado, setAgeGateConfirmado] = useState(() => readAgeGateSession());
+  const [pendenciaAlcool, setPendenciaAlcool] = useState(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -56,33 +170,55 @@ export function CartProvider({ children }) {
   }, [itens]);
 
   function addItem(produto, quantidade = 1, meta = {}) {
-    const qtd = Math.max(1, Number(quantidade || 1));
+    if (!isProdutoVisivelNoCatalogo(produto || {})) {
+      toast.error('Este item nao esta disponivel para venda online.');
+      return false;
+    }
+
+    const unidadeVenda = resolveUnidadeVenda({ ...produto, unidade_venda: meta?.unidade_venda });
+    const pesoConfig = resolvePesoConfig({ ...produto, ...meta }, unidadeVenda);
+    const pesoGramas = unidadeVenda === 'peso'
+      ? sanitizePesoGramas(meta?.peso_gramas, pesoConfig)
+      : null;
+
+    const itemBase = normalizeCartItem({
+      ...produto,
+      quantidade,
+      unidade_venda: unidadeVenda,
+      peso_gramas: pesoGramas,
+      peso_min_gramas: pesoConfig.peso_min_gramas,
+      peso_step_gramas: pesoConfig.peso_step_gramas,
+      peso_padrao_gramas: pesoConfig.peso_padrao_gramas,
+      permite_fracionado: pesoConfig.permite_fracionado,
+      requer_maioridade: meta?.requer_maioridade ?? produto?.requer_maioridade,
+      eh_alcoolico: meta?.eh_alcoolico ?? isProdutoAlcoolico(produto)
+    });
+
+    if (!itemBase) {
+      return false;
+    }
+
+    if (itemBase.eh_alcoolico && !ageGateConfirmado && !meta?.skipAgeGate) {
+      setPendenciaAlcool({ produto, quantidade, meta: { ...meta, peso_gramas: pesoGramas } });
+      return false;
+    }
+
     let payloadEvento = null;
+    const qtd = normalizarQuantidade(quantidade || 1);
 
     setItens((atual) => {
-      const index = atual.findIndex((item) => item.id === Number(produto.id));
+      const index = atual.findIndex((item) => item.cart_key === itemBase.cart_key);
 
       if (index === -1) {
-        const proximo = [
-          ...atual,
-          {
-            id: Number(produto.id),
-            nome: String(produto.nome || ''),
-            preco: Number(produto.preco || 0),
-            emoji: String(produto.emoji || '📦'),
-            imagem: String(produto.imagem || '').trim(),
-            categoria: String(produto.categoria || '').trim(),
-            unidade: String(produto.unidade || '').trim(),
-            quantidade: qtd
-          }
-        ];
-
+        const proximo = [...atual, itemBase];
         const resumoProximo = resumirCarrinho(proximo);
         payloadEvento = {
           ...buildProductEventPayload(produto, {
             quantity: qtd,
             add_mode: 'new_item',
-            source: String(meta?.source || 'catalog').trim() || 'catalog'
+            source: String(meta?.source || 'catalog').trim() || 'catalog',
+            unidade_venda: itemBase.unidade_venda,
+            peso_gramas: itemBase.peso_gramas
           }),
           ...buildCartEventPayload({ itens: proximo, resumo: resumoProximo })
         };
@@ -90,27 +226,26 @@ export function CartProvider({ children }) {
         return proximo;
       }
 
-      const proximo = atual.map((item, itemIndex) =>
-        itemIndex === index
-          ? {
-              ...item,
-              nome: String(produto.nome || item.nome || '').trim() || item.nome,
-              preco: Number(produto.preco || item.preco || 0),
-              emoji: String(produto.emoji || item.emoji || '📦'),
-              imagem: String(produto.imagem || item.imagem || '').trim(),
-              categoria: String(produto.categoria || item.categoria || '').trim(),
-              unidade: String(produto.unidade || item.unidade || '').trim(),
-              quantidade: item.quantidade + qtd
-            }
-          : item
-      );
+      const proximo = atual.map((item, itemIndex) => {
+        if (itemIndex !== index) {
+          return item;
+        }
+
+        return normalizeCartItem({
+          ...item,
+          ...itemBase,
+          quantidade: normalizarQuantidade(item.quantidade + qtd)
+        });
+      });
 
       const resumoProximo = resumirCarrinho(proximo);
       payloadEvento = {
         ...buildProductEventPayload(produto, {
           quantity: qtd,
           add_mode: 'increase_item',
-          source: String(meta?.source || 'catalog').trim() || 'catalog'
+          source: String(meta?.source || 'catalog').trim() || 'catalog',
+          unidade_venda: itemBase.unidade_venda,
+          peso_gramas: itemBase.peso_gramas
         }),
         ...buildCartEventPayload({ itens: proximo, resumo: resumoProximo })
       };
@@ -122,37 +257,101 @@ export function CartProvider({ children }) {
       captureCommerceEvent('add_to_cart', payloadEvento);
     }
 
-    toast.success(`${String(produto.nome || 'Produto').trim()} adicionado ao carrinho`);
+    toast.success(`${itemBase.nome} adicionado ao carrinho`);
+    return true;
   }
 
-  function updateItemQuantity(id, quantidade) {
-    const qtd = Math.max(1, Number(quantidade || 1));
+  function updateItemQuantity(itemKeyOrId, quantidade) {
+    const qtd = normalizarQuantidade(quantidade || 1);
     setItens((atual) =>
       atual.map((item) =>
-        item.id === Number(id)
+        itemMatchesTarget(item, itemKeyOrId)
           ? { ...item, quantidade: qtd }
           : item
       )
     );
   }
 
-  function removeItem(id) {
-    setItens((atual) => atual.filter((item) => item.id !== Number(id)));
+  function updateItemWeight(itemKeyOrId, pesoGramas) {
+    setItens((atual) => {
+      const index = atual.findIndex((item) => itemMatchesTarget(item, itemKeyOrId));
+      if (index === -1) {
+        return atual;
+      }
+
+      const itemAtual = atual[index];
+      if (!isItemPeso(itemAtual)) {
+        return atual;
+      }
+
+      const config = resolvePesoConfig(itemAtual, 'peso');
+      const pesoNovo = sanitizePesoGramas(pesoGramas, config);
+      const atualizado = normalizeCartItem({
+        ...itemAtual,
+        peso_gramas: pesoNovo,
+        nome: buildNomeCarrinho(itemAtual, 'peso', pesoNovo)
+      });
+
+      if (!atualizado) {
+        return atual;
+      }
+
+      const indexDuplicado = atual.findIndex((item, idx) => idx !== index && item.cart_key === atualizado.cart_key);
+      if (indexDuplicado >= 0) {
+        const duplicado = atual[indexDuplicado];
+        const merged = normalizeCartItem({
+          ...duplicado,
+          quantidade: normalizarQuantidade(duplicado.quantidade + atualizado.quantidade)
+        });
+
+        return atual
+          .filter((_, idx) => idx !== index && idx !== indexDuplicado)
+          .concat(merged);
+      }
+
+      return atual.map((item, idx) => (idx === index ? atualizado : item));
+    });
+  }
+
+  function removeItem(itemKeyOrId) {
+    setItens((atual) => atual.filter((item) => !itemMatchesTarget(item, itemKeyOrId)));
   }
 
   function clearCart() {
     setItens([]);
   }
 
-  const resumo = useMemo(() => {
-    return itens.reduce(
-      (acc, item) => ({
-        itens: acc.itens + item.quantidade,
-        total: acc.total + item.preco * item.quantidade
-      }),
-      { itens: 0, total: 0 }
-    );
-  }, [itens]);
+  function confirmarMaioridadeAlcool() {
+    setAgeGateConfirmado(true);
+    saveAgeGateSession(true);
+
+    if (pendenciaAlcool) {
+      const pendencia = pendenciaAlcool;
+      setPendenciaAlcool(null);
+      addItem(pendencia.produto, pendencia.quantidade, {
+        ...pendencia.meta,
+        skipAgeGate: true
+      });
+      return;
+    }
+
+    setPendenciaAlcool(null);
+  }
+
+  function cancelarMaioridadeAlcool() {
+    setPendenciaAlcool(null);
+    toast.info('Adicao de bebida alcoolica cancelada.');
+  }
+
+  const resumo = useMemo(() => resumirCarrinho(itens), [itens]);
+
+  const alcoholAgeGate = useMemo(() => ({
+    open: Boolean(pendenciaAlcool),
+    confirmed: ageGateConfirmado,
+    produtoNome: String(pendenciaAlcool?.produto?.nome || '').trim() || 'Bebida alcoolica',
+    confirmar: confirmarMaioridadeAlcool,
+    cancelar: cancelarMaioridadeAlcool
+  }), [ageGateConfirmado, pendenciaAlcool]);
 
   const value = useMemo(
     () => ({
@@ -160,10 +359,12 @@ export function CartProvider({ children }) {
       resumo,
       addItem,
       updateItemQuantity,
+      updateItemWeight,
       removeItem,
-      clearCart
+      clearCart,
+      alcoholAgeGate
     }),
-    [itens, resumo]
+    [itens, resumo, alcoholAgeGate]
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

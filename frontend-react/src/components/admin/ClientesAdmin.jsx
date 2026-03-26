@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ClipboardList, Mail, MapPin, Phone, Users, X } from 'lucide-react';
 import { adminGetClientes, adminGetClienteDetalhe } from '../../lib/api';
 import { R$, LABELS_PAGAMENTO, LABELS_STATUS } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';
@@ -6,11 +7,11 @@ import ErrorState from './ui/ErrorState';
 import EmptyState from './ui/EmptyState';
 const SEGMENTOS = [
   { value: 'todos', label: 'Todos' },
-  { value: 'novos', label: '🆕 Novos (1 pedido)' },
-  { value: 'recorrentes', label: '🔄 Recorrentes (3+)' },
-  { value: 'vip', label: '⭐ VIP (R$500+ e 5+)' },
-  { value: 'inativos', label: '💤 Inativos (+60d)' },
-  { value: 'risco_churn', label: '⚠️ Risco churn (+30d)' }
+  { value: 'novos', label: 'Novos (1 pedido)' },
+  { value: 'recorrentes', label: 'Recorrentes (3+)' },
+  { value: 'vip', label: 'VIP (R$500+ e 5+)' },
+  { value: 'inativos', label: 'Inativos (+60d)' },
+  { value: 'risco_churn', label: 'Risco churn (+30d)' }
 ];
 
 const ORDENACOES = [
@@ -39,7 +40,9 @@ function ClienteDetalheModal({ clienteId, onFechar }) {
   return (
     <div className="cli-modal-overlay" onClick={onFechar}>
       <div className="cli-modal" onClick={e => e.stopPropagation()}>
-        <button className="cli-modal-fechar" onClick={onFechar}>✕</button>
+        <button className="cli-modal-fechar" onClick={onFechar} aria-label="Fechar detalhe do cliente">
+          <X size={16} aria-hidden="true" />
+        </button>
         {carregando ? (
           <div className="cli-modal-loading">Carregando...</div>
         ) : !dados ? (
@@ -49,8 +52,8 @@ function ClienteDetalheModal({ clienteId, onFechar }) {
             <div className="cli-modal-header">
               <h3>{dados.nome || 'Sem nome'}</h3>
               <div className="cli-modal-contato">
-                {dados.telefone && <span>📱 {dados.telefone}</span>}
-                {dados.email && <span>📧 {dados.email}</span>}
+                {dados.telefone && <span><Phone size={14} aria-hidden="true" /> {dados.telefone}</span>}
+                {dados.email && <span><Mail size={14} aria-hidden="true" /> {dados.email}</span>}
               </div>
             </div>
 
@@ -64,7 +67,7 @@ function ClienteDetalheModal({ clienteId, onFechar }) {
 
             {dados.enderecos && dados.enderecos.length > 0 && (
               <div className="cli-modal-secao">
-                <h4>📍 Endereços</h4>
+                <h4><MapPin size={14} aria-hidden="true" /> Endereços</h4>
                 {dados.enderecos.map((e, i) => (
                   <div key={i} className="cli-endereco">{[e.rua, e.numero, e.bairro, e.cidade].filter(Boolean).join(', ') || 'Endereço incompleto'}</div>
                 ))}
@@ -72,7 +75,7 @@ function ClienteDetalheModal({ clienteId, onFechar }) {
             )}
 
             <div className="cli-modal-secao">
-              <h4>📋 Últimos Pedidos</h4>
+              <h4><ClipboardList size={14} aria-hidden="true" /> Últimos Pedidos</h4>
               <div className="cli-pedidos-lista">
                 {(dados.pedidos || []).map(p => (
                   <div key={p.id} className="cli-pedido-row">
@@ -155,7 +158,7 @@ export default function ClientesAdmin() {
   return (
     <div className="clientes-admin">
       <div className="cli-header">
-        <h2>👥 Clientes</h2>
+        <h2><Users size={18} aria-hidden="true" /> Clientes</h2>
         <span className="cli-total">{paginacao.total} clientes</span>
       </div>
 
@@ -183,7 +186,7 @@ export default function ClientesAdmin() {
         <ErrorState message={erro} onRetry={() => carregar()} compact />
       ) : clientes.length === 0 ? (
         <EmptyState
-          icon="👥"
+          icon={<Users size={18} aria-hidden="true" />}
           title="Nenhum cliente encontrado"
           description={busca || segmento !== 'todos' ? 'Tente ajustar os filtros de busca.' : 'Os clientes aparecerão aqui assim que fizerem pedidos.'}
           actionLabel={busca || segmento !== 'todos' ? 'Limpar filtros' : null}

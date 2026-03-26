@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { X } from 'lucide-react';
 import { STORE_WHATSAPP_URL, STORE_NAME, STORE_TELEFONE_DISPLAY } from '../../config/store';
 import { captureCommerceEvent } from '../../lib/commerceTracking';
 import {
@@ -150,7 +151,7 @@ function DeliveryHelpModal({ open, onClose, pedidoId, onRegisterEvent, provider,
         <header className="delivery-help-head">
           <h4>Precisa de ajuda com a entrega?</h4>
           <button type="button" className="delivery-help-close" onClick={onClose} aria-label="Fechar ajuda">
-            ✕
+            <X size={16} aria-hidden="true" />
           </button>
         </header>
 
@@ -374,7 +375,7 @@ export default function DeliveryTrackingPanel({ pedidoId, pedidoResumo, open, on
             <p>{data?.status_message || 'Estamos acompanhando seu pedido com atualização constante.'}</p>
           </div>
           <button className="delivery-tracking-close" type="button" onClick={onClose} aria-label="Fechar acompanhamento">
-            ✕
+            <X size={16} aria-hidden="true" />
           </button>
         </header>
 

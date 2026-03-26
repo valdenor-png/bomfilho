@@ -1,17 +1,20 @@
-﻿import React from 'react';
+import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import ReCAPTCHA from 'react-google-recaptcha';
+import { AlertTriangle, BadgeX, CircleCheck, ClipboardList, MapPin, ShoppingCart } from 'lucide-react';
 import {
   buscarEnderecoViaCep,
   criarPedido,
   criarSessao3DSGateway,
   gerarPix,
+  getPedidoById,
   getEndereco,
   getProdutos,
   getMe,
   getPedidos,
   getPedidoStatus,
+  cancelarPedidoRevisao,
   isAuthErrorMessage,
   mpGerarPix,
   mpGetPublicKey,
@@ -40,6 +43,7 @@ import {
   getGrowthInsights
 } from '../lib/conversionGrowth';
 import { useCart } from '../context/CartContext';
+import { useReviewTracker } from '../context/ReviewTrackerContext';
 
 // â”€â”€ Utilitários e constantes extraídos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import {
@@ -98,6 +102,10 @@ import {
   formatarStatusPedido,
   formatarStatusPagamento
 } from '../lib/checkoutUtils';
+import {
+  calcularSubtotalPeso,
+  isItemPeso
+} from '../lib/produtoCatalogoRules';
 
 // â”€â”€ Sub-componentes do checkout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import {
@@ -121,6 +129,27 @@ import InternalTopBar from '../components/navigation/InternalTopBar';
 
 const CHECKOUT_ENDERECO_CACHE_KEY = 'bf_checkout_endereco_preferido';
 const CHECKOUT_CPF_NOTA_CACHE_KEY = 'bf_checkout_cpf_nota';
+const STATUS_REVISAO_ATIVOS = new Set(['aguardando_revisao', 'pendente', 'pagamento_recusado']);
+
+function statusEhElegivelParaFluxoRevisao(statusRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+  return STATUS_REVISAO_ATIVOS.has(status);
+}
+
+function calcularSubtotalLinhaRevisao(item = {}) {
+  const subtotalInformado = Number(item?.subtotal);
+  if (Number.isFinite(subtotalInformado) && subtotalInformado >= 0) {
+    return Number(subtotalInformado.toFixed(2));
+  }
+
+  const preco = Number(item?.preco || 0);
+  const quantidade = Math.max(1, Math.floor(Number(item?.quantidade || 1)));
+  if (isItemPeso(item)) {
+    return calcularSubtotalPeso(preco, item?.peso_gramas, quantidade);
+  }
+
+  return Number((preco * quantidade).toFixed(2));
+}
 
 function salvarEnderecoCheckoutNoCache(endereco = {}) {
   try {
@@ -188,11 +217,16 @@ function lerCpfNotaDoCache() {
 
 export default function PagamentoPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { itens, resumo, addItem, updateItemQuantity, removeItem, clearCart } = useCart();
+  const { tracker: reviewTrackerGlobal, trackOrder, clearTracking } = useReviewTracker();
   const [resultadoPedido, setResultadoPedido] = useState(null);
   const [carregando, setCarregando] = useState(false);
+  const [cancelandoRevisao, setCancelandoRevisao] = useState(false);
   const [erro, setErro] = useState('');
   const [feedbackCarrinho, setFeedbackCarrinho] = useState('');
+  const [retomandoPedidoExistente, setRetomandoPedidoExistente] = useState(false);
+  const [ultimaAtualizacaoRevisao, setUltimaAtualizacaoRevisao] = useState('');
   const [dadosUsuarioCheckout, setDadosUsuarioCheckout] = useState(null);
   const [resultadoPix, setResultadoPix] = useState(null);
   const [qrCodePixDataUrl, setQrCodePixDataUrl] = useState('');
@@ -273,6 +307,16 @@ export default function PagamentoPage() {
   const growthCheckoutPaymentPriceClass = growthCheckoutPaymentEnabled
     ? `is-growth-${String(growthCheckoutPaymentConfig.priceHighlight || 'none').trim() || 'none'}`
     : '';
+  const pedidoRetomadaId = useMemo(() => {
+    const params = new URLSearchParams(location.search || '');
+    const pedido = Number(params.get('pedido') || 0);
+    return Number.isInteger(pedido) && pedido > 0 ? pedido : 0;
+  }, [location.search]);
+  const etapaRetomadaPreferida = useMemo(() => {
+    const params = new URLSearchParams(location.search || '');
+    const etapa = String(params.get('etapa') || '').trim().toLowerCase();
+    return ['revisao', 'pagamento', 'pix'].includes(etapa) ? etapa : '';
+  }, [location.search]);
 
   const normalizarTextoSugestao = useCallback((valor) => String(valor || '')
     .normalize('NFD')
@@ -375,6 +419,30 @@ export default function PagamentoPage() {
     return categoriaPrincipal?.categoria || '';
   }, [itens, normalizarTextoSugestao]);
 
+  const sairDoFluxoRevisaoEncerrado = useCallback((mensagem = '') => {
+    clearTracking();
+    setResultadoPedido(null);
+    setResumoPedidoSnapshot(null);
+    setItensPedidoSnapshot([]);
+    setResultadoPix(null);
+    setQrCodePixDataUrl('');
+    setStatusPedidoAtual('');
+    setPagamentoConfirmado(false);
+    setRetomandoPedidoExistente(false);
+    setErro('');
+
+    if (mensagem) {
+      setFeedbackCarrinho(mensagem);
+    }
+
+    if (itens.length > 0) {
+      setEtapaAtual(ETAPAS.CARRINHO);
+      return;
+    }
+
+    navigate('/produtos', { replace: true });
+  }, [clearTracking, itens.length, navigate]);
+
   useEffect(() => {
     if (!sessao3DSGeradaEm) {
       setSessao3DSExpirando(false);
@@ -414,7 +482,10 @@ export default function PagamentoPage() {
         produto_id: item.id,
         nome: item.nome,
         preco: Number(item.preco || 0),
-        quantidade: Number(item.quantidade || 1)
+        quantidade: Number(item.quantidade || 1),
+        unidade_venda: String(item.unidade_venda || '').trim().toLowerCase(),
+        peso_gramas: Number(item.peso_gramas || 0) > 0 ? Number(item.peso_gramas) : null,
+        subtotal: calcularSubtotalLinhaRevisao(item)
       })),
     [itens]
   );
@@ -551,6 +622,12 @@ export default function PagamentoPage() {
   const totalComEntregaPedido = Number(resultadoPedido?.total ?? Number((totalProdutosPedido + freteSelecionado + taxaServicoPedido).toFixed(2)));
   const totalReferenciaParcelamento = Number(resultadoPedido?.total ?? totalComFreteAtual ?? 0);
   const parcelamentoCreditoDisponivel = totalReferenciaParcelamento >= PARCELAMENTO_MINIMO_CREDITO;
+  const totalRevisaoSnapshot = useMemo(() => {
+    const subtotal = Number(resumoPedidoSnapshot?.subtotal ?? 0);
+    const frete = Number(resumoPedidoSnapshot?.frete ?? 0);
+    const taxaServico = Number(resumoPedidoSnapshot?.taxa_servico ?? 0);
+    return Number((subtotal + frete + taxaServico).toFixed(2));
+  }, [resumoPedidoSnapshot]);
   const valorMinimoParcelamentoTexto = PARCELAMENTO_MINIMO_CREDITO.toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
@@ -1217,6 +1294,136 @@ export default function PagamentoPage() {
   }, [cepEntrega, numeroEntrega, enderecoCepEntrega]);
 
   useEffect(() => {
+    if (autenticado !== true) {
+      return;
+    }
+
+    const trackerOrderId = Number(reviewTrackerGlobal?.orderId || 0);
+    const orderIdAtual = Number(resultadoPedido?.pedido_id || 0);
+    const orderIdOrigem = pedidoRetomadaId > 0
+      ? pedidoRetomadaId
+      : (trackerOrderId > 0 ? trackerOrderId : 0);
+
+    if (!orderIdOrigem || (orderIdAtual > 0 && orderIdAtual === orderIdOrigem)) {
+      return;
+    }
+
+    let ativo = true;
+    setRetomandoPedidoExistente(true);
+    setErro('');
+
+    async function retomarPedidoExistente() {
+      try {
+        const [statusData, detalhesData] = await Promise.all([
+          getPedidoStatus(orderIdOrigem),
+          getPedidoById(orderIdOrigem).catch(() => null)
+        ]);
+
+        if (!ativo) {
+          return;
+        }
+
+        const pedidoDetalhe = detalhesData?.pedido || {};
+        const itensDetalhe = Array.isArray(detalhesData?.itens) ? detalhesData.itens : [];
+        const statusRetomado = String(statusData?.status || pedidoDetalhe?.status || '').toLowerCase();
+        const formaRetornada = String(statusData?.forma_pagamento || pedidoDetalhe?.forma_pagamento || 'pix').toLowerCase();
+        const tipoEntregaRetomada = String(statusData?.tipo_entrega || pedidoDetalhe?.tipo_entrega || '').toLowerCase() === 'retirada'
+          ? 'retirada'
+          : 'entrega';
+
+        if (!statusEhElegivelParaFluxoRevisao(statusRetomado)) {
+          trackOrder(orderIdOrigem, statusData || { status: statusRetomado });
+          sairDoFluxoRevisaoEncerrado('Esse pedido em revisão já foi encerrado. Monte um novo carrinho para continuar.');
+          return;
+        }
+
+        setResultadoPedido((atual) => ({
+          ...atual,
+          ...pedidoDetalhe,
+          ...statusData,
+          pedido_id: orderIdOrigem,
+          status: statusRetomado || atual?.status,
+          forma_pagamento: formaRetornada || atual?.forma_pagamento,
+          tipo_entrega: tipoEntregaRetomada,
+          total: Number(pedidoDetalhe?.total ?? statusData?.total ?? atual?.total ?? 0)
+        }));
+
+        const itensSnapshot = itensDetalhe.map((item) => ({
+          produto_id: Number(item?.produto_id || 0),
+          nome: String(item?.nome_produto || item?.nome || 'Item'),
+          preco: Number(item?.preco || 0),
+          quantidade: Math.max(1, Number(item?.quantidade || 1)),
+          unidade_venda: String(item?.unidade_venda || '').trim().toLowerCase(),
+          peso_gramas: Number(item?.peso_gramas || 0) > 0 ? Number(item.peso_gramas) : null,
+          subtotal: Number(item?.subtotal || 0)
+        }));
+
+        if (itensSnapshot.length > 0) {
+          const subtotalItensSnapshot = Number(
+            itensSnapshot.reduce((acc, item) => acc + calcularSubtotalLinhaRevisao(item), 0).toFixed(2)
+          );
+          setItensPedidoSnapshot(itensSnapshot);
+          setResumoPedidoSnapshot({
+            itens: itensSnapshot.reduce((acc, item) => acc + Number(item.quantidade || 0), 0),
+            subtotal: Number(detalhesData?.pedido?.total_produtos ?? subtotalItensSnapshot),
+            frete: Number(detalhesData?.pedido?.frete_entrega || 0),
+            taxa_servico: Number(detalhesData?.pedido?.taxa_servico || 0)
+          });
+        }
+
+        if (formaRetornada === 'debito') {
+          setFormaPagamento('debito');
+        } else if (['cartao', 'credito'].includes(formaRetornada)) {
+          setFormaPagamento('credito');
+        } else {
+          setFormaPagamento('pix');
+        }
+
+        setTipoEntrega(tipoEntregaRetomada);
+        setStatusPedidoAtual(statusRetomado);
+        setUltimaAtualizacaoRevisao(new Date().toISOString());
+        trackOrder(orderIdOrigem, statusData || { status: statusRetomado });
+
+        if (statusRetomado === 'pendente' || statusRetomado === 'pagamento_recusado') {
+          setEtapaAtual(ETAPAS.PIX);
+        } else {
+          setEtapaAtual(etapaRetomadaPreferida === 'pagamento' || etapaRetomadaPreferida === 'pix'
+            ? ETAPAS.PIX
+            : ETAPAS.REVISAO);
+        }
+      } catch (error) {
+        if (!ativo) {
+          return;
+        }
+
+        if (isAuthErrorMessage(error?.message)) {
+          setAutenticado(false);
+        } else if (pedidoRetomadaId > 0) {
+          setErro(error?.message || 'Não foi possível retomar o pedido informado.');
+        }
+      } finally {
+        if (ativo) {
+          setRetomandoPedidoExistente(false);
+        }
+      }
+    }
+
+    void retomarPedidoExistente();
+
+    return () => {
+      ativo = false;
+    };
+  }, [
+    autenticado,
+    etapaRetomadaPreferida,
+    pedidoRetomadaId,
+    resultadoPedido?.pedido_id,
+    reviewTrackerGlobal?.orderId,
+    sairDoFluxoRevisaoEncerrado,
+    trackOrder
+  ]);
+
+  useEffect(() => {
     if (!resultadoPedido?.pedido_id || autenticado !== true) {
       return;
     }
@@ -1230,14 +1437,22 @@ export default function PagamentoPage() {
         if (ativo && pedido?.status) {
           const novoStatus = String(pedido.status || '').toLowerCase();
           setStatusPedidoAtual(novoStatus);
+          setUltimaAtualizacaoRevisao(new Date().toISOString());
+          trackOrder(resultadoPedido.pedido_id, pedido);
+
+          if (!statusEhElegivelParaFluxoRevisao(novoStatus) && novoStatus !== 'pago') {
+            sairDoFluxoRevisaoEncerrado('Seu pedido em revisão foi encerrado. Você pode montar um novo carrinho.');
+            return;
+          }
 
           // Evita travar na etapa de revisão quando o status já foi aprovado no admin.
-          if (etapaAtual === ETAPAS.REVISAO && (novoStatus === 'pendente' || novoStatus === 'pago')) {
+          if (etapaAtual === ETAPAS.REVISAO && (novoStatus === 'pendente' || novoStatus === 'pago' || novoStatus === 'pagamento_recusado')) {
             setEtapaAtual(ETAPAS.PIX);
           }
 
-          if (etapaAtual === ETAPAS.REVISAO && novoStatus === 'cancelado') {
-            setErro('Seu pedido foi cancelado pela equipe. Por favor, tente novamente.');
+          if (etapaAtual === ETAPAS.REVISAO && (novoStatus === 'cancelado' || novoStatus === 'expirado')) {
+            sairDoFluxoRevisaoEncerrado('Seu pedido em revisão foi encerrado. Monte um novo pedido para continuar.');
+            return;
           }
 
           if (novoStatus === 'pago' || novoStatus === 'entregue') {
@@ -1258,7 +1473,7 @@ export default function PagamentoPage() {
       ativo = false;
       clearInterval(interval);
     };
-  }, [resultadoPedido?.pedido_id, autenticado, etapaAtual]);
+  }, [resultadoPedido?.pedido_id, autenticado, etapaAtual, sairDoFluxoRevisaoEncerrado, trackOrder]);
 
   async function executarSimulacaoFrete({ mostrarErro = true } = {}) {
     if (retiradaSelecionada) {
@@ -1932,9 +2147,12 @@ export default function PagamentoPage() {
       const itensSnapshot = itensPedido.reduce((accumulator, item) => {
         return accumulator + Number(item.quantidade || 0);
       }, 0);
+      const subtotalItensSnapshot = Number(
+        itensPedido.reduce((acc, item) => acc + calcularSubtotalLinhaRevisao(item), 0).toFixed(2)
+      );
       setResumoPedidoSnapshot({
         itens: itensSnapshot,
-        subtotal: Number(data?.total_produtos ?? resumo.total ?? 0),
+        subtotal: Number(data?.total_produtos ?? subtotalItensSnapshot),
         frete: Number(data?.frete_entrega ?? freteSimulado?.frete ?? 0),
         taxa_servico: Number(data?.taxa_servico ?? taxaServicoAtual ?? 0)
       });
@@ -1943,7 +2161,10 @@ export default function PagamentoPage() {
           produto_id: item.produto_id,
           nome: item.nome,
           preco: Number(item.preco || 0),
-          quantidade: Number(item.quantidade || 1)
+          quantidade: Number(item.quantidade || 1),
+          unidade_venda: String(item.unidade_venda || '').trim().toLowerCase(),
+          peso_gramas: Number(item.peso_gramas || 0) > 0 ? Number(item.peso_gramas) : null,
+          subtotal: Number(item.subtotal || 0)
         }))
       );
       const formaRetornada = String(data?.forma_pagamento || formaPagamento || '').toLowerCase();
@@ -1955,6 +2176,12 @@ export default function PagamentoPage() {
         setFormaPagamento('pix');
       }
       setStatusPedidoAtual('aguardando_revisao');
+      setUltimaAtualizacaoRevisao(new Date().toISOString());
+      trackOrder(data?.pedido_id, {
+        ...data,
+        status: 'aguardando_revisao',
+        pedido_id: data?.pedido_id || data?.id
+      });
       clearCart();
       setEtapaAtual(ETAPAS.REVISAO);
     } catch (error) {
@@ -1973,7 +2200,7 @@ export default function PagamentoPage() {
   async function handleIrParaPagamento() {
     if (resultadoPedido?.pedido_id) {
       // Se já está pendente (aprovado), vai direto pro pagamento
-      if (statusPedidoAtual === 'pendente') {
+      if (statusPedidoAtual === 'pendente' || statusPedidoAtual === 'pagamento_recusado') {
         setEtapaAtual(ETAPAS.PIX);
       } else {
         setEtapaAtual(ETAPAS.REVISAO);
@@ -1981,6 +2208,40 @@ export default function PagamentoPage() {
       return;
     }
     await handleCriarPedido();
+  }
+
+  async function handleCancelarPedidoEmRevisao() {
+    const pedidoId = Number(resultadoPedido?.pedido_id || 0);
+    if (!Number.isInteger(pedidoId) || pedidoId <= 0 || cancelandoRevisao) {
+      return;
+    }
+
+    const confirmarCancelamento = typeof window !== 'undefined'
+      ? window.confirm('Deseja cancelar este pedido em revisão? O estoque será devolvido e você poderá montar outro pedido.')
+      : true;
+
+    if (!confirmarCancelamento) {
+      return;
+    }
+
+    setCancelandoRevisao(true);
+    setErro('');
+
+    try {
+      const data = await cancelarPedidoRevisao(pedidoId, {
+        motivo: 'Cancelado pelo cliente durante revisão.'
+      });
+
+      trackOrder(pedidoId, data || { status: 'cancelado' });
+      sairDoFluxoRevisaoEncerrado('Pedido cancelado. Você pode montar outro carrinho normalmente.');
+    } catch (error) {
+      if (isAuthErrorMessage(error.message)) {
+        setAutenticado(false);
+      }
+      setErro(error.message || 'Não foi possível cancelar o pedido em revisão.');
+    } finally {
+      setCancelandoRevisao(false);
+    }
   }
 
   async function handleContinuarPagamento() {
@@ -2008,16 +2269,19 @@ export default function PagamentoPage() {
 
         if (!ativo) return;
 
-        if (novoStatus === 'pendente') {
-          setStatusPedidoAtual('pendente');
+        setUltimaAtualizacaoRevisao(new Date().toISOString());
+        trackOrder(resultadoPedido.pedido_id, data || { status: novoStatus });
+
+        if (novoStatus === 'pendente' || novoStatus === 'pagamento_recusado') {
+          setStatusPedidoAtual(novoStatus);
           setEtapaAtual(ETAPAS.PIX);
         } else if (novoStatus === 'pago') {
           setStatusPedidoAtual('pago');
           setPagamentoConfirmado(true);
           setEtapaAtual(ETAPAS.STATUS);
-        } else if (novoStatus === 'cancelado') {
-          setStatusPedidoAtual('cancelado');
-          setErro('Seu pedido foi cancelado pela equipe. Por favor, tente novamente.');
+        } else if (novoStatus === 'cancelado' || novoStatus === 'expirado') {
+          setStatusPedidoAtual(novoStatus);
+          sairDoFluxoRevisaoEncerrado('Seu pedido em revisão foi encerrado. Você pode montar um novo carrinho.');
         } else if (novoStatus) {
           setStatusPedidoAtual(novoStatus);
         }
@@ -2030,7 +2294,7 @@ export default function PagamentoPage() {
       ativo = false;
       clearInterval(intervalo);
     };
-  }, [etapaAtual, resultadoPedido?.pedido_id, statusPedidoAtual]);
+  }, [etapaAtual, resultadoPedido?.pedido_id, sairDoFluxoRevisaoEncerrado, trackOrder]);
 
   useEffect(() => {
     const statusAtual = String(statusPedidoAtual || resultadoPedido?.status || '').toLowerCase();
@@ -2271,6 +2535,8 @@ export default function PagamentoPage() {
 
       const statusInterno = String(pedidoAtual.status || '').toLowerCase();
       setStatusPedidoAtual(statusInterno);
+      setUltimaAtualizacaoRevisao(new Date().toISOString());
+      trackOrder(resultadoPedido.pedido_id, pedidoAtual);
 
       const aprovado = statusInterno === 'pago' || statusInterno === 'entregue';
       setPagamentoConfirmado(aprovado);
@@ -2286,6 +2552,8 @@ export default function PagamentoPage() {
             ? 'PAID'
             : statusInterno === 'cancelado'
               ? 'CANCELED'
+              : statusInterno === 'pagamento_recusado'
+                ? 'DECLINED'
               : String(atual.status || 'WAITING').toUpperCase(),
           status_interno: statusInterno
         };
@@ -2548,10 +2816,32 @@ export default function PagamentoPage() {
     ? 'Escolha como pagar e confirme seu pedido em segundos.'
     : subtituloEtapaAtual;
   const labelStatus = formatarStatusPedido(statusPedidoAtual || resultadoPedido?.status || 'pendente');
+  const statusRevisaoAtual = String(statusPedidoAtual || resultadoPedido?.status || '').toLowerCase();
+  const podeCancelarRevisaoPedido = ['aguardando_revisao', 'pendente', 'pagamento_recusado'].includes(statusRevisaoAtual)
+    && Number(resultadoPedido?.pedido_id || 0) > 0;
+  const textoUltimaAtualizacaoRevisao = (() => {
+    const syncIso = ultimaAtualizacaoRevisao || reviewTrackerGlobal?.lastSyncAt || '';
+    const syncMs = Number(new Date(syncIso || 0).getTime());
+    if (!Number.isFinite(syncMs) || syncMs <= 0) {
+      return 'Atualização automática ativa a cada poucos segundos';
+    }
+
+    const elapsedSec = Math.max(0, Math.floor((Date.now() - syncMs) / 1000));
+    if (elapsedSec < 5) {
+      return 'Atualizado agora';
+    }
+
+    if (elapsedSec < 60) {
+      return `Atualizado há ${elapsedSec}s`;
+    }
+
+    return `Atualizado há ${Math.floor(elapsedSec / 60)} min`;
+  })();
   const carrinhoVazio = itens.length === 0;
   const statusCartaoAtual = String(resultadoCartao?.status || '').toUpperCase();
   const statusInternoCartaoAtual = String(resultadoCartao?.status_interno || '').toLowerCase();
-  const cartaoRecusado = statusCartaoAtual === 'DECLINED' || statusCartaoAtual === 'CANCELED';
+  const cartaoRecusado = ['DECLINED', 'REJECTED', 'CANCELED'].includes(statusCartaoAtual)
+    || statusInternoCartaoAtual === 'pagamento_recusado';
   const cartaoProcessado = Boolean(resultadoCartao) && !cartaoRecusado;
   const cartaoAprovado = statusCartaoAtual === 'PAID' || statusInternoCartaoAtual === 'pago' || statusInternoCartaoAtual === 'entregue';
   const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
@@ -2651,7 +2941,7 @@ export default function PagamentoPage() {
     ? itensResumoPix
     : resumoItensPagamento > 0
       ? resumoItensPagamento
-      : 'â€”';
+      : '-';
   const podeContinuarConfirmacaoPix = pixPagamentoAprovado || pagamentoConfirmado;
   const bloqueioGeracaoPix = carregando
     || verificandoStatusPix
@@ -2759,12 +3049,12 @@ export default function PagamentoPage() {
       return {
         stepLabel: 'Etapa 4 de 5',
         totalLabel: `Total do pedido: ${formatarMoeda(totalComEntregaPedido)}`,
-        caption: statusPedidoAtual === 'cancelado'
-          ? 'Pedido cancelado pela equipe.'
+        caption: ['cancelado', 'expirado'].includes(String(statusPedidoAtual || '').toLowerCase())
+          ? 'Pedido encerrado.'
           : 'Aguardando revisão da equipe do mercado...',
         primaryLabel: 'Confirmar pedido',
         onPrimaryClick: () => setEtapaAtual(ETAPAS.PIX),
-        primaryDisabled: !['pendente', 'pago'].includes(String(statusPedidoAtual || '').toLowerCase())
+        primaryDisabled: !['pendente', 'pago', 'pagamento_recusado'].includes(String(statusPedidoAtual || '').toLowerCase())
       };
     }
 
@@ -3013,7 +3303,7 @@ export default function PagamentoPage() {
           id,
           nome,
           preco: Number(produto?.preco_promocional || produto?.preco || produto?.preco_venda || 0),
-          emoji: String(produto?.emoji || '🛍️'),
+          emoji: String(produto?.emoji || ''),
           imagem: String(produto?.imagem || '').trim(),
           categoria: String(produto?.categoria || '').trim(),
           unidade: String(produto?.unidade || '').trim(),
@@ -3121,7 +3411,19 @@ export default function PagamentoPage() {
     );
   }
 
-  if (itens.length === 0 && !resultadoPedido?.pedido_id) {
+  if (retomandoPedidoExistente && !resultadoPedido?.pedido_id) {
+    return (
+      <section className="page">
+        <h1>Finalizar pedido</h1>
+        <p>Retomando o status do seu pedido em revisão...</p>
+      </section>
+    );
+  }
+
+  const possuiPedidoRetomadaContexto = pedidoRetomadaId > 0
+    || (Number(reviewTrackerGlobal?.orderId || 0) > 0 && statusEhElegivelParaFluxoRevisao(reviewTrackerGlobal?.status));
+
+  if (itens.length === 0 && !resultadoPedido?.pedido_id && !possuiPedidoRetomadaContexto && !retomandoPedidoExistente) {
     return <Navigate to="/produtos" replace />;
   }
 
@@ -3206,7 +3508,9 @@ export default function PagamentoPage() {
 
             {carrinhoVazio ? (
               <div className="checkout-cart-empty-state" role="status">
-                <span className="checkout-cart-empty-icon" aria-hidden="true">🛒</span>
+                <span className="checkout-cart-empty-icon" aria-hidden="true">
+                  <ShoppingCart size={22} strokeWidth={2} />
+                </span>
                 <div>
                   <strong>Seu carrinho está vazio.</strong>
                   <p>Adicione produtos para continuar com a finalização do pedido.</p>
@@ -3297,7 +3601,9 @@ export default function PagamentoPage() {
             {formaRecebimentoSelecionada === 'uber' ? (
               <article className="delivery-uber-info" role="status" aria-live="polite" aria-label="Informações da entrega via Uber">
                 <div className="delivery-uber-info-head">
-                  <span className="delivery-uber-info-icon" aria-hidden="true">!</span>
+                  <span className="delivery-uber-info-icon" aria-hidden="true">
+                    <AlertTriangle size={16} strokeWidth={2} />
+                  </span>
                   <p className="delivery-uber-info-title">Entrega realizada pela Uber</p>
                 </div>
                 <p className="delivery-uber-info-text">
@@ -3308,7 +3614,9 @@ export default function PagamentoPage() {
 
             {!retiradaSelecionada ? (
               <div className="checkout-delivery-compact-head">
-                <span aria-hidden="true">📍</span>
+                <span aria-hidden="true">
+                  <MapPin size={16} strokeWidth={2} />
+                </span>
                 <div>
                   <p className="checkout-delivery-compact-label">Entregar em:</p>
                   <strong>{enderecoEntregaResumo}</strong>
@@ -3478,7 +3786,9 @@ export default function PagamentoPage() {
 
                 {semOpcaoEntregaDisponivel ? (
                   <div className="delivery-empty-state" role="alert">
-                    <span aria-hidden="true">⚠️</span>
+                    <span aria-hidden="true">
+                      <AlertTriangle size={18} strokeWidth={2} />
+                    </span>
                     <div>
                       <strong>Sem opção de entrega disponível para este CEP.</strong>
                       <p>Verifique o CEP informado ou tente outro endereço para continuar.</p>
@@ -3883,9 +4193,11 @@ export default function PagamentoPage() {
               </p>
             </div>
 
-            {statusPedidoAtual === 'aguardando_revisao' ? (
+            {statusRevisaoAtual === 'aguardando_revisao' ? (
               <div className="checkout-revisao-status">
-                <div className="checkout-revisao-icon" aria-hidden="true">📋</div>
+                <div className="checkout-revisao-icon" aria-hidden="true">
+                  <ClipboardList size={18} strokeWidth={2} />
+                </div>
                 <h3>Aguardando revisão da equipe</h3>
                 <p className="muted-text">
                   A equipe do mercado está verificando a disponibilidade dos seus itens.
@@ -3895,12 +4207,66 @@ export default function PagamentoPage() {
                   <div className="checkout-revisao-spinner"></div>
                   <span>Verificando a cada 10 segundos...</span>
                 </div>
+                <p className="muted-text" style={{ marginTop: '0.6rem' }}>{textoUltimaAtualizacaoRevisao}</p>
+                {podeCancelarRevisaoPedido ? (
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => {
+                      void handleCancelarPedidoEmRevisao();
+                    }}
+                    disabled={cancelandoRevisao}
+                    style={{ marginTop: '0.8rem' }}
+                  >
+                    {cancelandoRevisao ? 'Cancelando pedido...' : 'Cancelar pedido'}
+                  </button>
+                ) : null}
               </div>
-            ) : statusPedidoAtual === 'cancelado' ? (
+            ) : statusRevisaoAtual === 'pendente' || statusRevisaoAtual === 'pagamento_recusado' ? (
+              <div className={`checkout-revisao-status ${statusRevisaoAtual === 'pagamento_recusado' ? 'is-rejected' : ''}`.trim()}>
+                <div className="checkout-revisao-icon" aria-hidden="true">
+                  {statusRevisaoAtual === 'pagamento_recusado' ? (
+                    <AlertTriangle size={18} strokeWidth={2} />
+                  ) : (
+                    <CircleCheck size={18} strokeWidth={2} />
+                  )}
+                </div>
+                <h3>{statusRevisaoAtual === 'pagamento_recusado' ? 'Pagamento recusado' : 'Pedido aprovado para pagamento'}</h3>
+                <p className={statusRevisaoAtual === 'pagamento_recusado' ? 'error-text' : 'muted-text'}>
+                  {statusRevisaoAtual === 'pagamento_recusado'
+                    ? 'Seu pedido está aprovado, mas o pagamento foi recusado. Revise os dados e tente novamente.'
+                    : 'A revisão terminou. Você já pode seguir para o pagamento.'}
+                </p>
+                <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <button className="btn-primary" type="button" onClick={() => setEtapaAtual(ETAPAS.PIX)}>
+                    Ir para pagamento
+                  </button>
+                  {podeCancelarRevisaoPedido ? (
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      onClick={() => {
+                        void handleCancelarPedidoEmRevisao();
+                      }}
+                      disabled={cancelandoRevisao}
+                    >
+                      {cancelandoRevisao ? 'Cancelando pedido...' : 'Cancelar pedido'}
+                    </button>
+                  ) : null}
+                  <Link to="/pedidos" className="btn-secondary">
+                    Ir para meus pedidos
+                  </Link>
+                </div>
+              </div>
+            ) : statusRevisaoAtual === 'cancelado' || statusRevisaoAtual === 'expirado' ? (
               <div className="checkout-revisao-status is-rejected">
-                <div className="checkout-revisao-icon" aria-hidden="true">❌</div>
-                <h3>Pedido não aprovado</h3>
-                <p className="error-text">{erro || 'Infelizmente não foi possível confirmar a disponibilidade dos seus itens.'}</p>
+                <div className="checkout-revisao-icon" aria-hidden="true">
+                  <BadgeX size={18} strokeWidth={2} />
+                </div>
+                <h3>Pedido encerrado</h3>
+                <p className="error-text">
+                  {erro || 'Esse pedido em revisão foi encerrado. Você pode iniciar um novo carrinho normalmente.'}
+                </p>
                 <Link to="/produtos" className="btn-primary" style={{ marginTop: '1rem' }}>
                   Voltar às compras
                 </Link>
@@ -3915,13 +4281,13 @@ export default function PagamentoPage() {
                   {itensPedidoSnapshot.map((item) => (
                     <li key={item.produto_id}>
                       <span>{item.quantidade}x {item.nome}</span>
-                      <span>{formatarMoeda(item.preco * item.quantidade)}</span>
+                      <span>{formatarMoeda(calcularSubtotalLinhaRevisao(item))}</span>
                     </li>
                   ))}
                 </ul>
                 <div className="checkout-revisao-total">
                   <strong>Total</strong>
-                  <strong>{formatarMoeda(resultadoPedido?.total || resumoPedidoSnapshot?.subtotal || 0)}</strong>
+                  <strong>{formatarMoeda(totalRevisaoSnapshot)}</strong>
                 </div>
               </div>
             ) : null}
@@ -4104,7 +4470,7 @@ export default function PagamentoPage() {
               </p>
               {pagamentoConfirmado ? (
                 <div className="pagamento-ok" aria-label="Pagamento confirmado com sucesso">
-                  <span className="pagamento-ok-icon">✅</span>
+                  <span className="pagamento-ok-icon"><CircleCheck size={16} aria-hidden="true" /></span>
                   <span>Pagamento confirmado com sucesso.</span>
                 </div>
               ) : (

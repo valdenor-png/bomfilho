@@ -1,5 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, BadgeX, CircleCheck, Clock3, FileText, FolderSearch, Package, Receipt, Search, ShieldCheck, Store, Wallet } from 'lucide-react';
 import {
   adminGetMe,
   adminLogin,
@@ -29,7 +30,9 @@ import CatalogoSaude from '../components/admin/CatalogoSaude';
 
 const STATUS_OPTIONS = ['pendente', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
 const STATUS_LABELS = {
-  pendente: 'Aguardando confirmação',
+  aguardando_revisao: 'Em revisÃ£o',
+  pendente: 'Aguardando confirmaÃ§Ã£o',
+  pagamento_recusado: 'Pagamento recusado',
   preparando: 'Separando',
   pronto_para_retirada: 'Preparado',
   enviado: 'Saiu pra Entrega',
@@ -42,9 +45,9 @@ const ADMIN_PEDIDOS_POR_PAGINA = 30;
 const ADMIN_PRODUTOS_POR_PAGINA = 60;
 const EXTENSOES_IMPORTACAO_ACEITAS = ['.csv', '.xlsx'];
 const STATUS_IMPORTACAO_LABELS = {
-  concluido: 'Concluída',
-  concluido_com_erros: 'Concluída com alertas',
-  simulado: 'Simulação',
+  concluido: 'ConcluÃ­da',
+  concluido_com_erros: 'ConcluÃ­da com alertas',
+  simulado: 'SimulaÃ§Ã£o',
   erro: 'Falha'
 };
 const BRL_CURRENCY = new Intl.NumberFormat('pt-BR', {
@@ -53,66 +56,78 @@ const BRL_CURRENCY = new Intl.NumberFormat('pt-BR', {
 });
 const FORMAS_PAGAMENTO_LABELS = {
   pix: 'PIX',
-  credito: 'Cartão de crédito',
-  debito: 'Cartão de débito',
-  cartao: 'Cartão',
+  credito: 'CartÃ£o de crÃ©dito',
+  debito: 'CartÃ£o de dÃ©bito',
+  cartao: 'CartÃ£o',
   dinheiro: 'Dinheiro'
 };
 const STATUS_OPERACAO_META = {
-  pendente: {
-    label: 'Aguardando confirmação',
-    icon: '⏳',
+  aguardando_revisao: {
+    label: 'Em revisao',
+    icon: Receipt,
     tone: 'waiting',
+    timelineStep: 1
+  },
+  pendente: {
+    label: 'Aguardando confirmacao',
+    icon: Clock3,
+    tone: 'waiting',
+    timelineStep: 1
+  },
+  pagamento_recusado: {
+    label: 'Pagamento recusado',
+    icon: BadgeX,
+    tone: 'canceled',
     timelineStep: 1
   },
   pago: {
     label: 'Pago',
-    icon: '💳',
+    icon: Wallet,
     tone: 'processing',
     timelineStep: 2
   },
   preparando: {
     label: 'Separando',
-    icon: '📦',
+    icon: Package,
     tone: 'preparing',
     timelineStep: 3
   },
   pronto_para_retirada: {
     label: 'Preparado',
-    icon: '✅',
+    icon: CircleCheck,
     tone: 'pickup-ready',
     timelineStep: 4
   },
   enviado: {
     label: 'Saiu pra Entrega',
-    icon: '🛵',
+    icon: Package,
     tone: 'delivery',
     timelineStep: 4
   },
   retirado: {
     label: 'Retirado na loja',
-    icon: '🏁',
+    icon: Store,
     tone: 'pickup-done',
     timelineStep: 5
   },
   entregue: {
     label: 'Entregue',
-    icon: '🏁',
+    icon: CircleCheck,
     tone: 'delivered',
     timelineStep: 5
   },
   cancelado: {
     label: 'Cancelado',
-    icon: '⛔',
+    icon: BadgeX,
     tone: 'canceled',
     timelineStep: -1
   }
 };
-const STATUS_CHIPS_OPERACIONAIS = ['todos', 'criticos', 'pendente', 'pago', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
+const STATUS_CHIPS_OPERACIONAIS = ['todos', 'criticos', 'aguardando_revisao', 'pendente', 'pagamento_recusado', 'pago', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
 const TIMELINE_ETAPAS_ADMIN = ['Recebido', 'Pago', 'Separando', 'Preparado', 'Entregue'];
 const ORDENACAO_PEDIDOS_OPTIONS = [
   { id: 'prioridade', label: 'Prioridade operacional' },
-  { id: 'urgencia', label: 'Urgência operacional' },
+  { id: 'urgencia', label: 'UrgÃªncia operacional' },
   { id: 'mais-recentes', label: 'Mais recentes' },
   { id: 'mais-antigos', label: 'Mais antigos' },
   { id: 'maior-valor', label: 'Maior valor' },
@@ -124,7 +139,7 @@ const FILTRO_PAGAMENTO_OPTIONS = [
   { id: 'pendente', label: 'Pagamento pendente' },
   { id: 'falhou', label: 'Falha de pagamento' },
   { id: 'pix', label: 'Somente PIX' },
-  { id: 'cartao', label: 'Somente cartão' },
+  { id: 'cartao', label: 'Somente cartÃ£o' },
   { id: 'dinheiro', label: 'Somente dinheiro' }
 ];
 const FILTRO_TIPO_ENTREGA_OPTIONS = [
@@ -153,7 +168,7 @@ const FILTRO_PAGAMENTO_SET = new Set(FILTRO_PAGAMENTO_OPTIONS.map((item) => item
 const FILTRO_TIPO_ENTREGA_SET = new Set(FILTRO_TIPO_ENTREGA_OPTIONS.map((item) => item.id));
 const PEDIDOS_TAB_SOMENTE_HISTORICO = true;
 
-// Som de notificação para novos pedidos (Web Audio API - sem arquivo externo)
+// Som de notificaÃ§Ã£o para novos pedidos (Web Audio API - sem arquivo externo)
 function tocarSomNovoPedido() {
   try {
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -172,10 +187,10 @@ function tocarSomNovoPedido() {
       osc.start(ctx.currentTime + i * 0.15);
       osc.stop(ctx.currentTime + i * 0.15 + 0.3);
     });
-    // Liberar recursos após tocar
+    // Liberar recursos apÃ³s tocar
     setTimeout(() => ctx.close().catch(() => {}), 1500);
   } catch (_) {
-    // Navegador pode bloquear audio sem interação prévia — ignora silenciosamente
+    // Navegador pode bloquear audio sem interaÃ§Ã£o prÃ©via â€” ignora silenciosamente
   }
 }
 
@@ -193,7 +208,7 @@ function normalizarTextoBusca(texto) {
 
 function formatarFormaPagamentoPedido(formaRaw) {
   const forma = String(formaRaw || '').trim().toLowerCase();
-  return FORMAS_PAGAMENTO_LABELS[forma] || 'Não informado';
+  return FORMAS_PAGAMENTO_LABELS[forma] || 'NÃ£o informado';
 }
 
 function normalizarTipoEntregaPedido(tipoEntregaRaw, enderecoRaw) {
@@ -222,8 +237,8 @@ function formatarTipoEntregaPedido(tipoEntregaRaw, enderecoRaw) {
 function obterMetaStatusOperacional(statusRaw) {
   const status = String(statusRaw || '').trim().toLowerCase();
   return STATUS_OPERACAO_META[status] || {
-    label: 'Em análise',
-    icon: '🧾',
+    label: 'Em analise',
+    icon: Package,
     tone: 'neutral',
     timelineStep: 1
   };
@@ -250,12 +265,12 @@ function formatarDataHoraOperacional(dataRaw) {
 
 function formatarTempoRelativo(dataRaw) {
   if (!dataRaw) {
-    return 'Data não informada';
+    return 'Data nÃ£o informada';
   }
 
   const data = new Date(dataRaw);
   if (Number.isNaN(data.getTime())) {
-    return 'Data inválida';
+    return 'Data invÃ¡lida';
   }
 
   const diffMs = Date.now() - data.getTime();
@@ -269,16 +284,16 @@ function formatarTempoRelativo(dataRaw) {
   }
 
   if (diffMin < 60) {
-    return `${diffMin} min atrás`;
+    return `${diffMin} min atrÃ¡s`;
   }
 
   const diffHoras = Math.floor(diffMin / 60);
   if (diffHoras < 24) {
-    return `${diffHoras}h atrás`;
+    return `${diffHoras}h atrÃ¡s`;
   }
 
   const diffDias = Math.floor(diffHoras / 24);
-  return `${diffDias}d atrás`;
+  return `${diffDias}d atrÃ¡s`;
 }
 
 function obterDataStatusAtualPedido(pedido) {
@@ -327,7 +342,7 @@ function obterMetaEnvelhecimentoPedido(statusRaw, tempoMinutosRaw, pagamentoTone
     return {
       nivel: 3,
       tone: 'critical',
-      label: 'Fila crítica'
+      label: 'Fila crÃ­tica'
     };
   }
 
@@ -351,7 +366,7 @@ function obterMetaEnvelhecimentoPedido(statusRaw, tempoMinutosRaw, pagamentoTone
     return {
       nivel: 1,
       tone: 'attention',
-      label: 'Confirmação pendente'
+      label: 'ConfirmaÃ§Ã£o pendente'
     };
   }
 
@@ -426,14 +441,14 @@ function salvarContextoPedidosOperacionais(contexto) {
   try {
     window.localStorage.setItem(CONTEXTO_PEDIDOS_LOCAL_STORAGE_KEY, JSON.stringify(contexto));
   } catch {
-    // Ignore falhas de persistência local para não afetar operação.
+    // Ignore falhas de persistÃªncia local para nÃ£o afetar operaÃ§Ã£o.
   }
 }
 
 function montarResumoOperacionalPedido(pedido) {
   const itensPrincipais = Array.isArray(pedido?.itensLista) && pedido.itensLista.length > 0
     ? pedido.itensLista.slice(0, 4).map((item) => `${item.quantidade}x ${item.nome}`).join(', ')
-    : String(pedido?.resumoItensTexto || 'Itens não detalhados neste pedido.');
+    : String(pedido?.resumoItensTexto || 'Itens nÃ£o detalhados neste pedido.');
   const pagamentoDetalhe = pedido?.pagamentoMeta?.detalhe
     ? ` (${pedido.pagamentoMeta.detalhe})`
     : '';
@@ -442,12 +457,12 @@ function montarResumoOperacionalPedido(pedido) {
   return [
     `Pedido #${pedido?.id || '-'}`,
     `Cliente: ${pedido?.clienteNome || '-'}`,
-    `Telefone: ${pedido?.clienteTelefone || 'não informado'}`,
+    `Telefone: ${pedido?.clienteTelefone || 'nÃ£o informado'}`,
     `Total: ${formatarMoeda(pedido?.totalNumero || pedido?.total || 0)}`,
     `Status: ${pedido?.statusMeta?.label || formatarStatusPedido(pedido?.status || '')}`,
     `Atendimento: ${tipoAtendimento}`,
     `Pagamento: ${pedido?.pagamentoMeta?.label || '-'}${pagamentoDetalhe}`,
-    `Endereço: ${tipoAtendimento === 'Retirada' ? 'Retirada na loja (sem entrega)' : (pedido?.enderecoTexto || 'não cadastrado')}`,
+    `EndereÃ§o: ${tipoAtendimento === 'Retirada' ? 'Retirada na loja (sem entrega)' : (pedido?.enderecoTexto || 'nÃ£o cadastrado')}`,
     `Itens principais: ${itensPrincipais}`
   ].join('\n');
 }
@@ -509,7 +524,7 @@ function extrairVariacaoItemOperacional(item) {
     item?.adicionais,
     item?.sabor,
     item?.tamanho
-  ]).join(' • ');
+  ]).join(' â€¢ ');
 }
 
 function extrairObservacaoItemOperacional(item) {
@@ -521,7 +536,7 @@ function extrairObservacaoItemOperacional(item) {
     item?.comentario,
     item?.instrucoes,
     item?.observacao_cliente
-  ]).join(' • ');
+  ]).join(' â€¢ ');
 }
 
 function montarListaSeparacaoPedido(pedido) {
@@ -531,7 +546,7 @@ function montarListaSeparacaoPedido(pedido) {
       const linhas = [`${index + 1}. ${item.quantidade}x ${item.nome}`];
 
       if (item.variacaoTexto) {
-        linhas.push(`   Variação: ${item.variacaoTexto}`);
+        linhas.push(`   VariaÃ§Ã£o: ${item.variacaoTexto}`);
       }
 
       if (item.observacaoItem) {
@@ -540,30 +555,30 @@ function montarListaSeparacaoPedido(pedido) {
 
       return linhas.join('\n');
     }).join('\n')
-    : 'Itens não detalhados neste pedido.';
+    : 'Itens nÃ£o detalhados neste pedido.';
   const observacoesRelevantes = Array.isArray(pedido?.observacoesRelevantesLista)
     ? pedido.observacoesRelevantesLista
     : [];
 
   return [
-    `Separação do pedido #${pedido?.id || '-'}`,
+    `SeparaÃ§Ã£o do pedido #${pedido?.id || '-'}`,
     `Cliente: ${pedido?.clienteNome || '-'}`,
     `Itens distintos: ${Number(pedido?.totalItensDistintos || itens.length || 0)}`,
     `Unidades estimadas: ${Number(pedido?.totalUnidadesEstimadas || 0)}`,
     '',
     linhasItens,
     '',
-    `Observações relevantes: ${observacoesRelevantes.length ? observacoesRelevantes.join(' | ') : 'nenhuma'}`
+    `ObservaÃ§Ãµes relevantes: ${observacoesRelevantes.length ? observacoesRelevantes.join(' | ') : 'nenhuma'}`
   ].join('\n');
 }
 
 function montarMensagemContatoOperacionalPedido(pedido) {
   const status = String(pedido?.statusMeta?.label || formatarStatusPedido(pedido?.status || '')).toLowerCase();
-  const pagamento = String(pedido?.pagamentoMeta?.label || 'Pagamento não informado');
+  const pagamento = String(pedido?.pagamentoMeta?.label || 'Pagamento nÃ£o informado');
   const tipoEntrega = normalizarTipoEntregaPedido(pedido?.tipoEntregaNormalizado || pedido?.tipo_entrega, pedido?.endereco);
   const enderecoTexto = tipoEntrega === 'retirada'
     ? 'Retirada na loja confirmada.'
-    : (pedido?.enderecoDisponivel ? 'Endereço confirmado.' : 'Endereço pendente.');
+    : (pedido?.enderecoDisponivel ? 'EndereÃ§o confirmado.' : 'EndereÃ§o pendente.');
   const telefoneTexto = pedido?.clienteTelefone ? 'Telefone confirmado.' : 'Telefone pendente.';
 
   return `BomFilho: pedido #${pedido?.id || '-'} em ${status}. ${pagamento}. ${enderecoTexto} ${telefoneTexto} Responda se precisar ajustar dados.`;
@@ -575,7 +590,7 @@ function montarResumoConferenciaExpedicaoPedido(pedido, { modoFilaAlta = false }
   const alertas = [];
 
   if (pedido?.observacoesRelevantesCount > 0) {
-    alertas.push('Observação do cliente presente');
+    alertas.push('ObservaÃ§Ã£o do cliente presente');
   }
 
   if (['waiting', 'attention', 'error'].includes(String(pedido?.pagamentoMeta?.tone || '').trim().toLowerCase())) {
@@ -583,7 +598,7 @@ function montarResumoConferenciaExpedicaoPedido(pedido, { modoFilaAlta = false }
   }
 
   if (pedido?.possuiMuitosItens) {
-    alertas.push('Separação volumosa');
+    alertas.push('SeparaÃ§Ã£o volumosa');
   }
 
   if (pedido?.envelhecimentoLabel) {
@@ -595,15 +610,15 @@ function montarResumoConferenciaExpedicaoPedido(pedido, { modoFilaAlta = false }
   }
 
   return [
-    `Conferência de expedição #${pedido?.id || '-'}`,
+    `ConferÃªncia de expediÃ§Ã£o #${pedido?.id || '-'}`,
     `Status atual: ${pedido?.statusMeta?.label || formatarStatusPedido(pedido?.status || '')}`,
     `Atendimento: ${formatarTipoEntregaPedido(tipoEntrega)}`,
     `Pagamento: ${pedido?.pagamentoMeta?.label || '-'}${pagamentoDetalhe}`,
-    `Telefone: ${pedido?.clienteTelefone || 'não informado'}`,
-    `Endereço: ${tipoEntrega === 'retirada' ? 'Retirada na loja (sem entrega)' : (pedido?.enderecoTexto || 'não cadastrado')}`,
-    `Observação do cliente: ${pedido?.observacaoOperacional || 'sem observação'}`,
+    `Telefone: ${pedido?.clienteTelefone || 'nÃ£o informado'}`,
+    `EndereÃ§o: ${tipoEntrega === 'retirada' ? 'Retirada na loja (sem entrega)' : (pedido?.enderecoTexto || 'nÃ£o cadastrado')}`,
+    `ObservaÃ§Ã£o do cliente: ${pedido?.observacaoOperacional || 'sem observaÃ§Ã£o'}`,
     `Itens: ${Number(pedido?.totalItensDistintos || 0)} distintos / ${Number(pedido?.totalUnidadesEstimadas || 0)} unidades`,
-    `Atenções: ${alertas.length ? alertas.join(' | ') : 'sem alertas adicionais'}`
+    `AtenÃ§Ãµes: ${alertas.length ? alertas.join(' | ') : 'sem alertas adicionais'}`
   ].join('\n');
 }
 
@@ -662,7 +677,7 @@ function montarPendenciasOperacionaisPedido({
     pendencias.push({
       id: 'aguardando-proximo-passo',
       tone: 'action',
-      label: `Avançar para ${formatarStatusPedido(proximoStatus)}`
+      label: `AvanÃ§ar para ${formatarStatusPedido(proximoStatus)}`
     });
   }
 
@@ -670,7 +685,7 @@ function montarPendenciasOperacionaisPedido({
     pendencias.push({
       id: 'observacao-importante',
       tone: 'note',
-      label: 'Observação do cliente'
+      label: 'ObservaÃ§Ã£o do cliente'
     });
   }
 
@@ -678,7 +693,7 @@ function montarPendenciasOperacionaisPedido({
     pendencias.push({
       id: 'separacao-volumosa',
       tone: 'attention',
-      label: 'Separação volumosa'
+      label: 'SeparaÃ§Ã£o volumosa'
     });
   }
 
@@ -713,11 +728,11 @@ function obterLabelAcaoRapida(statusRaw, tipoEntregaRaw = 'entrega') {
   const tipoEntrega = String(tipoEntregaRaw || '').trim().toLowerCase() === 'retirada' ? 'retirada' : 'entrega';
 
   if (status === 'pendente' || status === 'pago') {
-    return 'Iniciar separação';
+    return 'Iniciar separaÃ§Ã£o';
   }
 
   if (status === 'preparando') {
-    return tipoEntrega === 'retirada' ? 'Marcar pronto para retirada' : 'Marcar saída';
+    return tipoEntrega === 'retirada' ? 'Marcar pronto para retirada' : 'Marcar saÃ­da';
   }
 
   if (status === 'pronto_para_retirada') {
@@ -733,7 +748,7 @@ function obterLabelAcaoRapida(statusRaw, tipoEntregaRaw = 'entrega') {
 
 function formatarEnderecoOperacional(endereco) {
   if (!endereco || typeof endereco !== 'object') {
-    return 'Endereço não cadastrado para este pedido.';
+    return 'EndereÃ§o nÃ£o cadastrado para este pedido.';
   }
 
   const rua = String(endereco.rua || '').trim();
@@ -747,7 +762,7 @@ function formatarEnderecoOperacional(endereco) {
   const linha2 = [bairro, cidade, estado].filter(Boolean).join(' - ');
   const texto = [linha1, linha2, cep].filter(Boolean).join(' | ');
 
-  return texto || 'Endereço não cadastrado para este pedido.';
+  return texto || 'EndereÃ§o nÃ£o cadastrado para este pedido.';
 }
 
 function montarResumoItensOperacional(itensRaw) {
@@ -756,7 +771,7 @@ function montarResumoItensOperacional(itensRaw) {
   if (itens.length === 0) {
     return {
       totalItens: 0,
-      resumoTexto: 'Itens não detalhados neste pedido.'
+      resumoTexto: 'Itens nÃ£o detalhados neste pedido.'
     };
   }
 
@@ -774,7 +789,7 @@ function montarResumoItensOperacional(itensRaw) {
   const extras = Math.max(0, nomesUnicos.length - preview.length);
   const resumoTexto = preview.length
     ? `${preview.join(', ')}${extras > 0 ? ` +${extras} item(ns)` : ''}`
-    : 'Itens disponíveis ao abrir detalhes.';
+    : 'Itens disponÃ­veis ao abrir detalhes.';
 
   return {
     totalItens,
@@ -787,12 +802,21 @@ function inferirPagamentoMeta(pedido) {
   const forma = String(pedido?.forma_pagamento || '').trim().toLowerCase();
   const pixStatus = String(pedido?.pix_status || '').trim().toUpperCase();
   const formaLabel = formatarFormaPagamentoPedido(forma);
+  const pagamentoRecusado = statusPedido === 'pagamento_recusado';
 
   if (statusPedido === 'cancelado') {
     return {
       tone: 'neutral',
       label: 'Pedido cancelado',
       detalhe: formaLabel
+    };
+  }
+
+  if (pagamentoRecusado) {
+    return {
+      tone: 'error',
+      label: 'Pagamento recusado',
+      detalhe: forma === 'pix' && pixStatus ? `PIX ${pixStatus}` : formaLabel
     };
   }
 
@@ -805,7 +829,7 @@ function inferirPagamentoMeta(pedido) {
       };
     }
 
-    if (['DECLINED', 'CANCELED', 'EXPIRED', 'FAILED'].includes(pixStatus)) {
+    if (['DECLINED', 'REJECTED', 'CANCELED', 'EXPIRED', 'FAILED'].includes(pixStatus)) {
       return {
         tone: 'error',
         label: 'Falha no pagamento',
@@ -816,7 +840,7 @@ function inferirPagamentoMeta(pedido) {
     if (pixStatus === 'IN_ANALYSIS') {
       return {
         tone: 'attention',
-        label: 'Pagamento em análise',
+        label: 'Pagamento em anÃ¡lise',
         detalhe: 'PIX'
       };
     }
@@ -832,7 +856,7 @@ function inferirPagamentoMeta(pedido) {
     if (statusPedido === 'entregue') {
       return {
         tone: 'ok',
-        label: 'Pagamento concluído',
+        label: 'Pagamento concluÃ­do',
         detalhe: formaLabel
       };
     }
@@ -862,7 +886,7 @@ function inferirPagamentoMeta(pedido) {
 
   return {
     tone: 'neutral',
-    label: 'Pagamento não informado',
+    label: 'Pagamento nÃ£o informado',
     detalhe: '-'
   };
 }
@@ -892,7 +916,7 @@ function montarLinkWhatsappPedido(pedido) {
   }
 
   const mensagem = encodeURIComponent(
-    `Olá! Estamos acompanhando seu pedido #${pedido?.id || ''} na BomFilho.`
+    `OlÃ¡! Estamos acompanhando seu pedido #${pedido?.id || ''} na BomFilho.`
   );
 
   return `https://wa.me/${telefone}?text=${mensagem}`;
@@ -901,7 +925,7 @@ function montarLinkWhatsappPedido(pedido) {
 async function copiarTextoNavegador(texto) {
   const valor = String(texto || '');
   if (!valor) {
-    throw new Error('Valor vazio para cópia.');
+    throw new Error('Valor vazio para cÃ³pia.');
   }
 
   if (navigator?.clipboard?.writeText) {
@@ -952,7 +976,7 @@ function validarArquivoImportacao(arquivo) {
   const extensaoValida = EXTENSOES_IMPORTACAO_ACEITAS.some((extensao) => nomeLower.endsWith(extensao));
 
   if (!extensaoValida) {
-    return 'Formato inválido. Envie um arquivo .xlsx ou .csv.';
+    return 'Formato invÃ¡lido. Envie um arquivo .xlsx ou .csv.';
   }
 
   return '';
@@ -960,7 +984,7 @@ function validarArquivoImportacao(arquivo) {
 
 function formatarStatusPedido(statusRaw) {
   const status = String(statusRaw || '').trim().toLowerCase();
-  return STATUS_LABELS[status] || 'Em análise';
+  return STATUS_LABELS[status] || 'Em anÃ¡lise';
 }
 
 function criarPaginacaoInicial(limite) {
@@ -997,7 +1021,7 @@ const initialProduto = {
   preco: '',
   unidade: 'un',
   categoria: '',
-  emoji: '📦',
+  emoji: '',
   estoque: 0
 };
 
@@ -1514,11 +1538,11 @@ export default function AdminPage() {
       const tipoEntregaNormalizado = normalizarTipoEntregaPedido(pedido?.tipo_entrega, pedido?.endereco);
       const enderecoDisponivel = Boolean(pedido?.endereco && typeof pedido?.endereco === 'object' && pedido?.endereco?.rua);
       const enderecoTextoOperacional = tipoEntregaNormalizado === 'retirada'
-        ? 'Retirada na loja (sem endereço de entrega).'
+        ? 'Retirada na loja (sem endereÃ§o de entrega).'
         : formatarEnderecoOperacional(pedido?.endereco);
       const observacaoOperacional = obterObservacaoOperacionalPedido(pedido);
       const telefoneCliente = String(pedido?.cliente_telefone || '').trim();
-      const clienteNome = String(pedido?.cliente_nome || '').trim() || 'Cliente não identificado';
+      const clienteNome = String(pedido?.cliente_nome || '').trim() || 'Cliente nÃ£o identificado';
       const totalNumero = Number(pedido?.total || 0);
       const itensLista = Array.isArray(pedido?.itens)
         ? pedido.itens.map((item, index) => {
@@ -1556,11 +1580,11 @@ export default function AdminPage() {
         || totalUnidadesEstimadas >= OPERACAO_PEDIDOS_LIMITES.muitasUnidadesEstimadas;
       const pagamentoRequerConferencia = ['waiting', 'attention', 'error'].includes(pagamentoMeta.tone);
 
-      const requerAcao = ['pendente', 'pago', 'preparando', 'pronto_para_retirada', 'enviado'].includes(statusNormalizado);
+      const requerAcao = ['aguardando_revisao', 'pendente', 'pagamento_recusado', 'pago', 'preparando', 'pronto_para_retirada', 'enviado'].includes(statusNormalizado);
       const envelhecimentoMeta = obterMetaEnvelhecimentoPedido(statusNormalizado, tempoMinutos, pagamentoMeta.tone);
       const proximoStatus = obterProximoStatusPedido(statusNormalizado, tipoEntregaNormalizado);
       const urgente = envelhecimentoMeta.nivel >= 2;
-      const critico = envelhecimentoMeta.nivel >= 3 || statusNormalizado === 'pendente' || pagamentoMeta.tone === 'error';
+      const critico = envelhecimentoMeta.nivel >= 3 || ['aguardando_revisao', 'pendente', 'pagamento_recusado'].includes(statusNormalizado) || pagamentoMeta.tone === 'error';
       const tempoNoStatusDisponivel = Number.isFinite(tempoNoStatusMinutos) && tempoNoStatusMinutos >= 0;
       const pendenciasOperacionais = montarPendenciasOperacionaisPedido({
         pagamentoMeta,
@@ -1653,7 +1677,7 @@ export default function AdminPage() {
     let concluidosHoje = 0;
     let pendentesPagamento = 0;
 
-    // Métricas operacionais de tempo
+    // MÃ©tricas operacionais de tempo
     const preparoArr = [];
     const rotaArr = [];
     const totalArr = [];
@@ -1686,14 +1710,14 @@ export default function AdminPage() {
         pendentesPagamento += 1;
       }
 
-      // Agregar métricas de tempo
+      // Agregar mÃ©tricas de tempo
       const mt = pedido.metricasTempo;
       if (mt) {
         if (mt.preparo?.ms != null) preparoArr.push(mt.preparo.ms);
         if (mt.rota?.ms != null) rotaArr.push(mt.rota.ms);
         if (mt.total?.ms != null) totalArr.push(mt.total.ms);
       }
-      // Pedidos com preparo concluído aguardando saída do entregador
+      // Pedidos com preparo concluÃ­do aguardando saÃ­da do entregador
       if (pedido.tipoEntregaNormalizado === 'entrega'
         && ['pronto_para_retirada', 'preparando'].includes(pedido.statusNormalizado)
         && pedido.pronto_em) {
@@ -1741,7 +1765,7 @@ export default function AdminPage() {
       if (id === 'criticos') {
         return {
           id,
-          label: 'Críticos',
+          label: 'CrÃ­ticos',
           count: resumoPedidosOperacionais.criticos
         };
       }
@@ -1758,7 +1782,7 @@ export default function AdminPage() {
     const ativos = [];
 
     if (filtroPedidoStatus !== 'todos') {
-      ativos.push(`Status: ${filtroPedidoStatus === 'criticos' ? 'Críticos' : formatarStatusPedido(filtroPedidoStatus)}`);
+      ativos.push(`Status: ${filtroPedidoStatus === 'criticos' ? 'CrÃ­ticos' : formatarStatusPedido(filtroPedidoStatus)}`);
     }
 
     if (filtroPedidoPagamento !== 'todos') {
@@ -1783,7 +1807,7 @@ export default function AdminPage() {
     if (ordenacaoPedidos !== 'prioridade') {
       const opcao = ORDENACAO_PEDIDOS_OPTIONS.find((item) => item.id === ordenacaoPedidos);
       if (opcao) {
-        ativos.push(`Ordenação: ${opcao.label}`);
+        ativos.push(`OrdenaÃ§Ã£o: ${opcao.label}`);
       }
     }
 
@@ -1906,7 +1930,7 @@ export default function AdminPage() {
 
   const ultimaAtualizacaoPedidosTexto = useMemo(() => {
     if (!ultimaAtualizacaoPedidosEm) {
-      return 'Ainda sem atualização concluída nesta sessão.';
+      return 'Ainda sem atualizaÃ§Ã£o concluÃ­da nesta sessÃ£o.';
     }
 
     return `${formatarDataHoraOperacional(ultimaAtualizacaoPedidosEm)} (${formatarTempoRelativo(ultimaAtualizacaoPedidosEm)})`;
@@ -2104,11 +2128,11 @@ export default function AdminPage() {
     if (!STATUS_OPTIONS.includes(statusSelecionado)) {
       setFeedbackPedidos({
         tipo: 'error',
-        mensagem: 'Status inválido para este pedido.'
+        mensagem: 'Status invÃ¡lido para este pedido.'
       });
       registrarAcaoSessao({
         tipo: 'error',
-        mensagem: `Pedido #${pedidoId}: tentativa com status inválido.`,
+        mensagem: `Pedido #${pedidoId}: tentativa com status invÃ¡lido.`,
         pedidoId
       });
       return;
@@ -2197,11 +2221,11 @@ export default function AdminPage() {
     if (!alvo) {
       setFeedbackPedidos({
         tipo: 'info',
-        mensagem: 'Sem pedidos críticos com os filtros atuais.'
+        mensagem: 'Sem pedidos crÃ­ticos com os filtros atuais.'
       });
       registrarAcaoSessao({
         tipo: 'info',
-        mensagem: 'Busca de crítico sem resultado com os filtros atuais.'
+        mensagem: 'Busca de crÃ­tico sem resultado com os filtros atuais.'
       });
       return;
     }
@@ -2266,7 +2290,7 @@ export default function AdminPage() {
 
     const mensagem = ativo
       ? 'Fila alta ativada: mais pedidos por tela.'
-      : 'Fila alta desativada: visão completa restaurada.';
+      : 'Fila alta desativada: visÃ£o completa restaurada.';
 
     setFeedbackPedidos({ tipo: 'info', mensagem });
     registrarAcaoSessao({ tipo: 'info', mensagem });
@@ -2276,7 +2300,7 @@ export default function AdminPage() {
     setHistoricoAcoesSessao([]);
     setFeedbackPedidos({
       tipo: 'info',
-      mensagem: 'Histórico da sessão limpo.'
+      mensagem: 'HistÃ³rico da sessÃ£o limpo.'
     });
   }
 
@@ -2284,11 +2308,11 @@ export default function AdminPage() {
     if (!valor) {
       setFeedbackPedidos({
         tipo: 'error',
-        mensagem: `${label} indisponível.`
+        mensagem: `${label} indisponÃ­vel.`
       });
       registrarAcaoSessao({
         tipo: 'error',
-        mensagem: `${label} indisponível.`
+        mensagem: `${label} indisponÃ­vel.`
       });
       return;
     }
@@ -2306,11 +2330,11 @@ export default function AdminPage() {
     } catch {
       setFeedbackPedidos({
         tipo: 'error',
-        mensagem: `Não foi possível copiar ${label.toLowerCase()}.`
+        mensagem: `NÃ£o foi possÃ­vel copiar ${label.toLowerCase()}.`
       });
       registrarAcaoSessao({
         tipo: 'error',
-        mensagem: `Não foi possível copiar ${label.toLowerCase()}.`
+        mensagem: `NÃ£o foi possÃ­vel copiar ${label.toLowerCase()}.`
       });
     }
   }
@@ -2325,7 +2349,7 @@ export default function AdminPage() {
   async function handleCopiarListaSeparacaoPedido(pedido) {
     await handleCopiarCampoPedido(
       montarListaSeparacaoPedido(pedido),
-      `Lista de separação #${pedido?.id || ''}`
+      `Lista de separaÃ§Ã£o #${pedido?.id || ''}`
     );
   }
 
@@ -2339,7 +2363,7 @@ export default function AdminPage() {
   async function handleCopiarConferenciaExpedicaoPedido(pedido) {
     await handleCopiarCampoPedido(
       montarResumoConferenciaExpedicaoPedido(pedido, { modoFilaAlta: modoFilaAltaAtivo }),
-      `Conferência/expedição #${pedido?.id || ''}`
+      `ConferÃªncia/expediÃ§Ã£o #${pedido?.id || ''}`
     );
   }
 
@@ -2348,7 +2372,7 @@ export default function AdminPage() {
     setErro('');
 
     if (!produtoForm.nome || !produtoForm.preco || !produtoForm.categoria) {
-      setErro('Preencha nome, preço e categoria para cadastrar o produto.');
+      setErro('Preencha nome, preÃ§o e categoria para cadastrar o produto.');
       return;
     }
 
@@ -2363,7 +2387,7 @@ export default function AdminPage() {
         preco: Number(produtoForm.preco),
         unidade: produtoForm.unidade.trim() || 'un',
         categoria: produtoForm.categoria.trim(),
-        emoji: produtoForm.emoji.trim() || '📦',
+        emoji: produtoForm.emoji.trim() || '',
         estoque: Number(produtoForm.estoque || 0)
       });
 
@@ -2377,7 +2401,7 @@ export default function AdminPage() {
   }
 
   async function handleExcluirProduto(produtoId) {
-    const ok = window.confirm('Confirma a remoção deste produto do catálogo?');
+    const ok = window.confirm('Confirma a remoÃ§Ã£o deste produto do catÃ¡logo?');
     if (!ok) {
       return;
     }
@@ -2396,7 +2420,7 @@ export default function AdminPage() {
     const codigo = String(produtoForm.codigo_barras || '').replace(/\D/g, '');
 
     if (codigo.length < 8) {
-      setErro('Informe um código de barras válido (mínimo 8 dígitos).');
+      setErro('Informe um cÃ³digo de barras vÃ¡lido (mÃ­nimo 8 dÃ­gitos).');
       return;
     }
 
@@ -2451,7 +2475,7 @@ export default function AdminPage() {
     return (
       <section className="page" style={{ background: '#0f172a', color: '#e2e8f0', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <h1 style={{ color: '#ef4444' }}>Acesso Restrito</h1>
-        <p style={{ color: '#94a3b8' }}>O acesso administrativo está disponível apenas no computador da loja.</p>
+        <p style={{ color: '#94a3b8' }}>O acesso administrativo estÃ¡ disponÃ­vel apenas no computador da loja.</p>
       </section>
     );
   }
@@ -2460,13 +2484,13 @@ export default function AdminPage() {
     return (
       <section className="page" style={{ background: '#0f172a', color: '#e2e8f0', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-          <span style={{ fontSize: '2.5rem' }}>🏪</span>
+          <span style={{ fontSize: '2.5rem' }}><ShieldCheck size={32} aria-hidden="true" /></span>
           <h1 style={{ color: '#06b6d4', fontSize: '1.4rem', marginTop: '0.5rem' }}>BomFilho Admin</h1>
-          <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Informe suas credenciais para acessar o cockpit de gestão.</p>
+          <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Informe suas credenciais para acessar o cockpit de gestÃ£o.</p>
         </div>
 
         <form className="form-box" onSubmit={handleAdminLogin} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.5rem', maxWidth: '360px', width: '100%' }}>
-          <label className="field-label" htmlFor="admin-usuario" style={{ color: '#94a3b8' }}>Usuário</label>
+          <label className="field-label" htmlFor="admin-usuario" style={{ color: '#94a3b8' }}>UsuÃ¡rio</label>
           <input
             id="admin-usuario"
             className="field-input"
@@ -2514,43 +2538,43 @@ export default function AdminPage() {
           <section className={`admin-orders-panel ${modoFilaAltaAtivo ? 'is-fila-alta' : ''}`}>
             <div className="admin-orders-head">
               <div>
-                <h2>Histórico de pedidos</h2>
-                <p>Consulta histórica de pedidos. Operação em tempo real fica na aba Operação ao Vivo.</p>
+                <h2>HistÃ³rico de pedidos</h2>
+                <p>Consulta histÃ³rica de pedidos. OperaÃ§Ã£o em tempo real fica na aba OperaÃ§Ã£o ao Vivo.</p>
               </div>
 
               <p className="admin-orders-head-meta">
-                Página {paginacaoPedidos.pagina} de {paginacaoPedidos.total_paginas} • {paginacaoPedidos.total} pedido(s)
+                PÃ¡gina {paginacaoPedidos.pagina} de {paginacaoPedidos.total_paginas} â€¢ {paginacaoPedidos.total} pedido(s)
               </p>
             </div>
 
             {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
               <div className="admin-orders-summary-grid" aria-label="Resumo operacional dos pedidos">
               <article className="admin-orders-summary-card">
-                <span>Total na página</span>
+                <span>Total na pÃ¡gina</span>
                 <strong>{resumoPedidosOperacionais.total}</strong>
                 <small>{contadorPedidosOperacionaisTexto}</small>
               </article>
 
               <article className="admin-orders-summary-card is-critical">
-                <span>Pendências críticas</span>
+                <span>PendÃªncias crÃ­ticas</span>
                 <strong>{resumoPedidosOperacionais.criticos}</strong>
-                <small>Pedidos com atenção imediata</small>
+                <small>Pedidos com atenÃ§Ã£o imediata</small>
               </article>
 
               <article className="admin-orders-summary-card">
-                <span>Aguardando ação</span>
+                <span>Aguardando aÃ§Ã£o</span>
                 <strong>{resumoPedidosOperacionais.aguardandoAcao}</strong>
-                <small>Status que exigem operação</small>
+                <small>Status que exigem operaÃ§Ã£o</small>
               </article>
 
               <article className="admin-orders-summary-card">
                 <span>Em andamento</span>
                 <strong>{resumoPedidosOperacionais.emAndamento}</strong>
-                <small>Pedidos em fluxo de preparação/entrega</small>
+                <small>Pedidos em fluxo de preparaÃ§Ã£o/entrega</small>
               </article>
 
               <article className="admin-orders-summary-card">
-                <span>Concluídos hoje</span>
+                <span>ConcluÃ­dos hoje</span>
                 <strong>{resumoPedidosOperacionais.concluidosHoje}</strong>
                 <small>Entregues no dia atual</small>
               </article>
@@ -2558,20 +2582,20 @@ export default function AdminPage() {
               <article className="admin-orders-summary-card">
                 <span>Pagamento pendente</span>
                 <strong>{resumoPedidosOperacionais.pendentesPagamento}</strong>
-                <small>Com necessidade de conferência</small>
+                <small>Com necessidade de conferÃªncia</small>
               </article>
               </div>
             ) : null}
 
             {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
-              <div className="admin-orders-refresh-strip" aria-label="Estado de atualização operacional">
+              <div className="admin-orders-refresh-strip" aria-label="Estado de atualizaÃ§Ã£o operacional">
               <div className="admin-orders-refresh-info">
                 <p>
-                  <strong>Última atualização:</strong> {ultimaAtualizacaoPedidosTexto}
+                  <strong>Ãšltima atualizaÃ§Ã£o:</strong> {ultimaAtualizacaoPedidosTexto}
                 </p>
                 {novosPedidosDetectados > 0 ? (
                   <div className="admin-orders-new-warning" role="status" aria-live="polite">
-                    <span>{novosPedidosDetectados} novo(s) pedido(s) detectado(s) na atualização.</span>
+                    <span>{novosPedidosDetectados} novo(s) pedido(s) detectado(s) na atualizaÃ§Ã£o.</span>
                     <button className="btn-secondary" type="button" onClick={limparAvisoNovosPedidos}>
                       Dispensar aviso
                     </button>
@@ -2615,7 +2639,7 @@ export default function AdminPage() {
             ) : null}
 
             {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
-              <div className="admin-orders-quick-nav" aria-label="Navegação rápida entre pedidos">
+              <div className="admin-orders-quick-nav" aria-label="NavegaÃ§Ã£o rÃ¡pida entre pedidos">
               <p>
                 {pedidoExpandidoId && navegacaoPedidosDetalhe.indiceAtual >= 0
                   ? `Detalhe aberto ${navegacaoPedidosDetalhe.indiceAtual + 1} de ${navegacaoPedidosDetalhe.total}`
@@ -2624,7 +2648,7 @@ export default function AdminPage() {
 
               <div className="admin-orders-quick-nav-actions">
                 <button className="btn-secondary" type="button" onClick={abrirPrimeiroPedidoPrioritario}>
-                  Abrir pedido crítico
+                  Abrir pedido crÃ­tico
                 </button>
                 <button
                   className="btn-secondary"
@@ -2640,7 +2664,7 @@ export default function AdminPage() {
                   onClick={() => navegarDetalhePedidoOperacional(1)}
                   disabled={!navegacaoPedidosDetalhe.proximoId}
                 >
-                  Próximo pedido
+                  PrÃ³ximo pedido
                 </button>
                 <button
                   className="btn-secondary"
@@ -2655,15 +2679,15 @@ export default function AdminPage() {
             ) : null}
 
             {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
-              <div className="admin-orders-session-audit" aria-label="Auditoria da sessão operacional">
+              <div className="admin-orders-session-audit" aria-label="Auditoria da sessÃ£o operacional">
               <div className="admin-orders-session-audit-head">
                 <p>
-                  <strong>Histórico da sessão:</strong> {resumoAuditoriaSessao.total} ação(ões)
+                  <strong>HistÃ³rico da sessÃ£o:</strong> {resumoAuditoriaSessao.total} aÃ§Ã£o(Ãµes)
                 </p>
                 <small>
                   {resumoAuditoriaSessao.ultimaAcao
-                    ? `Última: ${resumoAuditoriaSessao.ultimaAcao.mensagem} (${formatarTempoRelativo(resumoAuditoriaSessao.ultimaAcao.em)})`
-                    : 'Sem ações registradas nesta sessão.'}
+                    ? `Ãšltima: ${resumoAuditoriaSessao.ultimaAcao.mensagem} (${formatarTempoRelativo(resumoAuditoriaSessao.ultimaAcao.em)})`
+                    : 'Sem aÃ§Ãµes registradas nesta sessÃ£o.'}
                 </small>
               </div>
 
@@ -2674,7 +2698,7 @@ export default function AdminPage() {
               </div>
 
               {ultimasAcoesSessaoVisiveis.length > 0 ? (
-                <ul className="admin-orders-session-audit-list" aria-label="Últimas ações da sessão">
+                <ul className="admin-orders-session-audit-list" aria-label="Ãšltimas aÃ§Ãµes da sessÃ£o">
                   {ultimasAcoesSessaoVisiveis.map((acao, index) => (
                     <li key={`sessao-acao-${acao.em}-${index}`}>
                       <span className={`admin-orders-session-audit-dot tone-${acao.tipo || 'info'}`} aria-hidden="true" />
@@ -2691,12 +2715,12 @@ export default function AdminPage() {
                 onClick={limparHistoricoAuditoriaSessao}
                 disabled={resumoAuditoriaSessao.total === 0}
               >
-                Limpar histórico da sessão
+                Limpar histÃ³rico da sessÃ£o
               </button>
               </div>
             ) : null}
 
-            <div className="admin-orders-filter-wrap" aria-label="Filtros de histórico de pedidos">
+            <div className="admin-orders-filter-wrap" aria-label="Filtros de histÃ³rico de pedidos">
               {!PEDIDOS_TAB_SOMENTE_HISTORICO ? (
                 <div className="admin-orders-status-chips" role="tablist" aria-label="Filtrar pedidos por status">
                   {statusChipsOperacionais.map((chip) => (
@@ -2716,11 +2740,11 @@ export default function AdminPage() {
 
               <div className="admin-orders-filters-grid">
                 <label className="admin-orders-search-field" htmlFor="admin-orders-search">
-                  <span>Buscar no histórico</span>
+                  <span>Buscar no histÃ³rico</span>
                   <input
                     id="admin-orders-search"
                     className="field-input"
-                    placeholder="Número, cliente ou telefone"
+                    placeholder="NÃºmero, cliente ou telefone"
                     value={buscaPedidosOperacional}
                     onChange={(event) => setBuscaPedidosOperacional(event.target.value)}
                   />
@@ -2755,7 +2779,7 @@ export default function AdminPage() {
                 </label>
 
                 <label className="admin-orders-select-field" htmlFor="admin-orders-orderby">
-                  <span>Ordenação</span>
+                  <span>OrdenaÃ§Ã£o</span>
                   <select
                     id="admin-orders-orderby"
                     className="field-input"
@@ -2795,15 +2819,15 @@ export default function AdminPage() {
 
             {carregandoPedidos && semPedidosOperacionais ? (
               <div className="orders-state-card" role="status" aria-live="polite">
-                <div className="orders-empty-icon" aria-hidden="true">⏳</div>
+                <div className="orders-empty-icon" aria-hidden="true"><Clock3 size={18} /></div>
                 <p><strong>Atualizando pedidos operacionais...</strong></p>
-                <p>Estamos carregando os pedidos mais recentes desta página.</p>
+                <p>Estamos carregando os pedidos mais recentes desta pÃ¡gina.</p>
               </div>
             ) : erro && semPedidosOperacionais ? (
               <div className="orders-state-card is-filter-empty" role="alert">
-                <div className="orders-empty-icon" aria-hidden="true">⚠️</div>
-                <p><strong>Não foi possível carregar os pedidos agora.</strong></p>
-                <p>Confira sua conexão e tente atualizar novamente.</p>
+                <div className="orders-empty-icon" aria-hidden="true"><AlertTriangle size={18} /></div>
+                <p><strong>NÃ£o foi possÃ­vel carregar os pedidos agora.</strong></p>
+                <p>Confira sua conexÃ£o e tente atualizar novamente.</p>
                 <button
                   className="btn-secondary"
                   type="button"
@@ -2816,13 +2840,13 @@ export default function AdminPage() {
               </div>
             ) : semPedidosOperacionais ? (
               <div className="orders-state-card is-filter-empty" role="status" aria-live="polite">
-                <div className="orders-empty-icon" aria-hidden="true">📭</div>
-                <p><strong>Sem pedidos nesta página no momento.</strong></p>
-                <p>Assim que houver novas vendas, elas aparecerão aqui para acompanhamento operacional.</p>
+                <div className="orders-empty-icon" aria-hidden="true"><FileText size={18} /></div>
+                <p><strong>Sem pedidos nesta pÃ¡gina no momento.</strong></p>
+                <p>Assim que houver novas vendas, elas aparecerÃ£o aqui para acompanhamento operacional.</p>
               </div>
             ) : semResultadosPedidosOperacionais ? (
               <div className="orders-state-card is-filter-empty" role="status" aria-live="polite">
-                <div className="orders-empty-icon" aria-hidden="true">🗂️</div>
+                <div className="orders-empty-icon" aria-hidden="true"><FolderSearch size={18} /></div>
                 <p><strong>Nenhum pedido encontrado com os filtros aplicados.</strong></p>
                 <p>Ajuste os filtros para visualizar pedidos de outros status, clientes ou pagamentos.</p>
               </div>
@@ -2858,11 +2882,12 @@ export default function AdminPage() {
                     ? 'note'
                     : (pedido.enderecoDisponivel ? 'ok' : 'attention');
                   const enderecoConferenciaLabel = pedido.tipoEntregaNormalizado === 'retirada'
-                    ? 'Não se aplica'
+                    ? 'NÃ£o se aplica'
                     : (pedido.enderecoDisponivel ? 'Confirmado' : 'Pendente');
                   const enderecoConferenciaDetalhe = pedido.tipoEntregaNormalizado === 'retirada'
                     ? 'Cliente escolheu retirar na loja.'
                     : pedido.enderecoTexto;
+                  const StatusIcon = typeof pedido.statusMeta.icon === 'function' ? pedido.statusMeta.icon : Package;
 
                   return (
                     <article
@@ -2884,7 +2909,7 @@ export default function AdminPage() {
                             {!modoFilaAltaAtivo && pedido.tempoNoStatusDisponivel ? (
                               <span className="admin-order-time-chip">No status: {pedido.tempoNoStatusLabel}</span>
                             ) : !modoFilaAltaAtivo ? (
-                              <span className="admin-order-time-chip is-muted">No status: sem histórico dedicado</span>
+                              <span className="admin-order-time-chip is-muted">No status: sem histÃ³rico dedicado</span>
                             ) : null}
                           </div>
                         </div>
@@ -2903,14 +2928,14 @@ export default function AdminPage() {
                           </span>
 
                           <span className={`orders-status-badge tone-${pedido.statusMeta.tone}`}>
-                            <span className="orders-status-icon" aria-hidden="true">{pedido.statusMeta.icon}</span>
+                            <span className="orders-status-icon" aria-hidden="true"><StatusIcon size={14} /></span>
                             <span>{pedido.statusMeta.label}</span>
                           </span>
                         </div>
                       </div>
 
                       {pedidoTemPendencias ? (
-                        <div className="admin-order-pendencias" aria-label="Pendências operacionais">
+                        <div className="admin-order-pendencias" aria-label="PendÃªncias operacionais">
                           {pendenciasVisiveis.map((pendencia) => (
                             <span
                               key={`${pedidoId}-${pendencia.id}`}
@@ -2920,7 +2945,7 @@ export default function AdminPage() {
                             </span>
                           ))}
                           {pendenciasOcultas > 0 ? (
-                            <span className="admin-order-pendencia-chip tone-muted">+{pendenciasOcultas} pendência(s)</span>
+                            <span className="admin-order-pendencia-chip tone-muted">+{pendenciasOcultas} pendÃªncia(s)</span>
                           ) : null}
                         </div>
                       ) : null}
@@ -2929,7 +2954,7 @@ export default function AdminPage() {
                         <div>
                           <span>Cliente</span>
                           <strong>{pedido.clienteNome}</strong>
-                          <small>{pedido.clienteTelefone || 'Telefone não informado'}</small>
+                          <small>{pedido.clienteTelefone || 'Telefone nÃ£o informado'}</small>
                         </div>
 
                         <div>
@@ -2994,11 +3019,11 @@ export default function AdminPage() {
                             className="btn-secondary admin-order-util-btn"
                             type="button"
                             onClick={() => {
-                              void handleCopiarCampoPedido(pedido.enderecoTexto, 'Endereço');
+                              void handleCopiarCampoPedido(pedido.enderecoTexto, 'EndereÃ§o');
                             }}
                             disabled={!pedido.enderecoDisponivel}
                           >
-                            Copiar endereço
+                            Copiar endereÃ§o
                           </button>
 
                           <button
@@ -3016,7 +3041,7 @@ export default function AdminPage() {
 
                       {ultimaAcaoPedido ? (
                         <p className={`admin-order-last-action tone-${ultimaAcaoPedido.tipo || 'info'}`}>
-                          Última ação: {ultimaAcaoPedido.mensagem} ({formatarTempoRelativo(ultimaAcaoPedido.em)})
+                          Ãšltima aÃ§Ã£o: {ultimaAcaoPedido.mensagem} ({formatarTempoRelativo(ultimaAcaoPedido.em)})
                         </p>
                       ) : null}
 
@@ -3030,7 +3055,7 @@ export default function AdminPage() {
                             }}
                             disabled={emAtualizacao}
                           >
-                            Avançar para {proximoStatusLabel}
+                            AvanÃ§ar para {proximoStatusLabel}
                           </button>
                         ) : null}
 
@@ -3044,7 +3069,7 @@ export default function AdminPage() {
                             }))
                           }
                           disabled={emAtualizacao || PEDIDOS_TAB_SOMENTE_HISTORICO}
-                          title={PEDIDOS_TAB_SOMENTE_HISTORICO ? 'Aba somente histórico: sem alteração de status.' : ''}
+                          title={PEDIDOS_TAB_SOMENTE_HISTORICO ? 'Aba somente histÃ³rico: sem alteraÃ§Ã£o de status.' : ''}
                         >
                           {opcoesStatus.map((status) => (
                             <option key={`${pedidoId}-${status}`} value={status}>
@@ -3061,9 +3086,9 @@ export default function AdminPage() {
                             void salvarStatusPedido(pedidoId);
                           }}
                           disabled={PEDIDOS_TAB_SOMENTE_HISTORICO || !podeSalvarStatus || emAtualizacao}
-                          title={PEDIDOS_TAB_SOMENTE_HISTORICO ? 'Aba somente histórico: sem alteração de status.' : ''}
+                          title={PEDIDOS_TAB_SOMENTE_HISTORICO ? 'Aba somente histÃ³rico: sem alteraÃ§Ã£o de status.' : ''}
                         >
-                          {PEDIDOS_TAB_SOMENTE_HISTORICO ? 'Somente histórico' : (emAtualizacao ? 'Salvando...' : 'Confirmar status')}
+                          {PEDIDOS_TAB_SOMENTE_HISTORICO ? 'Somente histÃ³rico' : (emAtualizacao ? 'Salvando...' : 'Confirmar status')}
                         </button>
 
                         <button
@@ -3077,10 +3102,10 @@ export default function AdminPage() {
 
                       {detalheAberto ? (
                         <div className="admin-order-details">
-                          <div className="admin-order-operational-signals" aria-label="Sinalização operacional do pedido">
+                          <div className="admin-order-operational-signals" aria-label="SinalizaÃ§Ã£o operacional do pedido">
                             {pedido.observacoesRelevantesCount > 0 ? (
                               <span className="admin-order-operational-signal tone-note">
-                                Observação do cliente
+                                ObservaÃ§Ã£o do cliente
                               </span>
                             ) : null}
 
@@ -3092,7 +3117,7 @@ export default function AdminPage() {
 
                             {pedido.possuiMuitosItens ? (
                               <span className="admin-order-operational-signal tone-attention">
-                                Separação volumosa
+                                SeparaÃ§Ã£o volumosa
                               </span>
                             ) : null}
 
@@ -3111,11 +3136,11 @@ export default function AdminPage() {
                             <div className="admin-order-details-main">
                               <div className="admin-order-separacao-box">
                                 <div className="admin-order-separacao-head">
-                                  <strong>Separação do pedido</strong>
-                                  <span>Priorize quantidade, item e pontos críticos</span>
+                                  <strong>SeparaÃ§Ã£o do pedido</strong>
+                                  <span>Priorize quantidade, item e pontos crÃ­ticos</span>
                                 </div>
 
-                                <div className="admin-order-separacao-metrics" aria-label="Resumo de separação">
+                                <div className="admin-order-separacao-metrics" aria-label="Resumo de separaÃ§Ã£o">
                                   <span>
                                     <strong>{pedido.totalItensDistintos}</strong> itens distintos
                                   </span>
@@ -3123,17 +3148,17 @@ export default function AdminPage() {
                                     <strong>{pedido.totalUnidadesEstimadas}</strong> unidades estimadas
                                   </span>
                                   <span>
-                                    <strong>{pedido.observacoesRelevantesCount}</strong> observação(ões) relevante(s)
+                                    <strong>{pedido.observacoesRelevantesCount}</strong> observaÃ§Ã£o(Ãµes) relevante(s)
                                   </span>
                                 </div>
 
                                 {observacoesRelevantesPreview.length > 0 ? (
                                   <p className="admin-order-separacao-observacoes">
-                                    Observações: {observacoesRelevantesPreview.join(' | ')}
+                                    ObservaÃ§Ãµes: {observacoesRelevantesPreview.join(' | ')}
                                     {observacoesRelevantesExtras > 0 ? ` +${observacoesRelevantesExtras}` : ''}
                                   </p>
                                 ) : (
-                                  <p className="admin-order-separacao-observacoes is-empty">Sem observações relevantes no pedido.</p>
+                                  <p className="admin-order-separacao-observacoes is-empty">Sem observaÃ§Ãµes relevantes no pedido.</p>
                                 )}
 
                                 <div className="admin-order-separacao-copy-row">
@@ -3144,7 +3169,7 @@ export default function AdminPage() {
                                       void handleCopiarListaSeparacaoPedido(pedido);
                                     }}
                                   >
-                                    Copiar lista de separação
+                                    Copiar lista de separaÃ§Ã£o
                                   </button>
 
                                   <button
@@ -3164,12 +3189,12 @@ export default function AdminPage() {
                                       void handleCopiarConferenciaExpedicaoPedido(pedido);
                                     }}
                                   >
-                                    Copiar conferência/expedição
+                                    Copiar conferÃªncia/expediÃ§Ã£o
                                   </button>
                                 </div>
 
                                 {pedido.itensLista.length === 0 ? (
-                                  <p className="muted-text">Itens não detalhados neste pedido.</p>
+                                  <p className="muted-text">Itens nÃ£o detalhados neste pedido.</p>
                                 ) : (
                                   <ul className="admin-order-items-list is-operacional">
                                     {pedido.itensLista.map((item) => (
@@ -3179,7 +3204,7 @@ export default function AdminPage() {
                                           <p>{item.nome}</p>
                                           <small>{formatarMoeda(item.preco)} por unidade</small>
                                           {item.variacaoTexto ? (
-                                            <small className="admin-order-item-variation">Variação: {item.variacaoTexto}</small>
+                                            <small className="admin-order-item-variation">VariaÃ§Ã£o: {item.variacaoTexto}</small>
                                           ) : null}
                                           {item.observacaoItem ? (
                                             <small className="admin-order-item-note">Obs item: {item.observacaoItem}</small>
@@ -3214,7 +3239,7 @@ export default function AdminPage() {
                                           {etapa.hora ? (
                                             <span className="admin-timeline-hora">{etapa.hora}</span>
                                           ) : (
-                                            <span className="admin-timeline-hora is-pending">–</span>
+                                            <span className="admin-timeline-hora is-pending">â€“</span>
                                           )}
                                           {etapa.descricao ? (
                                             <span className="admin-timeline-descricao">{etapa.descricao}</span>
@@ -3235,10 +3260,10 @@ export default function AdminPage() {
                             </div>
 
                             <div className="admin-order-details-side">
-                              <div className="admin-order-conferencia-box" aria-label="Conferência antes de sair">
+                              <div className="admin-order-conferencia-box" aria-label="ConferÃªncia antes de sair">
                                 <div className="admin-order-conferencia-head">
-                                  <strong>Conferência antes de sair</strong>
-                                  <small>Checklist rápido de expedição</small>
+                                  <strong>ConferÃªncia antes de sair</strong>
+                                  <small>Checklist rÃ¡pido de expediÃ§Ã£o</small>
                                 </div>
 
                                 <ul className="admin-order-conferencia-list">
@@ -3249,7 +3274,7 @@ export default function AdminPage() {
                                   </li>
 
                                   <li className={`tone-${enderecoConferenciaTone}`}>
-                                    <span>Endereço</span>
+                                    <span>EndereÃ§o</span>
                                     <strong>{enderecoConferenciaLabel}</strong>
                                     <small>{enderecoConferenciaDetalhe}</small>
                                   </li>
@@ -3257,19 +3282,19 @@ export default function AdminPage() {
                                   <li className={`tone-${pedido.clienteTelefone ? 'ok' : 'attention'}`}>
                                     <span>Telefone</span>
                                     <strong>{pedido.clienteTelefone ? 'Confirmado' : 'Pendente'}</strong>
-                                    <small>{pedido.clienteTelefone || 'Telefone não informado'}</small>
+                                    <small>{pedido.clienteTelefone || 'Telefone nÃ£o informado'}</small>
                                   </li>
 
                                   <li className={`tone-${pedido.observacaoOperacional ? 'note' : 'muted'}`}>
-                                    <span>Observação do cliente</span>
-                                    <strong>{pedido.observacaoOperacional ? 'Com observação' : 'Sem observação'}</strong>
-                                    <small>{pedido.observacaoOperacional || 'Sem instruções adicionais do cliente.'}</small>
+                                    <span>ObservaÃ§Ã£o do cliente</span>
+                                    <strong>{pedido.observacaoOperacional ? 'Com observaÃ§Ã£o' : 'Sem observaÃ§Ã£o'}</strong>
+                                    <small>{pedido.observacaoOperacional || 'Sem instruÃ§Ãµes adicionais do cliente.'}</small>
                                   </li>
 
                                   <li className={`tone-${pedido.statusNormalizado === 'cancelado' ? 'error' : (pedido.requerAcao ? 'action' : 'ok')}`}>
                                     <span>Status atual</span>
                                     <strong>{pedido.statusMeta.label}</strong>
-                                    <small>{pedido.tempoNoStatusDisponivel ? `No status há ${pedido.tempoNoStatusLabel}` : 'Sem histórico dedicado de status.'}</small>
+                                    <small>{pedido.tempoNoStatusDisponivel ? `No status hÃ¡ ${pedido.tempoNoStatusLabel}` : 'Sem histÃ³rico dedicado de status.'}</small>
                                   </li>
                                 </ul>
                               </div>
@@ -3283,7 +3308,7 @@ export default function AdminPage() {
                                   <small>
                                     {pedido.tempoNoStatusDisponivel
                                       ? `No status atual: ${pedido.tempoNoStatusLabel}`
-                                      : 'No status atual: sem histórico dedicado.'}
+                                      : 'No status atual: sem histÃ³rico dedicado.'}
                                   </small>
                                   {pedido.pixStatus ? <small>PIX status: {pedido.pixStatus}</small> : null}
                                 </article>
@@ -3291,7 +3316,7 @@ export default function AdminPage() {
                                 <article className="admin-order-detail-card">
                                   <h4>Contato</h4>
                                   <p>{pedido.clienteNome}</p>
-                                  <small>{pedido.clienteTelefone || 'Telefone não informado'}</small>
+                                  <small>{pedido.clienteTelefone || 'Telefone nÃ£o informado'}</small>
                                   <div className="admin-order-detail-actions">
                                     <button
                                       className="btn-secondary"
@@ -3311,25 +3336,25 @@ export default function AdminPage() {
                                 </article>
 
                                 <article className="admin-order-detail-card">
-                                  <h4>Endereço</h4>
+                                  <h4>EndereÃ§o</h4>
                                   <p>{pedido.tipoEntregaNormalizado === 'retirada' ? 'Retirada na loja (sem rota de entrega).' : pedido.enderecoTexto}</p>
                                   <div className="admin-order-detail-actions">
                                     <button
                                       className="btn-secondary"
                                       type="button"
                                       onClick={() => {
-                                        void handleCopiarCampoPedido(pedido.enderecoTexto, 'Endereço');
+                                        void handleCopiarCampoPedido(pedido.enderecoTexto, 'EndereÃ§o');
                                       }}
                                       disabled={!pedido.enderecoDisponivel}
                                     >
-                                      Copiar endereço
+                                      Copiar endereÃ§o
                                     </button>
                                   </div>
                                 </article>
 
                                 {pedido.observacaoOperacional ? (
                                   <article className="admin-order-detail-card is-highlight">
-                                    <h4>Observação</h4>
+                                    <h4>ObservaÃ§Ã£o</h4>
                                     <p>{pedido.observacaoOperacional}</p>
                                   </article>
                                 ) : null}
@@ -3356,7 +3381,7 @@ export default function AdminPage() {
                   void carregarPedidosPagina(paginacaoPedidos.pagina - 1);
                 }}
               >
-                Página anterior
+                PÃ¡gina anterior
               </button>
               <button
                 className="btn-secondary"
@@ -3366,7 +3391,7 @@ export default function AdminPage() {
                   void carregarPedidosPagina(paginacaoPedidos.pagina + 1);
                 }}
               >
-                Próxima página
+                PrÃ³xima pÃ¡gina
               </button>
             </div>
 
@@ -3380,7 +3405,7 @@ export default function AdminPage() {
             <div className="barcode-row">
               <input
                 className="field-input"
-                placeholder="Código de barras (EAN)"
+                placeholder="CÃ³digo de barras (EAN)"
                 value={produtoForm.codigo_barras}
                 onChange={(event) => setProdutoForm((atual) => ({ ...atual, codigo_barras: event.target.value }))}
               />
@@ -3401,7 +3426,7 @@ export default function AdminPage() {
             />
             <textarea
               className="field-input"
-              placeholder="Descrição"
+              placeholder="DescriÃ§Ã£o"
               rows={3}
               value={produtoForm.descricao}
               onChange={(event) => setProdutoForm((atual) => ({ ...atual, descricao: event.target.value }))}
@@ -3422,7 +3447,7 @@ export default function AdminPage() {
               <SmartImage
                 className="produto-preview-image"
                 src={produtoForm.imagem}
-                alt="Prévia do produto"
+                alt="PrÃ©via do produto"
                 onError={(event) => {
                   event.currentTarget.style.display = 'none';
                 }}
@@ -3430,7 +3455,7 @@ export default function AdminPage() {
             ) : null}
             <input
               className="field-input"
-              placeholder="Preço"
+              placeholder="PreÃ§o"
               type="number"
               step="0.01"
               min="0"
@@ -3452,7 +3477,7 @@ export default function AdminPage() {
               />
               <input
                 className="field-input"
-                placeholder="Emoji"
+                placeholder="Referencia visual (opcional)"
                 value={produtoForm.emoji}
                 onChange={(event) => setProdutoForm((atual) => ({ ...atual, emoji: event.target.value }))}
               />
@@ -3478,21 +3503,21 @@ export default function AdminPage() {
                   <th>ID</th>
                   <th>Produto</th>
                   <th>Categoria</th>
-                  <th>Preço</th>
+                  <th>PreÃ§o</th>
                   <th>Estoque</th>
-                  <th>Ação</th>
+                  <th>AÃ§Ã£o</th>
                 </tr>
               </thead>
               <tbody>
                 {produtos.length === 0 ? (
                   <tr>
-                    <td colSpan={6}>Nenhum produto cadastrado nesta página.</td>
+                    <td colSpan={6}>Nenhum produto cadastrado nesta pÃ¡gina.</td>
                   </tr>
                 ) : (
                   produtos.map((produto) => (
                     <tr key={produto.id}>
                       <td>{produto.id}</td>
-                      <td>{produto.emoji || '📦'} {produto.nome}</td>
+                      <td><Package size={14} aria-hidden="true" /> {produto.nome}</td>
                       <td>{produto.categoria || '-'}</td>
                       <td>R$ {Number(produto.preco || 0).toFixed(2)}</td>
                       <td>
@@ -3516,7 +3541,7 @@ export default function AdminPage() {
 
           <div className="toolbar-box" style={{ marginTop: '0.8rem', alignItems: 'center' }}>
             <p className="muted-text" style={{ margin: 0 }}>
-              Página {paginacaoProdutos.pagina} de {paginacaoProdutos.total_paginas} • {paginacaoProdutos.total} produto(s)
+              PÃ¡gina {paginacaoProdutos.pagina} de {paginacaoProdutos.total_paginas} â€¢ {paginacaoProdutos.total} produto(s)
             </p>
             <button
               className="btn-secondary"
@@ -3526,7 +3551,7 @@ export default function AdminPage() {
                 void carregarProdutosPagina(paginacaoProdutos.pagina - 1);
               }}
             >
-              Página anterior
+              PÃ¡gina anterior
             </button>
             <button
               className="btn-secondary"
@@ -3536,7 +3561,7 @@ export default function AdminPage() {
                 void carregarProdutosPagina(paginacaoProdutos.pagina + 1);
               }}
             >
-              Próxima página
+              PrÃ³xima pÃ¡gina
             </button>
           </div>
 
@@ -3547,17 +3572,17 @@ export default function AdminPage() {
           <div className="adm-page-header">
             <div className="adm-page-header-main">
               <h2 className="adm-page-title">Painel Financeiro</h2>
-              <p className="adm-page-subtitle">Visão consolidada de faturamento, pagamentos e movimentação.</p>
+              <p className="adm-page-subtitle">VisÃ£o consolidada de faturamento, pagamentos e movimentaÃ§Ã£o.</p>
             </div>
             <div className="adm-page-meta">
-              <span className="adm-page-meta-pill">Página {paginacaoPedidos.pagina}/{paginacaoPedidos.total_paginas}</span>
+              <span className="adm-page-meta-pill">PÃ¡gina {paginacaoPedidos.pagina}/{paginacaoPedidos.total_paginas}</span>
               <button
                 className="btn-secondary"
                 type="button"
                 disabled={carregandoPedidos || paginacaoPedidos.pagina <= 1}
                 onClick={() => { void carregarPedidosPagina(paginacaoPedidos.pagina - 1); }}
               >
-                ← Anterior
+                â† Anterior
               </button>
               <button
                 className="btn-secondary"
@@ -3565,7 +3590,7 @@ export default function AdminPage() {
                 disabled={carregandoPedidos || !paginacaoPedidos.tem_mais}
                 onClick={() => { void carregarPedidosPagina(paginacaoPedidos.pagina + 1); }}
               >
-                Próxima →
+                PrÃ³xima â†’
               </button>
             </div>
           </div>
@@ -3574,18 +3599,18 @@ export default function AdminPage() {
             <article className="adm-metric-card is-green">
               <span className="adm-metric-label">Faturamento total</span>
               <strong className="adm-metric-value">R$ {financeiro.faturamentoTotal.toFixed(2)}</strong>
-              <small className="adm-metric-sub">Todos os pedidos da página</small>
+              <small className="adm-metric-sub">Todos os pedidos da pÃ¡gina</small>
             </article>
             <article className="adm-metric-card is-accent">
               <span className="adm-metric-label">Faturamento hoje</span>
               <strong className="adm-metric-value">R$ {financeiro.faturamentoHoje.toFixed(2)}</strong>
             </article>
             <article className="adm-metric-card">
-              <span className="adm-metric-label">Faturamento mês</span>
+              <span className="adm-metric-label">Faturamento mÃªs</span>
               <strong className="adm-metric-value">R$ {financeiro.faturamentoMes.toFixed(2)}</strong>
             </article>
             <article className="adm-metric-card">
-              <span className="adm-metric-label">Ticket médio</span>
+              <span className="adm-metric-label">Ticket mÃ©dio</span>
               <strong className="adm-metric-value">R$ {financeiro.ticketMedio.toFixed(2)}</strong>
             </article>
             <article className="adm-metric-card is-yellow">
@@ -3615,16 +3640,16 @@ export default function AdminPage() {
 
           <div className="adm-filter-bar" style={{ marginTop: '0.75rem' }}>
             <div className="adm-filter-group">
-              <span className="adm-filter-label">Período</span>
+              <span className="adm-filter-label">PerÃ­odo</span>
               <select
                 className="field-input"
                 value={filtroFinanceiroPeriodo}
                 onChange={(event) => setFiltroFinanceiroPeriodo(event.target.value)}
               >
                 <option value="hoje">Hoje</option>
-                <option value="semana">Últimos 7 dias</option>
-                <option value="mes">Mês atual</option>
-                <option value="todos">Todo período</option>
+                <option value="semana">Ãšltimos 7 dias</option>
+                <option value="mes">MÃªs atual</option>
+                <option value="todos">Todo perÃ­odo</option>
                 <option value="custom">Personalizado</option>
               </select>
             </div>
@@ -3632,7 +3657,7 @@ export default function AdminPage() {
             {filtroFinanceiroPeriodo === 'custom' ? (
               <>
                 <div className="adm-filter-group">
-                  <span className="adm-filter-label">Início</span>
+                  <span className="adm-filter-label">InÃ­cio</span>
                   <input
                     className="field-input"
                     type="date"
@@ -3742,8 +3767,8 @@ export default function AdminPage() {
         <>
           <div className="adm-page-header">
             <div className="adm-page-header-main">
-              <h2 className="adm-page-title">Importação de Produtos</h2>
-              <p className="adm-page-subtitle">Importe planilhas do ERP (.xlsx / .csv) para atualizar preço, nome, descrição e foto.</p>
+              <h2 className="adm-page-title">ImportaÃ§Ã£o de Produtos</h2>
+              <p className="adm-page-subtitle">Importe planilhas do ERP (.xlsx / .csv) para atualizar preÃ§o, nome, descriÃ§Ã£o e foto.</p>
             </div>
             <div className="adm-page-meta">
               <a
@@ -3752,7 +3777,7 @@ export default function AdminPage() {
                 target="_blank"
                 rel="noreferrer"
               >
-                ↓ Baixar modelo CSV
+                â†“ Baixar modelo CSV
               </a>
             </div>
           </div>
@@ -3778,7 +3803,7 @@ export default function AdminPage() {
               />
 
               <p><strong>Arraste e solte sua planilha aqui</strong></p>
-              <p className="muted-text">ou clique no botão abaixo para selecionar um arquivo.</p>
+              <p className="muted-text">ou clique no botÃ£o abaixo para selecionar um arquivo.</p>
 
               <label htmlFor="admin-importacao-arquivo" className="btn-secondary importacao-select-btn">
                 Selecionar arquivo
@@ -3786,7 +3811,7 @@ export default function AdminPage() {
 
               {arquivoImportacao ? (
                 <p className="importacao-file-meta">
-                  📎 <strong>{arquivoImportacao.name}</strong> ({formatarTamanhoArquivo(arquivoImportacao.size)})
+                  <FileText size={14} aria-hidden="true" /> <strong>{arquivoImportacao.name}</strong> ({formatarTamanhoArquivo(arquivoImportacao.size)})
                 </p>
               ) : (
                 <p className="muted-text">Formatos aceitos: .xlsx e .csv</p>
@@ -3800,16 +3825,16 @@ export default function AdminPage() {
                   checked={importarCriarNovos}
                   onChange={(event) => setImportarCriarNovos(event.target.checked)}
                 />
-                Criar produtos novos automaticamente quando não existir correspondência por código.
+                Criar produtos novos automaticamente quando nÃ£o existir correspondÃªncia por cÃ³digo.
               </label>
             </div>
 
             <div className="adm-import-actions">
               <button className="btn-secondary" type="button" disabled={importandoPlanilha} onClick={handleSimularPlanilha}>
-                {importandoPlanilha ? 'Processando…' : 'Simular planilha'}
+                {importandoPlanilha ? 'Processandoâ€¦' : 'Simular planilha'}
               </button>
               <button className="btn-primary" type="submit" disabled={importandoPlanilha}>
-                {importandoPlanilha ? 'Importando…' : 'Importar de verdade'}
+                {importandoPlanilha ? 'Importandoâ€¦' : 'Importar de verdade'}
               </button>
             </div>
           </form>
@@ -3818,13 +3843,13 @@ export default function AdminPage() {
             <div className="adm-section" style={{ marginTop: '0.75rem' }}>
               <div className="adm-section-header">
                 <h3 className="adm-section-title">
-                  {resultadoImportacao?.simulacao ? 'Resultado da simulação' : 'Resultado da importação'}
+                  {resultadoImportacao?.simulacao ? 'Resultado da simulaÃ§Ã£o' : 'Resultado da importaÃ§Ã£o'}
                 </h3>
               </div>
 
               {resultadoImportacao?.simulacao ? (
                 <p className="muted-text" style={{ marginBottom: '0.75rem' }}>
-                  Simulação — nenhum dado foi alterado. Use "Importar de verdade" para aplicar.
+                  SimulaÃ§Ã£o â€” nenhum dado foi alterado. Use "Importar de verdade" para aplicar.
                 </p>
               ) : null}
 
@@ -3856,7 +3881,7 @@ export default function AdminPage() {
                 Colunas: {
                   Object.entries(resultadoImportacao.colunas_mapeadas || {})
                     .map(([chave, valor]) => `${chave}: ${valor}`)
-                    .join(' · ') || 'Não informado'
+                    .join(' Â· ') || 'NÃ£o informado'
                 }
               </p>
 
@@ -3890,7 +3915,7 @@ export default function AdminPage() {
 
           <div className="adm-section" style={{ marginTop: '0.75rem' }}>
             <div className="adm-section-header">
-              <h3 className="adm-section-title">Histórico de importações</h3>
+              <h3 className="adm-section-title">HistÃ³rico de importaÃ§Ãµes</h3>
               <div className="adm-section-actions">
                 <button
                   className="btn-secondary"
@@ -3898,7 +3923,7 @@ export default function AdminPage() {
                   disabled={carregandoImportacoes}
                   onClick={() => { void carregarHistoricoImportacoes(); }}
                 >
-                  {carregandoImportacoes ? 'Atualizando…' : 'Atualizar'}
+                  {carregandoImportacoes ? 'Atualizandoâ€¦' : 'Atualizar'}
                 </button>
               </div>
             </div>
@@ -3919,7 +3944,7 @@ export default function AdminPage() {
                 <tbody>
                   {historicoImportacoes.length === 0 ? (
                     <tr className="empty-row">
-                      <td colSpan={7}>Nenhuma importação registrada.</td>
+                      <td colSpan={7}>Nenhuma importaÃ§Ã£o registrada.</td>
                     </tr>
                   ) : (
                     historicoImportacoes.map((importacao) => (

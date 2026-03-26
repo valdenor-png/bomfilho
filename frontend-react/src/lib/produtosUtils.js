@@ -1,4 +1,5 @@
 import { getProdutos } from './api';
+import { isProdutoAlcoolico, resolveUnidadeVenda } from './produtoCatalogoRules';
 
 // ─── Constantes ──────────────────────────────────────────────────────
 export const CATEGORIA_TODAS = 'todas';
@@ -59,6 +60,18 @@ export const DRINK_SECTIONS_BEBIDAS = [
     label: 'Destilados e Licores',
     image: 'https://images.unsplash.com/photo-1569529465841-dfecdab7503b?auto=format&fit=crop&w=1400&q=60',
     matchers: ['vodka', 'whisky', 'whiskey', 'rum', 'gin', 'cachaça', 'cachaca', 'tequila', 'licor', 'conhaque', 'cognac', 'amarula', 'absinto', 'smirnoff', 'ice', 'pitú', 'pitu', '51 ', 'espumante', 'champagne', 'sidra', 'sake']
+  },
+  {
+    id: 'licores',
+    label: 'Licores e Aperitivos',
+    image: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['licor', 'aperitivo', 'campari', 'aperol', 'vermouth', 'vermute', 'martini', 'cointreau', 'amaro']
+  },
+  {
+    id: 'drinks-prontos',
+    label: 'Drinks Prontos',
+    image: 'https://images.unsplash.com/photo-1527169402691-a609ffcf43f2?auto=format&fit=crop&w=1400&q=60',
+    matchers: ['ice', 'cooler', 'beats', 'skyy', 'drink pronto', 'caipirinha pronta', 'sidra', 'hard seltzer']
   },
   {
     id: 'vinho',
@@ -277,23 +290,23 @@ export const FILTROS_COMERCIAIS_RAPIDOS = [
 ];
 
 export const CATEGORIA_ICONE_FALLBACK = {
-  frios: '🧊',
-  refrigerantes: '🥤',
-  bebidas: '🍹',
-  'bebidas-alcoolicas': '🥃',
-  cervejas: '🍺',
-  acougue: '🥩',
-  agua: '💧',
-  salgadinhos: '🍿',
-  doces: '🍫',
-  biscoitos: '🍪',
-  leites_fermentados: '🥛',
-  derivados_lacteos: '🧀',
-  mercearia: '🛒',
-  hortifruti: '🥦',
-  limpeza: '🧽',
-  higiene: '🧴',
-  descartaveis: '🧻'
+  frios: 'package',
+  refrigerantes: 'wallet',
+  bebidas: 'wallet',
+  'bebidas-alcoolicas': 'wallet',
+  cervejas: 'wallet',
+  acougue: 'package',
+  agua: 'store',
+  salgadinhos: 'shopping-cart',
+  doces: 'shopping-cart',
+  biscoitos: 'shopping-cart',
+  leites_fermentados: 'package',
+  derivados_lacteos: 'package',
+  mercearia: 'shopping-cart',
+  hortifruti: 'store',
+  limpeza: 'package',
+  higiene: 'package',
+  descartaveis: 'package'
 };
 
 export const TOKENS_MAIS_VENDIDOS = [
@@ -323,7 +336,32 @@ export const PT_BR_COLLATOR = new Intl.Collator('pt-BR');
 // ─── Funções utilitárias ─────────────────────────────────────────────
 
 export function getProdutoImagem(produto) {
-  return String(produto?.imagem || '').trim();
+  const candidatos = [
+    produto?.imagem,
+    produto?.imagem_url,
+    produto?.url_imagem,
+    produto?.foto,
+    produto?.imagemProduto,
+    produto?.image,
+    produto?.image_url
+  ];
+
+  for (const candidato of candidatos) {
+    const valor = String(candidato || '').trim();
+    if (!valor) {
+      continue;
+    }
+
+    if (
+      valor.startsWith('/')
+      || /^https?:\/\//i.test(valor)
+      || /^data:image\//i.test(valor)
+    ) {
+      return valor;
+    }
+  }
+
+  return '';
 }
 
 export function normalizeText(value) {
@@ -445,6 +483,26 @@ export function getCategoriaVitrineDefensiva({ categoriaAgrupada, categoriaOrigi
     }
 
     return 'bebidas';
+  }
+
+  if (categoria === 'mercearia') {
+    if (textoContemMatcher(texto, VITRINE_FRIOS_MATCHERS)) {
+      return 'frios';
+    }
+
+    const hasExcludeToken = textoContemMatcher(texto, VITRINE_BEBIDAS_EXCLUDE_MATCHERS);
+    const hasIncludeToken = textoContemMatcher(texto, VITRINE_BEBIDAS_INCLUDE_MATCHERS);
+    if (hasIncludeToken && !hasExcludeToken) {
+      return 'bebidas';
+    }
+
+    const hasHortiToken = textoContemMatcher(texto, VITRINE_HORTIFRUTI_MATCHERS);
+    const hasHortiExcludeToken = textoContemMatcher(texto, VITRINE_HORTIFRUTI_EXCLUDE_MATCHERS);
+    if (hasHortiToken && !hasHortiExcludeToken) {
+      return 'hortifruti';
+    }
+
+    return 'mercearia';
   }
 
   return categoria;
@@ -570,6 +628,10 @@ export function getProdutoCategoriaLabel(produto) {
 }
 
 export function getProdutoMedida(produto) {
+  if (resolveUnidadeVenda(produto) === 'peso') {
+    return 'por kg';
+  }
+
   const unidade = String(produto?.unidade || '').trim();
   const medidaExtra = [
     produto?.peso,
@@ -934,6 +996,10 @@ export function getProdutoBadges(
   const badges = [];
   const { precoInfo } = produtoIndexado;
 
+  if (isProdutoAlcoolico(produtoIndexado?.produto || {})) {
+    badges.push({ tone: 'restrito', label: '18+' });
+  }
+
   if (growthBadgeLabel) {
     badges.push({ tone: 'growth', label: growthBadgeLabel });
   }
@@ -1001,7 +1067,7 @@ export function getPlaceholderIconePorCategoria(produto) {
   const entrada = Object.entries(CATEGORIA_ICONE_FALLBACK).find(([categoria]) =>
     categoriaNormalizada.includes(categoria)
   );
-  return entrada?.[1] || '🛍️';
+  return entrada?.[1] || 'shopping-cart';
 }
 
 export function getProdutoStableKey(produto) {
@@ -1033,6 +1099,10 @@ export function getCategoriaApi(categoria) {
     return '';
   }
 
+  if (valor === 'bebidas-alcoolicas') {
+    return 'bebidas-alcoolicas';
+  }
+
   if (valor.includes(TOKEN_BEBIDA)) {
     return CATEGORIA_BEBIDAS;
   }
@@ -1058,66 +1128,85 @@ export function buildProdutosQueryKey({ categoria, categoriaSlug, subcategoriaSl
   ];
 }
 
+const fetchProdutosPageInFlight = new Map();
+
 // Mantem a assinatura de busca isolada para facilitar migracao para React Query.
 export async function fetchProdutosPage({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit }) {
-  const categoriaOriginal = String(categoria || '').toLowerCase();
-  const categoriaSlugNormalizada = String(categoriaSlug || '').trim().toLowerCase();
-  const subcategoriaSlugNormalizada = String(subcategoriaSlug || '').trim().toLowerCase();
-  const params = {
-    page: Number(page || 1),
-    limit: Number(limit || PRODUTOS_POR_PAGINA)
-  };
-
-  if (categoriaSlugNormalizada) {
-    params.categoria_slug = categoriaSlugNormalizada;
+  const queryKey = buildProdutosQueryKey({
+    categoria,
+    categoriaSlug,
+    subcategoriaSlug,
+    busca,
+    page,
+    limit
+  });
+  const requestCacheKey = JSON.stringify(queryKey);
+  const requestInFlight = fetchProdutosPageInFlight.get(requestCacheKey);
+  if (requestInFlight) {
+    return requestInFlight;
   }
 
-  if (subcategoriaSlugNormalizada && subcategoriaSlugNormalizada !== 'todas') {
-    params.subcategoria_slug = subcategoriaSlugNormalizada;
+  const requestPromise = (async () => {
+    const categoriaOriginal = String(categoria || '').toLowerCase();
+    const categoriaSlugNormalizada = String(categoriaSlug || '').trim().toLowerCase();
+    const subcategoriaSlugNormalizada = String(subcategoriaSlug || '').trim().toLowerCase();
+    const params = {
+      page: Number(page || 1),
+      limit: Number(limit || PRODUTOS_POR_PAGINA)
+    };
+
+    if (categoriaSlugNormalizada) {
+      params.categoria_slug = categoriaSlugNormalizada;
+    }
+
+    if (subcategoriaSlugNormalizada && subcategoriaSlugNormalizada !== 'todas') {
+      params.subcategoria_slug = subcategoriaSlugNormalizada;
+    }
+
+    const categoriaApi = getCategoriaApi(categoria);
+    if (categoriaApi) {
+      params.categoria = categoriaApi;
+    }
+
+    const buscaNormalizada = String(busca || '').trim();
+    if (buscaNormalizada) {
+      params.busca = buscaNormalizada;
+    }
+
+    let data = await getProdutos(params);
+    let lista = Array.isArray(data?.produtos) ? data.produtos : [];
+    let paginacao = data?.paginacao || {};
+
+    // Fallback de compatibilidade: algumas bases antigas guardam cervejas dentro de bebidas.
+    // Se a consulta por "cervejas" vier vazia sem termo de busca, tenta bebidas + busca "cerveja".
+    if (
+      categoriaOriginal === 'cervejas'
+      && !buscaNormalizada
+      && Number(paginacao?.total || lista.length || 0) === 0
+    ) {
+      data = await getProdutos({
+        ...params,
+        categoria: CATEGORIA_BEBIDAS,
+        busca: 'cerveja'
+      });
+      lista = Array.isArray(data?.produtos) ? data.produtos : [];
+      paginacao = data?.paginacao || {};
+    }
+
+    return {
+      queryKey,
+      lista,
+      paginacao
+    };
+  })();
+
+  fetchProdutosPageInFlight.set(requestCacheKey, requestPromise);
+
+  try {
+    return await requestPromise;
+  } finally {
+    fetchProdutosPageInFlight.delete(requestCacheKey);
   }
-
-  const categoriaApi = getCategoriaApi(categoria);
-  if (categoriaApi) {
-    params.categoria = categoriaApi;
-  }
-
-  const buscaNormalizada = String(busca || '').trim();
-  if (buscaNormalizada) {
-    params.busca = buscaNormalizada;
-  }
-
-  let data = await getProdutos(params);
-  let lista = Array.isArray(data?.produtos) ? data.produtos : [];
-  let paginacao = data?.paginacao || {};
-
-  // Fallback de compatibilidade: algumas bases antigas guardam cervejas dentro de bebidas.
-  // Se a consulta por "cervejas" vier vazia sem termo de busca, tenta bebidas + busca "cerveja".
-  if (
-    categoriaOriginal === 'cervejas'
-    && !buscaNormalizada
-    && Number(paginacao?.total || lista.length || 0) === 0
-  ) {
-    data = await getProdutos({
-      ...params,
-      categoria: CATEGORIA_BEBIDAS,
-      busca: 'cerveja'
-    });
-    lista = Array.isArray(data?.produtos) ? data.produtos : [];
-    paginacao = data?.paginacao || {};
-  }
-
-  return {
-    queryKey: buildProdutosQueryKey({
-      categoria,
-      categoriaSlug: categoriaSlugNormalizada,
-      subcategoriaSlug: subcategoriaSlugNormalizada,
-      busca,
-      page: params.page,
-      limit: params.limit
-    }),
-    lista,
-    paginacao
-  };
 }
 
 export function buildProdutosPageCacheKey({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit }) {

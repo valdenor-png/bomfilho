@@ -3,6 +3,10 @@
 const express = require('express');
 const { pool, queryWithRetry } = require('../lib/db');
 const logger = require('../lib/logger');
+const {
+  enriquecerProdutoParaCatalogo,
+  resolveVisibilidadePublica
+} = require('../lib/produtoCatalogoRules');
 
 /**
  * Rotas de Ofertas do Dia
@@ -15,25 +19,102 @@ const logger = require('../lib/logger');
 module.exports = function createOfertasDiaRoutes({ autenticarAdminToken, exigirAcessoLocalAdmin }) {
   const router = express.Router();
   const adminGuard = [exigirAcessoLocalAdmin, autenticarAdminToken];
+  let escalaPrecoCache = 1;
+  let escalaPrecoCacheExpiraEm = 0;
+  const ESCALA_PRECO_CACHE_TTL_MS = 5 * 60 * 1000;
+
+  function montarExprPrecoSql(exprBase, escala, alias) {
+    if (Number(escala || 1) > 1) {
+      return `ROUND((${exprBase}) / ${Number(escala)}, 2) AS ${alias}`;
+    }
+    return `${exprBase} AS ${alias}`;
+  }
+
+  async function obterEscalaPreco() {
+    const agora = Date.now();
+    if (agora < escalaPrecoCacheExpiraEm) {
+      return escalaPrecoCache;
+    }
+
+    try {
+      const [[stats]] = await queryWithRetry(
+        `SELECT
+           COUNT(*) AS total,
+           SUM(CASE WHEN preco >= 100 THEN 1 ELSE 0 END) AS ge_100,
+           SUM(CASE WHEN ABS(preco - ROUND(preco)) <= 0.0001 THEN 1 ELSE 0 END) AS inteiros,
+           AVG(preco) AS avg_preco
+         FROM produtos
+         WHERE ativo = TRUE`
+      );
+
+      const total = Number(stats?.total || 0);
+      const ge100 = Number(stats?.ge_100 || 0);
+      const inteiros = Number(stats?.inteiros || 0);
+      const avgPreco = Number(stats?.avg_preco || 0);
+      const ratioGe100 = total > 0 ? (ge100 / total) : 0;
+      const ratioInteiros = total > 0 ? (inteiros / total) : 0;
+      const datasetComCaraDeCentavos = (
+        total >= 100
+        && avgPreco >= 200
+        && ratioGe100 >= 0.9
+        && ratioInteiros >= 0.95
+      );
+
+      escalaPrecoCache = datasetComCaraDeCentavos ? 100 : 1;
+    } catch (erroEscala) {
+      logger.warn('Falha ao detectar escala de preco em ofertas do dia. Mantendo escala padrao.', {
+        code: erroEscala?.code,
+        message: erroEscala?.message
+      });
+      escalaPrecoCache = 1;
+    } finally {
+      escalaPrecoCacheExpiraEm = agora + ESCALA_PRECO_CACHE_TTL_MS;
+    }
+
+    return escalaPrecoCache;
+  }
 
   // ── Público: listar ofertas do dia ──
   router.get('/api/ofertas-dia', async (req, res) => {
     try {
       res.set('Cache-Control', 'public, max-age=60');
+      const escalaPreco = await obterEscalaPreco();
+      const precoExpr = montarExprPrecoSql('p.preco', escalaPreco, 'preco');
+      const precoPromocionalExpr = montarExprPrecoSql('p.preco_promocional', escalaPreco, 'preco_promocional');
 
       const [rows] = await queryWithRetry(
         `SELECT p.id, COALESCE(NULLIF(TRIM(p.nome_externo), ''), p.nome) AS nome,
-                p.nome_externo, p.preco, p.preco_promocional, p.estoque,
+                p.nome_externo, ${precoExpr}, ${precoPromocionalExpr}, p.estoque,
                 p.categoria, p.departamento, p.imagem_url AS imagem,
                 p.marca, p.unidade, p.emoji,
                 od.ordem
          FROM ofertas_dia od
          INNER JOIN produtos p ON p.id = od.produto_id
          WHERE od.ativo = 1 AND p.ativo = 1
+           AND COALESCE(p.estoque, 0) > 0
+           AND LOWER(COALESCE(p.categoria, '')) NOT LIKE '%tabaco%'
+           AND LOWER(COALESCE(p.categoria, '')) NOT LIKE '%cigar%'
+           AND LOWER(CONCAT(COALESCE(p.nome, ''), ' ', COALESCE(p.nome_externo, ''), ' ', COALESCE(p.descricao, ''))) NOT LIKE '%tabaco%'
+           AND LOWER(CONCAT(COALESCE(p.nome, ''), ' ', COALESCE(p.nome_externo, ''), ' ', COALESCE(p.descricao, ''))) NOT LIKE '%cigar%'
          ORDER BY od.ordem ASC, p.nome ASC`
       );
 
-      return res.json({ ofertas: rows });
+      const ofertas = rows
+        .map((item) => {
+          const enriquecido = enriquecerProdutoParaCatalogo(item);
+          const visibilidade = resolveVisibilidadePublica(enriquecido);
+          return {
+            ...enriquecido,
+            _visivel_publico: Boolean(visibilidade?.visivel_publico)
+          };
+        })
+        .filter((item) => item?._visivel_publico)
+        .map((item) => {
+          const { _visivel_publico, ...resto } = item;
+          return resto;
+        });
+
+      return res.json({ ofertas });
     } catch (err) {
       if (String(err?.code || '').trim().toUpperCase() === '42P01') {
         return res.json({ ofertas: [] });
@@ -46,10 +127,14 @@ module.exports = function createOfertasDiaRoutes({ autenticarAdminToken, exigirA
   // ── Admin: listar ofertas do dia (com mais detalhes) ──
   router.get('/api/admin/ofertas-dia', ...adminGuard, async (req, res) => {
     try {
+      const escalaPreco = await obterEscalaPreco();
+      const precoExpr = montarExprPrecoSql('p.preco', escalaPreco, 'preco');
+      const precoPromocionalExpr = montarExprPrecoSql('p.preco_promocional', escalaPreco, 'preco_promocional');
+
       const [rows] = await pool.query(
         `SELECT od.id, od.produto_id, od.ordem, od.ativo, od.criado_em,
                 COALESCE(NULLIF(TRIM(p.nome_externo), ''), p.nome) AS nome,
-                p.preco, p.preco_promocional, p.estoque, p.imagem_url AS imagem,
+                ${precoExpr}, ${precoPromocionalExpr}, p.estoque, p.imagem_url AS imagem,
                 p.categoria, p.departamento
          FROM ofertas_dia od
          INNER JOIN produtos p ON p.id = od.produto_id

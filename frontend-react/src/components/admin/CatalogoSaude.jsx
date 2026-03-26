@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { AlertTriangle, CircleCheck, Package, Receipt, ShieldCheck } from 'lucide-react';
 import { adminGetCatalogoSaude } from '../../lib/api';
 import { formatarMoeda } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';
@@ -46,7 +47,7 @@ export default function CatalogoSaude() {
       {/* Score geral + métricas */}
       <div className="ck-card">
         <div className="ck-card-header">
-          <span className="ck-card-title"><span className="icon">🩺</span> Score de Saúde do Catálogo</span>
+          <span className="ck-card-title"><span className="icon"><ShieldCheck size={16} aria-hidden="true" /></span> Score de Saúde do Catálogo</span>
           <div className="ck-subtab-nav">
             {['visao', 'top', 'problemas'].map(t => (
               <button key={t} type="button" onClick={() => setSubTab(t)}
@@ -97,7 +98,7 @@ export default function CatalogoSaude() {
         dados?.top_vendidos?.length > 0 ? (
           <div className="ck-card">
             <div className="ck-card-header">
-              <span className="ck-card-title"><span className="icon">🏆</span> Top Vendidos (30 dias)</span>
+              <span className="ck-card-title"><span className="icon"><Package size={16} aria-hidden="true" /></span> Top Vendidos (30 dias)</span>
             </div>
             <div className="ck-saude-lista">
               {dados.top_vendidos.map((p, i) => (
@@ -112,7 +113,7 @@ export default function CatalogoSaude() {
             </div>
           </div>
         ) : (
-          <EmptyState icon="🏆" title="Sem dados de vendas" description="Ainda não há vendas registradas nos últimos 30 dias." />
+          <EmptyState icon={<Package size={18} aria-hidden="true" />} title="Sem dados de vendas" description="Ainda não há vendas registradas nos últimos 30 dias." />
         )
       ) : null}
 
@@ -121,7 +122,7 @@ export default function CatalogoSaude() {
           {dados?.campeoes_frageis?.length > 0 ? (
             <div className="ck-card">
               <div className="ck-card-header">
-                <span className="ck-card-title red"><span className="icon">⚠️</span> Campeões com Cadastro Fraco</span>
+                <span className="ck-card-title red"><span className="icon"><AlertTriangle size={16} aria-hidden="true" /></span> Campeões com Cadastro Fraco</span>
                 <span className="ck-card-subtitle">Top vendidos com dados incompletos</span>
               </div>
               <div className="ck-saude-lista">
@@ -139,7 +140,7 @@ export default function CatalogoSaude() {
           {dados?.sem_saida?.length > 0 ? (
             <div className="ck-card">
               <div className="ck-card-header">
-                <span className="ck-card-title"><span className="icon">😴</span> Sem Saída (30 dias)</span>
+                <span className="ck-card-title"><span className="icon"><Package size={16} aria-hidden="true" /></span> Sem Saída (30 dias)</span>
                 <span className="ck-card-subtitle">Produtos ativos sem vendas recentes</span>
               </div>
               <div className="ck-saude-lista">
@@ -158,7 +159,7 @@ export default function CatalogoSaude() {
           ) : null}
 
           {!dados?.campeoes_frageis?.length && !dados?.sem_saida?.length ? (
-            <EmptyState icon="✅" title="Catálogo saudável" description="Nenhum problema identificado no catálogo." />
+            <EmptyState icon={<CircleCheck size={18} aria-hidden="true" />} title="Catálogo saudável" description="Nenhum problema identificado no catálogo." />
           ) : null}
         </React.Fragment>
       ) : null}
@@ -166,7 +167,7 @@ export default function CatalogoSaude() {
       {subTab === 'visao' ? (
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon">📊</span> Resumo do Catálogo</span>
+            <span className="ck-card-title"><span className="icon"><Receipt size={16} aria-hidden="true" /></span> Resumo do Catálogo</span>
           </div>
           <div className="ck-saude-bars">
             <div className="ck-saude-bar-group">

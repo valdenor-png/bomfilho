@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { AlertTriangle, BadgeX, BarChart3, Bell, CircleCheck, Clock3, Info, Radio, Receipt, RefreshCw, Target, Zap } from 'lucide-react';
 import { adminGetCentralVivo, adminGetFeed, adminGetAlertas } from '../../lib/api';
 import { formatarMoeda, formatarNum, tempoRelativo, R$ } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';
@@ -95,8 +96,8 @@ export default function CommandCenter({ onNavigate }) {
       {/* Aviso de dados parciais */}
       {errosParciais.length > 0 && (
         <div className="ck-partial-warning">
-          ⚠️ Falha parcial: {errosParciais.join(', ')} indisponíveis
-          <button type="button" className="ck-partial-retry" onClick={carregar}>Recarregar</button>
+          <AlertTriangle size={14} aria-hidden="true" /> Falha parcial: {errosParciais.join(', ')} indisponíveis
+          <button type="button" className="ck-partial-retry" onClick={carregar}><RefreshCw size={14} aria-hidden="true" /> Recarregar</button>
         </div>
       )}
 
@@ -143,7 +144,7 @@ export default function CommandCenter({ onNavigate }) {
       <div className="ck-command-top">
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon">⚡</span> Agora na Operação</span>
+            <span className="ck-card-title"><span className="icon"><Zap size={16} aria-hidden="true" /></span> Agora na Operação</span>
             <span className="ck-card-subtitle">{Number(op.total || 0)} pedido(s) em aberto</span>
           </div>
           <div className="ck-live-block">
@@ -174,7 +175,7 @@ export default function CommandCenter({ onNavigate }) {
 
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon">🎯</span> SLA Hoje</span>
+            <span className="ck-card-title"><span className="icon"><Target size={16} aria-hidden="true" /></span> SLA Hoje</span>
           </div>
           <div className="ck-sla-container">
             <div className="ck-sla-gauge">
@@ -199,16 +200,16 @@ export default function CommandCenter({ onNavigate }) {
       <div className="ck-command-bottom">
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon">🔔</span> Atenção Imediata</span>
+            <span className="ck-card-title"><span className="icon"><Bell size={16} aria-hidden="true" /></span> Atenção Imediata</span>
             <span className="ck-card-subtitle">{alertas.length} alerta(s)</span>
           </div>
           {alertas.length === 0 ? (
-            <div className="ck-sem-alertas">✅ Nenhum alerta — operação normal</div>
+            <div className="ck-sem-alertas"><CircleCheck size={14} aria-hidden="true" /> Nenhum alerta — operação normal</div>
           ) : (
             <div className="ck-alertas-lista">
               {alertasCriticos.map(a => (
                 <div key={a.id} className="ck-alerta-item critico" onClick={() => a.cta?.tab && onNavigate(a.cta.tab)}>
-                  <span className="ck-alerta-icon">🔴</span>
+                  <span className="ck-alerta-icon"><BadgeX size={14} aria-hidden="true" /></span>
                   <div className="ck-alerta-body">
                     <div className="ck-alerta-titulo">{a.titulo}</div>
                     <div className="ck-alerta-desc">{a.descricao}</div>
@@ -218,7 +219,7 @@ export default function CommandCenter({ onNavigate }) {
               ))}
               {alertasAtencao.map(a => (
                 <div key={a.id} className={`ck-alerta-item ${a.severidade === 'atencao' ? 'atencao' : 'info'}`} onClick={() => a.cta?.tab && onNavigate(a.cta.tab)}>
-                  <span className="ck-alerta-icon">{a.severidade === 'atencao' ? '🟡' : 'ℹ️'}</span>
+                  <span className="ck-alerta-icon">{a.severidade === 'atencao' ? <AlertTriangle size={14} aria-hidden="true" /> : <Info size={14} aria-hidden="true" />}</span>
                   <div className="ck-alerta-body">
                     <div className="ck-alerta-titulo">{a.titulo}</div>
                     <div className="ck-alerta-desc">{a.descricao}</div>
@@ -232,7 +233,7 @@ export default function CommandCenter({ onNavigate }) {
 
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon">📊</span> Volume por Hora</span>
+            <span className="ck-card-title"><span className="icon"><BarChart3 size={16} aria-hidden="true" /></span> Volume por Hora</span>
           </div>
           {porHora.length > 0 ? (
             <div className="ck-hour-chart">
@@ -252,7 +253,7 @@ export default function CommandCenter({ onNavigate }) {
       {/* Row 4: Feed de atividade */}
       <div className="ck-card">
         <div className="ck-card-header">
-          <span className="ck-card-title"><span className="icon">📡</span> Atividade Recente</span>
+          <span className="ck-card-title"><span className="icon"><Radio size={16} aria-hidden="true" /></span> Atividade Recente</span>
           <span className="ck-card-subtitle">Últimas 2 horas</span>
         </div>
         {feed.length === 0 ? (
@@ -261,7 +262,7 @@ export default function CommandCenter({ onNavigate }) {
           <div className="ck-feed">
             {feed.slice(0, 15).map((ev, i) => (
               <div className="ck-feed-item" key={i}>
-                <span className="ck-feed-icon">{ev.icone}</span>
+                <span className="ck-feed-icon"><Receipt size={14} aria-hidden="true" /></span>
                 <div className="ck-feed-body">
                   <div className="ck-feed-titulo">{ev.titulo}</div>
                   <div className="ck-feed-detalhe">{ev.detalhe}</div>
@@ -277,7 +278,7 @@ export default function CommandCenter({ onNavigate }) {
       {recentes.length > 0 ? (
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon">🕐</span> Últimos 30 min</span>
+            <span className="ck-card-title"><span className="icon"><Clock3 size={16} aria-hidden="true" /></span> Últimos 30 min</span>
             <button type="button" className="ck-btn-link" onClick={() => onNavigate('pedidos')}>
               Ver todos →
             </button>

@@ -4,7 +4,17 @@ const FORMAS_PAGAMENTO_PEDIDO_VALIDAS = new Set(['pix', 'dinheiro', 'debito', 'c
 const TIPOS_ENTREGA_PEDIDO_VALIDOS = new Set(['entrega', 'retirada']);
 
 function extrairTaxIdDigits(payload = {}) {
-  return String(payload?.tax_id ?? payload?.cpf ?? '').replace(/\D/g, '');
+  return String(
+    payload?.tax_id
+    ?? payload?.taxId
+    ?? payload?.cpf
+    ?? payload?.cpf_na_nota
+    ?? payload?.cpfNota
+    ?? payload?.documento
+    ?? payload?.documento_pagador
+    ?? payload?.cpf_pagador
+    ?? ''
+  ).replace(/\D/g, '');
 }
 
 function normalizarFormaPagamentoPedido(value) {
@@ -21,10 +31,35 @@ function normalizarItensPedidoInput(itens) {
     return [];
   }
 
-  return itens.map((item) => ({
-    produto_id: Number(item?.produto_id),
-    quantidade: Math.floor(Number(item?.quantidade || 1))
-  }));
+  return itens.map((item) => {
+    const quantidadeRecebida = item?.quantidade;
+    const quantidadeBase = (
+      quantidadeRecebida === undefined
+      || quantidadeRecebida === null
+      || String(quantidadeRecebida).trim() === ''
+    )
+      ? 1
+      : quantidadeRecebida;
+    const pesoGramasRecebido = (
+      item?.peso_gramas
+      ?? item?.pesoGramas
+      ?? item?.peso_gramas_selecionado
+      ?? item?.pesoSelecionadoGramas
+      ?? null
+    );
+
+    const pesoGramasNumero = Number(pesoGramasRecebido);
+    const unidadeVendaRecebida = String(item?.unidade_venda || item?.unidadeVenda || '').trim().toLowerCase();
+
+    return {
+      produto_id: Number(item?.produto_id),
+      quantidade: Number(quantidadeBase),
+      unidade_venda: unidadeVendaRecebida,
+      peso_gramas: Number.isFinite(pesoGramasNumero) && pesoGramasNumero > 0
+        ? Math.round(pesoGramasNumero)
+        : null
+    };
+  });
 }
 
 function itensPedidoSaoValidos(itensNormalizados = []) {
@@ -35,9 +70,9 @@ function itensPedidoSaoValidos(itensNormalizados = []) {
   return !itensNormalizados.some((item) => (
     !Number.isInteger(item.produto_id)
     || item.produto_id <= 0
-    || !Number.isInteger(item.quantidade)
-    || item.quantidade <= 0
-    || item.quantidade > 100
+    || !Number.isFinite(Number(item.quantidade || 0))
+    || Number(item.quantidade || 0) <= 0
+    || Number(item.quantidade || 0) > 999
   ));
 }
 

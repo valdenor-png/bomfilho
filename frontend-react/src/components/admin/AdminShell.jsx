@@ -401,7 +401,12 @@ export default function AdminShell({ tab, setTab, onLogout, onRefresh, carregand
             </button>
           ) : null}
           {!alertasErro && alertasResumo.total === 0 ? (
-            <span className="ck-topbar-alert-pill ok">✓ Tudo OK</span>
+            <span className="ck-topbar-alert-pill ok">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M5 12l4 4 10-10" />
+              </svg>
+              Tudo OK
+            </span>
           ) : null}
         </div>
 

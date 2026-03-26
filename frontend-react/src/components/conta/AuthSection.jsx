@@ -1,4 +1,5 @@
 import React from 'react';
+import { Circle, CircleCheck } from 'lucide-react';
 import ReCAPTCHA from 'react-google-recaptcha';
 import { formatarTelefoneCadastro } from '../../lib/contaUtils';
 
@@ -140,7 +141,7 @@ export default function AuthSection({
               <ul className="conta-password-checklist">
                 {senhaStrength.checks.map((check) => (
                   <li key={check.id} className={check.ok ? 'is-ok' : ''}>
-                    <span aria-hidden="true">{check.ok ? '✓' : '•'}</span>
+                    <span aria-hidden="true">{check.ok ? <CircleCheck size={14} /> : <Circle size={10} />}</span>
                     <span>{check.label}</span>
                   </li>
                 ))}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { AlertTriangle, BadgeX, Info } from 'lucide-react';
 import { adminGetDashboardResumo } from '../../lib/api';
 import { formatarDuracaoMs } from '../../lib/metricasOperacionais';
 
@@ -130,9 +131,11 @@ function RankingTable({ titulo, dados, colunas }) {
 }
 
 function AlertaCard({ tipo, titulo, descricao }) {
+  const Icon = tipo === 'perigo' ? BadgeX : tipo === 'atencao' ? AlertTriangle : Info;
+
   return (
     <div className={`dash-alerta is-${tipo}`}>
-      <span className="dash-alerta-icon">{tipo === 'perigo' ? '🔴' : tipo === 'atencao' ? '🟡' : 'ℹ️'}</span>
+      <span className="dash-alerta-icon"><Icon size={14} aria-hidden="true" /></span>
       <div>
         <strong>{titulo}</strong>
         {descricao ? <p>{descricao}</p> : null}

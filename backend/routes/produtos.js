@@ -3,6 +3,11 @@
 const express = require('express');
 const { queryWithRetry } = require('../lib/db');
 const logger = require('../lib/logger');
+const { DB_DIALECT, IS_PRODUCTION } = require('../lib/config');
+const {
+  enriquecerProdutoParaCatalogo,
+  resolveVisibilidadePublica
+} = require('../lib/produtoCatalogoRules');
 
 const CERVEJA_MATCHERS = [
   'cerveja',
@@ -22,6 +27,76 @@ const CERVEJA_MATCHERS = [
   'pilsen',
   'lager'
 ];
+
+const BEBIDAS_ALCOOLICAS_MATCHERS = [
+  'cerveja',
+  'chopp',
+  'pilsen',
+  'lager',
+  'ipa',
+  'stout',
+  'heineken',
+  'brahma',
+  'skol',
+  'budweiser',
+  'vinho',
+  'espumante',
+  'whisky',
+  'vodka',
+  'gin',
+  'rum',
+  'tequila',
+  'licor',
+  'conhaque',
+  'cachaca',
+  'cachaca',
+  'aperitivo',
+  'vermouth',
+  'vermute',
+  'campari',
+  'sidra',
+  'cooler',
+  'ice'
+];
+
+const CATEGORIA_EQUIVALENCIAS = {
+  bebidas: ['bebidas', 'agua', 'refrigerantes'],
+  'bebidas-alcoolicas': ['bebidas'],
+  frios: ['frios', 'frios e laticinios', 'derivados_lacteos', 'leites_fermentados'],
+  mercearia: ['mercearia', 'alimentos basicos', 'outros'],
+  limpeza: ['limpeza', 'higiene e perfumaria'],
+  descartaveis: ['descartaveis', 'bazar e utilidades'],
+  hortifruti: ['hortifruti'],
+  acougue: ['acougue', 'acougue e aves', 'carnes']
+};
+const LIKE_ESCAPE_SQL = DB_DIALECT === 'postgres' ? " ESCAPE E'\\\\'" : " ESCAPE '\\\\'";
+const SQL_PARAM_LOG_MAX_LENGTH = 180;
+
+function sanitizeParamsForLog(params = []) {
+  if (!Array.isArray(params)) {
+    return [];
+  }
+
+  return params.map((param) => {
+    if (param === null || param === undefined) {
+      return param;
+    }
+
+    if (typeof param === 'number' || typeof param === 'boolean') {
+      return param;
+    }
+
+    if (typeof param === 'string') {
+      const texto = param.replace(/\s+/g, ' ').trim();
+      if (texto.length <= SQL_PARAM_LOG_MAX_LENGTH) {
+        return texto;
+      }
+      return `${texto.slice(0, SQL_PARAM_LOG_MAX_LENGTH)}...`;
+    }
+
+    return String(param);
+  });
+}
 
 function toSlug(value) {
   return String(value || '')
@@ -52,6 +127,49 @@ function buildProdutoTextoBuscaExpr(colunas, alias = '') {
   return `LOWER(CONCAT(${partes.join(", ' ', ")}))`;
 }
 
+function buildCategoriaExpr(colunas, alias = '') {
+  const prefixo = alias ? `${alias}.` : '';
+  if (colunas.has('departamento')) {
+    return `LOWER(COALESCE(NULLIF(TRIM(${prefixo}departamento), ''), ${prefixo}categoria, ''))`;
+  }
+
+  return `LOWER(COALESCE(${prefixo}categoria, ''))`;
+}
+
+function montarFiltrosCatalogoPublicoSql(colunas, alias = '') {
+  const prefixo = alias ? `${alias}.` : '';
+  const filtros = [];
+
+  if (colunas.has('visivel_no_site')) {
+    filtros.push(`COALESCE(${prefixo}visivel_no_site, TRUE) = TRUE`);
+  }
+
+  if (colunas.has('oculto_catalogo')) {
+    filtros.push(`COALESCE(${prefixo}oculto_catalogo, FALSE) = FALSE`);
+  }
+
+  if (colunas.has('produto_controlado')) {
+    filtros.push(`LOWER(COALESCE(${prefixo}produto_controlado, '')) <> 'tabaco'`);
+  }
+
+  if (colunas.has('estoque')) {
+    filtros.push(`COALESCE(${prefixo}estoque, 0) > 0`);
+  }
+
+  const categoriaExpr = buildCategoriaExpr(colunas, alias);
+  const textoProdutoExpr = buildProdutoTextoBuscaExpr(colunas, alias);
+  filtros.push(
+    `NOT (
+      ${categoriaExpr} LIKE '%tabaco%'
+      OR ${categoriaExpr} LIKE '%cigar%'
+      OR ${textoProdutoExpr} LIKE '%tabaco%'
+      OR ${textoProdutoExpr} LIKE '%cigar%'
+    )`
+  );
+
+  return filtros;
+}
+
 /**
  * @param {object} deps
  * @param {Function} deps.obterColunasProdutos
@@ -78,12 +196,70 @@ module.exports = function createProdutosPublicRoutes({
   salvarCacheLeitura
 }) {
   const router = express.Router();
+  let escalaPrecoVitrineCache = 1;
+  let escalaPrecoVitrineCacheExpiraEm = 0;
+  const ESCALA_PRECO_CACHE_TTL_MS = 5 * 60 * 1000;
 
   function possuiTaxonomiaEstruturada(colunas) {
     return colunas.has('categoria_principal_id') && colunas.has('subcategoria_id');
   }
 
+  function montarExprPrecoSql(exprBase, escala, alias) {
+    if (Number(escala || 1) > 1) {
+      return `ROUND((${exprBase}) / ${Number(escala)}, 2) AS ${alias}`;
+    }
+    return `${exprBase} AS ${alias}`;
+  }
+
+  async function obterEscalaPrecoVitrine() {
+    const agora = Date.now();
+    if (agora < escalaPrecoVitrineCacheExpiraEm) {
+      return escalaPrecoVitrineCache;
+    }
+
+    try {
+      const [[stats]] = await queryWithRetry(
+        `SELECT
+           COUNT(*) AS total,
+           SUM(CASE WHEN preco >= 100 THEN 1 ELSE 0 END) AS ge_100,
+           SUM(CASE WHEN ABS(preco - ROUND(preco)) <= 0.0001 THEN 1 ELSE 0 END) AS inteiros,
+           AVG(preco) AS avg_preco
+         FROM produtos
+         WHERE ativo = TRUE`
+      );
+
+      const total = Number(stats?.total || 0);
+      const ge100 = Number(stats?.ge_100 || 0);
+      const inteiros = Number(stats?.inteiros || 0);
+      const avgPreco = Number(stats?.avg_preco || 0);
+      const ratioGe100 = total > 0 ? (ge100 / total) : 0;
+      const ratioInteiros = total > 0 ? (inteiros / total) : 0;
+      const datasetComCaraDeCentavos = (
+        total >= 100
+        && avgPreco >= 200
+        && ratioGe100 >= 0.9
+        && ratioInteiros >= 0.95
+      );
+
+      escalaPrecoVitrineCache = datasetComCaraDeCentavos ? 100 : 1;
+    } catch (erroEscala) {
+      logger.warn('Falha ao detectar escala de preco da vitrine. Mantendo escala padrao.', {
+        code: erroEscala?.code,
+        message: erroEscala?.message
+      });
+      escalaPrecoVitrineCache = 1;
+    } finally {
+      escalaPrecoVitrineCacheExpiraEm = agora + ESCALA_PRECO_CACHE_TTL_MS;
+    }
+
+    return escalaPrecoVitrineCache;
+  }
+
   async function obterCategoriasEstruturadasComFallback() {
+    const colunas = await obterColunasProdutos();
+    const filtrosPublicos = montarFiltrosCatalogoPublicoSql(colunas, 'p');
+    const filtrosJoinSql = filtrosPublicos.length ? ` AND ${filtrosPublicos.join(' AND ')}` : '';
+
     const [rowsCategorias] = await queryWithRetry(
       `SELECT
          c.id,
@@ -99,6 +275,7 @@ module.exports = function createProdutosPublicRoutes({
        LEFT JOIN produtos p
          ON p.categoria_principal_id = c.id
         AND p.ativo = TRUE
+        ${filtrosJoinSql}
        WHERE c.ativo = TRUE
        GROUP BY c.id, c.nome, c.slug, c.ordem_exibicao, c.ativo, c.icone_url, c.imagem_url
        ORDER BY c.ordem_exibicao ASC, c.nome ASC`
@@ -119,6 +296,7 @@ module.exports = function createProdutosPublicRoutes({
        LEFT JOIN produtos p
          ON p.subcategoria_id = s.id
         AND p.ativo = TRUE
+        ${filtrosJoinSql}
        WHERE s.ativo = TRUE
        GROUP BY s.id, s.categoria_id, s.nome, s.slug, s.ordem_exibicao, s.ativo, s.icone_url, s.imagem_url
        ORDER BY s.ordem_exibicao ASC, s.nome ASC`
@@ -166,13 +344,37 @@ module.exports = function createProdutosPublicRoutes({
 
   // Listar todos os produtos ativos
   router.get('/api/produtos', async (req, res) => {
+    const requestId = String(req.requestId || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`);
+    const inicioRotaMs = Date.now();
+    let etapa = 'entrada';
+    let duracaoCountMs = 0;
+    let duracaoListaMs = 0;
+    let duracaoSerializacaoMs = 0;
+
     try {
+      logger.info('[PRODUTOS][IN]', {
+        request_id: requestId,
+        method: req.method,
+        path: req.originalUrl || req.url
+      });
+      logger.info('[PRODUTOS][QUERY]', {
+        request_id: requestId,
+        raw_query: req.query || {}
+      });
+
       res.set('Cache-Control', 'public, max-age=30');
+      etapa = 'obter_colunas';
       const colunas = await obterColunasProdutos();
       const taxonomiaEstruturadaDisponivel = possuiTaxonomiaEstruturada(colunas);
+      etapa = 'detectar_escala_preco';
+      const escalaPrecoVitrine = await obterEscalaPrecoVitrine();
       const nomeExpr = colunas.has('nome_externo')
         ? "COALESCE(NULLIF(TRIM(p.nome_externo), ''), p.nome) AS nome"
         : 'p.nome AS nome';
+      const precoBaseExpr = colunas.has('preco_tabela')
+        ? 'COALESCE(p.preco_tabela, p.preco)'
+        : 'p.preco';
+      const precoOrdenacaoExpr = precoBaseExpr;
 
       const fromSql = taxonomiaEstruturadaDisponivel
         ? `FROM produtos p
@@ -185,13 +387,26 @@ module.exports = function createProdutosPublicRoutes({
         nomeExpr,
         colunas.has('descricao') ? 'p.descricao' : 'NULL AS descricao',
         colunas.has('marca') ? 'p.marca' : 'NULL AS marca',
-        'p.preco',
+        montarExprPrecoSql(precoBaseExpr, escalaPrecoVitrine, 'preco'),
         colunas.has('unidade') ? 'p.unidade' : "'un' AS unidade",
         colunas.has('categoria') ? 'p.categoria' : "'geral' AS categoria",
         colunas.has('emoji') ? 'p.emoji' : "'📦' AS emoji",
         colunas.has('estoque') ? 'p.estoque' : '0 AS estoque',
         colunas.has('validade') ? 'p.validade' : 'NULL AS validade'
       ];
+
+      campos.push(colunas.has('unidade_venda') ? 'p.unidade_venda' : 'NULL AS unidade_venda');
+      campos.push(colunas.has('tipo_venda') ? 'p.tipo_venda' : 'NULL AS tipo_venda');
+      campos.push(colunas.has('vendido_por_peso') ? 'p.vendido_por_peso' : 'NULL AS vendido_por_peso');
+      campos.push(colunas.has('categoria_operacional') ? 'p.categoria_operacional' : 'NULL AS categoria_operacional');
+      campos.push(colunas.has('peso_min_gramas') ? 'p.peso_min_gramas' : 'NULL AS peso_min_gramas');
+      campos.push(colunas.has('peso_step_gramas') ? 'p.peso_step_gramas' : 'NULL AS peso_step_gramas');
+      campos.push(colunas.has('peso_padrao_gramas') ? 'p.peso_padrao_gramas' : 'NULL AS peso_padrao_gramas');
+      campos.push(colunas.has('permite_fracionado') ? 'p.permite_fracionado' : 'NULL AS permite_fracionado');
+      campos.push(colunas.has('requer_maioridade') ? 'p.requer_maioridade' : 'NULL AS requer_maioridade');
+      campos.push(colunas.has('visivel_no_site') ? 'p.visivel_no_site' : 'NULL AS visivel_no_site');
+      campos.push(colunas.has('oculto_catalogo') ? 'p.oculto_catalogo' : 'NULL AS oculto_catalogo');
+      campos.push(colunas.has('produto_controlado') ? 'p.produto_controlado' : 'NULL AS produto_controlado');
 
       if (colunas.has('nome_externo')) {
         campos.push('p.nome_externo');
@@ -203,10 +418,11 @@ module.exports = function createProdutosPublicRoutes({
 
       if (colunas.has('imagem_url')) {
         campos.push('p.imagem_url AS imagem');
+        campos.push('p.imagem_url');
       }
 
       if (colunas.has('preco_promocional')) {
-        campos.push('p.preco_promocional');
+        campos.push(montarExprPrecoSql('p.preco_promocional', escalaPrecoVitrine, 'preco_promocional'));
       }
 
       if (colunas.has('departamento')) {
@@ -235,8 +451,8 @@ module.exports = function createProdutosPublicRoutes({
       const ordenacaoMap = {
         nome_asc: 'p.categoria ASC, nome ASC',
         nome_desc: 'p.categoria DESC, nome DESC',
-        preco_asc: 'p.preco ASC, nome ASC',
-        preco_desc: 'p.preco DESC, nome ASC',
+        preco_asc: `${precoOrdenacaoExpr} ASC, nome ASC`,
+        preco_desc: `${precoOrdenacaoExpr} DESC, nome ASC`,
         recentes: 'p.id DESC',
         estoque: 'p.estoque DESC, nome ASC'
       };
@@ -244,15 +460,23 @@ module.exports = function createProdutosPublicRoutes({
 
       const limite = parsePositiveInt(req.query?.limit || req.query?.limite, 60, { min: 1, max: 200 });
       const paginaSolicitada = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
+      logger.info('[PRODUTOS][QUERY]', {
+        request_id: requestId,
+        query_normalizada: {
+          busca,
+          categoria,
+          categoria_slug: categoriaSlug,
+          subcategoria_slug: subcategoriaSlug,
+          sort: ordenacaoRaw || '',
+          page: paginaSolicitada,
+          limit: limite
+        },
+        taxonomia_estruturada_disponivel: taxonomiaEstruturadaDisponivel,
+        total_colunas_produtos: colunas.size
+      });
 
-      const filtros = ['p.ativo = TRUE'];
+      const filtros = ['p.ativo = TRUE', ...montarFiltrosCatalogoPublicoSql(colunas, 'p')];
       const params = [];
-
-      // Super-categorias: bebidas inclui agua+refrigerantes, frios inclui derivados_lacteos+leites_fermentados
-      const SUPER_CATEGORIAS = {
-        bebidas: ['bebidas', 'agua', 'refrigerantes'],
-        frios: ['frios', 'derivados_lacteos', 'leites_fermentados']
-      };
 
       if (categoriaSlug && taxonomiaEstruturadaDisponivel) {
         filtros.push('cc.slug = ?');
@@ -262,9 +486,24 @@ module.exports = function createProdutosPublicRoutes({
           ? "LOWER(COALESCE(NULLIF(TRIM(p.departamento), ''), p.categoria))"
           : 'LOWER(p.categoria)';
 
-        if (categoria === 'cervejas' || categoria === 'cerveja') {
+        if (categoria === 'bebidas-alcoolicas') {
           const textoProdutoExpr = buildProdutoTextoBuscaExpr(colunas, 'p');
-          const filtrosTextoCerveja = CERVEJA_MATCHERS.map(() => `${textoProdutoExpr} LIKE ? ESCAPE '\\\\'`);
+          const subcats = CATEGORIA_EQUIVALENCIAS[categoria] || ['bebidas'];
+          const placeholders = subcats.map(() => '?').join(', ');
+          const filtrosTextoAlcool = BEBIDAS_ALCOOLICAS_MATCHERS.map(
+            () => `${textoProdutoExpr} LIKE ?${LIKE_ESCAPE_SQL}`
+          );
+
+          filtros.push(
+            `(${categoriaExpr} IN (${placeholders}) AND (${filtrosTextoAlcool.join(' OR ')}))`
+          );
+          params.push(...subcats);
+          BEBIDAS_ALCOOLICAS_MATCHERS.forEach((matcher) => {
+            params.push(`%${escapeLike(matcher)}%`);
+          });
+        } else if (categoria === 'cervejas' || categoria === 'cerveja') {
+          const textoProdutoExpr = buildProdutoTextoBuscaExpr(colunas, 'p');
+          const filtrosTextoCerveja = CERVEJA_MATCHERS.map(() => `${textoProdutoExpr} LIKE ?${LIKE_ESCAPE_SQL}`);
 
           filtros.push(`(${categoriaExpr} = ? OR (${filtrosTextoCerveja.join(' OR ')}))`);
           params.push('cervejas');
@@ -272,7 +511,7 @@ module.exports = function createProdutosPublicRoutes({
             params.push(`%${escapeLike(matcher)}%`);
           });
         } else {
-          const subcats = SUPER_CATEGORIAS[categoria];
+          const subcats = CATEGORIA_EQUIVALENCIAS[categoria];
           if (subcats) {
             const placeholders = subcats.map(() => '?').join(', ');
             filtros.push(`(${categoriaExpr} IN (${placeholders}))`);
@@ -308,22 +547,22 @@ module.exports = function createProdutosPublicRoutes({
       if (busca) {
         const termo = `%${escapeLike(busca)}%`;
         const filtrosBusca = [
-          `LOWER(p.nome) LIKE ? ESCAPE '\\\\'`
+          `LOWER(p.nome) LIKE ?${LIKE_ESCAPE_SQL}`
         ];
         params.push(termo);
 
         if (colunas.has('nome_externo')) {
-          filtrosBusca.push(`LOWER(COALESCE(p.nome_externo, '')) LIKE ? ESCAPE '\\\\'`);
+          filtrosBusca.push(`LOWER(COALESCE(p.nome_externo, '')) LIKE ?${LIKE_ESCAPE_SQL}`);
           params.push(termo);
         }
 
         if (colunas.has('descricao')) {
-          filtrosBusca.push(`LOWER(COALESCE(p.descricao, '')) LIKE ? ESCAPE '\\\\'`);
+          filtrosBusca.push(`LOWER(COALESCE(p.descricao, '')) LIKE ?${LIKE_ESCAPE_SQL}`);
           params.push(termo);
         }
 
         if (colunas.has('marca')) {
-          filtrosBusca.push(`LOWER(COALESCE(p.marca, '')) LIKE ? ESCAPE '\\\\'`);
+          filtrosBusca.push(`LOWER(COALESCE(p.marca, '')) LIKE ?${LIKE_ESCAPE_SQL}`);
           params.push(termo);
         }
 
@@ -341,39 +580,135 @@ module.exports = function createProdutosPublicRoutes({
       });
       const cachePayload = obterCacheProdutos(chaveCache);
       if (cachePayload) {
+        const totalCache = Number(cachePayload?.paginacao?.total || 0);
+        const itensCache = Array.isArray(cachePayload?.produtos) ? cachePayload.produtos.length : 0;
+        const payloadBytesCache = Buffer.byteLength(JSON.stringify(cachePayload), 'utf8');
+        const duracaoTotalMs = Date.now() - inicioRotaMs;
+        logger.info('[PRODUTOS][OUT]', {
+          request_id: requestId,
+          cache: true,
+          total: totalCache,
+          itens_retorno: itensCache,
+          duracao_total_ms: duracaoTotalMs,
+          duracao_count_ms: 0,
+          duracao_lista_ms: 0,
+          duracao_serializacao_ms: 0,
+          payload_bytes: payloadBytesCache
+        });
         return res.json({
           ...cachePayload,
           cache: true
         });
       }
 
-      const [[countRow]] = await queryWithRetry(
-        `SELECT COUNT(*) AS total ${fromSql} ${whereSql}`,
-        params
-      );
+      const countSql = `SELECT COUNT(*) AS total ${fromSql} ${whereSql}`;
+      logger.info('[PRODUTOS][SQL]', {
+        request_id: requestId,
+        etapa: 'count',
+        sql: countSql
+      });
+      logger.info('[PRODUTOS][PARAMS]', {
+        request_id: requestId,
+        etapa: 'count',
+        params: sanitizeParamsForLog(params)
+      });
+      etapa = 'query_count';
+      const inicioCountMs = Date.now();
+      const [[countRow]] = await queryWithRetry(countSql, params);
+      duracaoCountMs = Date.now() - inicioCountMs;
       const total = Number(countRow?.total || 0);
       const paginacao = montarPaginacao(total, paginaSolicitada, limite);
       const offset = (paginacao.pagina - 1) * paginacao.limite;
 
-      const [produtos] = await queryWithRetry(
-        `SELECT ${campos.join(', ')}
+      const listaSql = `SELECT ${campos.join(', ')}
          ${fromSql}
          ${whereSql}
          ORDER BY ${ordenacaoSql}
-         LIMIT ? OFFSET ?`,
-        [...params, paginacao.limite, offset]
-      );
+         LIMIT ? OFFSET ?`;
+      const paramsLista = [...params, paginacao.limite, offset];
+      logger.info('[PRODUTOS][SQL]', {
+        request_id: requestId,
+        etapa: 'lista',
+        sql: listaSql
+      });
+      logger.info('[PRODUTOS][PARAMS]', {
+        request_id: requestId,
+        etapa: 'lista',
+        params: sanitizeParamsForLog(paramsLista)
+      });
+      etapa = 'query_lista';
+      const inicioListaMs = Date.now();
+      const [produtos] = await queryWithRetry(listaSql, paramsLista);
+      duracaoListaMs = Date.now() - inicioListaMs;
+      etapa = 'serializacao_resposta';
+      const inicioSerializacaoMs = Date.now();
+      const produtosEnriquecidos = (Array.isArray(produtos) ? produtos : [])
+        .map((produto) => {
+          const enriquecido = enriquecerProdutoParaCatalogo(produto);
+          const visibilidade = resolveVisibilidadePublica(enriquecido);
+          return {
+            ...enriquecido,
+            _visivel_publico: Boolean(visibilidade?.visivel_publico)
+          };
+        })
+        .filter((produto) => produto?._visivel_publico)
+        .map((produto) => {
+          const { _visivel_publico, ...resto } = produto;
+          return resto;
+        });
 
       const payload = {
-        produtos,
+        produtos: produtosEnriquecidos,
         paginacao
       };
+      duracaoSerializacaoMs = Date.now() - inicioSerializacaoMs;
+      const payloadBytes = Buffer.byteLength(JSON.stringify(payload), 'utf8');
+      const duracaoTotalMs = Date.now() - inicioRotaMs;
       salvarCacheProdutos(chaveCache, payload);
+
+      logger.info('[PRODUTOS][OUT]', {
+        request_id: requestId,
+        cache: false,
+        total,
+        pagina: paginacao.pagina,
+        limite: paginacao.limite,
+        itens_retorno: payload.produtos.length,
+        duracao_total_ms: duracaoTotalMs,
+        duracao_count_ms: duracaoCountMs,
+        duracao_lista_ms: duracaoListaMs,
+        duracao_serializacao_ms: duracaoSerializacaoMs,
+        payload_bytes: payloadBytes
+      });
 
       return res.json(payload);
     } catch (erro) {
-      logger.error('Erro ao buscar produtos:', erro);
-      res.status(500).json({ erro: 'Não foi possível carregar os produtos no momento.' });
+      const erroInfo = {
+        request_id: requestId,
+        etapa,
+        message: String(erro?.message || 'Erro desconhecido'),
+        stack: String(erro?.stack || ''),
+        code: erro?.code || null,
+        sqlMessage: erro?.sqlMessage || null,
+        sqlState: erro?.sqlState || null,
+        errno: erro?.errno || null
+      };
+      logger.error('[PRODUTOS][ERRO]', erroInfo);
+
+      if (res.headersSent) {
+        return;
+      }
+
+      const respostaErro = {
+        erro: 'Falha ao listar produtos',
+        codigo: erroInfo.code || 'PRODUTOS_LISTAR_FALHA',
+        request_id: requestId
+      };
+
+      if (!IS_PRODUCTION) {
+        respostaErro.detalhe = erroInfo.message;
+      }
+
+      return res.status(500).json(respostaErro);
     }
   });
 
@@ -399,6 +734,7 @@ module.exports = function createProdutosPublicRoutes({
         });
 
         const colunas = await obterColunasProdutos();
+        const filtrosPublicos = montarFiltrosCatalogoPublicoSql(colunas, '');
         const categoriaExpr = colunas.has('departamento')
           ? "LOWER(COALESCE(NULLIF(TRIM(departamento), ''), categoria))"
           : 'LOWER(categoria)';
@@ -407,6 +743,7 @@ module.exports = function createProdutosPublicRoutes({
           `SELECT ${categoriaExpr} AS categoria, COUNT(*) AS total_produtos
              FROM produtos
             WHERE ativo = TRUE
+              ${filtrosPublicos.length ? `AND ${filtrosPublicos.join(' AND ')}` : ''}
               AND ${categoriaExpr} IS NOT NULL
               AND ${categoriaExpr} <> ''
             GROUP BY ${categoriaExpr}
@@ -445,6 +782,10 @@ module.exports = function createProdutosPublicRoutes({
         return res.status(400).json({ erro: 'Categoria invalida.' });
       }
 
+      const colunas = await obterColunasProdutos();
+      const filtrosPublicosJoin = montarFiltrosCatalogoPublicoSql(colunas, 'p');
+      const filtrosPublicosWhere = montarFiltrosCatalogoPublicoSql(colunas, '');
+
       const [rowsCategoria] = await queryWithRetry(
         `SELECT id, nome, slug
            FROM catalogo_categorias
@@ -474,6 +815,7 @@ module.exports = function createProdutosPublicRoutes({
          LEFT JOIN produtos p
            ON p.subcategoria_id = s.id
           AND p.ativo = TRUE
+          ${filtrosPublicosJoin.length ? `AND ${filtrosPublicosJoin.join(' AND ')}` : ''}
          WHERE s.categoria_id = ?
            AND s.ativo = TRUE
          GROUP BY s.id, s.nome, s.slug, s.ordem_exibicao, s.ativo, s.icone_url, s.imagem_url
@@ -486,7 +828,8 @@ module.exports = function createProdutosPublicRoutes({
            FROM produtos
           WHERE ativo = TRUE
             AND categoria_principal_id = ?
-            AND subcategoria_id IS NULL`,
+            AND subcategoria_id IS NULL
+            ${filtrosPublicosWhere.length ? `AND ${filtrosPublicosWhere.join(' AND ')}` : ''}`,
         [categoria.id]
       );
 
@@ -528,6 +871,7 @@ module.exports = function createProdutosPublicRoutes({
       }
 
       const colunas = await obterColunasProdutos();
+      const filtrosPublicos = montarFiltrosCatalogoPublicoSql(colunas, '');
       const categoriaExpr = colunas.has('departamento')
         ? "LOWER(COALESCE(NULLIF(TRIM(departamento), ''), categoria))"
         : 'LOWER(categoria)';
@@ -542,6 +886,7 @@ module.exports = function createProdutosPublicRoutes({
         `SELECT DISTINCT ${categoriaExpr} AS categoria
          FROM produtos
          WHERE ativo = TRUE
+           ${filtrosPublicos.length ? `AND ${filtrosPublicos.join(' AND ')}` : ''}
            AND ${categoriaNotNullFilter}
            AND ${categoriaNotEmptyFilter}
          ORDER BY categoria ASC`

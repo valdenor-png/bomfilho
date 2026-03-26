@@ -46,7 +46,7 @@ export const VEICULOS_ENTREGA = Object.freeze({
   bike: {
     label: 'Bike',
     imagem: '/img/veiculos/bike.svg',
-    icone: '🚲',
+    icone: 'bike',
     descricao: 'Mais econômica para distâncias curtas',
     vantagem: 'Ideal para entregas rápidas no entorno da loja',
     consumo: 'Sem combustível',
@@ -56,7 +56,7 @@ export const VEICULOS_ENTREGA = Object.freeze({
   moto: {
     label: 'Moto',
     imagem: '/img/veiculos/moto.svg',
-    icone: '🏍️',
+    icone: 'motorbike',
     descricao: 'Melhor equilíbrio entre velocidade e custo',
     vantagem: 'Opção mais indicada para a maioria dos pedidos',
     consumo: '30 km/l',
@@ -66,7 +66,7 @@ export const VEICULOS_ENTREGA = Object.freeze({
   carro: {
     label: 'Carro',
     imagem: '/img/veiculos/carro.svg',
-    icone: '🚗',
+    icone: 'car',
     descricao: 'Ideal para pedidos maiores e volumosos',
     vantagem: 'Mais capacidade para compras completas',
     consumo: '12 km/l',
@@ -77,7 +77,7 @@ export const VEICULOS_ENTREGA = Object.freeze({
 
 export const FORMAS_PAGAMENTO_OPCOES = Object.freeze({
   pix: {
-    icon: '💠',
+    icon: 'pix',
     title: 'PIX',
     headline: 'Pagamento instantâneo com confirmação automática',
     details: ['QR Code e código Copia e Cola', 'Confirmação automática após pagamento'],
@@ -89,7 +89,7 @@ export const FORMAS_PAGAMENTO_OPCOES = Object.freeze({
     ctaText: 'Gerar PIX e continuar'
   },
   credito: {
-    icon: '💳',
+    icon: 'credit-card',
     title: 'Cartão de crédito',
     headline: 'Pagamento protegido com opção de parcelamento',
     details: [
@@ -104,7 +104,7 @@ export const FORMAS_PAGAMENTO_OPCOES = Object.freeze({
     ctaText: 'Continuar para confirmação'
   },
   debito: {
-    icon: '🏧',
+    icon: 'debit-card',
     title: 'Cartão de débito',
     headline: 'Pagamento à vista com aprovação da operadora',
     details: ['Pagamento à vista', 'Confirmação após aprovação da operadora'],
@@ -126,34 +126,45 @@ export const PIX_QR_RENDER_OPTIONS = Object.freeze({
 // ── Status labels ───────────────────────────────────────────────────────
 
 export const STATUS_PEDIDO_LABELS = Object.freeze({
+  aguardando_revisao: 'Em revisão',
   pendente: 'Aguardando confirmação',
+  pagamento_recusado: 'Pagamento recusado',
   preparando: 'Em preparação',
   enviado: 'Saiu para entrega',
   pronto_para_retirada: 'Pronto para retirada',
   retirado: 'Retirado na loja',
   entregue: 'Entregue',
+  expirado: 'Expirado',
   cancelado: 'Cancelado',
   pago: 'Pago'
 });
 
 export const STATUS_PAGAMENTO_LABELS = Object.freeze({
   WAITING: 'Aguardando pagamento',
+  PENDING: 'Aguardando pagamento',
   IN_ANALYSIS: 'Em análise',
+  IN_PROCESS: 'Em análise',
   AUTHORIZED: 'Autorizado',
   PAID: 'Pagamento aprovado',
+  APPROVED: 'Pagamento aprovado',
   DECLINED: 'Pagamento recusado',
+  REJECTED: 'Pagamento recusado',
   CANCELED: 'Pagamento cancelado',
   EXPIRED: 'Pagamento expirado'
 });
 
 export const PIX_STATUS_META = Object.freeze({
-  WAITING: { tone: 'warning', icon: '⏳', guidance: 'Aguardando confirmação do banco. Assim que for aprovado, a etapa de confirmação será liberada.' },
-  IN_ANALYSIS: { tone: 'info', icon: '🔎', guidance: 'Seu pagamento está em análise. Isso pode levar alguns instantes.' },
-  AUTHORIZED: { tone: 'info', icon: '🛡️', guidance: 'Pagamento autorizado. A confirmação final será atualizada automaticamente.' },
-  PAID: { tone: 'success', icon: '✅', guidance: 'Pagamento confirmado com sucesso. Você já pode seguir para a confirmação do pedido.' },
-  EXPIRED: { tone: 'danger', icon: '⌛', guidance: 'Este PIX expirou. Gere um novo QR Code para tentar novamente.' },
-  CANCELED: { tone: 'danger', icon: '⛔', guidance: 'Pagamento cancelado. Gere um novo PIX para concluir o pedido.' },
-  DECLINED: { tone: 'danger', icon: '⚠️', guidance: 'Pagamento não aprovado. Gere um novo PIX e tente novamente.' }
+  WAITING: { tone: 'warning', icon: 'pending', guidance: 'Aguardando confirmação do banco. Assim que for aprovado, a etapa de confirmação será liberada.' },
+  PENDING: { tone: 'warning', icon: 'pending', guidance: 'Aguardando confirmação do banco. Assim que for aprovado, a etapa de confirmação será liberada.' },
+  IN_ANALYSIS: { tone: 'info', icon: 'analysis', guidance: 'Seu pagamento está em análise. Isso pode levar alguns instantes.' },
+  IN_PROCESS: { tone: 'info', icon: 'analysis', guidance: 'Seu pagamento está em análise. Isso pode levar alguns instantes.' },
+  AUTHORIZED: { tone: 'info', icon: 'authorized', guidance: 'Pagamento autorizado. A confirmação final será atualizada automaticamente.' },
+  PAID: { tone: 'success', icon: 'paid', guidance: 'Pagamento confirmado com sucesso. Você já pode seguir para a confirmação do pedido.' },
+  APPROVED: { tone: 'success', icon: 'paid', guidance: 'Pagamento confirmado com sucesso. Você já pode seguir para a confirmação do pedido.' },
+  EXPIRED: { tone: 'danger', icon: 'expired', guidance: 'Este PIX expirou. Gere um novo QR Code para tentar novamente.' },
+  CANCELED: { tone: 'danger', icon: 'canceled', guidance: 'Pagamento cancelado. Gere um novo PIX para concluir o pedido.' },
+  DECLINED: { tone: 'danger', icon: 'declined', guidance: 'Pagamento não aprovado. Gere um novo PIX e tente novamente.' },
+  REJECTED: { tone: 'danger', icon: 'declined', guidance: 'Pagamento não aprovado. Gere um novo PIX e tente novamente.' }
 });
 
 // ── QR Code lazy‑load ───────────────────────────────────────────────────
@@ -573,12 +584,13 @@ export function resolverStatusPix({ status, statusInterno, pagamentoConfirmado }
   const si = String(statusInterno || '').trim().toLowerCase();
   if (pagamentoConfirmado || si === 'pago' || si === 'entregue') return 'PAID';
   if (si === 'cancelado') return 'CANCELED';
+  if (si === 'pagamento_recusado') return 'DECLINED';
   return 'WAITING';
 }
 
 export function obterStatusPixVisual({ status, statusInterno, pagamentoConfirmado }) {
   const code = resolverStatusPix({ status, statusInterno, pagamentoConfirmado });
-  const meta = PIX_STATUS_META[code] || { tone: 'neutral', icon: 'ℹ️', guidance: 'Atualize o status para confirmar a situação do pagamento.' };
+  const meta = PIX_STATUS_META[code] || { tone: 'neutral', icon: 'pending', guidance: 'Atualize o status para confirmar a situação do pagamento.' };
   return {
     code,
     tone: meta.tone,

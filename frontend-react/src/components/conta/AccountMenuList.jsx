@@ -1,18 +1,32 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import {
+  BadgeHelp,
+  ChevronRight,
+  CreditCard,
+  MapPin,
+  MessageCircle,
+  Receipt,
+  ShieldCheck,
+  Star,
+  TicketPercent,
+  User
+} from 'lucide-react';
 
 function Chevron() {
-  return <span className="account-menu-chevron" aria-hidden="true">›</span>;
+  return <ChevronRight className="account-menu-chevron" size={16} strokeWidth={2} aria-hidden="true" />;
 }
 
-function AccountMenuButton({ icon, label, description, onClick, isActive = false }) {
+function AccountMenuButton({ Icon, label, description, onClick, isActive = false }) {
   return (
     <button
       type="button"
       className={`account-menu-item ${isActive ? 'is-active' : ''}`.trim()}
       onClick={onClick}
     >
-      <span className="account-menu-icon" aria-hidden="true">{icon}</span>
+      <span className="account-menu-icon" aria-hidden="true">
+        <Icon size={18} strokeWidth={2} />
+      </span>
       <span className="account-menu-copy">
         <strong>{label}</strong>
         {description ? <small>{description}</small> : null}
@@ -22,10 +36,12 @@ function AccountMenuButton({ icon, label, description, onClick, isActive = false
   );
 }
 
-function AccountMenuLink({ icon, label, description, to }) {
+function AccountMenuLink({ Icon, label, description, to }) {
   return (
     <Link to={to} className="account-menu-item">
-      <span className="account-menu-icon" aria-hidden="true">{icon}</span>
+      <span className="account-menu-icon" aria-hidden="true">
+        <Icon size={18} strokeWidth={2} />
+      </span>
       <span className="account-menu-copy">
         <strong>{label}</strong>
         {description ? <small>{description}</small> : null}
@@ -44,60 +60,60 @@ export default function AccountMenuList({
   return (
     <section className="account-menu-list" aria-label="Atalhos da conta">
       <AccountMenuButton
-        icon="💬"
+        Icon={MessageCircle}
         label="WhatsApp"
-        description="Atendimento rápido da loja"
+        description="Atendimento rapido da loja"
         onClick={onOpenWhatsapp}
       />
 
       <AccountMenuButton
-        icon="👤"
+        Icon={User}
         label="Dados da conta"
-        description="Nome, e-mail, telefone e preferências"
+        description="Nome, e-mail, telefone e preferencias"
         onClick={() => onSelectPanel('dados')}
         isActive={activePanel === 'dados'}
       />
 
       <AccountMenuButton
-        icon="💳"
+        Icon={CreditCard}
         label="Pagamentos"
-        description="Gestão segura com Mercado Pago"
+        description="Gestao segura com Mercado Pago"
         onClick={() => onSelectPanel('pagamentos')}
         isActive={activePanel === 'pagamentos'}
       />
 
       <AccountMenuButton
-        icon="📍"
-        label="Endereços"
-        description="Principal, edição e referência"
+        Icon={MapPin}
+        label="Enderecos"
+        description="Principal, edicao e referencia"
         onClick={() => onSelectPanel('enderecos')}
         isActive={activePanel === 'enderecos'}
       />
 
       {showCupons ? (
         <AccountMenuButton
-          icon="🎟️"
+          Icon={TicketPercent}
           label="Cupons"
-          description="Benefícios disponíveis"
+          description="Beneficios disponiveis"
           onClick={() => onSelectPanel('cupons')}
           isActive={activePanel === 'cupons'}
         />
       ) : null}
 
-      <AccountMenuLink icon="🧾" label="Meus pedidos" description="Histórico e acompanhamento" to="/pedidos" />
-      <AccountMenuLink icon="⭐" label="Favoritos" description="Itens salvos para recompra" to="/produtos?recorrencia=favoritos" />
+      <AccountMenuLink Icon={Receipt} label="Meus pedidos" description="Historico e acompanhamento" to="/pedidos" />
+      <AccountMenuLink Icon={Star} label="Favoritos" description="Itens salvos para recompra" to="/produtos?recorrencia=favoritos" />
 
       <AccountMenuButton
-        icon="🆘"
+        Icon={BadgeHelp}
         label="Ajuda e suporte"
         description="Falar com o atendimento"
         onClick={onOpenWhatsapp}
       />
 
       <AccountMenuButton
-        icon="🔒"
-        label="Segurança"
-        description="Senha, sessões e saída"
+        Icon={ShieldCheck}
+        label="Seguranca"
+        description="Senha, sessoes e saida"
         onClick={() => onSelectPanel('seguranca')}
         isActive={activePanel === 'seguranca'}
       />

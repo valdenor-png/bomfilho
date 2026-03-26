@@ -1,24 +1,47 @@
 /**
- * Componentes de carrinho e resumo do checkout — extraídos de PagamentoPage.
+ * Componentes de carrinho e resumo do checkout - extraidos de PagamentoPage.
  */
 import React, { useState } from 'react';
+import { AlertTriangle, Package } from 'lucide-react';
 import SmartImage from '../ui/SmartImage';
 import { formatarMoeda } from '../../lib/checkoutUtils';
+import {
+  calcularSubtotalPeso,
+  formatPesoSelecionado,
+  isItemPeso,
+  resolvePesoConfig,
+  sanitizePesoGramas
+} from '../../lib/produtoCatalogoRules';
 
 export function CartItemRow({
   item,
   onUpdateQuantity,
+  onUpdateWeight,
   onRemove,
   warningMessage = ''
 }) {
+  const atualizarQuantidade = typeof onUpdateQuantity === 'function' ? onUpdateQuantity : () => {};
+  const atualizarPeso = typeof onUpdateWeight === 'function' ? onUpdateWeight : () => {};
+  const removerItem = typeof onRemove === 'function' ? onRemove : () => {};
   const quantidade = Math.max(1, Number(item?.quantidade || 1));
   const precoUnitario = Number(item?.preco || 0);
-  const subtotal = Number((precoUnitario * quantidade).toFixed(2));
+  const itemPeso = isItemPeso(item);
+  const pesoConfig = itemPeso ? resolvePesoConfig(item, 'peso') : null;
+  const pesoSelecionado = itemPeso
+    ? sanitizePesoGramas(item?.peso_gramas, pesoConfig)
+    : null;
+  const subtotal = itemPeso
+    ? calcularSubtotalPeso(precoUnitario, pesoSelecionado, quantidade)
+    : Number((precoUnitario * quantidade).toFixed(2));
   const imagem = String(item?.imagem || '').trim();
   const [imagemFalhou, setImagemFalhou] = useState(false);
   const [warningOpen, setWarningOpen] = useState(false);
   const exibirImagem = Boolean(imagem) && !imagemFalhou;
-  const warningId = `cart-item-warning-${item.id}`;
+  const itemKey = String(item?.cart_key || item?.id || '').trim();
+  const warningId = `cart-item-warning-${itemKey.replace(/[^a-z0-9_-]/gi, '-') || 'item'}`;
+  const unidadeLabel = itemPeso
+    ? `${formatarMoeda(precoUnitario)}/kg`
+    : formatarMoeda(precoUnitario);
 
   return (
     <article className="cart-item-row" aria-label={`Item ${item.nome}`}>
@@ -32,7 +55,9 @@ export function CartItemRow({
             onError={() => setImagemFalhou(true)}
           />
         ) : (
-          <span className="cart-item-emoji" aria-hidden="true">{item.emoji || '📦'}</span>
+          <span className="cart-item-emoji" aria-hidden="true">
+            <Package size={18} />
+          </span>
         )}
       </div>
 
@@ -53,7 +78,7 @@ export function CartItemRow({
               onBlur={() => setWarningOpen(false)}
               onClick={() => setWarningOpen((current) => !current)}
             >
-              !
+              <AlertTriangle size={14} aria-hidden="true" />
             </button>
 
             <div
@@ -65,14 +90,58 @@ export function CartItemRow({
             </div>
           </div>
         ) : null}
-        <p className="cart-item-unitary"><strong>{formatarMoeda(precoUnitario)}</strong></p>
+
+        <p className="cart-item-unitary"><strong>{unidadeLabel}</strong></p>
+
+        {itemPeso ? (
+          <div className="cart-item-weight-control">
+            <button
+              type="button"
+              className="cart-item-weight-btn"
+              onClick={() => atualizarPeso(itemKey, Math.max(pesoConfig?.peso_min_gramas || 1, Number(pesoSelecionado || 0) - Number(pesoConfig?.peso_step_gramas || 1)))}
+              aria-label={`Diminuir gramagem de ${item.nome}`}
+              disabled={Number(pesoSelecionado || 0) <= Number(pesoConfig?.peso_min_gramas || 1)}
+            >
+              -
+            </button>
+
+            <input
+              type="number"
+              className="cart-item-weight-input"
+              min={Number(pesoConfig?.peso_min_gramas || 1)}
+              step={Number(pesoConfig?.peso_step_gramas || 1)}
+              inputMode="numeric"
+              value={String(pesoSelecionado || '')}
+              onChange={(event) => {
+                const digits = String(event.target.value || '').replace(/\D/g, '');
+                if (!digits) {
+                  atualizarPeso(itemKey, Number(pesoConfig?.peso_min_gramas || 1));
+                  return;
+                }
+                atualizarPeso(itemKey, Number(digits));
+              }}
+              aria-label={`Peso em gramas para ${item.nome}`}
+            />
+
+            <button
+              type="button"
+              className="cart-item-weight-btn"
+              onClick={() => atualizarPeso(itemKey, Number(pesoSelecionado || 0) + Number(pesoConfig?.peso_step_gramas || 1))}
+              aria-label={`Aumentar gramagem de ${item.nome}`}
+            >
+              +
+            </button>
+
+            <span className="cart-item-weight-label">{formatPesoSelecionado(pesoSelecionado)}</span>
+          </div>
+        ) : null}
       </div>
 
       <div className="cart-item-qty" aria-label={`Quantidade de ${item.nome}`}>
         <button
           type="button"
           className="cart-item-qty-btn"
-          onClick={() => onUpdateQuantity(item.id, Math.max(1, quantidade - 1))}
+          onClick={() => atualizarQuantidade(itemKey, Math.max(1, quantidade - 1))}
           disabled={quantidade <= 1}
           aria-label={`Diminuir quantidade de ${item.nome}`}
         >
@@ -84,7 +153,7 @@ export function CartItemRow({
         <button
           type="button"
           className="cart-item-qty-btn"
-          onClick={() => onUpdateQuantity(item.id, quantidade + 1)}
+          onClick={() => atualizarQuantidade(itemKey, quantidade + 1)}
           aria-label={`Aumentar quantidade de ${item.nome}`}
         >
           +
@@ -98,7 +167,7 @@ export function CartItemRow({
       <button
         type="button"
         className="cart-item-remove-btn"
-        onClick={() => onRemove(item.id)}
+        onClick={() => removerItem(itemKey)}
         aria-label={`Remover ${item.nome} do carrinho`}
       >
         Remover
@@ -131,7 +200,7 @@ export function CheckoutSummaryCard({
 
       <div className="checkout-cart-summary-row">
         <span>Frete</span>
-        <strong>{retirada ? 'Grátis' : 'Na entrega'}</strong>
+        <strong>{retirada ? 'Gratis' : 'Na entrega'}</strong>
       </div>
 
       <div className="checkout-cart-summary-divider" aria-hidden="true" />
@@ -158,8 +227,8 @@ export function CheckoutSummaryCard({
 }
 
 export function CheckoutCrossSellRail({
-  title = 'Pode combinar com isso 👀',
-  subtitle = 'Que tal adicionar também?',
+  title = 'Pode combinar com isso',
+  subtitle = 'Que tal adicionar tambem?',
   produtos = [],
   carregando = false,
   onAdd
@@ -169,7 +238,7 @@ export function CheckoutCrossSellRail({
   }
 
   return (
-    <section className="checkout-cross-sell" aria-label="Sugestões para complementar a compra">
+    <section className="checkout-cross-sell" aria-label="Sugestoes para complementar a compra">
       <div className="checkout-cross-sell-header">
         <h3>{title}</h3>
         <p>{subtitle}</p>
@@ -186,13 +255,13 @@ export function CheckoutCrossSellRail({
               {produto.imagem ? (
                 <SmartImage src={produto.imagem} alt="" className="checkout-cross-sell-image" loading="lazy" />
               ) : (
-                <span className="checkout-cross-sell-emoji">{produto.emoji || '🛍️'}</span>
+                <span className="checkout-cross-sell-emoji">Item</span>
               )}
             </div>
 
             {Number.isFinite(Number(produto?.estoque)) ? (
               <span className={`checkout-cross-sell-stock ${Number(produto.estoque) > 0 ? 'is-in-stock' : 'is-low-stock'}`.trim()}>
-                {Number(produto.estoque) > 0 ? 'Disponível' : 'Estoque baixo'}
+                {Number(produto.estoque) > 0 ? 'Disponivel' : 'Estoque baixo'}
               </span>
             ) : null}
 
@@ -238,7 +307,7 @@ export function OrderSummaryCard({
 
       <div className="checkout-order-summary-row">
         <span>Frete</span>
-        <strong>{frete === null ? 'A calcular' : retirada ? 'Grátis' : formatarMoeda(frete)}</strong>
+        <strong>{frete === null ? 'A calcular' : retirada ? 'Gratis' : formatarMoeda(frete)}</strong>
       </div>
 
       <div className="checkout-order-summary-divider" aria-hidden="true" />

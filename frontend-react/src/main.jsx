@@ -6,6 +6,7 @@ import './styles.css';
 import { CartProvider } from './context/CartContext';
 import { RecorrenciaProvider } from './context/RecorrenciaContext';
 import { ToastProvider } from './context/ToastContext';
+import { ReviewTrackerProvider } from './context/ReviewTrackerContext';
 import { trackWebVitals } from './lib/trackWebVitals';
 import {
   applyFontScale,
@@ -26,9 +27,11 @@ createRoot(document.getElementById('root')).render(
     <ToastProvider>
       <CartProvider>
         <RecorrenciaProvider>
-          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-            <App />
-          </BrowserRouter>
+          <ReviewTrackerProvider>
+            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              <App />
+            </BrowserRouter>
+          </ReviewTrackerProvider>
         </RecorrenciaProvider>
       </CartProvider>
     </ToastProvider>

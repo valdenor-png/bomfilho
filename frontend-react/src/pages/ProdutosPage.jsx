@@ -1,7 +1,10 @@
 ﻿import React from 'react';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, Flame, Heart, House, Search, ShoppingCart, Tag } from 'lucide-react';
 
 const EMPTY_RECOMENDACOES = [];
+const BEBIDAS_ALCOOLICAS_SECOES = new Set(['cervejas', 'vinho', 'destilados', 'licores', 'drinks-prontos']);
+const PREFETCH_CATEGORIAS_MAX_CONCORRENCIA = 2;
 import { Link, useSearchParams } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
@@ -30,6 +33,12 @@ import {
   classifyCategoriaComercial,
   resolveCategoriaPrincipalVitrine
 } from '../lib/categoryUtils';
+import {
+  isProdutoAlcoolico,
+  isProdutoVisivelNoCatalogo,
+  resolvePesoConfig,
+  resolveUnidadeVenda
+} from '../lib/produtoCatalogoRules';
 import {
   CATEGORIA_TODAS,
   CATEGORIA_PROMOCOES,
@@ -318,6 +327,7 @@ export default function ProdutosPage() {
   const [categoriasEstruturadas, setCategoriasEstruturadas] = useState([]);
   const [subcategoriaEstruturadaAtiva, setSubcategoriaEstruturadaAtiva] = useState('todas');
   const [totaisCategoriasVitrine, setTotaisCategoriasVitrine] = useState({});
+  const [statusCategoriasVitrine, setStatusCategoriasVitrine] = useState({});
   const [secoesCategoriaExpandidas, setSecoesCategoriaExpandidas] = useState({});
   const requisicaoProdutosIdRef = useRef(0);
   const limparFeedbackAdicaoRef = useRef(null);
@@ -338,6 +348,10 @@ export default function ProdutosPage() {
   const termoBuscaEfetivo = String(buscaDebounced || '').trim();
   const buscaEmAtualizacao = normalizeText(termoBuscaDigitado) !== normalizeText(termoBuscaEfetivo);
   const categoriaEhBebidas = useMemo(() => isBebidasCategoria(categoria), [categoria]);
+  const categoriaEhBebidasAlcoolicas = useMemo(
+    () => normalizeText(categoria) === 'bebidas-alcoolicas',
+    [categoria]
+  );
   const categoriaEhFrios = useMemo(() => isFriosCategoria(categoria), [categoria]);
   const categoriasEstruturadasLookup = useMemo(() => {
     const lookup = new Map();
@@ -473,6 +487,7 @@ export default function ProdutosPage() {
 
   useEffect(() => {
     let cancelado = false;
+    const categoriasPrincipaisIds = new Set(CATEGORIAS_PRINCIPAIS_NAVEGACAO.map((item) => item.id));
 
     getCategoriasNavegacao()
       .then((data) => {
@@ -497,9 +512,16 @@ export default function ProdutosPage() {
             }))
           : [];
 
-        if (categoriasEstruturadasNormalizadas.length > 0) {
+        const categoriasEstruturadasPrincipais = Array.from(new Set(
+          categoriasEstruturadasNormalizadas
+            .map((item) => resolveCategoriaPrincipalVitrine(item?.slug || item?.nome || ''))
+            .filter((categoriaId) => categoriasPrincipaisIds.has(categoriaId))
+        ));
+        const taxonomiaEstruturadaUtilizavel = categoriasEstruturadasPrincipais.length >= 2;
+
+        if (taxonomiaEstruturadaUtilizavel) {
           setCategoriasEstruturadas(categoriasEstruturadasNormalizadas);
-          setCategoriasCatalogo(categoriasEstruturadasNormalizadas.map((item) => item.slug));
+          setCategoriasCatalogo(categoriasEstruturadasPrincipais);
           return;
         }
 
@@ -516,6 +538,7 @@ export default function ProdutosPage() {
                 return resolveCategoriaPrincipalVitrine(categoriaAgrupada);
               })
               .filter(Boolean)
+              .filter((categoriaId) => categoriasPrincipaisIds.has(categoriaId))
               .filter((categoriaId) => categoriaId !== CATEGORIA_TODAS && categoriaId !== CATEGORIA_PROMOCOES)
           ));
 
@@ -679,8 +702,7 @@ export default function ProdutosPage() {
         && categoriaEfetiva !== CATEGORIA_PROMOCOES
         && categoriaEfetiva === categoriaNavAtiva;
       const categoriaPrecisaAmostraAmpla = !buscaEfetiva && (
-        categoriaEfetiva === CATEGORIA_TODAS
-        || categoriaEfetiva === CATEGORIA_CERVEJAS
+        categoriaEfetiva === CATEGORIA_CERVEJAS
         || detalheCategoriaAtivo
       );
       const limiteEfetivo = categoriaPrecisaAmostraAmpla ? 200 : PRODUTOS_POR_PAGINA;
@@ -1076,6 +1098,9 @@ export default function ProdutosPage() {
       const precoInfo = getProdutoPrecoInfo(produto);
       const estoqueInfo = getProdutoEstoqueInfo(produto);
       const imagemResponsiva = getProdutoImagemResponsiva(produto);
+      const unidadeVenda = resolveUnidadeVenda(produto);
+      const pesoConfig = resolvePesoConfig(produto, unidadeVenda);
+      const ehAlcoolico = isProdutoAlcoolico(produto);
       const carrinhoId = getProdutoCarrinhoId(produto);
       const conversaoProduto = carrinhoId !== null
         ? growthTopProductsById.get(carrinhoId) || null
@@ -1110,6 +1135,9 @@ export default function ProdutosPage() {
         estoqueInfo,
         carrinhoId,
         precoInfo,
+        unidadeVenda,
+        pesoConfig,
+        ehAlcoolico,
         emPromocao: precoInfo.emPromocao,
         bebidaSubcategoriaId: getBebidaSubcategoriaIdByTexto(textoBusca),
         friosSubcategoriaId: getFriosSubcategoriaIdByTexto(textoBusca),
@@ -1124,6 +1152,10 @@ export default function ProdutosPage() {
         scoreConversao: Number(conversaoProduto?.score || 0)
       };
     }).filter((item) => {
+      if (!isProdutoVisivelNoCatalogo(item?.produto)) {
+        return false;
+      }
+
       const quantidade = Number(item?.estoqueInfo?.quantidade ?? 0);
       const estoqueInformado = Boolean(item?.estoqueInfo?.informado);
       return !estoqueInformado || quantidade > 0;
@@ -1186,6 +1218,10 @@ export default function ProdutosPage() {
         scoreConversao: 0
       };
     }).filter((item) => {
+      if (!isProdutoVisivelNoCatalogo(item?.produto)) {
+        return false;
+      }
+
       const quantidade = Number(item?.estoqueInfo?.quantidade ?? 0);
       const estoqueInformado = Boolean(item?.estoqueInfo?.informado);
       return !estoqueInformado || quantidade > 0;
@@ -1239,6 +1275,10 @@ export default function ProdutosPage() {
         scoreConversao: 0
       };
     }).filter((item) => {
+      if (!isProdutoVisivelNoCatalogo(item?.produto)) {
+        return false;
+      }
+
       const quantidade = Number(item?.estoqueInfo?.quantidade ?? 0);
       const estoqueInformado = Boolean(item?.estoqueInfo?.informado);
       return !estoqueInformado || quantidade > 0;
@@ -1286,7 +1326,10 @@ export default function ProdutosPage() {
 
   const adicionarRecorrenteAoCarrinho = useCallback((produtoRecorrente) => {
     const nome = getProdutoNome(produtoRecorrente);
-    addItem(produtoRecorrente, 1);
+    const adicionado = addItem(produtoRecorrente, 1, { source: 'recorrencia' });
+    if (!adicionado) {
+      return;
+    }
     registrarFeedbackAdicao(produtoRecorrente);
     registrarAcaoCarrinho(produtoRecorrente, { quantidade: 1 });
     aplicarFeedbackRecorrencia(`${nome} adicionado para recompra rapida.`);
@@ -1623,21 +1666,22 @@ export default function ProdutosPage() {
       return [];
     }
 
+    const secoesDefinidas = categoriaEhBebidasAlcoolicas
+      ? DRINK_SECTIONS_BEBIDAS_INDEX.filter((section) => BEBIDAS_ALCOOLICAS_SECOES.has(section.id))
+      : DRINK_SECTIONS_BEBIDAS_INDEX;
+
     const secoesMap = new Map(
-      DRINK_SECTIONS_BEBIDAS_INDEX.map((section) => [section.id, []])
+      secoesDefinidas.map((section) => [section.id, []])
     );
-    const outrasBebidas = [];
 
     produtosFiltradosIndexados.forEach((produtoIndexado) => {
       const bucket = secoesMap.get(produtoIndexado.bebidaSubcategoriaId);
       if (bucket) {
         bucket.push(produtoIndexado);
-      } else {
-        outrasBebidas.push(produtoIndexado);
       }
     });
 
-    const secoes = DRINK_SECTIONS_BEBIDAS_INDEX.map((section) => ({
+    const secoes = secoesDefinidas.map((section) => ({
       id: section.id,
       label: section.label,
       image: section.image,
@@ -1648,7 +1692,7 @@ export default function ProdutosPage() {
     // (absorventes, adaptadores, etc. que o ERP colocou em categoria='bebidas')
 
     return secoes;
-  }, [categoriaEhBebidas, produtosFiltradosIndexados]);
+  }, [categoriaEhBebidas, categoriaEhBebidasAlcoolicas, produtosFiltradosIndexados]);
 
   const secoesFrios = useMemo(() => {
     if (!categoriaEhFrios) {
@@ -1678,8 +1722,45 @@ export default function ProdutosPage() {
     && !categoriaEhBebidas
     && !categoriaEhFrios;
 
-  const ORDEM_CATEGORIAS_VITRINE = CATEGORIAS_PRINCIPAIS_NAVEGACAO.map((item) => item.id);
-  const categoriasVitrineIds = ORDEM_CATEGORIAS_VITRINE;
+  const ORDEM_CATEGORIAS_VITRINE = useMemo(
+    () => CATEGORIAS_PRINCIPAIS_NAVEGACAO.map((item) => item.id),
+    []
+  );
+  const categoriasVitrineIds = useMemo(() => {
+    const categoriasDisponiveisNoCatalogo = Array.from(new Set(
+      (Array.isArray(categoriasCatalogo) ? categoriasCatalogo : [])
+        .map((categoriaRaw) => resolveCategoriaPrincipalVitrine(categoriaRaw))
+        .filter((categoriaId) => ORDEM_CATEGORIAS_VITRINE.includes(categoriaId))
+    ));
+
+    const categoriasInferidasDosProdutos = Array.from(new Set(
+      produtosIndexados
+        .map((item) => String(item?.categoriaVitrine || '').trim().toLowerCase())
+        .filter((categoriaId) => ORDEM_CATEGORIAS_VITRINE.includes(categoriaId))
+    ));
+
+    const categoriasDisponiveis = Array.from(new Set([
+      ...categoriasDisponiveisNoCatalogo,
+      ...categoriasInferidasDosProdutos
+    ]));
+
+    if (
+      categoriasDisponiveis.includes(CATEGORIA_BEBIDAS)
+      && !categoriasDisponiveis.includes('bebidas-alcoolicas')
+    ) {
+      categoriasDisponiveis.push('bebidas-alcoolicas');
+    }
+
+    if (!categoriasDisponiveis.length) {
+      return ORDEM_CATEGORIAS_VITRINE;
+    }
+
+    return ORDEM_CATEGORIAS_VITRINE.filter((categoriaId) => categoriasDisponiveis.includes(categoriaId));
+  }, [ORDEM_CATEGORIAS_VITRINE, categoriasCatalogo, produtosIndexados]);
+  const assinaturaCategoriasVitrineIds = useMemo(
+    () => categoriasVitrineIds.join('|'),
+    [categoriasVitrineIds]
+  );
 
   const categoriaLabelById = useMemo(() => {
     return new Map(
@@ -1709,29 +1790,24 @@ export default function ProdutosPage() {
 
   const getCategoriaIconeTopo = useCallback((categoriaId) => {
     if (categoriaId === CATEGORIA_TODAS) {
-      return '🏠';
+      return House;
     }
 
     if (categoriaId === CATEGORIA_PROMOCOES) {
-      return '🏷️';
+      return Tag;
     }
 
-    return CATEGORIA_ICONE_FALLBACK[categoriaId] || '🛍️';
+    const fallback = String(CATEGORIA_ICONE_FALLBACK[categoriaId] || '').toLowerCase();
+    if (fallback === 'store') {
+      return House;
+    }
+    if (fallback === 'wallet') {
+      return Tag;
+    }
+    return ShoppingCart;
   }, []);
 
   const categoriasTopoVitrine = useMemo(() => {
-    if (categoriasEstruturadas.length > 0) {
-      return [
-        { id: CATEGORIA_TODAS, label: 'Todos', icon: getCategoriaIconeTopo(CATEGORIA_TODAS) },
-        { id: CATEGORIA_PROMOCOES, label: 'Ofertas', icon: getCategoriaIconeTopo(CATEGORIA_PROMOCOES) },
-        ...categoriasEstruturadas.map((item) => ({
-          id: String(item.slug || '').trim().toLowerCase(),
-          label: String(item.nome || '').trim() || formatCategoriaLabel(item.slug),
-          icon: getCategoriaIconeTopo(item.slug)
-        }))
-      ];
-    }
-
     const lista = [
       { id: CATEGORIA_TODAS, label: 'Todos', icon: getCategoriaIconeTopo(CATEGORIA_TODAS) },
       { id: CATEGORIA_PROMOCOES, label: 'Ofertas', icon: getCategoriaIconeTopo(CATEGORIA_PROMOCOES) }
@@ -1752,7 +1828,7 @@ export default function ProdutosPage() {
     });
 
     return lista;
-  }, [categoriasEstruturadas, categoriasVitrineIds, formatCategoriaLabel, getCategoriaIconeTopo]);
+  }, [categoriasVitrineIds, formatCategoriaLabel, getCategoriaIconeTopo]);
 
   const subcategoriasEstruturadasCategoria = useMemo(() => {
     if (!categoriaEstruturadaAtiva) {
@@ -1876,57 +1952,142 @@ export default function ProdutosPage() {
   }, [categoriasVitrineIds, formatCategoriaLabel, mostrarLayoutCategorias, produtosIndexados, totaisCategoriasVitrine]);
 
   useEffect(() => {
+    const categoriasAtivasSet = new Set(categoriasVitrineIds);
+
+    prefetchCategoriasVitrineRef.current.forEach((categoriaId) => {
+      if (!categoriasAtivasSet.has(categoriaId)) {
+        prefetchCategoriasVitrineRef.current.delete(categoriaId);
+      }
+    });
+
+    setTotaisCategoriasVitrine((atual) => {
+      const entradas = Object.entries(atual || {});
+      let removeuCategoria = false;
+      const proximo = {};
+
+      entradas.forEach(([categoriaId, total]) => {
+        if (categoriasAtivasSet.has(categoriaId)) {
+          proximo[categoriaId] = total;
+        } else {
+          removeuCategoria = true;
+        }
+      });
+
+      return removeuCategoria ? proximo : atual;
+    });
+
+    setStatusCategoriasVitrine((atual) => {
+      const entradas = Object.entries(atual || {});
+      let removeuCategoria = false;
+      const proximo = {};
+
+      entradas.forEach(([categoriaId, status]) => {
+        if (categoriasAtivasSet.has(categoriaId)) {
+          proximo[categoriaId] = status;
+        } else {
+          removeuCategoria = true;
+        }
+      });
+
+      return removeuCategoria ? proximo : atual;
+    });
+  }, [assinaturaCategoriasVitrineIds, categoriasVitrineIds]);
+
+  useEffect(() => {
     if (!mostrarLayoutCategorias) {
       return;
     }
 
-    categoriasVitrineIds.forEach((categoriaId) => {
-      if (categoriaId === 'outros') {
-        return;
-      }
+    let cancelado = false;
+    const categoriasPendentes = categoriasVitrineIds.filter((categoriaId) => (
+      categoriaId !== 'outros'
+      && !prefetchCategoriasVitrineRef.current.has(categoriaId)
+    ));
 
-      if (prefetchCategoriasVitrineRef.current.has(categoriaId)) {
-        return;
-      }
+    if (!categoriasPendentes.length) {
+      return () => {
+        cancelado = true;
+      };
+    }
 
-      prefetchCategoriasVitrineRef.current.add(categoriaId);
+    let cursorCategoria = 0;
 
-      void fetchProdutosPage({
-        categoria: categoriaId,
-        busca: '',
-        page: 1,
-        limit: 21
-      })
-        .then(({ lista, paginacao }) => {
+    const workerPrefetchCategoria = async () => {
+      while (!cancelado) {
+        const indiceAtual = cursorCategoria;
+        cursorCategoria += 1;
+
+        if (indiceAtual >= categoriasPendentes.length) {
+          return;
+        }
+
+        const categoriaId = categoriasPendentes[indiceAtual];
+        prefetchCategoriasVitrineRef.current.add(categoriaId);
+
+        try {
+          const { lista, paginacao } = await fetchProdutosPage({
+            categoria: categoriaId,
+            busca: '',
+            page: 1,
+            limit: 21
+          });
+
+          if (cancelado) {
+            return;
+          }
+
           const listaSegura = Array.isArray(lista) ? lista : [];
           const totalApi = Number(paginacao?.total || 0);
           const totalInferido = totalApi > 0
             ? totalApi
             : (Boolean(paginacao?.tem_mais) ? Math.max(21, listaSegura.length + 1) : listaSegura.length);
 
-          if (totalInferido > 0) {
-            setTotaisCategoriasVitrine((atual) => {
-              const totalAtual = Number(atual[categoriaId] || 0);
-              if (totalInferido <= totalAtual) {
-                return atual;
-              }
+          setTotaisCategoriasVitrine((atual) => ({
+            ...atual,
+            [categoriaId]: totalInferido
+          }));
 
-              return {
-                ...atual,
-                [categoriaId]: totalInferido
-              };
-            });
-          }
+          setStatusCategoriasVitrine((atual) => ({
+            ...atual,
+            [categoriaId]: {
+              carregado: true,
+              erro: false,
+              total: totalInferido
+            }
+          }));
 
           if (listaSegura.length > 0) {
             setProdutos((atual) => mergeProdutosById(atual, listaSegura));
           }
-        })
-        .catch(() => {
+        } catch {
+          if (cancelado) {
+            return;
+          }
+
           // Permite nova tentativa em erro sem quebrar a página.
           prefetchCategoriasVitrineRef.current.delete(categoriaId);
-        });
-    });
+          setStatusCategoriasVitrine((atual) => ({
+            ...atual,
+            [categoriaId]: {
+              carregado: false,
+              erro: true,
+              total: 0
+            }
+          }));
+        }
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(PREFETCH_CATEGORIAS_MAX_CONCORRENCIA, categoriasPendentes.length) },
+      () => workerPrefetchCategoria()
+    );
+
+    void Promise.allSettled(workers);
+
+    return () => {
+      cancelado = true;
+    };
   }, [categoriasVitrineIds, mostrarLayoutCategorias]);
 
   const secoesCategoriaDetalhe = useMemo(() => {
@@ -2202,7 +2363,8 @@ export default function ProdutosPage() {
     itens.forEach((item) => {
       const id = Number(item?.id);
       if (Number.isFinite(id)) {
-        mapa.set(id, Math.max(0, Number(item?.quantidade || 0)));
+        const atual = Number(mapa.get(id) || 0);
+        mapa.set(id, atual + Math.max(0, Number(item?.quantidade || 0)));
       }
     });
 
@@ -2374,22 +2536,33 @@ export default function ProdutosPage() {
     return carrinhoId !== null && adicionandoIdsRef.current.has(carrinhoId);
   }, []);
 
-  const handleAddItem = useCallback((produto) => {
+  const handleAddItem = useCallback((produto, opcoes = {}) => {
     const carrinhoId = getProdutoCarrinhoId(produto);
     if (carrinhoId === null || adicionandoIdsRef.current.has(carrinhoId)) {
       return;
     }
 
     adicionandoIdsRef.current.add(carrinhoId);
+    const quantidadeSelecionada = Math.max(1, Math.floor(Number(opcoes?.quantidade || 1)));
+    const foiAdicionado = addItem(produto, quantidadeSelecionada, {
+      source: 'catalog',
+      ...opcoes
+    });
+    if (!foiAdicionado) {
+      limparEstadoAdicionando(carrinhoId);
+      return;
+    }
 
-    addItem(produto, 1);
     registrarFeedbackAdicao(produto);
-    registrarAcaoCarrinho(produto, { quantidade: 1 });
+    registrarAcaoCarrinho(produto, {
+      quantidade: quantidadeSelecionada,
+      peso_gramas: opcoes?.peso_gramas || null
+    });
     agendarLimpezaEstadoAdicionando(carrinhoId);
-  }, [addItem, agendarLimpezaEstadoAdicionando, registrarAcaoCarrinho, registrarFeedbackAdicao]);
+  }, [addItem, agendarLimpezaEstadoAdicionando, limparEstadoAdicionando, registrarAcaoCarrinho, registrarFeedbackAdicao]);
 
-  const handleIncreaseItem = useCallback((produto) => {
-    handleAddItem(produto);
+  const handleIncreaseItem = useCallback((produto, opcoes = {}) => {
+    handleAddItem(produto, opcoes);
   }, [handleAddItem]);
 
   const handleDecreaseItem = useCallback((produto, quantidadeAtual) => {
@@ -2689,7 +2862,7 @@ export default function ProdutosPage() {
   const renderSemResultados = useCallback((titulo, descricao) => {
     return (
       <div className="products-empty-state" role="status" aria-live="polite">
-        <span className="products-empty-icon" aria-hidden="true">🔍</span>
+        <span className="products-empty-icon" aria-hidden="true"><Search size={18} /></span>
         <h2>{titulo}</h2>
         <p>{descricao}</p>
         <button
@@ -2710,7 +2883,7 @@ export default function ProdutosPage() {
   } else if (mostrarErro) {
     return (
       <div className="products-error-state" role="alert">
-        <span className="products-error-icon" aria-hidden="true">⚠️</span>
+        <span className="products-error-icon" aria-hidden="true"><AlertTriangle size={18} /></span>
         <div>
           <h2>Não foi possível carregar os produtos</h2>
           <p>{erro || 'Tente novamente em alguns instantes.'}</p>
@@ -2854,7 +3027,7 @@ export default function ProdutosPage() {
         {favoritosIndexados.length > 0 && (
           <section className="vitrine-secao" aria-label="Seus Favoritos">
             <div className="vitrine-secao-header">
-              <h2 className="vitrine-secao-titulo">❤️ Favoritos</h2>
+              <h2 className="vitrine-secao-titulo"><Heart size={16} aria-hidden="true" /> Favoritos</h2>
             </div>
             {renderCategoriaHorizontalRow(favoritosIndexados)}
           </section>
@@ -2867,19 +3040,25 @@ export default function ProdutosPage() {
             id="vitrine-promocoes"
           >
             <div className="vitrine-secao-header">
-              <h2 className="vitrine-secao-titulo">🔥 Ofertas do Dia</h2>
+              <h2 className="vitrine-secao-titulo"><Flame size={16} aria-hidden="true" /> Ofertas do Dia</h2>
             </div>
             {renderCategoriaHorizontalRow(ofertasDiaIndexados)}
           </section>
         )}
         {secoesCategorias.map((secao) => {
           const secaoEhAtiva = categoriaNavAtiva === secao.id;
+          const statusSecao = statusCategoriasVitrine[secao.id];
+          const secaoCarregando = !statusSecao?.carregado && !statusSecao?.erro;
           const itensSecao = secaoEhAtiva && subcategoriaNavAtiva !== 'todas'
             ? secao.itensIndexados.filter((item) => item._subcategoriaId === subcategoriaNavAtiva)
             : secao.itensIndexados;
           const mensagemVazia = secaoEhAtiva && subcategoriaNavAtiva !== 'todas'
             ? 'Nenhum produto encontrado nesta subcategoria. Toque em "Todos" para ver a categoria completa.'
-            : 'Carregando produtos desta categoria...';
+            : statusSecao?.erro
+              ? 'Nao foi possivel carregar os produtos desta categoria agora.'
+              : secaoCarregando
+                ? 'Carregando produtos desta categoria...'
+                : 'Nenhum produto disponivel nesta categoria no momento.';
 
           return (
             <CategorySection
@@ -2940,6 +3119,7 @@ export default function ProdutosPage() {
     secoesCategorias,
     secoesBebidas,
     secoesFrios,
+    statusCategoriasVitrine,
     subcategoriaNavAtiva,
     termoBuscaDigitado
   ]);
@@ -3018,7 +3198,7 @@ export default function ProdutosPage() {
 
         {!exibirVisaoCategoriaDetalhe && categoriaEhBebidas ? (
           <SubcategoryNav
-            title="Subcategorias de bebidas"
+            title={categoriaEhBebidasAlcoolicas ? 'Subcategorias de bebidas alcoólicas' : 'Subcategorias de bebidas'}
             subcategories={secoesBebidas.map((secao) => ({
               id: secao.id,
               label: secao.label,
@@ -3176,4 +3356,3 @@ export default function ProdutosPage() {
     </section>
   );
 }
-

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { AlertTriangle, BarChart3, CircleCheck, CreditCard, Package, Search } from 'lucide-react';
 import { adminGetConciliacao, adminGetFechamentoDiario } from '../../lib/api';
 import { R$, LABELS_PAGAMENTO, LABELS_CANAL } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';
@@ -29,7 +30,7 @@ function FechamentoDiario() {
   return (
     <div className="fin-secao">
       <div className="fin-secao-header">
-        <h3>📊 Fechamento Diário</h3>
+        <h3><BarChart3 size={16} aria-hidden="true" /> Fechamento Diário</h3>
         <input type="date" value={data} onChange={e => setData(e.target.value)} max={new Date().toISOString().slice(0, 10)} className="fin-date-input" />
       </div>
 
@@ -65,7 +66,7 @@ function FechamentoDiario() {
           {/* Por pagamento */}
           <div className="fin-breakdown">
             <div className="fin-breakdown-col">
-              <h4>💳 Por Pagamento</h4>
+              <h4><CreditCard size={15} aria-hidden="true" /> Por Pagamento</h4>
               {(dados.por_pagamento || []).map(r => (
                 <div key={r.forma} className="fin-break-row">
                   <span className="fin-break-label">{LABELS_PAGAMENTO[r.forma] || r.forma}</span>
@@ -78,7 +79,7 @@ function FechamentoDiario() {
               ))}
             </div>
             <div className="fin-breakdown-col">
-              <h4>📦 Por Canal</h4>
+              <h4><Package size={15} aria-hidden="true" /> Por Canal</h4>
               {(dados.por_canal || []).map(r => (
                 <div key={r.canal} className="fin-break-row">
                   <span className="fin-break-label">{LABELS_CANAL[r.canal] || r.canal}</span>
@@ -100,7 +101,7 @@ function FechamentoDiario() {
               </div>
             )}
             {dados.pendencias_financeiras > 0 && (
-              <div className="fin-pendencias">⚠️ {dados.pendencias_financeiras} pendências financeiras no dia</div>
+              <div className="fin-pendencias"><AlertTriangle size={14} aria-hidden="true" /> {dados.pendencias_financeiras} pendências financeiras no dia</div>
             )}
           </div>
         </>
@@ -133,16 +134,16 @@ function ConciliacaoFinanceira() {
   useEffect(() => { carregar(); }, [carregar]);
 
   const secoes = [
-    { chave: 'pendentes_longo', titulo: '⏳ Pendentes +30min', cor: '#f59e0b', dados: dados?.pendentes_longo },
-    { chave: 'sem_confirmacao_pix', titulo: '🔍 Sem confirmação PIX', cor: '#ef4444', dados: dados?.sem_confirmacao_pix },
-    { chave: 'cancelados_pagos', titulo: '💸 Cancelados com pagamento', cor: '#dc2626', dados: dados?.cancelados_pagos },
-    { chave: 'pagos_nao_concluidos', titulo: '📦 Pagos não concluídos', cor: '#3b82f6', dados: dados?.pagos_nao_concluidos }
+    { chave: 'pendentes_longo', titulo: 'Pendentes +30min', cor: '#f59e0b', dados: dados?.pendentes_longo },
+    { chave: 'sem_confirmacao_pix', titulo: 'Sem confirmação PIX', cor: '#ef4444', dados: dados?.sem_confirmacao_pix },
+    { chave: 'cancelados_pagos', titulo: 'Cancelados com pagamento', cor: '#dc2626', dados: dados?.cancelados_pagos },
+    { chave: 'pagos_nao_concluidos', titulo: 'Pagos não concluídos', cor: '#3b82f6', dados: dados?.pagos_nao_concluidos }
   ];
 
   return (
     <div className="fin-secao">
       <div className="fin-secao-header">
-        <h3>🔎 Conciliação Financeira</h3>
+        <h3><Search size={16} aria-hidden="true" /> Conciliação Financeira</h3>
         <select value={dias} onChange={e => setDias(Number(e.target.value))} className="fin-select">
           <option value={3}>3 dias</option>
           <option value={7}>7 dias</option>
@@ -199,7 +200,7 @@ function ConciliacaoFinanceira() {
           )}
 
           {Object.values(dados.contadores).every(v => v === 0) && (
-            <div className="fin-ok">✅ Nenhuma inconsistência encontrada nos últimos {dias} dias.</div>
+            <div className="fin-ok"><CircleCheck size={14} aria-hidden="true" /> Nenhuma inconsistência encontrada nos últimos {dias} dias.</div>
           )}
         </>
       )}
@@ -213,8 +214,8 @@ export default function FinanceiroAvancado() {
   return (
     <div className="financeiro-avancado">
       <div className="fin-nav">
-        <button className={`fin-nav-btn ${aba === 'fechamento' ? 'ativo' : ''}`} onClick={() => setAba('fechamento')}>📊 Fechamento</button>
-        <button className={`fin-nav-btn ${aba === 'conciliacao' ? 'ativo' : ''}`} onClick={() => setAba('conciliacao')}>🔎 Conciliação</button>
+        <button className={`fin-nav-btn ${aba === 'fechamento' ? 'ativo' : ''}`} onClick={() => setAba('fechamento')}><BarChart3 size={14} aria-hidden="true" /> Fechamento</button>
+        <button className={`fin-nav-btn ${aba === 'conciliacao' ? 'ativo' : ''}`} onClick={() => setAba('conciliacao')}><Search size={14} aria-hidden="true" /> Conciliação</button>
       </div>
 
       {aba === 'fechamento' && <FechamentoDiario />}

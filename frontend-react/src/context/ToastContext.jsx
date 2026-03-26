@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 
 const ToastContext = createContext(null);
 
@@ -52,7 +53,7 @@ export function ToastProvider({ children }) {
                 onClick={() => dismiss(toast.id)}
                 aria-label="Fechar notificação"
               >
-                ✕
+                <X size={14} aria-hidden="true" />
               </button>
             </div>
           ))}

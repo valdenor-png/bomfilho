@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Eye, Heart, MessageCircle, Repeat2, ShoppingCart, Store, Truck, Wallet } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getProdutos } from '../lib/api';
 import { getProdutoEstoqueInfo, getEstoqueBadge } from '../lib/produtosUtils';
@@ -24,6 +25,7 @@ const CATEGORY_IMAGES = {
   higiene: 'https://images.unsplash.com/photo-1556228578-0d85b1a4d571?auto=format&fit=crop&w=900&q=60',
   hortifruti: 'https://images.unsplash.com/photo-1610832958506-aa56368176cf?auto=format&fit=crop&w=900&q=60'
 };
+const HOME_PRODUTOS_LIMIT = 60;
 
 function isProdutoEmPromocao(produto) {
   return (
@@ -127,7 +129,7 @@ export default function HomePage() {
     setCarregando(true);
     setErro('');
     try {
-      const data = await getProdutos({ page: 1, limit: 120 });
+      const data = await getProdutos({ page: 1, limit: HOME_PRODUTOS_LIMIT });
       setProdutos(data.produtos || []);
     } catch (error) {
       setErro(error.message);
@@ -227,9 +229,9 @@ export default function HomePage() {
           Faz suas compras pelo celular com entrega rapida no seu bairro. Precos de supermercado, sem surpresa.
         </p>
         <div className="home-hero-highlights">
-          <span className="home-hero-pill">🚚 Entrega rapida</span>
-          <span className="home-hero-pill">💲 Desconto no Pix</span>
-          <span className="home-hero-pill">🛒 +21 mil produtos</span>
+          <span className="home-hero-pill"><Truck size={14} aria-hidden="true" /> Entrega rapida</span>
+          <span className="home-hero-pill"><Wallet size={14} aria-hidden="true" /> Desconto no Pix</span>
+          <span className="home-hero-pill"><ShoppingCart size={14} aria-hidden="true" /> +21 mil produtos</span>
         </div>
       </section>
 
@@ -290,17 +292,17 @@ export default function HomePage() {
           <div className="home-recorrencia-actions">
             {favoritosHome.length > 0 ? (
               <button type="button" className="home-recorrencia-chip" onClick={() => abrirProdutos({ recorrencia: 'favoritos' })}>
-                ❤️ Favoritos ({favoritosHome.length})
+                <Heart size={14} aria-hidden="true" /> Favoritos ({favoritosHome.length})
               </button>
             ) : null}
             {recentesHome.length > 0 ? (
               <button type="button" className="home-recorrencia-chip" onClick={() => abrirProdutos({ recorrencia: 'recentes' })}>
-                👁️ Vistos ({recentesHome.length})
+                <Eye size={14} aria-hidden="true" /> Vistos ({recentesHome.length})
               </button>
             ) : null}
             {recompraHome.length > 0 ? (
               <button type="button" className="home-recorrencia-chip" onClick={() => abrirProdutos({ recorrencia: 'recompra' })}>
-                🔁 Comprar de novo ({recompraHome.length})
+                <Repeat2 size={14} aria-hidden="true" /> Comprar de novo ({recompraHome.length})
               </button>
             ) : null}
           </div>
@@ -314,9 +316,9 @@ export default function HomePage() {
           <BrandLogo compact titleTag="h2" subtitle="Supermercado de confianca" />
         </div>
         <div className="home-trust-inline">
-          <span>🚚 Entrega e retirada</span>
-          <span>📞 Atendimento por WhatsApp</span>
-          <span>🛍️ Compra rapida no celular</span>
+          <span><Truck size={14} aria-hidden="true" /> Entrega e retirada</span>
+          <span><MessageCircle size={14} aria-hidden="true" /> Atendimento por WhatsApp</span>
+          <span><Store size={14} aria-hidden="true" /> Compra rapida no celular</span>
         </div>
         <div className="footer-info-simple" aria-label="Informações da loja">
           <div className="footer-info-line">

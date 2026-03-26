@@ -116,10 +116,9 @@ describe('POST /api/webhooks/mercadopago', () => {
 
     pool.query.mockImplementation(async (sql) => {
       const texto = String(sql || '');
-      if (/SELECT 1 FROM webhook_events/i.test(texto)) return [[]];
-      if (/SELECT id, status, usuario_id FROM pedidos/i.test(texto)) return [[{ id: 10, status: 'pendente', usuario_id: 1 }]];
-      if (/UPDATE pedidos SET/i.test(texto)) return [{ affectedRows: 1 }];
       if (/INSERT INTO webhook_events/i.test(texto)) return [{ affectedRows: 1 }];
+      if (/SELECT id, status, usuario_id, mp_payment_id_mp FROM pedidos/i.test(texto)) return [[{ id: 10, status: 'pendente', usuario_id: 1, mp_payment_id_mp: null }]];
+      if (/UPDATE pedidos SET/i.test(texto)) return [{ affectedRows: 1 }];
       return [[], null];
     });
 
@@ -148,7 +147,11 @@ describe('POST /api/webhooks/mercadopago', () => {
 
     pool.query.mockImplementation(async (sql) => {
       const texto = String(sql || '');
-      if (/SELECT 1 FROM webhook_events/i.test(texto)) return [[{ 1: 1 }]];
+      if (/INSERT INTO webhook_events/i.test(texto)) {
+        const erro = new Error('Duplicate entry');
+        erro.code = 'ER_DUP_ENTRY';
+        throw erro;
+      }
       return [[], null];
     });
 

@@ -2,6 +2,7 @@
  * Componentes de navegação do checkout — extraídos de PagamentoPage.
  */
 import React from 'react';
+import { CircleCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { CHECKOUT_STEPS } from '../../lib/checkoutUtils';
 
@@ -51,12 +52,12 @@ export function CheckoutStepper({ currentIndex }) {
             key={titulo}
             className={`checkout-step is-${estado}`}
             aria-current={estado === 'current' ? 'step' : undefined}
-          >
-            <span className="checkout-step-index" aria-hidden="true">
-              {estado === 'completed' ? '✓' : index + 1}
-            </span>
-            <span className="checkout-step-label">{titulo}</span>
-          </li>
+            >
+              <span className="checkout-step-index" aria-hidden="true">
+              {estado === 'completed' ? <CircleCheck size={14} /> : index + 1}
+              </span>
+              <span className="checkout-step-label">{titulo}</span>
+            </li>
         );
       })}
     </ol>

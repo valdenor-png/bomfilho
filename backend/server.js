@@ -1396,6 +1396,7 @@ const globalLimiter = rateLimit({
     const pathAtual = req.path || '';
 
     if (!pathAtual.startsWith('/api/')) return true;
+    if (pathAtual.startsWith('/api/produtos')) return true;
     if (pathAtual.startsWith('/api/webhook/')) return true;
     if (pathAtual.startsWith('/api/webhooks/')) return true;
     if (pathAtual.startsWith('/api/admin/')) return true;

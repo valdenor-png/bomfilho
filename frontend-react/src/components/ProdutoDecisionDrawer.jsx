@@ -1,11 +1,39 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Package, ShoppingCart, Store, Wallet } from 'lucide-react';
 import SmartImage from './ui/SmartImage';
 import { getEstoqueBadge } from '../lib/produtosUtils';
+import {
+  calcularSubtotalPeso,
+  formatPesoInputValue,
+  formatPesoSelecionado,
+  isProdutoAlcoolico,
+  resolvePesoConfig,
+  resolveUnidadeVenda,
+  sanitizePesoGramas
+} from '../lib/produtoCatalogoRules';
 
-function ProdutoFallbackPadrao({ icone = '📦' }) {
+function resolveFallbackIcon(iconKey) {
+  const key = String(iconKey || '').trim().toLowerCase();
+  if (key === 'store') {
+    return Store;
+  }
+  if (key === 'wallet') {
+    return Wallet;
+  }
+  if (key === 'shopping-cart') {
+    return ShoppingCart;
+  }
+  return Package;
+}
+
+function ProdutoFallbackPadrao({ icone = 'package' }) {
+  const Icon = resolveFallbackIcon(icone);
+
   return (
     <div className="produto-image-fallback" role="img" aria-label="Imagem em atualizacao">
-      <span className="produto-image-fallback-icon" aria-hidden="true">{icone}</span>
+      <span className="produto-image-fallback-icon" aria-hidden="true">
+        <Icon size={18} />
+      </span>
       <span className="produto-image-fallback-text">Imagem em atualizacao</span>
     </div>
   );
@@ -34,7 +62,7 @@ const ProdutoRecomendadoCard = React.memo(function ProdutoRecomendadoCard({
     : (estaAdicionando
       ? 'Adicionando...'
       : (temPrecoNoCta
-        ? (quantidadeNoCarrinho > 0 ? `Adicionar ao carrinho • ${precoLabel}` : `Levar por ${precoLabel}`)
+        ? (quantidadeNoCarrinho > 0 ? `Adicionar ao carrinho - ${precoLabel}` : `Levar por ${precoLabel}`)
         : 'Adicionar ao carrinho'));
   const [imagemIndisponivel, setImagemIndisponivel] = useState(() => !imagem.src);
 
@@ -44,7 +72,7 @@ const ProdutoRecomendadoCard = React.memo(function ProdutoRecomendadoCard({
 
   const iconeFallback = typeof getPlaceholderIconePorCategoria === 'function'
     ? getPlaceholderIconePorCategoria(produto)
-    : '📦';
+    : 'package';
 
   return (
     <article className="product-reco-card">
@@ -56,7 +84,7 @@ const ProdutoRecomendadoCard = React.memo(function ProdutoRecomendadoCard({
       >
         {imagemIndisponivel ? (
           <div className="product-reco-image-fallback" aria-hidden="true">
-            <span>{iconeFallback}</span>
+            <ProdutoFallbackPadrao icone={iconeFallback} />
           </div>
         ) : (
           <SmartImage
@@ -145,6 +173,26 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
     economia: 0,
     precoPix: null
   };
+
+  const unidadeVenda = produtoIndexado?.unidadeVenda || resolveUnidadeVenda(produto || {});
+  const produtoPeso = unidadeVenda === 'peso';
+  const pesoConfig = produtoIndexado?.pesoConfig || resolvePesoConfig(produto || {}, unidadeVenda);
+  const pesoMin = Number(pesoConfig?.peso_min_gramas || 100);
+  const pesoStep = Number(pesoConfig?.peso_step_gramas || 50);
+  const pesoPadrao = Number(pesoConfig?.peso_padrao_gramas || 500);
+  const [pesoSelecionadoGramas, setPesoSelecionadoGramas] = useState(() => (
+    produtoPeso ? sanitizePesoGramas(pesoPadrao, pesoConfig) : 0
+  ));
+
+  useEffect(() => {
+    if (!produtoPeso) {
+      setPesoSelecionadoGramas(0);
+      return;
+    }
+
+    setPesoSelecionadoGramas(sanitizePesoGramas(pesoPadrao, pesoConfig));
+  }, [pesoConfig, pesoPadrao, produtoPeso, produtoIndexado?.chaveReact]);
+
   const formatarMoeda = typeof formatCurrency === 'function'
     ? formatCurrency
     : (valor) => String(valor ?? '');
@@ -152,25 +200,35 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
   const estaAdicionando = typeof isAddingItem === 'function' ? isAddingItem(produto) : false;
   const precoLabel = formatarMoeda(precoInfo.precoAtual);
   const temPrecoNoCta = Number(precoInfo.precoAtual || 0) > 0;
+  const totalPesoSelecionado = produtoPeso
+    ? calcularSubtotalPeso(precoInfo.precoAtual, pesoSelecionadoGramas, 1)
+    : 0;
+
   const ctaPrincipal = !podeComprar
     ? 'Indisponivel no momento'
     : (estaAdicionando
       ? 'Adicionando...'
       : (temPrecoNoCta
-        ? (quantidadeNoCarrinho > 0
-          ? `Adicionar ao carrinho • ${precoLabel}`
-          : (precoInfo.precoAnterior ? `Levar por ${precoLabel}` : `Adicionar • ${precoLabel}`))
+        ? (produtoPeso
+          ? `Adicionar ${formatPesoSelecionado(pesoSelecionadoGramas)} - ${formatarMoeda(totalPesoSelecionado)}`
+          : (quantidadeNoCarrinho > 0
+            ? `Adicionar ao carrinho - ${precoLabel}`
+            : (precoInfo.precoAnterior ? `Levar por ${precoLabel}` : `Adicionar - ${precoLabel}`)))
         : 'Adicionar ao carrinho'));
+
   const descricaoProduto = String(produto?.descricao || '').trim();
   const possuiDescricao = Boolean(descricaoProduto);
   const marcaProduto = String(produto?.marca || '').trim();
   const medidaProduto = typeof getProdutoMedida === 'function' ? getProdutoMedida(produto) : '';
+  const ehAlcoolico = Boolean(isProdutoAlcoolico(produto || {}));
+
   const badges = useMemo(() => {
     if (!produtoIndexado || typeof getProdutoBadges !== 'function') {
       return [];
     }
     return getProdutoBadges(produtoIndexado);
   }, [getProdutoBadges, produtoIndexado]);
+
   const chipsValorComercial = useMemo(() => {
     const chips = [];
 
@@ -196,6 +254,7 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
 
     return chips.slice(0, 4);
   }, [favorito, formatarMoeda, marcaProduto, medidaProduto, precoInfo.economia, precoInfo.precoAnterior, precoInfo.precoPix]);
+
   const [imagemIndisponivel, setImagemIndisponivel] = useState(() => !imagem.src);
 
   useEffect(() => {
@@ -222,11 +281,26 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
   if (medidaProduto) {
     mensagensConfianca.push(`Unidade ou medida: ${medidaProduto}.`);
   }
+  if (produtoPeso) {
+    mensagensConfianca.push('Itens de peso sao cobrados proporcionalmente ao total selecionado.');
+  }
+  if (ehAlcoolico) {
+    mensagensConfianca.push('Venda de alcool proibida para menores de 18 anos.');
+  }
+
   const ProdutoBadge = ProdutoBadgeComponent;
   const ProdutoImageFallback = ProdutoImageFallbackComponent;
   const iconeFallbackProduto = typeof getPlaceholderIconePorCategoria === 'function'
     ? getPlaceholderIconePorCategoria(produto)
-    : '📦';
+    : 'package';
+
+  const handlePesoChange = (pesoGramas) => {
+    if (!produtoPeso) {
+      return;
+    }
+
+    setPesoSelecionadoGramas(sanitizePesoGramas(pesoGramas, pesoConfig));
+  };
 
   return (
     <div className="product-detail-overlay" role="presentation" onClick={onClose}>
@@ -254,7 +328,7 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
               }}
               aria-label={favorito ? `Remover ${nomeProduto} dos favoritos` : `Salvar ${nomeProduto} nos favoritos`}
             >
-              {favorito ? '♥ Favorito' : '♡ Favoritar'}
+              {favorito ? 'Favorito' : 'Favoritar'}
             </button>
 
             <button
@@ -263,7 +337,7 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
               onClick={onClose}
               aria-label="Fechar detalhes do produto"
             >
-              ×
+              x
             </button>
           </div>
         </header>
@@ -329,6 +403,12 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
                 <p className="product-detail-favorite-copy">Este item esta salvo nos seus favoritos.</p>
               ) : null}
 
+              {ehAlcoolico ? (
+                <p className="product-detail-age-alert">
+                  Venda proibida para menores de 18 anos.
+                </p>
+              ) : null}
+
               <p className="product-detail-description">{mensagemDescricao}</p>
 
               <div className="product-detail-trust-box" aria-label="Sinais de confianca">
@@ -343,7 +423,10 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
           </section>
 
           <aside className="product-detail-buy-box" aria-label="Bloco de compra do produto">
-            <p className="product-detail-price">{formatarMoeda(precoInfo.precoAtual)}</p>
+            <p className="product-detail-price">
+              {formatarMoeda(precoInfo.precoAtual)}
+              {produtoPeso ? '/kg' : ''}
+            </p>
 
             {precoInfo.precoAnterior ? (
               <p className="product-detail-price-old">de {formatarMoeda(precoInfo.precoAnterior)}</p>
@@ -357,13 +440,62 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
               <p className="product-detail-price-pix">{formatarMoeda(precoInfo.precoPix)} no Pix</p>
             ) : null}
 
-            <p className="product-detail-qty-hint" role="status">
-              {quantidadeNoCarrinho > 0
-                ? `${quantidadeNoCarrinho} ${quantidadeNoCarrinho === 1 ? 'unidade no carrinho' : 'unidades no carrinho'}`
-                : 'Ainda nao adicionado ao carrinho'}
-            </p>
+            {produtoPeso ? (
+              <div className="product-detail-weight-control">
+                <p className="product-detail-weight-label">Quantidade</p>
+                <div className="product-detail-weight-row">
+                  <button
+                    type="button"
+                    className="produto-qty-btn"
+                    onClick={() => handlePesoChange(Math.max(pesoMin, pesoSelecionadoGramas - pesoStep))}
+                    disabled={estaAdicionando || pesoSelecionadoGramas <= pesoMin}
+                    aria-label={`Diminuir gramagem de ${nomeProduto}`}
+                  >
+                    -
+                  </button>
 
-            {quantidadeNoCarrinho > 0 ? (
+                  <input
+                    type="number"
+                    className="product-detail-weight-input"
+                    min={pesoMin}
+                    step={pesoStep}
+                    inputMode="numeric"
+                    value={formatPesoInputValue(pesoSelecionadoGramas)}
+                    onChange={(event) => {
+                      const digits = String(event.target.value || '').replace(/\D/g, '');
+                      if (!digits) {
+                        handlePesoChange(pesoMin);
+                        return;
+                      }
+                      handlePesoChange(Number(digits));
+                    }}
+                    aria-label={`Peso em gramas para ${nomeProduto}`}
+                  />
+
+                  <button
+                    type="button"
+                    className="produto-qty-btn"
+                    onClick={() => handlePesoChange(pesoSelecionadoGramas + pesoStep)}
+                    disabled={estaAdicionando}
+                    aria-label={`Aumentar gramagem de ${nomeProduto}`}
+                  >
+                    +
+                  </button>
+                </div>
+
+                <p className="product-detail-weight-total">
+                  {formatPesoSelecionado(pesoSelecionadoGramas)}: {formatarMoeda(totalPesoSelecionado)}
+                </p>
+              </div>
+            ) : (
+              <p className="product-detail-qty-hint" role="status">
+                {quantidadeNoCarrinho > 0
+                  ? `${quantidadeNoCarrinho} ${quantidadeNoCarrinho === 1 ? 'unidade no carrinho' : 'unidades no carrinho'}`
+                  : 'Ainda nao adicionado ao carrinho'}
+              </p>
+            )}
+
+            {!produtoPeso && quantidadeNoCarrinho > 0 ? (
               <div className="produto-qty-control product-detail-qty-control" aria-label={`Quantidade de ${nomeProduto} no carrinho`}>
                 <button
                   type="button"
@@ -387,11 +519,17 @@ const ProdutoDecisionDrawer = React.memo(function ProdutoDecisionDrawer({
               </div>
             ) : null}
 
+            {produtoPeso && quantidadeNoCarrinho > 0 ? (
+              <p className="product-detail-qty-hint" role="status">
+                {quantidadeNoCarrinho} unidades configuradas no carrinho
+              </p>
+            ) : null}
+
             <div className="product-detail-cta-row">
               <button
                 type="button"
                 className={`btn-primary product-detail-add-btn ${estaAdicionando ? 'is-loading' : ''}`.trim()}
-                onClick={() => onAddItem(produto)}
+                onClick={() => onAddItem(produto, produtoPeso ? { unidade_venda: 'peso', peso_gramas: pesoSelecionadoGramas } : {})}
                 disabled={!podeComprar || estaAdicionando}
               >
                 {ctaPrincipal}

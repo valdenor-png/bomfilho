@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { BadgeX, CircleCheck, ClipboardList, Clock3, Package, RefreshCw, Search, Store, Truck, Wallet, X } from 'lucide-react';
 import {
   adminGetFilaOperacional,
   adminGetPedidoDetalhes,
@@ -12,37 +13,70 @@ import {
 import LoadingSkeleton from './ui/LoadingSkeleton';
 
 const R$ = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatarDataHora = (valor) => {
+  if (!valor) return '—';
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return '—';
+  return data.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+async function copiarTexto(valor) {
+  const texto = String(valor || '').trim();
+  if (!texto) return false;
+
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(texto);
+    return true;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = texto;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  document.body.removeChild(textarea);
+  return true;
+}
 
 // Filas operacionais com labels atualizados
 const LABELS_FILA = {
-  aguardando_revisao: { titulo: '📋 Revisão — Confirmar Disponibilidade', cor: '#f97316', proximoStatus: null, btnLabel: null, btnClass: null, isRevisao: true },
-  pagos_aguardando_preparo: { titulo: '💳 Pagos — Aguardando Separação', cor: '#3b82f6', proximoStatus: 'preparando', btnLabel: '📦 Separar Pedido', btnClass: 'btn-separar' },
-  em_separacao: { titulo: '📦 Separando', cor: '#8b5cf6', proximoStatus: 'pronto_para_retirada', btnLabel: '✅ Marcar Preparado', btnClass: 'btn-preparado' },
-  prontos_aguardando_saida: { titulo: '✅ Preparados — Despachar', cor: '#10b981', proximoStatus: 'enviado', btnLabel: '🛵 Saiu pra Entrega', btnClass: 'btn-despachar' },
-  em_rota: { titulo: '🛵 Saiu pra Entrega', cor: '#f59e0b', proximoStatus: 'entregue', btnLabel: '🏁 Confirmar Entrega', btnClass: 'btn-entregue' },
-  em_rota_acima_sla: { titulo: '🚨 Em Rota — Acima do SLA', cor: '#ef4444', proximoStatus: 'entregue', btnLabel: '🏁 Confirmar Entrega', btnClass: 'btn-entregue' },
-  retiradas_prontas_aguardando: { titulo: '🏪 Retiradas — Avisar Cliente', cor: '#0891b2', proximoStatus: 'retirado', btnLabel: '👋 Marcar Retirado', btnClass: 'btn-retirado' },
-  pendentes_pagamento: { titulo: '⏳ Aguardando Pagamento', cor: '#9ca3af', proximoStatus: null, btnLabel: null, btnClass: null },
-  travados: { titulo: '⚠️ Travados (+60min)', cor: '#6b7280', proximoStatus: null, btnLabel: null, btnClass: null }
+  aguardando_revisao: { titulo: 'Revisão — Confirmar Disponibilidade', cor: '#f97316', proximoStatus: null, btnLabel: null, btnClass: null, isRevisao: true },
+  pagos_aguardando_preparo: { titulo: 'Pagos — Aguardando Separação', cor: '#3b82f6', proximoStatus: 'preparando', btnLabel: 'Separar Pedido', btnClass: 'btn-separar' },
+  em_separacao: { titulo: 'Separando', cor: '#8b5cf6', proximoStatus: 'pronto_para_retirada', btnLabel: 'Marcar Preparado', btnClass: 'btn-preparado' },
+  prontos_aguardando_saida: { titulo: 'Preparados — Despachar', cor: '#10b981', proximoStatus: 'enviado', btnLabel: 'Saiu pra Entrega', btnClass: 'btn-despachar' },
+  em_rota: { titulo: 'Saiu pra Entrega', cor: '#f59e0b', proximoStatus: 'entregue', btnLabel: 'Confirmar Entrega', btnClass: 'btn-entregue' },
+  em_rota_acima_sla: { titulo: 'Em Rota — Acima do SLA', cor: '#ef4444', proximoStatus: 'entregue', btnLabel: 'Confirmar Entrega', btnClass: 'btn-entregue' },
+  retiradas_prontas_aguardando: { titulo: 'Retiradas — Avisar Cliente', cor: '#0891b2', proximoStatus: 'retirado', btnLabel: 'Marcar Retirado', btnClass: 'btn-retirado' },
+  pendentes_pagamento: { titulo: 'Aguardando Pagamento', cor: '#9ca3af', proximoStatus: null, btnLabel: null, btnClass: null },
+  travados: { titulo: 'Travados (+60min)', cor: '#6b7280', proximoStatus: null, btnLabel: null, btnClass: null }
 };
 
 const STATUS_DISPLAY = {
-  aguardando_revisao: { label: 'Em Revisão', icon: '📋', cor: '#f97316' },
-  pendente: { label: 'Aguardando', icon: '⏳', cor: '#9ca3af' },
-  pago: { label: 'Pago', icon: '💳', cor: '#3b82f6' },
-  preparando: { label: 'Separando', icon: '📦', cor: '#8b5cf6' },
-  pronto_para_retirada: { label: 'Preparado', icon: '✅', cor: '#10b981' },
-  enviado: { label: 'Saiu pra Entrega', icon: '🛵', cor: '#f59e0b' },
-  entregue: { label: 'Entregue', icon: '🏁', cor: '#22c55e' },
-  retirado: { label: 'Retirado', icon: '👋', cor: '#22c55e' },
-  cancelado: { label: 'Cancelado', icon: '⛔', cor: '#ef4444' }
+  aguardando_revisao: { label: 'Em Revisão', icon: ClipboardList, cor: '#f97316' },
+  pendente: { label: 'Aguardando', icon: Clock3, cor: '#9ca3af' },
+  pago: { label: 'Pago', icon: Wallet, cor: '#3b82f6' },
+  preparando: { label: 'Separando', icon: Package, cor: '#8b5cf6' },
+  pronto_para_retirada: { label: 'Preparado', icon: CircleCheck, cor: '#10b981' },
+  enviado: { label: 'Saiu pra Entrega', icon: Truck, cor: '#f59e0b' },
+  entregue: { label: 'Entregue', icon: CircleCheck, cor: '#22c55e' },
+  retirado: { label: 'Retirado', icon: Store, cor: '#22c55e' },
+  cancelado: { label: 'Cancelado', icon: BadgeX, cor: '#ef4444' }
 };
 
 function StatusBadge({ status }) {
-  const meta = STATUS_DISPLAY[status] || { label: status, icon: '📋', cor: '#6b7280' };
+  const meta = STATUS_DISPLAY[status] || { label: status, icon: Package, cor: '#6b7280' };
+  const Icon = typeof meta.icon === 'function' ? meta.icon : Package;
   return (
     <span className="fila-status-badge" style={{ background: `${meta.cor}18`, color: meta.cor, borderColor: `${meta.cor}40` }}>
-      <span aria-hidden="true">{meta.icon}</span> {meta.label}
+      <span aria-hidden="true"><Icon size={14} /></span> {meta.label}
     </span>
   );
 }
@@ -110,7 +144,7 @@ function FilaPedidoCard({
       <div className="fila-card-header">
         <span className="fila-card-id">#{pedido.id}</span>
         <span className="fila-card-tempo" title={`${minParado}min parado`}>
-          ⏱ {minParado >= 60 ? `${Math.floor(minParado / 60)}h${minParado % 60}m` : `${minParado}min`}
+          <Clock3 size={12} aria-hidden="true" /> {minParado >= 60 ? `${Math.floor(minParado / 60)}h${minParado % 60}m` : `${minParado}min`}
         </span>
       </div>
 
@@ -121,7 +155,9 @@ function FilaPedidoCard({
 
       <div className="fila-card-meta">
         <span className="fila-card-tipo">
-          {pedido.tipo_entrega === 'retirada' ? '🏪 Retirada' : '🚗 Entrega'}
+          {pedido.tipo_entrega === 'retirada'
+            ? <><Store size={12} aria-hidden="true" /> Retirada</>
+            : <><Truck size={12} aria-hidden="true" /> Entrega</>}
         </span>
         <StatusBadge status={pedido.status} />
       </div>
@@ -134,7 +170,9 @@ function FilaPedidoCard({
           disabled={atualizandoId === pedido.id}
           onClick={() => onToggleDetalhes(pedido.id)}
         >
-          {detalhesAbertos ? '🔽 Ocultar detalhes' : '🔎 Detalhes'}
+          {detalhesAbertos
+            ? <><Search size={12} aria-hidden="true" /> Ocultar detalhes</>
+            : <><Search size={12} aria-hidden="true" /> Detalhes</>}
         </button>
 
         {filaConfig.isRevisao ? (
@@ -144,14 +182,14 @@ function FilaPedidoCard({
             disabled={atualizandoId === pedido.id}
             onClick={() => onRevisao(pedido.id, 'aprovar')}
           >
-            {atualizandoId === pedido.id ? 'Processando...' : '✅ Aprovar'}
+            {atualizandoId === pedido.id ? 'Processando...' : <><CircleCheck size={12} aria-hidden="true" /> Aprovar</>}
           </button>
           <button
             className="fila-btn-acao btn-rejeitar-revisao"
             disabled={atualizandoId === pedido.id}
             onClick={() => onRevisao(pedido.id, 'rejeitar')}
           >
-            ❌ Rejeitar
+            <><BadgeX size={12} aria-hidden="true" /> Rejeitar</>
           </button>
           </>
         ) : null}
@@ -172,7 +210,7 @@ function FilaPedidoCard({
             onClick={() => onAcao(pedido.id, 'cancelado')}
             title="Cancelar pedido"
           >
-            ✕
+            <X size={12} aria-hidden="true" />
           </button>
           </>
         ) : null}
@@ -276,6 +314,7 @@ export default function FilaOperacional() {
   const [detalhesRevisaoAbertos, setDetalhesRevisaoAbertos] = useState({});
   const [detalhesRevisaoCarregando, setDetalhesRevisaoCarregando] = useState({});
   const [detalhesRevisaoPorPedido, setDetalhesRevisaoPorPedido] = useState({});
+  const [drawerPedidoId, setDrawerPedidoId] = useState(null);
   const intervaloRef = useRef(null);
   const feedbackTimerRef = useRef(null);
 
@@ -413,6 +452,48 @@ export default function FilaOperacional() {
     }
   }, [carregar]);
 
+    const carregarDetalhesRevisaoPedido = useCallback(async (pedidoId) => {
+    const id = Number(pedidoId || 0);
+    if (!Number.isInteger(id) || id <= 0) {
+      return null;
+    }
+
+    if (detalhesRevisaoPorPedido[id] || detalhesRevisaoCarregando[id]) {
+      return detalhesRevisaoPorPedido[id] || null;
+    }
+
+    setDetalhesRevisaoCarregando((atual) => ({ ...atual, [id]: true }));
+    try {
+      const data = await adminGetPedidoDetalhes(id);
+      const payload = {
+        ...data,
+        erro: ''
+      };
+      setDetalhesRevisaoPorPedido((atual) => ({
+        ...atual,
+        [id]: payload
+      }));
+      return payload;
+    } catch (e) {
+      const payloadErro = {
+        itens: [],
+        totalItens: 0,
+        erro: e.message || 'Nao foi possivel carregar os itens do pedido.'
+      };
+      setDetalhesRevisaoPorPedido((atual) => ({
+        ...atual,
+        [id]: payloadErro
+      }));
+      return payloadErro;
+    } finally {
+      setDetalhesRevisaoCarregando((atual) => {
+        const proximo = { ...atual };
+        delete proximo[id];
+        return proximo;
+      });
+    }
+  }, [detalhesRevisaoCarregando, detalhesRevisaoPorPedido]);
+
   const handleToggleDetalhesRevisao = useCallback(async (pedidoId) => {
     const id = Number(pedidoId || 0);
     if (!Number.isInteger(id) || id <= 0) {
@@ -425,37 +506,76 @@ export default function FilaOperacional() {
       [id]: abrindo
     }));
 
-    if (!abrindo || detalhesRevisaoPorPedido[id] || detalhesRevisaoCarregando[id]) {
+    if (!abrindo) {
       return;
     }
 
-    setDetalhesRevisaoCarregando((atual) => ({ ...atual, [id]: true }));
-    try {
-      const data = await adminGetPedidoDetalhes(id);
-      setDetalhesRevisaoPorPedido((atual) => ({
-        ...atual,
-        [id]: {
-          ...data,
-          erro: ''
-        }
-      }));
-    } catch (e) {
-      setDetalhesRevisaoPorPedido((atual) => ({
-        ...atual,
-        [id]: {
-          itens: [],
-          totalItens: 0,
-          erro: e.message || 'Não foi possível carregar os itens do pedido.'
-        }
-      }));
-    } finally {
-      setDetalhesRevisaoCarregando((atual) => {
-        const proximo = { ...atual };
-        delete proximo[id];
-        return proximo;
-      });
+    setDrawerPedidoId(id);
+    await carregarDetalhesRevisaoPedido(id);
+  }, [carregarDetalhesRevisaoPedido, detalhesRevisaoAbertos]);
+
+  const handleCopiarTelefoneDrawer = useCallback(async (telefone) => {
+    const ok = await copiarTexto(telefone);
+    if (ok) {
+      setFeedback({ tipo: 'ok', msg: 'Telefone copiado.' });
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = setTimeout(() => setFeedback(null), 2200);
     }
-  }, [detalhesRevisaoAbertos, detalhesRevisaoCarregando, detalhesRevisaoPorPedido]);
+  }, []);
+
+  const handleCopiarResumoDrawer = useCallback(async (pedidoDetalhesData) => {
+    const pedidoInfo = pedidoDetalhesData?.pedido || {};
+    const clienteInfo = pedidoDetalhesData?.cliente || {};
+    const itensLista = Array.isArray(pedidoDetalhesData?.itens) ? pedidoDetalhesData.itens : [];
+    const resumo = [
+      `Pedido #${pedidoInfo?.id || drawerPedidoId || '-'}`,
+      `Status: ${String(pedidoInfo?.status || '').toLowerCase() || '-'}`,
+      `Cliente: ${String(clienteInfo?.nome || '').trim() || 'Nao informado'}`,
+      `Telefone: ${String(clienteInfo?.telefone || '').trim() || 'Nao informado'}`,
+      `Atendimento: ${String(pedidoInfo?.tipo_entrega || '').trim() || '-'}`,
+      `Forma pagamento: ${String(pedidoInfo?.forma_pagamento || '').trim() || '-'}`,
+      '',
+      'Itens:'
+    ];
+
+    itensLista.forEach((item) => {
+      resumo.push(`- ${Number(item?.quantidade || 0)}x ${String(item?.nome_produto || item?.nome || 'Item sem nome')} (${R$(item?.subtotal)})`);
+    });
+
+    resumo.push('');
+    resumo.push(`Total: ${R$(pedidoInfo?.total || 0)}`);
+
+    const ok = await copiarTexto(resumo.join('\n'));
+    if (ok) {
+      setFeedback({ tipo: 'ok', msg: 'Resumo do pedido copiado.' });
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = setTimeout(() => setFeedback(null), 2200);
+    }
+  }, [drawerPedidoId]);
+
+  const handleFecharDrawerDetalhes = useCallback(() => {
+    setDrawerPedidoId(null);
+  }, []);
+
+  const drawerDetalhes = drawerPedidoId ? detalhesRevisaoPorPedido[drawerPedidoId] || null : null;
+  const drawerCarregando = Boolean(drawerPedidoId && detalhesRevisaoCarregando[drawerPedidoId]);
+  const drawerErro = String(drawerDetalhes?.erro || '');
+  const drawerPedido = drawerDetalhes?.pedido || null;
+  const drawerCliente = drawerDetalhes?.cliente || null;
+  const drawerEndereco = drawerDetalhes?.endereco || null;
+  const drawerItens = Array.isArray(drawerDetalhes?.itens) ? drawerDetalhes.itens : [];
+  const drawerWhatsapp = String(drawerCliente?.telefone || '').replace(/\D/g, '');
+  const enderecoDrawerTexto = drawerEndereco
+    ? [
+      String(drawerEndereco.logradouro || '').trim(),
+      String(drawerEndereco.numero || '').trim(),
+      String(drawerEndereco.complemento || '').trim(),
+      String(drawerEndereco.bairro || '').trim(),
+      String(drawerEndereco.cidade || '').trim(),
+      String(drawerEndereco.estado || '').trim(),
+      String(drawerEndereco.cep || '').trim()
+    ].filter(Boolean).join(', ')
+    : '';
 
   if (carregando) return <LoadingSkeleton type="cards" lines={4} />;
   if (erro) return <div className="fila-erro">{erro} <button onClick={carregar}>Tentar novamente</button></div>;
@@ -478,7 +598,7 @@ export default function FilaOperacional() {
     <div className="fila-operacional">
       <div className="fila-header">
         <h2 className="fila-titulo">
-          🎯 Fila Operacional
+          <Package size={18} aria-hidden="true" /> Fila Operacional
           {totalAlertas > 0 && <span className="fila-total-badge">{totalAlertas} ações</span>}
         </h2>
         <div className="fila-controles">
@@ -486,7 +606,7 @@ export default function FilaOperacional() {
             <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} />
             Auto-refresh 30s
           </label>
-          <button className="fila-btn-refresh" onClick={carregar}>⟳ Atualizar</button>
+          <button className="fila-btn-refresh" onClick={carregar}><RefreshCw size={12} aria-hidden="true" /> Atualizar</button>
         </div>
       </div>
 
@@ -509,7 +629,7 @@ export default function FilaOperacional() {
       </div>
 
       {totalAlertas === 0 && (
-        <div className="fila-vazia">✅ Nenhum pedido pendente de ação. Operação em dia!</div>
+        <div className="fila-vazia"><CircleCheck size={14} aria-hidden="true" /> Nenhum pedido pendente de ação. Operação em dia!</div>
       )}
 
       {/* Filas por prioridade */}
@@ -532,7 +652,7 @@ export default function FilaOperacional() {
 
       <div className="fila-grupo" style={{ marginTop: 16 }}>
         <div className="fila-grupo-header" style={{ borderLeftColor: '#111827' }}>
-          <span className="fila-grupo-titulo">🚚 Uber Direct — Operação de Entrega</span>
+          <span className="fila-grupo-titulo"><Truck size={14} aria-hidden="true" /> Uber Direct — Operação de Entrega</span>
           <span className="fila-grupo-badge" style={{ background: '#111827' }}>{entregasUber.length}</span>
         </div>
 
@@ -570,7 +690,7 @@ export default function FilaOperacional() {
                         disabled={atualizandoId === pedido.id}
                         onClick={() => handleChamarUber(pedido)}
                       >
-                        {atualizandoId === pedido.id ? 'Chamando...' : '🚚 Chamar Uber'}
+                        {atualizandoId === pedido.id ? 'Chamando...' : <><Truck size={12} aria-hidden="true" /> Chamar Uber</>}
                       </button>
                     ) : null}
 
@@ -578,7 +698,7 @@ export default function FilaOperacional() {
                       <>
                         {pedido?.uber_tracking_url ? (
                           <a className="fila-btn-acao btn-separar" href={pedido.uber_tracking_url} target="_blank" rel="noreferrer">
-                            🔎 Rastreio
+                            <Search size={12} aria-hidden="true" /> Rastreio
                           </a>
                         ) : null}
                         {emEnvio ? (
@@ -588,7 +708,7 @@ export default function FilaOperacional() {
                             onClick={() => handleCancelarUber(pedido)}
                             title="Cancelar entrega Uber"
                           >
-                            ✕
+                            <X size={12} aria-hidden="true" />
                           </button>
                         ) : null}
                       </>
@@ -600,6 +720,133 @@ export default function FilaOperacional() {
           </div>
         )}
       </div>
+
+      {drawerPedidoId ? (
+        <div className="fila-drawer-overlay" role="dialog" aria-modal="true" onClick={handleFecharDrawerDetalhes}>
+          <aside className="fila-drawer" onClick={(event) => event.stopPropagation()}>
+            <header className="fila-drawer-header">
+              <div>
+                <p className="fila-drawer-kicker">Detalhes operacionais</p>
+                <h3>Pedido #{drawerPedidoId}</h3>
+              </div>
+              <button className="fila-drawer-close" type="button" onClick={handleFecharDrawerDetalhes}>
+                X
+              </button>
+            </header>
+
+            {drawerCarregando ? (
+              <p className="fila-drawer-loading">Carregando detalhes completos...</p>
+            ) : drawerErro ? (
+              <p className="fila-drawer-error">{drawerErro}</p>
+            ) : (
+              <div className="fila-drawer-body">
+                <div className="fila-drawer-grid">
+                  <article className="fila-drawer-card">
+                    <h4>Cliente</h4>
+                    <p><strong>Nome:</strong> {String(drawerCliente?.nome || 'Nao informado')}</p>
+                    <p><strong>Telefone:</strong> {String(drawerCliente?.telefone || 'Nao informado')}</p>
+                    <p><strong>Email:</strong> {String(drawerCliente?.email || 'Nao informado')}</p>
+                    <div className="fila-drawer-actions">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => { void handleCopiarTelefoneDrawer(drawerCliente?.telefone); }}
+                        disabled={!drawerCliente?.telefone}
+                      >
+                        Copiar telefone
+                      </button>
+                      {drawerWhatsapp ? (
+                        <a className="btn-secondary" href={`https://wa.me/55${drawerWhatsapp}`} target="_blank" rel="noreferrer">
+                          Abrir WhatsApp
+                        </a>
+                      ) : null}
+                    </div>
+                  </article>
+
+                  <article className="fila-drawer-card">
+                    <h4>Pedido</h4>
+                    <p><strong>Status:</strong> {String(drawerPedido?.status || '-')}</p>
+                    <p><strong>Forma pagamento:</strong> {String(drawerPedido?.forma_pagamento || '-')}</p>
+                    <p><strong>Atendimento:</strong> {String(drawerPedido?.tipo_entrega || '-')}</p>
+                    <p><strong>Criado em:</strong> {formatarDataHora(drawerPedido?.criado_em)}</p>
+                    {String(drawerPedido?.tipo_entrega || '').toLowerCase() === 'entrega' ? (
+                      <p><strong>Endereco:</strong> {enderecoDrawerTexto || 'Nao informado'}</p>
+                    ) : (
+                      <p><strong>Endereco:</strong> Retirada na loja</p>
+                    )}
+                  </article>
+                </div>
+
+                <article className="fila-drawer-card">
+                  <h4>Itens ({Number(drawerDetalhes?.total_itens || 0)})</h4>
+                  {drawerItens.length === 0 ? (
+                    <p className="fila-drawer-empty">Nenhum item disponível neste pedido.</p>
+                  ) : (
+                    <ul className="fila-drawer-itens">
+                      {drawerItens.map((item, index) => (
+                        <li key={`drawer-item-${drawerPedidoId}-${index}`}>
+                          <span>{Number(item?.quantidade || 0)}x {String(item?.nome_produto || item?.nome || 'Item sem nome')}</span>
+                          <strong>{R$(item?.subtotal)}</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="fila-drawer-total">
+                    <span>Subtotal: {R$(drawerDetalhes?.total_produtos || 0)}</span>
+                    <span>Frete: {R$(drawerPedido?.frete_entrega || 0)}</span>
+                    <span>Taxa servico: {R$(drawerPedido?.taxa_servico || 0)}</span>
+                    <strong>Total: {R$(drawerPedido?.total || 0)}</strong>
+                  </div>
+                </article>
+
+                <article className="fila-drawer-card">
+                  <h4>Timeline</h4>
+                  <ul className="fila-drawer-timeline">
+                    <li>
+                      <span>Pedido recebido</span>
+                      <small>{formatarDataHora(drawerPedido?.criado_em)}</small>
+                    </li>
+                    <li>
+                      <span>Status atual: {String(drawerPedido?.status || '-')}</span>
+                      <small>{String(drawerPedido?.status || '').toLowerCase() === 'aguardando_revisao' ? 'Aguardando decisao da equipe' : 'Em andamento'}</small>
+                    </li>
+                  </ul>
+                </article>
+
+                <div className="fila-drawer-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => { void handleCopiarResumoDrawer(drawerDetalhes); }}
+                  >
+                    Copiar resumo
+                  </button>
+                  {String(drawerPedido?.status || '').toLowerCase() === 'aguardando_revisao' ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={atualizandoId === drawerPedidoId}
+                        onClick={() => { void handleRevisao(drawerPedidoId, 'aprovar'); }}
+                      >
+                        Aprovar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={atualizandoId === drawerPedidoId}
+                        onClick={() => { void handleRevisao(drawerPedidoId, 'rejeitar'); }}
+                      >
+                        Rejeitar
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </aside>
+        </div>
+      ) : null}
     </div>
   );
 }

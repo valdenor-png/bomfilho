@@ -5,6 +5,10 @@ const express = require('express');
 const logger = require('../lib/logger');
 const { ADMIN_USER } = require('../lib/config');
 const {
+  enriquecerProdutoParaCatalogo,
+  resolveVisibilidadePublica
+} = require('../lib/produtoCatalogoRules');
+const {
   parseBooleanInput,
   parsePositiveInt,
   parseOverwriteImageModeInput,
@@ -654,26 +658,62 @@ module.exports = function createAdminCatalogoRoutes(deps) {
   // Buscar produto por ID (público)
   router.get('/api/produtos/:id', async (req, res) => {
     try {
+      const colunas = await obterColunasProdutos();
+      const campos = [
+        'id',
+        'nome',
+        colunas.has('nome_externo') ? 'nome_externo' : 'NULL AS nome_externo',
+        colunas.has('descricao') ? 'descricao' : 'NULL AS descricao',
+        colunas.has('preco') ? 'preco' : '0 AS preco',
+        colunas.has('preco_promocional') ? 'preco_promocional' : 'NULL AS preco_promocional',
+        colunas.has('unidade') ? 'unidade' : 'NULL AS unidade',
+        colunas.has('categoria') ? 'categoria' : 'NULL AS categoria',
+        colunas.has('imagem_url') ? 'imagem_url' : 'NULL AS imagem_url',
+        colunas.has('estoque') ? 'estoque' : '0 AS estoque',
+        colunas.has('ativo') ? 'ativo' : 'TRUE AS ativo',
+        colunas.has('codigo_barras') ? 'codigo_barras' : 'NULL AS codigo_barras',
+        colunas.has('marca') ? 'marca' : 'NULL AS marca',
+        colunas.has('peso_liquido') ? 'peso_liquido' : 'NULL AS peso_liquido',
+        colunas.has('ingredientes') ? 'ingredientes' : 'NULL AS ingredientes',
+        colunas.has('informacao_nutricional') ? 'informacao_nutricional' : 'NULL AS informacao_nutricional',
+        colunas.has('origem') ? 'origem' : 'NULL AS origem',
+        colunas.has('data_validade') ? 'data_validade' : 'NULL AS data_validade',
+        colunas.has('unidade_venda') ? 'unidade_venda' : 'NULL AS unidade_venda',
+        colunas.has('peso_min_gramas') ? 'peso_min_gramas' : 'NULL AS peso_min_gramas',
+        colunas.has('peso_step_gramas') ? 'peso_step_gramas' : 'NULL AS peso_step_gramas',
+        colunas.has('peso_padrao_gramas') ? 'peso_padrao_gramas' : 'NULL AS peso_padrao_gramas',
+        colunas.has('permite_fracionado') ? 'permite_fracionado' : 'NULL AS permite_fracionado',
+        colunas.has('requer_maioridade') ? 'requer_maioridade' : 'NULL AS requer_maioridade',
+        colunas.has('visivel_no_site') ? 'visivel_no_site' : 'NULL AS visivel_no_site',
+        colunas.has('oculto_catalogo') ? 'oculto_catalogo' : 'NULL AS oculto_catalogo',
+        colunas.has('produto_controlado') ? 'produto_controlado' : 'NULL AS produto_controlado'
+      ];
+
       const [produtos] = await pool.query(
-        `SELECT id, nome, nome_externo, descricao, preco, preco_promocional, unidade,
-                categoria, imagem_url, estoque, ativo, codigo_barras, marca, peso_liquido,
-                ingredientes, informacao_nutricional, origem, data_validade
-         FROM produtos WHERE id = ? AND ativo = TRUE`,
+        `SELECT ${campos.join(', ')}
+         FROM produtos
+         WHERE id = ? AND ativo = TRUE
+         LIMIT 1`,
         [req.params.id]
       );
 
       if (produtos.length === 0) {
-        return res.status(404).json({ erro: 'Produto não encontrado.' });
+        return res.status(404).json({ erro: 'Produto nao encontrado.' });
       }
 
-      res.json({ produto: produtos[0] });
+      const produto = enriquecerProdutoParaCatalogo(produtos[0]);
+      const visibilidade = resolveVisibilidadePublica(produto);
+      if (!visibilidade?.visivel_publico) {
+        return res.status(404).json({ erro: 'Produto nao encontrado.' });
+      }
+
+      res.json({ produto });
     } catch (erro) {
       logger.error('Erro ao buscar produto:', erro);
-      res.status(500).json({ erro: 'Não foi possível carregar este produto.' });
+      res.status(500).json({ erro: 'Nao foi possivel carregar este produto.' });
     }
   });
-
-  // Cadastrar produto (admin)
+// Cadastrar produto (admin)
   router.post('/api/admin/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
       const {
@@ -835,3 +875,4 @@ module.exports = function createAdminCatalogoRoutes(deps) {
 
   return router;
 };
+

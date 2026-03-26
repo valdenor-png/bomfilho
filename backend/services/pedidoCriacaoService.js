@@ -32,9 +32,19 @@ function montarFingerprintCriacaoPedido(payload = {}) {
     ? payload.itens
       .map((item) => ({
         produto_id: Number(item?.produto_id || 0),
-        quantidade: Number(item?.quantidade || 0)
+        quantidade: Number(item?.quantidade || 0),
+        unidade_venda: String(item?.unidade_venda || item?.unidadeVenda || '').trim().toLowerCase(),
+        peso_gramas: Number(item?.peso_gramas || item?.pesoGramas || 0)
       }))
-      .sort((a, b) => a.produto_id - b.produto_id)
+      .sort((a, b) => {
+        if (a.produto_id !== b.produto_id) {
+          return a.produto_id - b.produto_id;
+        }
+        if (a.peso_gramas !== b.peso_gramas) {
+          return a.peso_gramas - b.peso_gramas;
+        }
+        return String(a.unidade_venda || '').localeCompare(String(b.unidade_venda || ''));
+      })
     : [];
 
   const entrega = payload?.entrega && typeof payload.entrega === 'object'

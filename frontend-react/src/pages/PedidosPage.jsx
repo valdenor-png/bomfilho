@@ -1,6 +1,7 @@
 import React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { AlertTriangle, BadgeX, CircleCheck, Clock3, Lock, Package, Receipt, ShoppingCart, Store, Wallet } from 'lucide-react';
 import useDocumentHead from '../hooks/useDocumentHead';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
@@ -21,51 +22,63 @@ const FILTROS_STATUS = [
 const TIMELINE_ETAPAS = ['Recebido', 'Pago', 'Separando', 'Preparado', 'Entregue'];
 
 const STATUS_PEDIDO_META = {
+  aguardando_revisao: {
+    label: 'Em revisao',
+    icon: Receipt,
+    tone: 'processing',
+    timelineStep: 1
+  },
   pendente: {
-    label: 'Aguardando confirmação',
-    icon: '⏳',
+    label: 'Aguardando confirmacao',
+    icon: Clock3,
     tone: 'waiting',
+    timelineStep: 1
+  },
+  pagamento_recusado: {
+    label: 'Pagamento recusado',
+    icon: BadgeX,
+    tone: 'canceled',
     timelineStep: 1
   },
   pago: {
     label: 'Pago',
-    icon: '💳',
+    icon: Wallet,
     tone: 'processing',
     timelineStep: 2
   },
   preparando: {
     label: 'Separando',
-    icon: '📦',
+    icon: Package,
     tone: 'preparing',
     timelineStep: 3
   },
   pronto_para_retirada: {
     label: 'Preparado',
-    icon: '✅',
+    icon: CircleCheck,
     tone: 'ready',
     timelineStep: 4
   },
   enviado: {
     label: 'Saiu pra Entrega',
-    icon: '🛵',
+    icon: Package,
     tone: 'delivery',
     timelineStep: 4
   },
   entregue: {
     label: 'Entregue',
-    icon: '🏁',
+    icon: CircleCheck,
     tone: 'delivered',
     timelineStep: 5
   },
   retirado: {
     label: 'Retirado',
-    icon: '👋',
+    icon: Store,
     tone: 'delivered',
     timelineStep: 5
   },
   cancelado: {
     label: 'Cancelado',
-    icon: '⛔',
+    icon: BadgeX,
     tone: 'canceled',
     timelineStep: -1
   }
@@ -73,17 +86,17 @@ const STATUS_PEDIDO_META = {
 
 const FORMA_PAGAMENTO_LABELS = {
   pix: 'PIX',
-  credito: 'Cartão de crédito',
-  debito: 'Cartão de débito',
-  cartao: 'Cartão',
+  credito: 'CartÃ£o de crÃ©dito',
+  debito: 'CartÃ£o de dÃ©bito',
+  cartao: 'CartÃ£o',
   dinheiro: 'Dinheiro'
 };
 
 function obterMetaStatusPedido(statusRaw) {
   const status = String(statusRaw || '').trim().toLowerCase();
   return STATUS_PEDIDO_META[status] || {
-    label: 'Em análise',
-    icon: '🧾',
+    label: 'Em analise',
+    icon: Package,
     tone: 'neutral',
     timelineStep: 1
   };
@@ -96,6 +109,10 @@ function obterGrupoStatus(statusRaw) {
     return 'cancelados';
   }
 
+  if (status === 'expirado') {
+    return 'cancelados';
+  }
+
   if (status === 'entregue') {
     return 'entregues';
   }
@@ -105,7 +122,7 @@ function obterGrupoStatus(statusRaw) {
 
 function formatarFormaPagamento(formaRaw) {
   const forma = String(formaRaw || '').trim().toLowerCase();
-  return FORMA_PAGAMENTO_LABELS[forma] || 'Não informado';
+  return FORMA_PAGAMENTO_LABELS[forma] || 'NÃ£o informado';
 }
 
 function formatarDataPedido(dataRaw, withHours = false) {
@@ -128,7 +145,7 @@ function formatarDataPedido(dataRaw, withHours = false) {
     minute: '2-digit'
   });
 
-  return `${dia} às ${hora}`;
+  return `${dia} Ã s ${hora}`;
 }
 
 function montarResumoItens(itens) {
@@ -155,7 +172,7 @@ function montarResumoItens(itens) {
 
   const resumoTexto = preview.length
     ? `${preview.join(', ')}${extras > 0 ? ` +${extras} item${extras > 1 ? 's' : ''}` : ''}`
-    : 'Resumo dos itens disponível ao abrir detalhes.';
+    : 'Resumo dos itens disponÃ­vel ao abrir detalhes.';
 
   return {
     totalItens,
@@ -165,10 +182,11 @@ function montarResumoItens(itens) {
 
 function OrderStatusBadge({ status }) {
   const meta = obterMetaStatusPedido(status);
+  const Icon = typeof meta.icon === 'function' ? meta.icon : Package;
 
   return (
     <span className={`orders-status-badge tone-${meta.tone}`}>
-      <span className="orders-status-icon" aria-hidden="true">{meta.icon}</span>
+      <span className="orders-status-icon" aria-hidden="true"><Icon size={14} /></span>
       <span>{meta.label}</span>
     </span>
   );
@@ -222,7 +240,7 @@ function OrdersSkeletonList() {
 }
 
 export default function PedidosPage() {
-  useDocumentHead({ title: 'Meus Pedidos', description: 'Acompanhe seus pedidos, histórico e status de entrega.' });
+  useDocumentHead({ title: 'Meus Pedidos', description: 'Acompanhe seus pedidos, histÃ³rico e status de entrega.' });
   const navigate = useNavigate();
   const location = useLocation();
   const { addItem } = useCart();
@@ -272,7 +290,7 @@ export default function PedidosPage() {
         setAutenticado(false);
         setPedidos([]);
       } else {
-        setErro(error.message || 'Não foi possível carregar o histórico de pedidos.');
+        setErro(error.message || 'NÃ£o foi possÃ­vel carregar o histÃ³rico de pedidos.');
       }
     } finally {
       setCarregando(false);
@@ -327,9 +345,9 @@ export default function PedidosPage() {
 
       const payloadErro = {
         itens: [],
-        erro: error.message || 'Não foi possível carregar os itens deste pedido.',
+        erro: error.message || 'NÃ£o foi possÃ­vel carregar os itens deste pedido.',
         totalItens: null,
-        resumoTexto: 'Resumo indisponível no momento.'
+        resumoTexto: 'Resumo indisponÃ­vel no momento.'
       };
 
       setDetalhesPorPedido((atual) => ({
@@ -369,11 +387,11 @@ export default function PedidosPage() {
     navigate(location.pathname, { replace: true, state: {} });
   }, [carregarDetalhesPedido, location.pathname, navigate, pedidoRecemPagoIdDaRota]);
 
-  // Polling automático: atualiza status de pedidos ativos a cada 20s
+  // Polling automÃ¡tico: atualiza status de pedidos ativos a cada 20s
   useEffect(() => {
     if (autenticado !== true || pedidos.length === 0) return;
 
-    const statusAtivos = ['pendente', 'pago', 'preparando', 'pronto_para_retirada', 'enviado'];
+    const statusAtivos = ['aguardando_revisao', 'pendente', 'pagamento_recusado', 'pago', 'preparando', 'pronto_para_retirada', 'enviado'];
     const pedidosAtivos = pedidos.filter(p => statusAtivos.includes(p?.status));
     if (pedidosAtivos.length === 0) return;
 
@@ -402,7 +420,7 @@ export default function PedidosPage() {
       ));
       setMensagemSucesso(`Recebimento do pedido #${pedidoId} confirmado!`);
     } catch (error) {
-      setErro(error.message || 'Não foi possível confirmar o recebimento.');
+      setErro(error.message || 'NÃ£o foi possÃ­vel confirmar o recebimento.');
     } finally {
       setConfirmandoRecebimento(null);
     }
@@ -457,7 +475,7 @@ export default function PedidosPage() {
         return;
       }
 
-      setErro(error.message || 'Não foi possível carregar mais pedidos.');
+      setErro(error.message || 'NÃ£o foi possÃ­vel carregar mais pedidos.');
     } finally {
       setCarregandoMais(false);
     }
@@ -489,7 +507,7 @@ export default function PedidosPage() {
     try {
       const detalhes = await carregarDetalhesPedido(pedidoId);
       if (!detalhes || detalhes.erro || !Array.isArray(detalhes.itens) || detalhes.itens.length === 0) {
-        setErro('Não foi possível repetir este pedido porque os itens não estão disponíveis no momento.');
+        setErro('NÃ£o foi possÃ­vel repetir este pedido porque os itens nÃ£o estÃ£o disponÃ­veis no momento.');
         return;
       }
 
@@ -508,7 +526,7 @@ export default function PedidosPage() {
           id: produtoId,
           nome: String(item?.nome_produto || item?.nome || 'Item'),
           preco: Number(item?.preco || 0),
-          emoji: String(item?.emoji || '📦'),
+          emoji: String(item?.emoji || ''),
           categoria: String(item?.categoria || ''),
           imagem: String(item?.imagem || ''),
           unidade: String(item?.unidade || ''),
@@ -527,12 +545,12 @@ export default function PedidosPage() {
       registrarRecompraItens(detalhes.itens);
 
       if (itensAdicionados <= 0) {
-        setErro('Não foi possível repetir este pedido porque os produtos não foram encontrados.');
+        setErro('NÃ£o foi possÃ­vel repetir este pedido porque os produtos nÃ£o foram encontrados.');
         return;
       }
 
       if (itensIgnorados > 0) {
-        setMensagemSucesso(`Pedido #${pedidoId} repetido com ${itensAdicionados} item(ns). ${itensIgnorados} item(ns) indisponível(is) não foi(ram) adicionado(s).`);
+        setMensagemSucesso(`Pedido #${pedidoId} repetido com ${itensAdicionados} item(ns). ${itensIgnorados} item(ns) indisponÃ­vel(is) nÃ£o foi(ram) adicionado(s).`);
       } else {
         setMensagemSucesso(`Pedido #${pedidoId} adicionado ao carrinho com ${itensAdicionados} item(ns).`);
       }
@@ -587,16 +605,16 @@ export default function PedidosPage() {
       <section className="page orders-page">
         <InternalTopBar
           title="Pedidos"
-          subtitle="Acompanhe seus pedidos em um único lugar"
+          subtitle="Acompanhe seus pedidos em um Ãºnico lugar"
           showBack={false}
           fallbackTo="/"
-          backLabel="Voltar para início"
+          backLabel="Voltar para inÃ­cio"
         />
 
         <div className="orders-state-card">
-          <div className="orders-empty-icon" aria-hidden="true">🔐</div>
-          <p><strong>Sua sessão não está ativa.</strong></p>
-          <p>Faça login para acompanhar seus pedidos, detalhes e atualizações de entrega.</p>
+          <div className="orders-empty-icon" aria-hidden="true"><Lock size={18} /></div>
+          <p><strong>Sua sessÃ£o nÃ£o estÃ¡ ativa.</strong></p>
+          <p>FaÃ§a login para acompanhar seus pedidos, detalhes e atualizaÃ§Ãµes de entrega.</p>
           <Link to="/conta" className="btn-primary" style={{ display: 'inline-block' }}>
             Entrar na conta
           </Link>
@@ -612,12 +630,12 @@ export default function PedidosPage() {
         subtitle="Acompanhe o andamento de cada compra"
         showBack={false}
         fallbackTo="/"
-        backLabel="Voltar para início"
+        backLabel="Voltar para inÃ­cio"
       />
 
       <header className="orders-header">
         <div>
-          <p className="orders-subtitle">Histórico recente com status em tempo real.</p>
+          <p className="orders-subtitle">HistÃ³rico recente com status em tempo real.</p>
         </div>
 
         <div className="orders-counter" aria-label="Resumo de pedidos">
@@ -655,7 +673,7 @@ export default function PedidosPage() {
 
       {pedidoPagoAgoraId ? (
         <div className="orders-feedback is-success" role="status" aria-live="polite">
-          <p>Pagamento confirmado. Pedido #{pedidoPagoAgoraId} já está disponível para acompanhamento.</p>
+          <p>Pagamento confirmado. Pedido #{pedidoPagoAgoraId} jÃ¡ estÃ¡ disponÃ­vel para acompanhamento.</p>
         </div>
       ) : null}
 
@@ -673,9 +691,9 @@ export default function PedidosPage() {
 
       {mostrarEstadoErro ? (
         <div className="orders-state-card">
-          <div className="orders-empty-icon" aria-hidden="true">⚠️</div>
-          <p><strong>Não foi possível carregar seus pedidos agora.</strong></p>
-          <p>Verifique sua conexão e tente novamente.</p>
+          <div className="orders-empty-icon" aria-hidden="true"><AlertTriangle size={18} /></div>
+          <p><strong>NÃ£o foi possÃ­vel carregar seus pedidos agora.</strong></p>
+          <p>Verifique sua conexÃ£o e tente novamente.</p>
           <button className="btn-primary" type="button" onClick={() => { void carregarPedidosIniciais(); }}>
             Tentar novamente
           </button>
@@ -684,20 +702,20 @@ export default function PedidosPage() {
 
       {!carregando && !mostrarEstadoErro && pedidos.length === 0 ? (
         <div className="orders-state-card">
-          <div className="orders-empty-icon" aria-hidden="true">🧺</div>
-          <p><strong>Você ainda não possui pedidos.</strong></p>
-          <p>Quando finalizar sua primeira compra, ela aparecerá aqui com status e detalhes.</p>
+          <div className="orders-empty-icon" aria-hidden="true"><Package size={18} /></div>
+          <p><strong>VocÃª ainda nÃ£o possui pedidos.</strong></p>
+          <p>Quando finalizar sua primeira compra, ela aparecerÃ¡ aqui com status e detalhes.</p>
           <Link to="/produtos" className="btn-secondary" style={{ display: 'inline-block' }}>
-            Começar compras
+            ComeÃ§ar compras
           </Link>
         </div>
       ) : null}
 
       {!carregando && pedidos.length > 0 && pedidosFiltrados.length === 0 ? (
         <div className="orders-state-card is-filter-empty">
-          <div className="orders-empty-icon" aria-hidden="true">🔎</div>
+          <div className="orders-empty-icon" aria-hidden="true"><ShoppingCart size={18} /></div>
           <p><strong>Nenhum pedido encontrado para este filtro.</strong></p>
-          <p>Tente outro status ou busque por outro número de pedido.</p>
+          <p>Tente outro status ou busque por outro nÃºmero de pedido.</p>
         </div>
       ) : null}
 
@@ -707,7 +725,7 @@ export default function PedidosPage() {
             const detalhesPedido = detalhesPorPedido[pedido.id];
             const estaAberto = pedidoAbertoId === pedido.id;
             const estaCarregando = Boolean(detalhesEmCarregamento[pedido.id]);
-            const resumoItensTexto = detalhesPedido?.resumoTexto || (estaCarregando ? 'Carregando resumo do pedido...' : 'Resumo dos itens disponível ao abrir detalhes.');
+            const resumoItensTexto = detalhesPedido?.resumoTexto || (estaCarregando ? 'Carregando resumo do pedido...' : 'Resumo dos itens disponÃ­vel ao abrir detalhes.');
             const totalItens = Number.isFinite(Number(detalhesPedido?.totalItens))
               ? Number(detalhesPedido.totalItens)
               : null;
@@ -739,7 +757,7 @@ export default function PedidosPage() {
 
                   <p className="orders-meta-line">
                     <span>{formatarFormaPagamento(pedido.forma_pagamento)}</span>
-                    <span className="orders-meta-dot" aria-hidden="true">•</span>
+                    <span className="orders-meta-dot" aria-hidden="true">â€¢</span>
                     <span>{totalItens === null ? 'Itens a confirmar' : `${totalItens} item(ns)`}</span>
                   </p>
                 </div>
@@ -751,12 +769,12 @@ export default function PedidosPage() {
                     {resumoItensTexto}
                   </p>
 
-                  {/* Botão de confirmar recebimento para pedidos em entrega */}
+                  {/* BotÃ£o de confirmar recebimento para pedidos em entrega */}
                   {pedido.status === 'enviado' && (
                     <div className="orders-confirmar-recebimento">
                       <div className="orders-entrega-info">
-                        <span className="orders-entrega-icon" aria-hidden="true">🛵</span>
-                        <span>Seu pedido está a caminho!</span>
+                        <span className="orders-entrega-icon" aria-hidden="true"><Package size={14} /></span>
+                        <span>Seu pedido estÃ¡ a caminho!</span>
                       </div>
                       <button
                         type="button"
@@ -764,21 +782,23 @@ export default function PedidosPage() {
                         disabled={confirmandoRecebimento === Number(pedido.id)}
                         onClick={() => handleConfirmarRecebimento(Number(pedido.id))}
                       >
-                        {confirmandoRecebimento === Number(pedido.id) ? 'Confirmando...' : '✅ Recebi meu pedido'}
+                        {confirmandoRecebimento === Number(pedido.id) ? 'Confirmando...' : 'Recebi meu pedido'}
                       </button>
                     </div>
                   )}
 
                   {/* Indicador visual pra status ativos */}
-                  {['preparando', 'pronto_para_retirada'].includes(pedido.status) && (
+                  {['aguardando_revisao', 'preparando', 'pronto_para_retirada'].includes(pedido.status) && (
                     <div className="orders-status-ativo-info">
                       <span className="orders-pulse-dot" />
                       <span>
-                        {pedido.status === 'preparando'
-                          ? 'Seu pedido está sendo separado...'
+                        {pedido.status === 'aguardando_revisao'
+                          ? 'Seu pedido estÃ¡ na fila de revisÃ£o da equipe antes do pagamento.'
+                          : pedido.status === 'preparando'
+                          ? 'Seu pedido estÃ¡ sendo separado...'
                           : pedido.tipo_entrega === 'retirada'
-                            ? 'Seu pedido está preparado! Pode buscar na loja.'
-                            : 'Seu pedido está preparado e aguardando entregador.'}
+                            ? 'Seu pedido estÃ¡ preparado! Pode buscar na loja.'
+                            : 'Seu pedido estÃ¡ preparado e aguardando entregador.'}
                       </span>
                     </div>
                   )}
@@ -788,8 +808,8 @@ export default function PedidosPage() {
                       <span className="orders-pulse-dot" />
                       <span>
                         Entrega: {String(pedido.entrega_status || '').replace(/_/g, ' ')}
-                        {pedido?.uber_eta_seconds ? ` • previsão ~${Math.max(1, Math.round(Number(pedido.uber_eta_seconds || 0) / 60))} min` : ''}
-                        {pedido?.uber_vehicle_type ? ` • veículo ${String(pedido.uber_vehicle_type).toUpperCase()}` : ''}
+                        {pedido?.uber_eta_seconds ? ` â€¢ previsÃ£o ~${Math.max(1, Math.round(Number(pedido.uber_eta_seconds || 0) / 60))} min` : ''}
+                        {pedido?.uber_vehicle_type ? ` â€¢ veÃ­culo ${String(pedido.uber_vehicle_type).toUpperCase()}` : ''}
                       </span>
                     </div>
                   ) : null}
@@ -850,7 +870,7 @@ export default function PedidosPage() {
                     ) : null}
 
                     {!estaCarregando && !detalhesPedido?.erro && (detalhesPedido?.itens || []).length === 0 ? (
-                      <p className="muted-text">Não há itens registrados para este pedido no momento.</p>
+                      <p className="muted-text">NÃ£o hÃ¡ itens registrados para este pedido no momento.</p>
                     ) : null}
 
                     {!estaCarregando && !detalhesPedido?.erro && (detalhesPedido?.itens || []).length > 0 ? (
@@ -859,10 +879,10 @@ export default function PedidosPage() {
                           <div className="orders-item-row" key={item.id || `${pedido.id}-${item.produto_id}-${item.nome_produto}`}>
                             <div className="orders-item-main">
                               <p className="orders-item-name">
-                                {item.emoji || '📦'} {item.nome_produto || item.nome || 'Item'}
+                                <Package size={14} aria-hidden="true" /> {item.nome_produto || item.nome || 'Item'}
                               </p>
                               <p className="orders-item-meta">
-                                {Number(item.quantidade || 0)}x · R$ {Number(item.preco || 0).toFixed(2)}
+                                {Number(item.quantidade || 0)}x Â· R$ {Number(item.preco || 0).toFixed(2)}
                               </p>
                             </div>
                             <p className="orders-item-subtotal">R$ {Number(item.subtotal || 0).toFixed(2)}</p>
@@ -877,7 +897,7 @@ export default function PedidosPage() {
                           Acompanhar entrega
                         </a>
                         {pedido?.uber_vehicle_type ? (
-                          <span className="orders-status-badge tone-delivery">Veículo: {String(pedido.uber_vehicle_type).toUpperCase()}</span>
+                          <span className="orders-status-badge tone-delivery">VeÃ­culo: {String(pedido.uber_vehicle_type).toUpperCase()}</span>
                         ) : null}
                       </div>
                     ) : null}
@@ -921,3 +941,4 @@ export default function PedidosPage() {
     </section>
   );
 }
+

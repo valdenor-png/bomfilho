@@ -1,4 +1,5 @@
 import React from 'react';
+import { Heart } from 'lucide-react';
 import SmartImage from '../ui/SmartImage';
 import {
   CATEGORY_IMAGES,
@@ -30,7 +31,7 @@ const RecorrenciaMiniCard = React.memo(function RecorrenciaMiniCard({
         onClick={() => onAlternarFavorito(produto)}
         aria-label={favorito ? `Remover ${nome} dos favoritos` : `Salvar ${nome} nos favoritos`}
       >
-        {favorito ? '♥' : '♡'}
+        <Heart size={16} aria-hidden="true" fill={favorito ? 'currentColor' : 'none'} />
       </button>
 
       <button
