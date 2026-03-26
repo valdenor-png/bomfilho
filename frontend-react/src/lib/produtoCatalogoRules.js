@@ -1,4 +1,4 @@
-﻿const TOKENS_TABACO = [
+const TOKENS_TABACO = [
   'tabaco',
   'cigarro',
   'cigarros',

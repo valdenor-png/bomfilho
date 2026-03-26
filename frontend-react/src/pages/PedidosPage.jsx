@@ -86,9 +86,9 @@ const STATUS_PEDIDO_META = {
 
 const FORMA_PAGAMENTO_LABELS = {
   pix: 'PIX',
-  credito: 'CartÃ£o de crÃ©dito',
-  debito: 'CartÃ£o de dÃ©bito',
-  cartao: 'CartÃ£o',
+  credito: 'Cartão de crédito',
+  debito: 'Cartão de débito',
+  cartao: 'Cartão',
   dinheiro: 'Dinheiro'
 };
 
@@ -122,7 +122,7 @@ function obterGrupoStatus(statusRaw) {
 
 function formatarFormaPagamento(formaRaw) {
   const forma = String(formaRaw || '').trim().toLowerCase();
-  return FORMA_PAGAMENTO_LABELS[forma] || 'NÃ£o informado';
+  return FORMA_PAGAMENTO_LABELS[forma] || 'Não informado';
 }
 
 function formatarDataPedido(dataRaw, withHours = false) {
@@ -145,7 +145,7 @@ function formatarDataPedido(dataRaw, withHours = false) {
     minute: '2-digit'
   });
 
-  return `${dia} Ã s ${hora}`;
+  return `${dia} às ${hora}`;
 }
 
 function montarResumoItens(itens) {
@@ -172,7 +172,7 @@ function montarResumoItens(itens) {
 
   const resumoTexto = preview.length
     ? `${preview.join(', ')}${extras > 0 ? ` +${extras} item${extras > 1 ? 's' : ''}` : ''}`
-    : 'Resumo dos itens disponÃ­vel ao abrir detalhes.';
+    : 'Resumo dos itens disponível ao abrir detalhes.';
 
   return {
     totalItens,
@@ -240,7 +240,7 @@ function OrdersSkeletonList() {
 }
 
 export default function PedidosPage() {
-  useDocumentHead({ title: 'Meus Pedidos', description: 'Acompanhe seus pedidos, histÃ³rico e status de entrega.' });
+  useDocumentHead({ title: 'Meus Pedidos', description: 'Acompanhe seus pedidos, histórico e status de entrega.' });
   const navigate = useNavigate();
   const location = useLocation();
   const { addItem } = useCart();
@@ -307,7 +307,7 @@ export default function PedidosPage() {
         setAutenticado(false);
         setPedidos([]);
       } else {
-        setErro(error.message || 'NÃ£o foi possÃ­vel carregar o histÃ³rico de pedidos.');
+        setErro(error.message || 'Não foi possível carregar o histórico de pedidos.');
       }
     } finally {
       if (pedidosLoadAbortRef.current === abortController) {
@@ -365,9 +365,9 @@ export default function PedidosPage() {
 
       const payloadErro = {
         itens: [],
-        erro: error.message || 'NÃ£o foi possÃ­vel carregar os itens deste pedido.',
+        erro: error.message || 'Não foi possível carregar os itens deste pedido.',
         totalItens: null,
-        resumoTexto: 'Resumo indisponÃ­vel no momento.'
+        resumoTexto: 'Resumo indisponível no momento.'
       };
 
       setDetalhesPorPedido((atual) => ({
@@ -531,7 +531,7 @@ export default function PedidosPage() {
       ));
       setMensagemSucesso(`Recebimento do pedido #${pedidoId} confirmado!`);
     } catch (error) {
-      setErro(error.message || 'NÃ£o foi possÃ­vel confirmar o recebimento.');
+      setErro(error.message || 'Não foi possível confirmar o recebimento.');
     } finally {
       setConfirmandoRecebimento(null);
     }
@@ -600,7 +600,7 @@ export default function PedidosPage() {
         return;
       }
 
-      setErro(error.message || 'NÃ£o foi possÃ­vel carregar mais pedidos.');
+      setErro(error.message || 'Não foi possível carregar mais pedidos.');
     } finally {
       if (pedidosLoadAbortRef.current === abortController) {
         pedidosLoadAbortRef.current = null;
@@ -635,7 +635,7 @@ export default function PedidosPage() {
     try {
       const detalhes = await carregarDetalhesPedido(pedidoId);
       if (!detalhes || detalhes.erro || !Array.isArray(detalhes.itens) || detalhes.itens.length === 0) {
-        setErro('NÃ£o foi possÃ­vel repetir este pedido porque os itens nÃ£o estÃ£o disponÃ­veis no momento.');
+        setErro('Não foi possível repetir este pedido porque os itens não estão disponíveis no momento.');
         return;
       }
 
@@ -673,12 +673,12 @@ export default function PedidosPage() {
       registrarRecompraItens(detalhes.itens);
 
       if (itensAdicionados <= 0) {
-        setErro('NÃ£o foi possÃ­vel repetir este pedido porque os produtos nÃ£o foram encontrados.');
+        setErro('Não foi possível repetir este pedido porque os produtos não foram encontrados.');
         return;
       }
 
       if (itensIgnorados > 0) {
-        setMensagemSucesso(`Pedido #${pedidoId} repetido com ${itensAdicionados} item(ns). ${itensIgnorados} item(ns) indisponÃ­vel(is) nÃ£o foi(ram) adicionado(s).`);
+        setMensagemSucesso(`Pedido #${pedidoId} repetido com ${itensAdicionados} item(ns). ${itensIgnorados} item(ns) indisponível(is) não foi(ram) adicionado(s).`);
       } else {
         setMensagemSucesso(`Pedido #${pedidoId} adicionado ao carrinho com ${itensAdicionados} item(ns).`);
       }
@@ -733,16 +733,16 @@ export default function PedidosPage() {
       <section className="page orders-page">
         <InternalTopBar
           title="Pedidos"
-          subtitle="Acompanhe seus pedidos em um Ãºnico lugar"
+          subtitle="Acompanhe seus pedidos em um único lugar"
           showBack={false}
           fallbackTo="/"
-          backLabel="Voltar para inÃ­cio"
+          backLabel="Voltar para início"
         />
 
         <div className="orders-state-card">
           <div className="orders-empty-icon" aria-hidden="true"><Lock size={18} /></div>
-          <p><strong>Sua sessÃ£o nÃ£o estÃ¡ ativa.</strong></p>
-          <p>FaÃ§a login para acompanhar seus pedidos, detalhes e atualizaÃ§Ãµes de entrega.</p>
+          <p><strong>Sua sessão não está ativa.</strong></p>
+          <p>Faça login para acompanhar seus pedidos, detalhes e atualizações de entrega.</p>
           <Link to="/conta" className="btn-primary" style={{ display: 'inline-block' }}>
             Entrar na conta
           </Link>
@@ -758,12 +758,12 @@ export default function PedidosPage() {
         subtitle="Acompanhe o andamento de cada compra"
         showBack={false}
         fallbackTo="/"
-        backLabel="Voltar para inÃ­cio"
+        backLabel="Voltar para início"
       />
 
       <header className="orders-header">
         <div>
-          <p className="orders-subtitle">HistÃ³rico recente com status em tempo real.</p>
+          <p className="orders-subtitle">Histórico recente com status em tempo real.</p>
         </div>
 
         <div className="orders-counter" aria-label="Resumo de pedidos">
@@ -801,7 +801,7 @@ export default function PedidosPage() {
 
       {pedidoPagoAgoraId ? (
         <div className="orders-feedback is-success" role="status" aria-live="polite">
-          <p>Pagamento confirmado. Pedido #{pedidoPagoAgoraId} jÃ¡ estÃ¡ disponÃ­vel para acompanhamento.</p>
+          <p>Pagamento confirmado. Pedido #{pedidoPagoAgoraId} já está disponível para acompanhamento.</p>
         </div>
       ) : null}
 
@@ -820,8 +820,8 @@ export default function PedidosPage() {
       {mostrarEstadoErro ? (
         <div className="orders-state-card">
           <div className="orders-empty-icon" aria-hidden="true"><AlertTriangle size={18} /></div>
-          <p><strong>NÃ£o foi possÃ­vel carregar seus pedidos agora.</strong></p>
-          <p>Verifique sua conexÃ£o e tente novamente.</p>
+          <p><strong>Não foi possível carregar seus pedidos agora.</strong></p>
+          <p>Verifique sua conexão e tente novamente.</p>
           <button className="btn-primary" type="button" onClick={() => { void carregarPedidosIniciais(); }}>
             Tentar novamente
           </button>
@@ -831,10 +831,10 @@ export default function PedidosPage() {
       {!carregando && !mostrarEstadoErro && pedidos.length === 0 ? (
         <div className="orders-state-card">
           <div className="orders-empty-icon" aria-hidden="true"><Package size={18} /></div>
-          <p><strong>VocÃª ainda nÃ£o possui pedidos.</strong></p>
-          <p>Quando finalizar sua primeira compra, ela aparecerÃ¡ aqui com status e detalhes.</p>
+          <p><strong>Você ainda não possui pedidos.</strong></p>
+          <p>Quando finalizar sua primeira compra, ela aparecerá aqui com status e detalhes.</p>
           <Link to="/produtos" className="btn-secondary" style={{ display: 'inline-block' }}>
-            ComeÃ§ar compras
+            Começar compras
           </Link>
         </div>
       ) : null}
@@ -843,7 +843,7 @@ export default function PedidosPage() {
         <div className="orders-state-card is-filter-empty">
           <div className="orders-empty-icon" aria-hidden="true"><ShoppingCart size={18} /></div>
           <p><strong>Nenhum pedido encontrado para este filtro.</strong></p>
-          <p>Tente outro status ou busque por outro nÃºmero de pedido.</p>
+          <p>Tente outro status ou busque por outro número de pedido.</p>
         </div>
       ) : null}
 
@@ -853,7 +853,7 @@ export default function PedidosPage() {
             const detalhesPedido = detalhesPorPedido[pedido.id];
             const estaAberto = pedidoAbertoId === pedido.id;
             const estaCarregando = Boolean(detalhesEmCarregamento[pedido.id]);
-            const resumoItensTexto = detalhesPedido?.resumoTexto || (estaCarregando ? 'Carregando resumo do pedido...' : 'Resumo dos itens disponÃ­vel ao abrir detalhes.');
+            const resumoItensTexto = detalhesPedido?.resumoTexto || (estaCarregando ? 'Carregando resumo do pedido...' : 'Resumo dos itens disponível ao abrir detalhes.');
             const totalItens = Number.isFinite(Number(detalhesPedido?.totalItens))
               ? Number(detalhesPedido.totalItens)
               : null;
@@ -885,7 +885,7 @@ export default function PedidosPage() {
 
                   <p className="orders-meta-line">
                     <span>{formatarFormaPagamento(pedido.forma_pagamento)}</span>
-                    <span className="orders-meta-dot" aria-hidden="true">â€¢</span>
+                    <span className="orders-meta-dot" aria-hidden="true">·</span>
                     <span>{totalItens === null ? 'Itens a confirmar' : `${totalItens} item(ns)`}</span>
                   </p>
                 </div>
@@ -897,12 +897,12 @@ export default function PedidosPage() {
                     {resumoItensTexto}
                   </p>
 
-                  {/* BotÃ£o de confirmar recebimento para pedidos em entrega */}
+                  {/* Botão de confirmar recebimento para pedidos em entrega */}
                   {pedido.status === 'enviado' && (
                     <div className="orders-confirmar-recebimento">
                       <div className="orders-entrega-info">
                         <span className="orders-entrega-icon" aria-hidden="true"><Package size={14} /></span>
-                        <span>Seu pedido estÃ¡ a caminho!</span>
+                        <span>Seu pedido está a caminho!</span>
                       </div>
                       <button
                         type="button"
@@ -921,12 +921,12 @@ export default function PedidosPage() {
                       <span className="orders-pulse-dot" />
                       <span>
                         {pedido.status === 'aguardando_revisao'
-                          ? 'Seu pedido estÃ¡ na fila de revisÃ£o da equipe antes do pagamento.'
+                          ? 'Seu pedido está na fila de revisão da equipe antes do pagamento.'
                           : pedido.status === 'preparando'
-                          ? 'Seu pedido estÃ¡ sendo separado...'
+                          ? 'Seu pedido está sendo separado...'
                           : pedido.tipo_entrega === 'retirada'
-                            ? 'Seu pedido estÃ¡ preparado! Pode buscar na loja.'
-                            : 'Seu pedido estÃ¡ preparado e aguardando entregador.'}
+                            ? 'Seu pedido está preparado! Pode buscar na loja.'
+                            : 'Seu pedido está preparado e aguardando entregador.'}
                       </span>
                     </div>
                   )}
@@ -936,8 +936,8 @@ export default function PedidosPage() {
                       <span className="orders-pulse-dot" />
                       <span>
                         Entrega: {String(pedido.entrega_status || '').replace(/_/g, ' ')}
-                        {pedido?.uber_eta_seconds ? ` â€¢ previsÃ£o ~${Math.max(1, Math.round(Number(pedido.uber_eta_seconds || 0) / 60))} min` : ''}
-                        {pedido?.uber_vehicle_type ? ` â€¢ veÃ­culo ${String(pedido.uber_vehicle_type).toUpperCase()}` : ''}
+                        {pedido?.uber_eta_seconds ? ` · previsão ~${Math.max(1, Math.round(Number(pedido.uber_eta_seconds || 0) / 60))} min` : ''}
+                        {pedido?.uber_vehicle_type ? ` · veículo ${String(pedido.uber_vehicle_type).toUpperCase()}` : ''}
                       </span>
                     </div>
                   ) : null}
@@ -998,7 +998,7 @@ export default function PedidosPage() {
                     ) : null}
 
                     {!estaCarregando && !detalhesPedido?.erro && (detalhesPedido?.itens || []).length === 0 ? (
-                      <p className="muted-text">NÃ£o hÃ¡ itens registrados para este pedido no momento.</p>
+                      <p className="muted-text">Não há itens registrados para este pedido no momento.</p>
                     ) : null}
 
                     {!estaCarregando && !detalhesPedido?.erro && (detalhesPedido?.itens || []).length > 0 ? (
@@ -1010,7 +1010,7 @@ export default function PedidosPage() {
                                 <Package size={14} aria-hidden="true" /> {item.nome_produto || item.nome || 'Item'}
                               </p>
                               <p className="orders-item-meta">
-                                {Number(item.quantidade || 0)}x Â· R$ {Number(item.preco || 0).toFixed(2)}
+                                {Number(item.quantidade || 0)}x · R$ {Number(item.preco || 0).toFixed(2)}
                               </p>
                             </div>
                             <p className="orders-item-subtotal">R$ {Number(item.subtotal || 0).toFixed(2)}</p>
@@ -1025,7 +1025,7 @@ export default function PedidosPage() {
                           Acompanhar entrega
                         </a>
                         {pedido?.uber_vehicle_type ? (
-                          <span className="orders-status-badge tone-delivery">VeÃ­culo: {String(pedido.uber_vehicle_type).toUpperCase()}</span>
+                          <span className="orders-status-badge tone-delivery">Veículo: {String(pedido.uber_vehicle_type).toUpperCase()}</span>
                         ) : null}
                       </div>
                     ) : null}

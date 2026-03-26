@@ -21558,7 +21558,13 @@ a {
 .page.page-produtos .categoria-horizontal-scroll {
   gap: 0.72rem;
   padding: 0.18rem 0.9rem 0.48rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
+  scroll-padding-inline: 0.9rem;
   scrollbar-width: none;
 }
 
@@ -21725,6 +21731,8 @@ a {
 
   .page.page-produtos .categoria-horizontal-scroll {
     padding-inline: 0.72rem;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 0.72rem;
   }
 
   .page.page-produtos .produto-image,

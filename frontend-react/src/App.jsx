@@ -1,4 +1,4 @@
-﻿import React, { Suspense, lazy, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 import { IconAccount, IconHome, IconOrders, IconProducts } from './icons';
 import HomePage from './pages/HomePage';
@@ -159,7 +159,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <a href="#main-content" className="skip-to-content">Pular para o conteÃºdo</a>
+      <a href="#main-content" className="skip-to-content">Pular para o conteúdo</a>
       <main className={`content${isProdutosRoute ? ' content-produtos' : ''}${podeMostrarBarraGlobalCarrinho ? ' has-global-cart-bar' : ''}${mostrarBottomNavCliente ? ' has-bottom-nav' : ''}`} id="main-content">
         <ErrorBoundary resetKeys={[location.pathname]}>
         <Suspense fallback={<RouteLoadingFallback />}>
@@ -223,7 +223,7 @@ export default function App() {
 
       <ErrorBoundary fallback={null} resetKeys={[location.pathname]}>
         {mostrarBottomNavCliente ? (
-          <nav className="bottom-nav" aria-label="NavegaÃ§Ã£o principal">
+          <nav className="bottom-nav" aria-label="Navegação principal">
             {links.map((item) => (
               <NavLink
                 key={item.to}

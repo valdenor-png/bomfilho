@@ -3,9 +3,9 @@
 /**
  * Rotas de pagamento via Mercado Pago.
  *
- * POST /api/mercadopago/criar-pix     â€” Gera pagamento PIX para pedido jÃ¡ aprovado
- * POST /api/mercadopago/criar-cartao  â€” Processa pagamento com cartÃ£o de crÃ©dito
- * GET  /api/mercadopago/status        â€” Health check do gateway
+ * POST /api/mercadopago/criar-pix     - Gera pagamento PIX para pedido já aprovado
+ * POST /api/mercadopago/criar-cartao  - Processa pagamento com cartão de crédito
+ * GET  /api/mercadopago/status        - Health check do gateway
  */
 
 const express = require('express');
@@ -188,9 +188,9 @@ module.exports = function createMercadoPagoRoutes(deps) {
   // ============================================
   // CRIAR PIX via Mercado Pago
   // ============================================
-  // ObservaÃ§Ã£o estrutural:
-  // Este arquivo representa a superfÃ­cie de pagamento ativa em runtime (Mercado Pago).
-  // O legado PagBank permanece no repositÃ³rio apenas para referÃªncia/migraÃ§Ã£o controlada.
+  // Observação estrutural:
+  // Este arquivo representa a superfície de pagamento ativa em runtime (Mercado Pago).
+  // O legado PagBank permanece no repositório apenas para referência/migração controlada.
   router.post('/api/mercadopago/criar-pix', autenticarToken, async (req, res) => {
     let contextoIdempotencia = null;
     let idempotenciaAdquirida = false;
@@ -207,21 +207,21 @@ module.exports = function createMercadoPagoRoutes(deps) {
       const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
 
       if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
-        return res.status(400).json(buildErrorPayload('Informe um pedido_id vÃ¡lido.'));
+        return res.status(400).json(buildErrorPayload('Informe um pedido_id válido.'));
       }
 
       if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
-        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ vÃ¡lido para gerar o PIX.'));
+        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ válido para gerar o PIX.'));
       }
 
-      // Buscar pedido â€” sÃ³ permite gerar PIX para pedido do prÃ³prio usuÃ¡rio com status pendente
+      // Buscar pedido ? só permite gerar PIX para pedido do próprio usuário com status pendente
       const [pedidos] = await pool.query(
         'SELECT id, usuario_id, total, status, gateway_pagamento, mp_payment_id_mp FROM pedidos WHERE id = ? LIMIT 1',
         [pedidoId]
       );
 
       if (!pedidos.length) {
-        return res.status(404).json(buildErrorPayload('Pedido nÃ£o encontrado.'));
+        return res.status(404).json(buildErrorPayload('Pedido não encontrado.'));
       }
 
       const pedido = pedidos[0];
@@ -232,7 +232,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
 
       const podeGerarPix = ['pendente', 'pagamento_recusado'].includes(String(pedido.status || '').trim().toLowerCase());
       if (!podeGerarPix) {
-        return res.status(400).json(buildErrorPayload(`Pedido jÃ¡ se encontra com status "${pedido.status}". NÃ£o Ã© possÃ­vel gerar PIX.`));
+        return res.status(400).json(buildErrorPayload(`Pedido já se encontra com status "${pedido.status}". Não é possível gerar PIX.`));
       }
 
       contextoIdempotencia = montarContextoIdempotenciaPagamento({
@@ -286,7 +286,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
         gateway_idempotency_key: contextoIdempotencia?.gatewayIdempotencyKey || null
       });
 
-      // Se jÃ¡ tem pagamento MP criado, retornar dados existentes
+      // Se já tem pagamento MP criado, retornar dados existentes
       if (pedido.mp_payment_id_mp) {
         try {
           const pagamento = await mercadoPagoService.consultarPagamento(pedido.mp_payment_id_mp);
@@ -317,11 +317,11 @@ module.exports = function createMercadoPagoRoutes(deps) {
             return res.json(respostaExistente);
           }
         } catch (err) {
-          logger.warn(`[MP] Pagamento anterior ${pedido.mp_payment_id_mp} invÃ¡lido, criando novo:`, err.message);
+          logger.warn(`[MP] Pagamento anterior ${pedido.mp_payment_id_mp} inválido, criando novo:`, err.message);
         }
       }
 
-      // Buscar dados do usuÃ¡rio
+      // Buscar dados do usuário
       const [usuarios] = await pool.query(
         'SELECT nome, email FROM usuarios WHERE id = ? LIMIT 1',
         [req.usuario.id]
@@ -397,7 +397,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
         erro?.mpResponse?.message
         || erro?.mpResponse?.error
         || erro?.message
-        || 'NÃ£o foi possÃ­vel gerar o pagamento PIX. Tente novamente.';
+        || 'Não foi possível gerar o pagamento PIX. Tente novamente.';
       const mensagemDetalhada = causas.length
         ? `${mensagem} (${causas.join(' | ')})`
         : mensagem;
@@ -450,21 +450,21 @@ module.exports = function createMercadoPagoRoutes(deps) {
       pedidoIdContexto = pedidoId;
 
       if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
-        return res.status(400).json(buildErrorPayload('Informe um pedido_id vÃ¡lido.'));
+        return res.status(400).json(buildErrorPayload('Informe um pedido_id válido.'));
       }
 
       if (!token || typeof token !== 'string') {
-        return res.status(400).json(buildErrorPayload('Token do cartÃ£o Ã© obrigatÃ³rio.'));
+        return res.status(400).json(buildErrorPayload('Token do cartão é obrigatório.'));
       }
 
       const parcelasNum = Number(parcelas) || 1;
       if (parcelasNum < 1 || parcelasNum > 12) {
-        return res.status(400).json(buildErrorPayload('NÃºmero de parcelas deve ser entre 1 e 12.'));
+        return res.status(400).json(buildErrorPayload('Número de parcelas deve ser entre 1 e 12.'));
       }
 
       const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
       if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
-        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ vÃ¡lido para o pagamento com cartÃ£o.'));
+        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ válido para o pagamento com cartão.'));
       }
 
       // Buscar pedido
@@ -474,7 +474,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
       );
 
       if (!pedidos.length) {
-        return res.status(404).json(buildErrorPayload('Pedido nÃ£o encontrado.'));
+        return res.status(404).json(buildErrorPayload('Pedido não encontrado.'));
       }
 
       const pedido = pedidos[0];
@@ -485,7 +485,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
 
       const podeProcessarCartao = ['pendente', 'pagamento_recusado'].includes(String(pedido.status || '').trim().toLowerCase());
       if (!podeProcessarCartao) {
-        return res.status(400).json(buildErrorPayload(`Pedido jÃ¡ se encontra com status "${pedido.status}". NÃ£o Ã© possÃ­vel processar pagamento.`));
+        return res.status(400).json(buildErrorPayload(`Pedido já se encontra com status "${pedido.status}". Não é possível processar pagamento.`));
       }
 
       contextoIdempotencia = montarContextoIdempotenciaPagamento({
@@ -540,7 +540,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
         gateway_idempotency_key: contextoIdempotencia?.gatewayIdempotencyKey || null
       });
 
-      // Buscar dados do usuÃ¡rio
+      // Buscar dados do usuário
       const [usuarios] = await pool.query(
         'SELECT nome, email FROM usuarios WHERE id = ? LIMIT 1',
         [req.usuario.id]
@@ -617,7 +617,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
         erro?.mpResponse?.message
         || erro?.mpResponse?.error
         || erro?.message
-        || 'NÃ£o foi possÃ­vel processar o pagamento com cartÃ£o.';
+        || 'Não foi possível processar o pagamento com cartão.';
       const mensagemDetalhada = causas.length
         ? `${mensagem} (${causas.join(' | ')})`
         : mensagem;
@@ -634,7 +634,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
         });
       }
 
-      logger.error('[MP] Erro ao processar cartÃ£o:', {
+      logger.error('[MP] Erro ao processar cartão:', {
         request_id: String(req?.requestId || req?.headers?.['x-request-id'] || '').trim() || null,
         status,
         message: erro?.message,

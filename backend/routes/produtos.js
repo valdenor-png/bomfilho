@@ -132,6 +132,16 @@ function buildProdutoTextoBuscaExpr(colunas, alias = '') {
   return `LOWER(CONCAT(${partes.join(", ' ', ")}))`;
 }
 
+function buildProdutoTextoTokenExpr(colunas, alias = '') {
+  const textoExpr = buildProdutoTextoBuscaExpr(colunas, alias);
+  return `CONCAT(' ', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${textoExpr}, '-', ' '), '/', ' '), '.', ' '), ',', ' '), ';', ' '), ':', ' '), ' ')`;
+}
+
+function isMatcherCurtoComRiscoColisao(matcher) {
+  const token = String(matcher || '').trim().toLowerCase();
+  return token.length > 0 && token.length <= 3;
+}
+
 function buildCategoriaExpr(colunas, alias = '') {
   const prefixo = alias ? `${alias}.` : '';
   if (colunas.has('departamento')) {
@@ -522,18 +532,31 @@ module.exports = function createProdutosPublicRoutes({
 
         if (categoria === 'bebidas-alcoolicas') {
           const textoProdutoExpr = buildProdutoTextoBuscaExpr(colunas, 'p');
+          const textoProdutoTokenExpr = buildProdutoTextoTokenExpr(colunas, 'p');
           const subcats = CATEGORIA_EQUIVALENCIAS[categoria] || ['bebidas'];
           const placeholders = subcats.map(() => '?').join(', ');
-          const filtrosTextoAlcool = BEBIDAS_ALCOOLICAS_MATCHERS.map(
-            () => `${textoProdutoExpr} LIKE ?${LIKE_ESCAPE_SQL}`
-          );
+          const filtrosTextoAlcool = BEBIDAS_ALCOOLICAS_MATCHERS.map((matcher) => (
+            isMatcherCurtoComRiscoColisao(matcher)
+              ? `${textoProdutoTokenExpr} LIKE ?${LIKE_ESCAPE_SQL}`
+              : `${textoProdutoExpr} LIKE ?${LIKE_ESCAPE_SQL}`
+          ));
 
           filtros.push(
             `(${categoriaExpr} IN (${placeholders}) AND (${filtrosTextoAlcool.join(' OR ')}))`
           );
           params.push(...subcats);
           BEBIDAS_ALCOOLICAS_MATCHERS.forEach((matcher) => {
-            params.push(`%${escapeLike(matcher)}%`);
+            const matcherNormalizado = String(matcher || '').trim().toLowerCase();
+            if (!matcherNormalizado) {
+              return;
+            }
+
+            if (isMatcherCurtoComRiscoColisao(matcherNormalizado)) {
+              params.push(`% ${escapeLike(matcherNormalizado)} %`);
+              return;
+            }
+
+            params.push(`%${escapeLike(matcherNormalizado)}%`);
           });
         } else if (categoria === 'cervejas' || categoria === 'cerveja') {
           const textoProdutoExpr = buildProdutoTextoBuscaExpr(colunas, 'p');

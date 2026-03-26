@@ -324,8 +324,344 @@ module.exports = function createAdminCatalogoRoutes(deps) {
       return res.status(status).json(payloadErro);
     }
   }
+  const TOKENS_ALCOOLICOS = Object.freeze([
+    'cerveja',
+    'vinho',
+    'whisky',
+    'vodka',
+    'gin',
+    'rum',
+    'tequila',
+    'licor',
+    'conhaque',
+    'cachaca'
+  ]);
 
+  const TOKENS_NAO_ALCOOLICOS = Object.freeze([
+    'coca',
+    'guarana',
+    'fanta',
+    'pepsi',
+    'refrigerante',
+    'suco',
+    'agua',
+    'cha'
+  ]);
+
+  function montarExpressaoTextoBuscaSql(colunas, alias = 'p') {
+    const prefixo = alias ? `${alias}.` : '';
+    const campos = [`COALESCE(${prefixo}nome, '')`];
+
+    if (colunas.has('nome_externo')) {
+      campos.push(`COALESCE(${prefixo}nome_externo, '')`);
+    }
+
+    if (colunas.has('descricao')) {
+      campos.push(`COALESCE(${prefixo}descricao, '')`);
+    }
+
+    if (colunas.has('marca')) {
+      campos.push(`COALESCE(${prefixo}marca, '')`);
+    }
+
+    return `LOWER(CONCAT(${campos.join(", ' ', ")}))`;
+  }
+
+  function montarExpressaoCategoriaLegadoSql(colunas, alias = 'p') {
+    const prefixo = alias ? `${alias}.` : '';
+    if (colunas.has('departamento')) {
+      return `LOWER(COALESCE(NULLIF(TRIM(${prefixo}departamento), ''), ${prefixo}categoria, ''))`;
+    }
+
+    return `LOWER(COALESCE(${prefixo}categoria, ''))`;
+  }
+
+  function montarExpressaoTokenizadaSql(expr) {
+    return `CONCAT(' ', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${expr}, '-', ' '), '/', ' '), '.', ' '), ',', ' '), ';', ' '), ':', ' '), ' ')`;
+  }
+
+  function montarLikeTokensSql(expr, tokens = []) {
+    if (!tokens.length) {
+      return {
+        sql: 'FALSE',
+        params: []
+      };
+    }
+
+    const exprTokenizada = montarExpressaoTokenizadaSql(expr);
+    const filtros = [];
+    const params = [];
+
+    tokens.forEach((tokenRaw) => {
+      const token = String(tokenRaw || '').trim().toLowerCase();
+      if (!token) {
+        return;
+      }
+
+      if (token.length <= 3) {
+        filtros.push(`${exprTokenizada} LIKE ?`);
+        params.push(`% ${token} %`);
+        return;
+      }
+
+      filtros.push(`${expr} LIKE ?`);
+      params.push(`%${token}%`);
+    });
+
+    if (!filtros.length) {
+      return {
+        sql: 'FALSE',
+        params: []
+      };
+    }
+
+    return {
+      sql: filtros.join(' OR '),
+      params
+    };
+  }
+
+  function erroTabelaInexistente(error) {
+    const code = String(error?.code || '').toUpperCase();
+    return code === '42P01' || code === 'ER_NO_SUCH_TABLE' || code === '1146';
+  }
   // ---- Rotas do catálogo admin ----
+
+  router.get('/api/admin/catalogo/taxonomia/auditoria', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+    try {
+      const colunas = await obterColunasProdutos();
+      const possuiTaxonomiaEstruturada = colunas.has('categoria_principal_id') && colunas.has('subcategoria_id');
+
+      if (!possuiTaxonomiaEstruturada) {
+        return res.json({
+          possui_taxonomia_estruturada: false,
+          resumo: {
+            total_ativos: 0,
+            sem_categoria_principal: 0,
+            subcategoria_invalida: 0,
+            estoque_negativo: 0,
+            nao_alcool_em_alcoolicas: 0,
+            alcool_fora_categoria: 0
+          },
+          amostras: {
+            sem_categoria_principal: [],
+            subcategoria_invalida: [],
+            conflitos_alcool: []
+          },
+          fila_revisao: {
+            disponivel: false,
+            total_abertos: 0,
+            itens: []
+          },
+          aviso: 'Taxonomia estruturada indisponivel no schema atual. Rode as migrations 019 e 021.'
+        });
+      }
+
+      const limiteAmostra = parsePositiveInt(req.query?.limit || req.query?.limite, 30, { min: 1, max: 200 });
+      const textoExpr = montarExpressaoTextoBuscaSql(colunas, 'p');
+      const categoriaLegadoExpr = montarExpressaoCategoriaLegadoSql(colunas, 'p');
+      const naoAlcoolicos = montarLikeTokensSql(textoExpr, TOKENS_NAO_ALCOOLICOS);
+      const alcoolicos = montarLikeTokensSql(textoExpr, TOKENS_ALCOOLICOS);
+
+      const [rowsResumo] = await pool.query(
+        `SELECT
+           SUM(CASE WHEN p.ativo = TRUE THEN 1 ELSE 0 END) AS total_ativos,
+           SUM(CASE WHEN p.ativo = TRUE AND p.categoria_principal_id IS NULL THEN 1 ELSE 0 END) AS sem_categoria_principal,
+           SUM(CASE WHEN p.ativo = TRUE AND p.subcategoria_id IS NOT NULL AND (p.categoria_principal_id IS NULL OR s.categoria_id <> p.categoria_principal_id) THEN 1 ELSE 0 END) AS subcategoria_invalida,
+           SUM(CASE WHEN COALESCE(p.estoque, 0) < 0 THEN 1 ELSE 0 END) AS estoque_negativo,
+           SUM(CASE WHEN p.ativo = TRUE AND c.slug = 'bebidas-alcoolicas' AND (${naoAlcoolicos.sql}) THEN 1 ELSE 0 END) AS nao_alcool_em_alcoolicas,
+           SUM(CASE WHEN p.ativo = TRUE AND (c.slug IS NULL OR c.slug <> 'bebidas-alcoolicas') AND (${alcoolicos.sql}) THEN 1 ELSE 0 END) AS alcool_fora_categoria
+         FROM produtos p
+         LEFT JOIN catalogo_subcategorias s ON s.id = p.subcategoria_id
+         LEFT JOIN catalogo_categorias c ON c.id = p.categoria_principal_id`,
+        [
+          ...naoAlcoolicos.params,
+          ...alcoolicos.params
+        ]
+      );
+
+      const resumo = rowsResumo?.[0] || {};
+
+      const [amostraSemCategoria] = await pool.query(
+        `SELECT
+           p.id,
+           p.nome,
+           ${categoriaLegadoExpr} AS categoria_legado,
+           COALESCE(p.estoque, 0) AS estoque
+         FROM produtos p
+         WHERE p.ativo = TRUE
+           AND p.categoria_principal_id IS NULL
+         ORDER BY p.id DESC
+         LIMIT ?`,
+        [limiteAmostra]
+      );
+
+      const [amostraSubcategoriaInvalida] = await pool.query(
+        `SELECT
+           p.id,
+           p.nome,
+           p.categoria_principal_id,
+           p.subcategoria_id,
+           s.categoria_id AS subcategoria_categoria_id
+         FROM produtos p
+         LEFT JOIN catalogo_subcategorias s ON s.id = p.subcategoria_id
+         WHERE p.ativo = TRUE
+           AND p.subcategoria_id IS NOT NULL
+           AND (p.categoria_principal_id IS NULL OR s.categoria_id <> p.categoria_principal_id)
+         ORDER BY p.id DESC
+         LIMIT ?`,
+        [limiteAmostra]
+      );
+
+      const [amostraConflitosAlcool] = await pool.query(
+        `SELECT
+           p.id,
+           p.nome,
+           COALESCE(c.slug, '') AS categoria_principal_slug,
+           ${categoriaLegadoExpr} AS categoria_legado
+         FROM produtos p
+         LEFT JOIN catalogo_categorias c ON c.id = p.categoria_principal_id
+         WHERE p.ativo = TRUE
+           AND (
+             (c.slug = 'bebidas-alcoolicas' AND (${naoAlcoolicos.sql}))
+             OR
+             ((c.slug IS NULL OR c.slug <> 'bebidas-alcoolicas') AND (${alcoolicos.sql}))
+           )
+         ORDER BY p.id DESC
+         LIMIT ?`,
+        [
+          ...naoAlcoolicos.params,
+          ...alcoolicos.params,
+          limiteAmostra
+        ]
+      );
+
+      let filaRevisao = {
+        disponivel: true,
+        total_abertos: 0,
+        itens: []
+      };
+
+      try {
+        const [rowsFilaTotal] = await pool.query(
+          `SELECT COUNT(*) AS total
+             FROM produto_revisao_pendente
+            WHERE status = 'aberto'`
+        );
+        const [rowsFilaItens] = await pool.query(
+          `SELECT
+             r.id,
+             r.produto_id,
+             COALESCE(p.nome, '') AS produto_nome,
+             r.motivo,
+             r.score,
+             r.status,
+             r.created_at
+           FROM produto_revisao_pendente r
+           LEFT JOIN produtos p ON p.id = r.produto_id
+           WHERE r.status = 'aberto'
+           ORDER BY r.created_at DESC
+           LIMIT ?`,
+          [limiteAmostra]
+        );
+
+        filaRevisao = {
+          disponivel: true,
+          total_abertos: Number(rowsFilaTotal?.[0]?.total || 0),
+          itens: rowsFilaItens || []
+        };
+      } catch (erroFila) {
+        if (!erroTabelaInexistente(erroFila)) {
+          throw erroFila;
+        }
+
+        filaRevisao = {
+          disponivel: false,
+          total_abertos: 0,
+          itens: [],
+          aviso: 'Tabela produto_revisao_pendente indisponivel. Rode a migration 021.'
+        };
+      }
+
+      return res.json({
+        possui_taxonomia_estruturada: true,
+        resumo: {
+          total_ativos: Number(resumo?.total_ativos || 0),
+          sem_categoria_principal: Number(resumo?.sem_categoria_principal || 0),
+          subcategoria_invalida: Number(resumo?.subcategoria_invalida || 0),
+          estoque_negativo: Number(resumo?.estoque_negativo || 0),
+          nao_alcool_em_alcoolicas: Number(resumo?.nao_alcool_em_alcoolicas || 0),
+          alcool_fora_categoria: Number(resumo?.alcool_fora_categoria || 0)
+        },
+        amostras: {
+          sem_categoria_principal: amostraSemCategoria || [],
+          subcategoria_invalida: amostraSubcategoriaInvalida || [],
+          conflitos_alcool: amostraConflitosAlcool || []
+        },
+        fila_revisao: filaRevisao
+      });
+    } catch (erro) {
+      logger.error('Erro ao gerar auditoria de taxonomia do catalogo:', erro);
+      return res.status(500).json({ erro: 'Nao foi possivel gerar auditoria de taxonomia agora.' });
+    }
+  });
+
+  router.get('/api/admin/catalogo/taxonomia/revisao-pendente', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+    const page = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 100000 });
+    const limit = parsePositiveInt(req.query?.limit || req.query?.limite, 30, { min: 1, max: 200 });
+    const status = String(req.query?.status || 'aberto').trim().toLowerCase();
+    const statusPermitidos = new Set(['aberto', 'aprovado', 'rejeitado', 'corrigido']);
+    const statusFiltro = statusPermitidos.has(status) ? status : 'aberto';
+    const offset = (page - 1) * limit;
+
+    try {
+      const [rowsTotal] = await pool.query(
+        `SELECT COUNT(*) AS total
+           FROM produto_revisao_pendente
+          WHERE status = ?`,
+        [statusFiltro]
+      );
+
+      const [rows] = await pool.query(
+        `SELECT
+           r.id,
+           r.produto_id,
+           COALESCE(p.nome, '') AS produto_nome,
+           r.motivo,
+           r.categoria_sugerida_id,
+           r.subcategoria_sugerida_id,
+           r.score,
+           r.status,
+           r.created_at,
+           r.resolved_at,
+           COALESCE(r.resolved_by, '') AS resolved_by,
+           r.detalhes
+         FROM produto_revisao_pendente r
+         LEFT JOIN produtos p ON p.id = r.produto_id
+         WHERE r.status = ?
+         ORDER BY r.created_at DESC
+         LIMIT ? OFFSET ?`,
+        [statusFiltro, limit, offset]
+      );
+
+      return res.json({
+        page,
+        limit,
+        status: statusFiltro,
+        total: Number(rowsTotal?.[0]?.total || 0),
+        itens: rows || []
+      });
+    } catch (erro) {
+      if (erroTabelaInexistente(erro)) {
+        return res.status(409).json({
+          erro: 'Tabela de revisao pendente nao encontrada. Rode a migration 021_catalogo_integridade_blindagem.sql.'
+        });
+      }
+
+      logger.error('Erro ao listar fila de revisao pendente de taxonomia:', erro);
+      return res.status(500).json({ erro: 'Nao foi possivel listar a fila de revisao agora.' });
+    }
+  });
 
   router.get('/api/admin/catalogo/dashboard', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {
@@ -875,4 +1211,5 @@ module.exports = function createAdminCatalogoRoutes(deps) {
 
   return router;
 };
+
 

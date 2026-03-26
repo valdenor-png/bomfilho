@@ -137,7 +137,7 @@ export function CheckoutSecurityTrust({
       </ul>
 
       <p className="checkout-security-trust-total">
-        Metodo atual: <strong>{metodoLabel}</strong> • Total em revisao: <strong>{formatarMoeda(total)}</strong>
+        Metodo atual: <strong>{metodoLabel}</strong> · Total em revisao: <strong>{formatarMoeda(total)}</strong>
       </p>
     </article>
   );

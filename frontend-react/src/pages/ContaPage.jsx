@@ -1001,7 +1001,7 @@ export default function ContaPage() {
 
             <section className="account-extra-light">
               <p className="muted-text">
-                Pedidos: {pedidosResumo.total} • Favoritos: {totalFavoritos}
+                Pedidos: {pedidosResumo.total} · Favoritos: {totalFavoritos}
               </p>
               {pedidosResumo.ultimoPedidoTexto ? <p className="muted-text">{pedidosResumo.ultimoPedidoTexto}</p> : null}
             </section>

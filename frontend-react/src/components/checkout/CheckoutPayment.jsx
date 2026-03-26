@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Componentes de seleção e resumo de pagamento extraídos de PagamentoPage.
  */
 import React from 'react';
@@ -11,56 +11,115 @@ const PAYMENT_METHOD_ICON_NAMES = Object.freeze({
   'debit-card': 'IconDebitCard'
 });
 
+function toSafeText(value) {
+  return String(value || '').trim();
+}
+
+function resolvePaymentMethodIconName(icon) {
+  const raw = toSafeText(icon);
+  const key = raw.toLowerCase();
+  if (!key) {
+    return 'IconInfo';
+  }
+
+  if (PAYMENT_METHOD_ICON_NAMES[key]) {
+    return PAYMENT_METHOD_ICON_NAMES[key];
+  }
+
+  // Aceita nome de icone direto quando vier da API/admin.
+  if (raw.startsWith('Icon')) {
+    return raw;
+  }
+
+  return 'IconInfo';
+}
+
 function PaymentMethodGlyph({ icon }) {
-  const key = String(icon || '').trim().toLowerCase();
-  const iconName = PAYMENT_METHOD_ICON_NAMES[key] || 'IconInfo';
+  if (typeof Icon !== 'function') {
+    return null;
+  }
+
+  const iconName = resolvePaymentMethodIconName(icon);
   return <Icon name={iconName} size={18} strokeWidth={1.9} />;
 }
 
 export function PaymentMethodCard({
+  method,
+  item,
+  paymentMethod,
+  id,
+  label,
   icon,
   title,
   headline,
+  selected,
   selecionado,
   onSelect,
   disabled = false
 }) {
+  const sourceMethod = [method, item, paymentMethod].find((candidate) => candidate && typeof candidate === 'object') || {};
+  const resolvedId = toSafeText(id || sourceMethod.id || sourceMethod.key || sourceMethod.value);
+  const resolvedTitle = toSafeText(title || label || sourceMethod.label || sourceMethod.title) || 'Método de pagamento';
+  const resolvedHeadline = toSafeText(headline || sourceMethod.headline || sourceMethod.description);
+  const resolvedIcon = toSafeText(icon || sourceMethod.icon);
+  const isSelected = Boolean(selected ?? selecionado ?? sourceMethod.selected);
+  const isDisabled = Boolean(disabled || sourceMethod.disabled);
+  const isSelectable = typeof onSelect === 'function';
+  const handleSelect = () => {
+    if (!isSelectable || isDisabled) {
+      return;
+    }
+
+    if (resolvedId) {
+      onSelect(resolvedId);
+      return;
+    }
+
+    onSelect();
+  };
+
   return (
     <button
       type="button"
       role="radio"
-      aria-checked={selecionado}
-      className={`payment-method-card ${selecionado ? 'is-selected' : ''}`}
-      onClick={onSelect}
-      disabled={disabled}
+      aria-checked={isSelected}
+      className={`payment-method-card ${isSelected ? 'is-selected' : ''}`}
+      onClick={() => handleSelect()}
+      disabled={isDisabled || !isSelectable}
     >
       <div className="payment-method-card-head">
         <p className="payment-method-title-row">
           <span className="payment-method-icon" aria-hidden="true">
-            <PaymentMethodGlyph icon={icon} />
+            <PaymentMethodGlyph icon={resolvedIcon} />
           </span>
-          <span className="payment-method-title">{title}</span>
-          {selecionado ? <span className="payment-method-badge">Ativo</span> : null}
+          <span className="payment-method-title">{resolvedTitle}</span>
+          {isSelected ? <span className="payment-method-badge">Ativo</span> : null}
         </p>
-        {selecionado ? <span className="payment-method-check" aria-hidden="true">OK</span> : null}
+        {isSelected ? <span className="payment-method-check" aria-hidden="true">OK</span> : null}
       </div>
 
-      <p className="payment-method-headline">{headline}</p>
+      {resolvedHeadline ? <p className="payment-method-headline">{resolvedHeadline}</p> : null}
     </button>
   );
 }
 
 export function PaymentSelectionSummary({ title, description }) {
+  const linhasDescricao = Array.isArray(description)
+    ? description.map((line) => toSafeText(line)).filter(Boolean)
+    : [];
+
   return (
     <article className="payment-selection-summary" aria-label="Resumo da forma de pagamento selecionada">
       <div className="payment-selection-summary-head">
         <p className="payment-selection-summary-kicker">Forma selecionada</p>
-        <h3>{title}</h3>
+        <h3>{toSafeText(title) || 'Pagamento selecionado'}</h3>
       </div>
 
-      {description.map((line) => (
-        <p className="payment-selection-summary-line" key={line}>{line}</p>
-      ))}
+      {linhasDescricao.length > 0
+        ? linhasDescricao.map((line) => (
+          <p className="payment-selection-summary-line" key={line}>{line}</p>
+        ))
+        : <p className="payment-selection-summary-line">Revise os dados antes de confirmar.</p>}
     </article>
   );
 }

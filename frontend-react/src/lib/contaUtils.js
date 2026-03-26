@@ -180,7 +180,7 @@ export function montarResumoEndereco(endereco) {
 
   const ruaNumero = [endereco.rua, endereco.numero].filter(Boolean).join(', ');
   const cidadeEstado = [endereco.cidade, endereco.estado].filter(Boolean).join(' - ');
-  const linha2 = [endereco.bairro, cidadeEstado, endereco.cep].filter(Boolean).join(' • ');
+  const linha2 = [endereco.bairro, cidadeEstado, endereco.cep].filter(Boolean).join(' · ');
 
   return {
     titulo: 'Endereço principal',

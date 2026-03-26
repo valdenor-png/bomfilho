@@ -140,6 +140,28 @@ const CERVEJA_MATCHERS = [
   'puro malte'
 ].map(normalizeText);
 
+function normalizeTokenBoundaryText(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function textoContemMatcherComFronteira(textoProduto, matchersNormalizados) {
+  const textoBase = normalizeTokenBoundaryText(textoProduto);
+  if (!textoBase) {
+    return false;
+  }
+
+  const textoBusca = ` ${textoBase} `;
+
+  return matchersNormalizados.some((matcher) => {
+    const token = normalizeTokenBoundaryText(matcher);
+    if (!token) {
+      return false;
+    }
+
+    return textoBusca.includes(` ${token} `);
+  });
+}
+
 export function isProdutoCerveja(textoBusca) {
   const texto = normalizeText(textoBusca);
   if (!texto) {
@@ -178,7 +200,7 @@ export function resolveCategoriaPrincipalVitrine(categoriaId, textoBusca = '') {
       return 'bebidas';
     }
 
-    const ehBebidaAlcoolica = textoContemMatcher(textoNormalizado, BEBIDAS_ALCOOLICAS_MATCHERS);
+    const ehBebidaAlcoolica = textoContemMatcherComFronteira(textoNormalizado, BEBIDAS_ALCOOLICAS_MATCHERS);
     if (ehBebidaAlcoolica) {
       return 'bebidas-alcoolicas';
     }

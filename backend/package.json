@@ -45,6 +45,7 @@
     "taxonomia:rollback": "node scripts/taxonomia-classificacao-pipeline.js --mode rollback",
     "taxonomia:legacy:preview": "node scripts/taxonomia-classificacao-pipeline.js --mode preview --legacyRecategorizacao true",
     "taxonomia:legacy:apply:safe": "node scripts/taxonomia-classificacao-pipeline.js --mode apply-safe --legacyRecategorizacao true --apply true",
+    "encoding:audit:db": "node tools/auditar-encoding-banco.js",
     "migrate": "node migrate.js",
     "migrate:dry-run": "node migrate.js --dry-run",
     "lint": "eslint .",

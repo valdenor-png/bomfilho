@@ -10,8 +10,8 @@ const {
 } = require('../lib/config');
 
 /**
- * Verifica se um webhook jÃ¡ foi processado usando a tabela webhook_events.
- * Retorna true se jÃ¡ existe (duplicata), false caso contrÃ¡rio.
+ * Verifica se um webhook já foi processado usando a tabela webhook_events.
+ * Retorna true se já existe (duplicata), false caso contrário.
  */
 function erroEhDuplicidade(err) {
   const code = String(err?.code || '').trim().toUpperCase();
@@ -178,7 +178,7 @@ module.exports = function createWebhookRoutes(deps) {
 
       if (enviado) {
         evolutionLastReplyByNumber.set(telefone, agora);
-        logger.info('âœ… Auto-resposta WhatsApp enviada para:', telefone);
+        logger.info('Auto-resposta WhatsApp enviada para:', telefone);
       }
 
       return res.sendStatus(200);
@@ -192,9 +192,9 @@ module.exports = function createWebhookRoutes(deps) {
   // WEBHOOK MERCADO PAGO
   // ============================================
 
-  // DiagnÃ³stico: GET para confirmar que a rota estÃ¡ viva (browser / uptime check)
+  // Diagnóstico: GET para confirmar que a rota está viva (browser / uptime check)
   router.get('/api/webhooks/mercadopago', (_req, res) => {
-    res.json({ ok: true, route: 'mercadopago-webhook', method: 'GET', info: 'Use POST para receber notificaÃ§Ãµes.' });
+    res.json({ ok: true, route: 'mercadopago-webhook', method: 'GET', info: 'Use POST para receber notificações.' });
   });
 
   router.post('/api/webhooks/mercadopago', async (req, res) => {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Componentes PIX do checkout extraídos de PagamentoPage.
  */
 import React from 'react';

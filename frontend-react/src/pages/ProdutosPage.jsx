@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Flame, Heart, House, Search, ShoppingCart, Tag } from '../icons';
 
@@ -6,6 +6,8 @@ const EMPTY_RECOMENDACOES = [];
 const BEBIDAS_ALCOOLICAS_SECOES = new Set(['cervejas', 'vinho', 'destilados', 'licores', 'drinks-prontos']);
 const PREFETCH_CATEGORIAS_MAX_CONCORRENCIA = 2;
 const LIMITE_VITRINE_CATEGORIA = 10;
+const LIMITE_SUBCATEGORIA_CATEGORIA = 10;
+const CARGA_SUBCATEGORIAS_MAX_CONCORRENCIA = 2;
 
 function mergeChavesSemDuplicacao(chavesAtuais = [], chavesNovas = []) {
   const conjunto = new Set(Array.isArray(chavesAtuais) ? chavesAtuais : []);
@@ -30,7 +32,12 @@ import useDocumentHead from '../hooks/useDocumentHead';
 import useDebouncedValue from '../hooks/useDebouncedValue';
 import usePreloadImage from '../hooks/usePreloadImage';
 import SmartImage from '../components/ui/SmartImage';
-import { getCategoriasAtivas, getCategoriasNavegacao, getOfertasDia } from '../lib/api';
+import {
+  getCategoriasAtivas,
+  getCategoriasNavegacao,
+  getOfertasDia,
+  getSubcategoriasCategoria
+} from '../lib/api';
 import {
   buildProductEventPayload,
   captureCommerceEvent
@@ -42,8 +49,7 @@ import {
 } from '../lib/conversionGrowth';
 import {
   getSubcategoriaId,
-  getSubcategoriasComContagem,
-  SUBCATEGORIAS_POR_CATEGORIA
+  getSubcategoriasComContagem
 } from '../lib/subcategoriaHelpers';
 import {
   CATEGORIA_CERVEJAS,
@@ -154,7 +160,6 @@ const CategoriaHorizontalRail = React.memo(function CategoriaHorizontalRail({
   exibirBarraMobile = false
 }) {
   const trilhoRef = useRef(null);
-  const snapTimeoutRef = useRef(null);
   const [maxScroll, setMaxScroll] = useState(0);
   const [scrollPos, setScrollPos] = useState(0);
 
@@ -183,14 +188,6 @@ const CategoriaHorizontalRail = React.memo(function CategoriaHorizontalRail({
       window.removeEventListener('resize', sincronizarMetricas);
     };
   }, [itensIndexados, sincronizarMetricas]);
-
-  useEffect(() => {
-    return () => {
-      if (snapTimeoutRef.current) {
-        clearTimeout(snapTimeoutRef.current);
-      }
-    };
-  }, []);
 
   const snapParaCardMaisProximo = useCallback(() => {
     const elemento = trilhoRef.current;
@@ -222,27 +219,12 @@ const CategoriaHorizontalRail = React.memo(function CategoriaHorizontalRail({
     });
   }, []);
 
-  const agendarSnap = useCallback(() => {
-    if (!exibirBarraMobile) {
-      return;
-    }
-
-    if (snapTimeoutRef.current) {
-      clearTimeout(snapTimeoutRef.current);
-    }
-
-    snapTimeoutRef.current = setTimeout(() => {
-      snapParaCardMaisProximo();
-    }, 140);
-  }, [exibirBarraMobile, snapParaCardMaisProximo]);
-
   const handleScroll = useCallback((event) => {
     const elemento = event.currentTarget;
     const maxAtual = Math.max(0, elemento.scrollWidth - elemento.clientWidth);
     setMaxScroll(maxAtual);
     setScrollPos(Math.max(0, Math.min(maxAtual, elemento.scrollLeft)));
-    agendarSnap();
-  }, [agendarSnap]);
+  }, []);
 
   const handleRangeChange = useCallback((event) => {
     const elemento = trilhoRef.current;
@@ -347,10 +329,16 @@ export default function ProdutosPage() {
   const [totaisCategoriasVitrine, setTotaisCategoriasVitrine] = useState({});
   const [statusCategoriasVitrine, setStatusCategoriasVitrine] = useState({});
   const [chavesCategoriasVitrine, setChavesCategoriasVitrine] = useState({});
+  const [subcategoriasCategoriaProgressiva, setSubcategoriasCategoriaProgressiva] = useState([]);
+  const [fallbackCategoriaProgressiva, setFallbackCategoriaProgressiva] = useState(false);
+  const [statusSubcategoriasCategoria, setStatusSubcategoriasCategoria] = useState({});
+  const [chavesSubcategoriasCategoria, setChavesSubcategoriasCategoria] = useState({});
   const [secoesCategoriaExpandidas, setSecoesCategoriaExpandidas] = useState({});
   const requisicaoProdutosIdRef = useRef(0);
   const requisicaoCategoriasVitrineRef = useRef(new Map());
+  const requisicaoSubcategoriasCategoriaRef = useRef(new Map());
   const abortCategoriasVitrineRef = useRef(new Map());
+  const abortSubcategoriasCategoriaRef = useRef(new Map());
   const carregarProdutosAbortRef = useRef(null);
   const limparFeedbackAdicaoRef = useRef(null);
   const limparFeedbackRecorrenciaRef = useRef(null);
@@ -365,6 +353,9 @@ export default function ProdutosPage() {
   const produtosSnapshotRef = useRef([]);
   const chavesCategoriasVitrineRef = useRef({});
   const statusCategoriasVitrineRef = useRef({});
+  const chavesSubcategoriasCategoriaRef = useRef({});
+  const statusSubcategoriasCategoriaRef = useRef({});
+  const categoriaProgressivaAtivaRef = useRef('');
   const layoutCategoriasAtivoRef = useRef(false);
   const falhasConsecutivasProdutosRef = useRef(0);
   const buscaDebounced = useDebouncedValue(busca, 280);
@@ -417,6 +408,8 @@ export default function ProdutosPage() {
   const exibirVisaoCategoriaDetalhe = categoria !== CATEGORIA_TODAS
     && categoria !== CATEGORIA_PROMOCOES
     && !normalizeText(termoBuscaEfetivo);
+  const modoCategoriaProgressivaAtivo = exibirVisaoCategoriaDetalhe && !normalizeText(termoBuscaDigitado);
+  const modoCategoriaProgressivaExecutando = modoCategoriaProgressivaAtivo && subcategoriasCategoriaProgressiva.length > 0;
   const growthInsights = useMemo(() => getGrowthInsights({ windowDays: 7 }), [growthVersion]);
   const growthFunnel = Array.isArray(growthInsights?.funnel) ? growthInsights.funnel : [];
   const growthBottleneckLabel = GROWTH_BOTTLENECK_LABELS[growthInsights?.bottleneck] || GROWTH_BOTTLENECK_LABELS.view_to_cart;
@@ -631,6 +624,14 @@ export default function ProdutosPage() {
   }, [statusCategoriasVitrine]);
 
   useEffect(() => {
+    chavesSubcategoriasCategoriaRef.current = chavesSubcategoriasCategoria;
+  }, [chavesSubcategoriasCategoria]);
+
+  useEffect(() => {
+    statusSubcategoriasCategoriaRef.current = statusSubcategoriasCategoria;
+  }, [statusSubcategoriasCategoria]);
+
+  useEffect(() => {
     return () => {
       if (limparFeedbackAdicaoRef.current) {
         clearTimeout(limparFeedbackAdicaoRef.current);
@@ -651,6 +652,12 @@ export default function ProdutosPage() {
       });
       abortCategoriasVitrineRef.current.clear();
       requisicaoCategoriasVitrineRef.current.clear();
+
+      abortSubcategoriasCategoriaRef.current.forEach((abortController) => {
+        abortController?.abort?.();
+      });
+      abortSubcategoriasCategoriaRef.current.clear();
+      requisicaoSubcategoriasCategoriaRef.current.clear();
     };
   }, []);
 
@@ -854,6 +861,147 @@ export default function ProdutosPage() {
     }
   }, []);
 
+  const carregarSubcategoriaCategoria = useCallback(async ({
+    subcategoriaId,
+    pagina = 1,
+    append = false
+  } = {}) => {
+    if (!modoCategoriaProgressivaAtivo) {
+      return;
+    }
+
+    const subcategoriaNormalizada = String(subcategoriaId || '').trim().toLowerCase();
+    if (!subcategoriaNormalizada || subcategoriaNormalizada === 'todas') {
+      return;
+    }
+
+    const categoriaAtual = String(categoria || '').trim().toLowerCase();
+    const categoriaEstruturadaSlug = String(categoriaEstruturadaSlugAtiva || '').trim().toLowerCase();
+    const chaveCategoriaAtual = `${categoriaAtual}|${categoriaEstruturadaSlug}`;
+    if (!categoriaAtual || categoriaProgressivaAtivaRef.current !== chaveCategoriaAtual) {
+      return;
+    }
+
+    const statusAtual = statusSubcategoriasCategoriaRef.current[subcategoriaNormalizada] || {};
+    if (statusAtual?.carregando) {
+      return;
+    }
+    if (!append && Number(pagina || 1) <= 1 && statusAtual?.carregado && !statusAtual?.erro) {
+      return;
+    }
+
+    const requestIdAnterior = Number(requisicaoSubcategoriasCategoriaRef.current.get(subcategoriaNormalizada) || 0);
+    const requestIdAtual = requestIdAnterior + 1;
+    requisicaoSubcategoriasCategoriaRef.current.set(subcategoriaNormalizada, requestIdAtual);
+
+    const abortAnterior = abortSubcategoriasCategoriaRef.current.get(subcategoriaNormalizada);
+    if (abortAnterior) {
+      abortAnterior.abort();
+    }
+
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    if (abortController) {
+      abortSubcategoriasCategoriaRef.current.set(subcategoriaNormalizada, abortController);
+    } else {
+      abortSubcategoriasCategoriaRef.current.delete(subcategoriaNormalizada);
+    }
+
+    setStatusSubcategoriasCategoria((atual) => ({
+      ...atual,
+      [subcategoriaNormalizada]: {
+        ...atual[subcategoriaNormalizada],
+        carregando: true,
+        erro: false
+      }
+    }));
+
+    try {
+      const { lista, paginacao } = await fetchProdutosPage({
+        categoria: categoriaAtual,
+        categoriaSlug: categoriaEstruturadaSlug,
+        subcategoriaSlug: subcategoriaNormalizada,
+        busca: '',
+        page: Number(pagina || 1),
+        limit: LIMITE_SUBCATEGORIA_CATEGORIA,
+        sort: 'mais-vendidos',
+        skipCount: true,
+        signal: abortController?.signal
+      });
+
+      if (Number(requisicaoSubcategoriasCategoriaRef.current.get(subcategoriaNormalizada) || 0) !== requestIdAtual) {
+        return;
+      }
+      if (categoriaProgressivaAtivaRef.current !== chaveCategoriaAtual) {
+        return;
+      }
+
+      const listaSegura = Array.isArray(lista) ? lista : [];
+      const chavesNovas = listaSegura
+        .map((produto) => getProdutoStableKey(produto))
+        .filter(Boolean);
+      const chavesAtuais = append
+        ? (chavesSubcategoriasCategoriaRef.current[subcategoriaNormalizada] || [])
+        : [];
+      const chavesCombinadas = mergeChavesSemDuplicacao(chavesAtuais, chavesNovas);
+      const temMais = Boolean(paginacao?.tem_mais);
+      const paginaAtual = Number(paginacao?.pagina || pagina || 1);
+      const totalApi = Number(paginacao?.total || 0);
+      const totalInferido = totalApi > 0
+        ? Math.max(totalApi, chavesCombinadas.length)
+        : (temMais ? chavesCombinadas.length + 1 : chavesCombinadas.length);
+
+      setProdutos((atual) => mergeProdutosById(atual, listaSegura));
+      setChavesSubcategoriasCategoria((atual) => ({
+        ...atual,
+        [subcategoriaNormalizada]: chavesCombinadas
+      }));
+      setStatusSubcategoriasCategoria((atual) => ({
+        ...atual,
+        [subcategoriaNormalizada]: {
+          ...atual[subcategoriaNormalizada],
+          carregado: true,
+          erro: false,
+          carregando: false,
+          pagina: paginaAtual,
+          temMais,
+          total: totalInferido
+        }
+      }));
+    } catch (erroSubcategoria) {
+      const erroCancelado = erroSubcategoria?.name === 'AbortError'
+        || erroSubcategoria?.code === 'API_ABORTED'
+        || Number(erroSubcategoria?.status || 0) === 499;
+      if (erroCancelado) {
+        return;
+      }
+
+      if (Number(requisicaoSubcategoriasCategoriaRef.current.get(subcategoriaNormalizada) || 0) !== requestIdAtual) {
+        return;
+      }
+
+      setStatusSubcategoriasCategoria((atual) => {
+        const statusAnterior = atual[subcategoriaNormalizada] || {};
+        const manterCarregado = append && Boolean(statusAnterior?.carregado);
+        const manterTemMais = append ? Boolean(statusAnterior?.temMais) : false;
+
+        return {
+          ...atual,
+          [subcategoriaNormalizada]: {
+            ...statusAnterior,
+            carregado: manterCarregado,
+            erro: true,
+            carregando: false,
+            temMais: manterTemMais
+          }
+        };
+      });
+    } finally {
+      if (abortSubcategoriasCategoriaRef.current.get(subcategoriaNormalizada) === abortController) {
+        abortSubcategoriasCategoriaRef.current.delete(subcategoriaNormalizada);
+      }
+    }
+  }, [categoria, categoriaEstruturadaSlugAtiva, modoCategoriaProgressivaAtivo]);
+
   const carregarProdutos = useCallback(async ({
     append = false,
     pagina = 1,
@@ -1012,7 +1160,7 @@ export default function ProdutosPage() {
   }, [buscaDebounced, categoria, categoriaNavAtiva, categoriasEstruturadasLookup, prefetchProximaPagina, subcategoriaEstruturadaAtiva]);
 
   useEffect(() => {
-    if (modoLayoutCategoriasAtivo) {
+    if (modoLayoutCategoriasAtivo || (modoCategoriaProgressivaAtivo && !fallbackCategoriaProgressiva)) {
       return;
     }
 
@@ -1022,7 +1170,14 @@ export default function ProdutosPage() {
       categoriaAlvo: categoria,
       buscaAlvo: buscaDebounced
     });
-  }, [buscaDebounced, carregarProdutos, categoria, modoLayoutCategoriasAtivo]);
+  }, [
+    buscaDebounced,
+    carregarProdutos,
+    categoria,
+    fallbackCategoriaProgressiva,
+    modoCategoriaProgressivaAtivo,
+    modoLayoutCategoriasAtivo
+  ]);
 
   useEffect(() => {
     return () => {
@@ -2292,32 +2447,229 @@ export default function ProdutosPage() {
     };
   }, [carregarCategoriaVitrine, categoriasVitrineIds, mostrarLayoutCategorias]);
 
-  const handleVerMaisCategoria = useCallback((categoriaId) => {
-    if (!layoutCategoriasAtivoRef.current) {
-      return;
-    }
-
+  const handleAbrirCategoria = useCallback((categoriaId) => {
     const categoriaNormalizada = String(categoriaId || '').trim().toLowerCase();
     if (!categoriaNormalizada) {
       return;
     }
 
-    const statusCategoria = statusCategoriasVitrineRef.current[categoriaNormalizada] || {};
-    if (statusCategoria?.carregando || !statusCategoria?.temMais) {
+    handleCategoriaLegadoClick(categoriaNormalizada);
+  }, [handleCategoriaLegadoClick]);
+
+  useEffect(() => {
+    const abortarSubcategoriasAtivas = () => {
+      abortSubcategoriasCategoriaRef.current.forEach((abortController) => {
+        abortController?.abort?.();
+      });
+      abortSubcategoriasCategoriaRef.current.clear();
+      requisicaoSubcategoriasCategoriaRef.current.clear();
+    };
+
+    if (!modoCategoriaProgressivaAtivo) {
+      categoriaProgressivaAtivaRef.current = '';
+      setFallbackCategoriaProgressiva(false);
+      abortarSubcategoriasAtivas();
+      setSubcategoriasCategoriaProgressiva([]);
+      setStatusSubcategoriasCategoria({});
+      setChavesSubcategoriasCategoria({});
       return;
     }
 
-    const proximaPagina = Number(statusCategoria?.pagina || 1) + 1;
-    void carregarCategoriaVitrine({
-      categoriaId: categoriaNormalizada,
+    const categoriaAtual = String(categoria || '').trim().toLowerCase();
+    const categoriaEstruturadaSlug = String(categoriaEstruturadaSlugAtiva || '').trim().toLowerCase();
+    const chaveCategoria = `${categoriaAtual}|${categoriaEstruturadaSlug}`;
+    categoriaProgressivaAtivaRef.current = chaveCategoria;
+
+    abortarSubcategoriasAtivas();
+    setFallbackCategoriaProgressiva(false);
+    setSubcategoriasCategoriaProgressiva([]);
+    setStatusSubcategoriasCategoria({});
+    setChavesSubcategoriasCategoria({});
+    setSecoesCategoriaExpandidas({});
+    setSubcategoriaNavAtiva('todas');
+    setSubcategoriaEstruturadaAtiva('todas');
+
+    let cancelado = false;
+
+    const carregarSubcategorias = async () => {
+      let subcategoriasNormalizadas = [];
+
+      if (categoriaEstruturadaSlug) {
+        try {
+          const resposta = await getSubcategoriasCategoria(categoriaEstruturadaSlug);
+          const listaApi = Array.isArray(resposta?.subcategorias) ? resposta.subcategorias : [];
+
+          subcategoriasNormalizadas = listaApi.map((item) => ({
+            id: String(item?.slug || '').trim().toLowerCase(),
+            label: String(item?.nome || '').trim(),
+            count: Number(item?.total_produtos || 0)
+          })).filter((item) => item.id && item.id !== 'todas' && Number(item.count || 0) > 0);
+
+          const totalSemSubcategoria = Number(resposta?.total_sem_subcategoria || 0);
+          if (totalSemSubcategoria > 0) {
+            subcategoriasNormalizadas.push({
+              id: 'sem-subcategoria',
+              label: 'Outros',
+              count: totalSemSubcategoria
+            });
+          }
+        } catch {
+          subcategoriasNormalizadas = [];
+        }
+      }
+
+      if (!subcategoriasNormalizadas.length) {
+        subcategoriasNormalizadas = subcategoriasEstruturadasCategoria
+          .map((sub) => ({
+            id: String(sub?.id || '').trim().toLowerCase(),
+            label: String(sub?.label || '').trim(),
+            count: Number(sub?.count || 0)
+          }))
+          .filter((sub) => sub.id && sub.id !== 'todas' && Number(sub.count || 0) > 0);
+      }
+
+      const vistos = new Set();
+      const subcategoriasUnicas = subcategoriasNormalizadas.filter((sub) => {
+        if (!sub.id || vistos.has(sub.id)) {
+          return false;
+        }
+        vistos.add(sub.id);
+        return true;
+      });
+
+      if (cancelado || categoriaProgressivaAtivaRef.current !== chaveCategoria) {
+        return;
+      }
+
+      if (!subcategoriasUnicas.length) {
+        setFallbackCategoriaProgressiva(true);
+        return;
+      }
+
+      setFallbackCategoriaProgressiva(false);
+      setSubcategoriasCategoriaProgressiva(subcategoriasUnicas);
+
+      if (carregarProdutosAbortRef.current) {
+        carregarProdutosAbortRef.current.abort();
+        carregarProdutosAbortRef.current = null;
+      }
+
+      setProdutos([]);
+      setErro('');
+      setPaginaAtual(1);
+      setTemMaisProdutos(false);
+      setTotalProdutosBackend(0);
+    };
+
+    void carregarSubcategorias();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [
+    categoria,
+    categoriaEstruturadaSlugAtiva,
+    modoCategoriaProgressivaAtivo,
+    subcategoriasEstruturadasCategoria
+  ]);
+
+  useEffect(() => {
+    if (!modoCategoriaProgressivaAtivo) {
+      return;
+    }
+
+    const subcategoriasIds = subcategoriasCategoriaProgressiva
+      .map((subcategoria) => String(subcategoria?.id || '').trim().toLowerCase())
+      .filter(Boolean);
+
+    if (!subcategoriasIds.length) {
+      return;
+    }
+
+    let cancelado = false;
+    let cursorSubcategoria = 0;
+
+    const workerCarregarSubcategoria = async () => {
+      while (!cancelado) {
+        const indiceAtual = cursorSubcategoria;
+        cursorSubcategoria += 1;
+
+        if (indiceAtual >= subcategoriasIds.length) {
+          return;
+        }
+
+        const subcategoriaId = subcategoriasIds[indiceAtual];
+        await carregarSubcategoriaCategoria({
+          subcategoriaId,
+          pagina: 1,
+          append: false
+        });
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(CARGA_SUBCATEGORIAS_MAX_CONCORRENCIA, subcategoriasIds.length) },
+      () => workerCarregarSubcategoria()
+    );
+
+    void Promise.allSettled(workers);
+
+    return () => {
+      cancelado = true;
+    };
+  }, [carregarSubcategoriaCategoria, modoCategoriaProgressivaAtivo, subcategoriasCategoriaProgressiva]);
+
+  const handleVerMaisSubcategoria = useCallback((subcategoriaId) => {
+    if (!modoCategoriaProgressivaExecutando) {
+      return;
+    }
+
+    const subcategoriaNormalizada = String(subcategoriaId || '').trim().toLowerCase();
+    if (!subcategoriaNormalizada) {
+      return;
+    }
+
+    const statusAtual = statusSubcategoriasCategoriaRef.current[subcategoriaNormalizada] || {};
+    if (statusAtual?.carregando || !statusAtual?.temMais) {
+      return;
+    }
+
+    const proximaPagina = Number(statusAtual?.pagina || 1) + 1;
+    void carregarSubcategoriaCategoria({
+      subcategoriaId: subcategoriaNormalizada,
       pagina: proximaPagina,
       append: true
     });
-  }, [carregarCategoriaVitrine]);
+  }, [carregarSubcategoriaCategoria, modoCategoriaProgressivaExecutando]);
 
   const secoesCategoriaDetalhe = useMemo(() => {
     if (!exibirVisaoCategoriaDetalhe) {
       return [];
+    }
+
+    if (modoCategoriaProgressivaExecutando) {
+      return subcategoriasCategoriaProgressiva.map((subcategoria) => {
+        const subcategoriaId = String(subcategoria?.id || '').trim().toLowerCase();
+        const chavesSubcategoria = Array.isArray(chavesSubcategoriasCategoria[subcategoriaId])
+          ? chavesSubcategoriasCategoria[subcategoriaId]
+          : [];
+        const itensIndexados = chavesSubcategoria
+          .map((chave) => produtosIndexadosPorChave.get(chave))
+          .filter(Boolean);
+        const statusSubcategoria = statusSubcategoriasCategoria[subcategoriaId] || {};
+        const totalBase = Number(subcategoria?.count || 0);
+        const totalStatus = Number(statusSubcategoria?.total || 0);
+
+        return {
+          id: subcategoriaId,
+          label: String(subcategoria?.label || '').trim() || 'Subcategoria',
+          totalItens: Math.max(itensIndexados.length, totalBase, totalStatus),
+          itensCompletos: itensIndexados,
+          temMais: Boolean(statusSubcategoria?.temMais),
+          carregando: Boolean(statusSubcategoria?.carregando),
+          erro: Boolean(statusSubcategoria?.erro)
+        };
+      });
     }
 
     if (categoriaEhBebidas) {
@@ -2400,9 +2752,14 @@ export default function ProdutosPage() {
     categoriaEhBebidas,
     categoriaEhFrios,
     exibirVisaoCategoriaDetalhe,
+    chavesSubcategoriasCategoria,
+    modoCategoriaProgressivaExecutando,
     produtosFiltradosIndexados,
+    produtosIndexadosPorChave,
     secoesBebidas,
-    secoesFrios
+    secoesFrios,
+    statusSubcategoriasCategoria,
+    subcategoriasCategoriaProgressiva
   ]);
 
   const subcategoriasCategoriaDetalhe = useMemo(() => {
@@ -3008,7 +3365,7 @@ export default function ProdutosPage() {
       return 'Amostra minima atingida para ativar mudancas.';
     }
 
-    return `Coletando volume minimo: faltam ${faltantes.join(' • ')}.`;
+    return `Coletando volume minimo: faltam ${faltantes.join(' · ')}.`;
   }, [growthDataVolume]);
   const growthModoLabel = growthColetaAtiva
     ? 'Coletando amostra minima'
@@ -3118,14 +3475,16 @@ export default function ProdutosPage() {
         </button>
       </div>
     );
-  } else if (produtosFiltradosIndexados.length === 0 && !mostrarLayoutCategorias) {
+  } else if (produtosFiltradosIndexados.length === 0 && !mostrarLayoutCategorias && !exibirVisaoCategoriaDetalhe) {
     return renderSemResultados(
       'Nenhum produto encontrado',
       termoBuscaDigitado
         ? `Nao encontramos resultados para "${termoBuscaDigitado}". Tente outro termo ou limpe os filtros para ampliar a vitrine.`
         : 'Tente buscar outro termo ou ajuste os filtros para ver mais opcoes.'
     );
-  } else if (exibirVisaoCategoriaDetalhe && secoesCategoriaDetalhe.length > 0) {
+  } else if (exibirVisaoCategoriaDetalhe) {
+    const modoSubcategoriasProgressivo = modoCategoriaProgressivaExecutando;
+
     return (
       <div className="products-category-detail" id="produtos-lista">
         <div
@@ -3135,14 +3494,29 @@ export default function ProdutosPage() {
           aria-hidden="true"
         />
 
-        {secoesCategoriaDetalhe.map((secao) => {
+        {secoesCategoriaDetalhe.length === 0 ? (
+          <div className="categoria-horizontal-empty" role="status" aria-live="polite">
+            {modoCategoriaProgressivaExecutando
+              ? 'Carregando subcategorias desta categoria...'
+              : 'Carregando produtos desta categoria...'}
+          </div>
+        ) : secoesCategoriaDetalhe.map((secao) => {
           const secaoId = String(secao.id || '').trim();
+          const statusSecaoCategoria = statusSubcategoriasCategoria[secaoId] || {};
           const secaoExpandida = Boolean(secoesCategoriaExpandidas[secaoId]);
-          const itensExibidos = secaoExpandida
+          const itensExibidos = modoSubcategoriasProgressivo
             ? secao.itensCompletos
-            : secao.itensCompletos.slice(0, 20);
-          const podeExpandir = secao.itensCompletos.length > 20;
+            : (secaoExpandida ? secao.itensCompletos : secao.itensCompletos.slice(0, 20));
+          const podeExpandir = !modoSubcategoriasProgressivo && secao.itensCompletos.length > 20;
           const secaoAtiva = subcategoriaNavAtiva === secaoId;
+          const secaoCarregando = Boolean(secao?.carregando || statusSecaoCategoria?.carregando);
+          const secaoTemMais = Boolean(secao?.temMais || statusSecaoCategoria?.temMais);
+          const secaoErro = Boolean(secao?.erro || statusSecaoCategoria?.erro);
+          const mensagemVaziaSecao = secaoErro
+            ? 'Nao foi possivel carregar esta subcategoria agora.'
+            : secaoCarregando
+              ? 'Carregando produtos desta subcategoria...'
+              : 'Nenhum produto disponivel nesta subcategoria no momento.';
 
           return (
             <section
@@ -3161,6 +3535,17 @@ export default function ProdutosPage() {
                   </p>
                 </div>
 
+                {modoSubcategoriasProgressivo && secaoTemMais ? (
+                  <button
+                    type="button"
+                    className="vitrine-ver-mais products-subcategory-toggle"
+                    onClick={() => handleVerMaisSubcategoria(secaoId)}
+                    disabled={secaoCarregando}
+                  >
+                    {secaoCarregando ? 'Carregando...' : 'Ver mais'}
+                  </button>
+                ) : null}
+
                 {podeExpandir ? (
                   <button
                     type="button"
@@ -3172,10 +3557,16 @@ export default function ProdutosPage() {
                 ) : null}
               </header>
 
-              {renderProdutosGrid(itensExibidos, {
-                listId: `subcategoria-${secaoId}-lista`,
-                gridClassName: 'produto-grid category-detail-grid'
-              })}
+              {itensExibidos.length > 0 ? (
+                renderProdutosGrid(itensExibidos, {
+                  listId: `subcategoria-${secaoId}-lista`,
+                  gridClassName: 'produto-grid category-detail-grid'
+                })
+              ) : (
+                <div className="categoria-horizontal-empty" role="status" aria-live="polite">
+                  {mensagemVaziaSecao}
+                </div>
+              )}
             </section>
           );
         })}
@@ -3294,10 +3685,9 @@ export default function ProdutosPage() {
               items={itensSecao}
               emptyMessage={mensagemVazia}
               renderRow={renderCategoriaHorizontalRow}
-              onLoadMore={() => handleVerMaisCategoria(secao.id)}
-              hasMore={Boolean(statusSecao?.temMais)}
-              isLoadingMore={Boolean(statusSecao?.carregando)}
-              loadMoreLabel="Ver mais"
+              onAction={() => handleAbrirCategoria(secao.id)}
+              actionLabel="Ver categoria"
+              actionDisabled={false}
             />
           );
         })}
@@ -3321,16 +3711,18 @@ export default function ProdutosPage() {
     growthExperimento,
     gruposMarcaBebidas,
     handleAddItem,
+    handleAbrirCategoria,
     handleAtualizarProdutos,
     handleDecreaseItem,
     handleIncreaseItem,
     handleToggleFavorito,
-    handleVerMaisCategoria,
+    handleVerMaisSubcategoria,
     abrirDetalheProduto,
     idsAltaConversaoSet,
     idsNovidades,
     isProdutoAdicionando,
     handleAlternarSecaoCategoria,
+    modoCategoriaProgressivaExecutando,
     mostrarErro,
     mostrarLayoutCategorias,
     mostrarSkeletonInicial,
@@ -3348,6 +3740,8 @@ export default function ProdutosPage() {
     secoesBebidas,
     secoesFrios,
     statusCategoriasVitrine,
+    statusSubcategoriasCategoria,
+    subcategoriasCategoriaProgressiva,
     subcategoriaNavAtiva,
     termoBuscaDigitado
   ]);
@@ -3402,13 +3796,13 @@ export default function ProdutosPage() {
           </div>
         ) : null}
 
-        {exibirVisaoCategoriaDetalhe && (usarTaxonomiaEstruturadaNaCategoria ? subcategoriasEstruturadasCategoria.length > 0 : subcategoriasCategoriaDetalhe.length > 0) ? (
+        {exibirVisaoCategoriaDetalhe && subcategoriasCategoriaDetalhe.length > 0 ? (
           <div className="products-subcategory-sticky-shell">
             <SubcategoryNav
               title={`Subcategorias de ${categoriaAtualLabel}`}
-              subcategories={usarTaxonomiaEstruturadaNaCategoria ? subcategoriasEstruturadasCategoria : subcategoriasCategoriaDetalhe}
-              activeSubcategoryId={usarTaxonomiaEstruturadaNaCategoria ? subcategoriaEstruturadaAtiva : subcategoriaNavAtiva}
-              onSelect={usarTaxonomiaEstruturadaNaCategoria ? setSubcategoriaEstruturadaAtiva : handleSelecionarSubcategoriaDetalhe}
+              subcategories={subcategoriasCategoriaDetalhe}
+              activeSubcategoryId={subcategoriaNavAtiva}
+              onSelect={handleSelecionarSubcategoriaDetalhe}
               onWheel={handleHorizontalWheel}
             />
           </div>

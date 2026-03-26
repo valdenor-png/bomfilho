@@ -57,7 +57,7 @@ function formatAddress(endereco = {}) {
   const cidadeEstado = [endereco?.cidade, endereco?.estado].filter(Boolean).join(' / ');
   const cep = String(endereco?.cep || '').trim();
 
-  const linhaBase = [ruaNumero, bairro, cidadeEstado, cep].filter(Boolean).join(' • ');
+  const linhaBase = [ruaNumero, bairro, cidadeEstado, cep].filter(Boolean).join(' · ');
   const complemento = String(endereco?.complemento || '').trim();
   const referencia = String(endereco?.referencia || '').trim();
 
@@ -429,7 +429,7 @@ export default function DeliveryTrackingPanel({ pedidoId, pedidoResumo, open, on
               {addressView.complemento ? <p className="delivery-main-extra"><strong>Complemento:</strong> {addressView.complemento}</p> : null}
               {addressView.referencia ? <p className="delivery-main-extra"><strong>Referência:</strong> {addressView.referencia}</p> : null}
               <p className="delivery-main-extra"><strong>Loja responsável:</strong> {data?.summary?.loja_nome || STORE_NAME}</p>
-              <p className="delivery-main-extra"><strong>Resumo:</strong> {Number(data?.summary?.total_itens || 0)} item(ns) • R$ {Number(data?.summary?.total || 0).toFixed(2)}</p>
+              <p className="delivery-main-extra"><strong>Resumo:</strong> {Number(data?.summary?.total_itens || 0)} item(ns) · R$ {Number(data?.summary?.total || 0).toFixed(2)}</p>
             </section>
 
             <section className="delivery-courier-card">
@@ -450,7 +450,7 @@ export default function DeliveryTrackingPanel({ pedidoId, pedidoResumo, open, on
               {data?.safety_pin ? (
                 <div className={`delivery-pin-box ${shouldHighlightPin ? 'is-highlight' : ''}`.trim()}>
                   <p>Código de confirmação</p>
-                  <strong>{showPin ? data.safety_pin : '••••••'}</strong>
+                  <strong>{showPin ? data.safety_pin : '······'}</strong>
                   <small>Informe este código somente ao receber seu pedido.</small>
                   <button
                     type="button"
@@ -610,7 +610,7 @@ export default function DeliveryTrackingPanel({ pedidoId, pedidoResumo, open, on
               </a>
               <small>
                 Atendimento da loja: {STORE_TELEFONE_DISPLAY}
-                {pedidoResumo?.status === 'entregue' ? ' • Entrega concluída.' : ''}
+                {pedidoResumo?.status === 'entregue' ? ' · Entrega concluída.' : ''}
               </small>
             </section>
           </>

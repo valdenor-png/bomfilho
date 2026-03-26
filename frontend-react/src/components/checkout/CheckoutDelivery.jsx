@@ -1,5 +1,5 @@
-﻿/**
- * Componentes de entrega do checkout â€” extraÃ­dos de PagamentoPage.
+/**
+ * Componentes de entrega do checkout ? extraídos de PagamentoPage.
  */
 import React from 'react';
 import { CircleCheck, Package, Store } from '../../icons';
@@ -78,7 +78,7 @@ export function DeliverySummaryCard({
           <strong>{cepDestino}</strong>
         </div>
         <div>
-          <span className="delivery-summary-label">DistÃ¢ncia estimada</span>
+          <span className="delivery-summary-label">Distância estimada</span>
           <strong>{distanciaTexto}</strong>
         </div>
         <div>
@@ -91,7 +91,7 @@ export function DeliverySummaryCard({
         </div>
       </div>
 
-      <p className="delivery-summary-origin">Origem: CEP {cepOrigem}, nÂº {numeroOrigem}</p>
+      <p className="delivery-summary-origin">Origem: CEP {cepOrigem}, nº {numeroOrigem}</p>
     </article>
   );
 }
@@ -199,21 +199,21 @@ export function DeliveryAddressLookupCard({
       role={estadoVisual === 'error' ? 'alert' : 'status'}
       aria-live="polite"
     >
-      <p className="delivery-address-kicker">EndereÃ§o do CEP {cep}</p>
+      <p className="delivery-address-kicker">Endereço do CEP {cep}</p>
 
       {carregando ? (
-        <p className="delivery-address-line">Buscando endereÃ§o...</p>
+        <p className="delivery-address-line">Buscando endereço...</p>
       ) : erro ? (
         <p className="delivery-address-line">{erro}</p>
       ) : endereco ? (
         <>
-          <p className="delivery-address-line">{linhaPrincipal || 'Logradouro nÃ£o identificado para este CEP.'}</p>
-          <p className="delivery-address-subline">{linhaSecundaria || 'Cidade/UF nÃ£o identificada.'}</p>
+          <p className="delivery-address-line">{linhaPrincipal || 'Logradouro não identificado para este CEP.'}</p>
+          <p className="delivery-address-subline">{linhaSecundaria || 'Cidade/UF não identificada.'}</p>
         </>
       ) : cepIncompleto ? (
-        <p className="delivery-address-line">Digite os 8 dÃ­gitos do CEP para identificar o endereÃ§o.</p>
+        <p className="delivery-address-line">Digite os 8 dígitos do CEP para identificar o endereço.</p>
       ) : (
-        <p className="delivery-address-line">Informe um CEP para consultar o endereÃ§o.</p>
+        <p className="delivery-address-line">Informe um CEP para consultar o endereço.</p>
       )}
     </article>
   );

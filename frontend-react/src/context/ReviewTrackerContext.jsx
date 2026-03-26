@@ -1,4 +1,4 @@
-﻿import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { getPedidoRevisaoAtiva, getPedidoStatus } from '../lib/api';
 import { useToast } from './ToastContext';
 

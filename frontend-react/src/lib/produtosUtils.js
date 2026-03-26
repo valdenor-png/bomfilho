@@ -662,7 +662,7 @@ export function getProdutoDetalheComercial(produto) {
   const medida = getProdutoMedida(produto);
 
   if (marca && medida) {
-    return `${marca} • ${medida}`;
+    return `${marca} · ${medida}`;
   }
   if (marca) {
     return marca;

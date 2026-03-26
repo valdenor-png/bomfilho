@@ -59,7 +59,7 @@ const RecorrenciaMiniCard = React.memo(function RecorrenciaMiniCard({
         className={`btn-secondary recorrencia-mini-add ${destaqueRecompra ? 'is-recompra' : ''}`.trim()}
         onClick={() => onAdicionar(produto)}
       >
-        Comprar novamente • {preco}
+        Comprar novamente · {preco}
       </button>
     </article>
   );

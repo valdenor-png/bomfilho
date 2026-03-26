@@ -131,7 +131,7 @@ export default function GerenciaProdutosTab({
 
       <div className="toolbar-box" style={{ marginTop: '0.8rem', alignItems: 'center' }}>
         <p className="muted-text" style={{ margin: 0 }}>
-          Pagina {paginacaoProdutos.pagina} de {paginacaoProdutos.total_paginas} • {paginacaoProdutos.total} registro(s)
+          Pagina {paginacaoProdutos.pagina} de {paginacaoProdutos.total_paginas} · {paginacaoProdutos.total} registro(s)
         </p>
         <button
           className="btn-secondary"
