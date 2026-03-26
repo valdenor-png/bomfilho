@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Heart } from 'lucide-react';
+import { Heart } from '../../icons';
 import SmartImage from '../ui/SmartImage';
 import { ProdutoImageFallback, ProdutoBadge } from './ProdutoHelpers';
 import {

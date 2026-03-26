@@ -2,7 +2,7 @@
  * Componentes de navegação do checkout — extraídos de PagamentoPage.
  */
 import React from 'react';
-import { CircleCheck } from 'lucide-react';
+import { CircleCheck } from '../../icons';
 import { Link } from 'react-router-dom';
 import { CHECKOUT_STEPS } from '../../lib/checkoutUtils';
 

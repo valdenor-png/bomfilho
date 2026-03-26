@@ -1,5 +1,5 @@
 import React from 'react';
-import { CreditCard, MessageCircle, Store, Truck } from 'lucide-react';
+import { CreditCard, MessageCircle, Store, Truck } from '../icons';
 import useDocumentHead from '../hooks/useDocumentHead';
 import { STORE_NAME, STORE_CNPJ, STORE_ENDERECO, STORE_WHATSAPP_DISPLAY, STORE_TELEFONE_DISPLAY, STORE_HORARIO_CURTO } from '../config/store';
 

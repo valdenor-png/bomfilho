@@ -1,6 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BadgeX, CircleCheck, Clock3, FileText, FolderSearch, Package, Receipt, Search, ShieldCheck, Store, Wallet } from 'lucide-react';
+import { AlertTriangle, BadgeX, CircleCheck, Clock3, FileText, FolderSearch, Package, Receipt, Search, ShieldCheck, Store, Wallet } from '../icons';
 import {
   adminGetMe,
   adminLogin,

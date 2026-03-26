@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { X } from '../../icons';
 import { STORE_WHATSAPP_URL, STORE_NAME, STORE_TELEFONE_DISPLAY } from '../../config/store';
 import { captureCommerceEvent } from '../../lib/commerceTracking';
 import {

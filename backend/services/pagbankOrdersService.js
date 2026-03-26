@@ -40,6 +40,33 @@ function formatIsoLocalWithOffset(date) {
   return `${y}-${m}-${d}T${hh}:${mm}:${ss}.000${sign}${oh}:${om}`;
 }
 
+function gerarIdempotencyKeyPagBank({
+  pedidoId,
+  metodo,
+  valorCentavos,
+  parcelas = 1,
+  extra = ''
+}) {
+  const pedidoNormalizado = Number.parseInt(String(pedidoId || 0), 10) || 0;
+  const valorNormalizado = Number.parseInt(String(valorCentavos || 0), 10) || 0;
+  const parcelasNormalizadas = Number.parseInt(String(parcelas || 1), 10) || 1;
+  const metodoNormalizado = String(metodo || 'pagamento').trim().toLowerCase() || 'pagamento';
+  const extraNormalizado = String(extra || '').trim().toLowerCase();
+
+  const base = [
+    'bomfilho',
+    'pagbank',
+    metodoNormalizado,
+    pedidoNormalizado,
+    valorNormalizado,
+    parcelasNormalizadas,
+    extraNormalizado
+  ].join('|');
+
+  const hash = crypto.createHash('sha256').update(base).digest('hex').slice(0, 32);
+  return `bf_${metodoNormalizado}_${pedidoNormalizado}_${hash}`.slice(0, 64);
+}
+
 /**
  * Cria pedido PIX na API PagBank Orders.
  *
@@ -79,6 +106,8 @@ function criarPagamentoPixFactory(deps) {
 
     const expirationDate = formatIsoLocalWithOffset(new Date(Date.now() + 2 * 60 * 60 * 1000));
 
+    const valorCentavos = Math.round(Number(total || 0) * 100);
+
     const payload = {
       reference_id: `pedido_${pedidoId}`,
       customer: {
@@ -90,13 +119,13 @@ function criarPagamentoPixFactory(deps) {
         {
           name: descricao || `Pedido #${pedidoId}`,
           quantity: 1,
-          unit_amount: Math.round(Number(total || 0) * 100)
+          unit_amount: valorCentavos
         }
       ],
       qr_codes: [
         {
           amount: {
-            value: Math.round(Number(total || 0) * 100)
+            value: valorCentavos
           },
           expiration_date: expirationDate
         }
@@ -111,7 +140,11 @@ function criarPagamentoPixFactory(deps) {
     })?.notification_url;
     logger.info('🔔 PagBank notification URL:', notificationUrlSeguro || '');
 
-    const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    const idempotencyKey = gerarIdempotencyKeyPagBank({
+      pedidoId,
+      metodo: 'pix',
+      valorCentavos
+    });
     const { response, responseBodyText: responseText, responsePayload, traceId, endpoint } = await enviarPostPagBankOrders({
       headers: {
         Authorization: `Bearer ${PAGBANK_TOKEN}`,
@@ -341,7 +374,13 @@ function criarPagamentoCartaoFactory(deps) {
       throw new Error('payment_method.card.encrypted não foi preenchido para o PagBank.');
     }
 
-    const idempotencyKey = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    const idempotencyKey = gerarIdempotencyKeyPagBank({
+      pedidoId,
+      metodo: tipoCartaoNormalizado === 'debito' ? 'card_debito' : 'card_credito',
+      valorCentavos,
+      parcelas: parcelasNormalizadas,
+      extra: paymentMethodType
+    });
     const { response, responseBodyText: responseText, responsePayload, traceId, endpoint } = await enviarPostPagBankOrders({
       headers: {
         Authorization: `Bearer ${PAGBANK_TOKEN}`,

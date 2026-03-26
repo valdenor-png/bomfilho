@@ -348,7 +348,7 @@ function sanitizarNomeArquivoDownload(nomeArquivo, fallback = 'download.bin') {
 }
 
 async function request(path, options = {}, tentativa = 0) {
-  const { method = 'GET', token, body } = options;
+  const { method = 'GET', token, body, signal } = options;
   const methodUpper = String(method || 'GET').toUpperCase();
   const isAdminPath = String(path || '').startsWith('/api/admin/');
   const persistedToken = isAdminPath ? getAdminAccessToken() : getUserAccessToken();
@@ -368,7 +368,8 @@ async function request(path, options = {}, tentativa = 0) {
     data = await apiRequest(path, {
       method: methodUpper,
       headers: buildHeaders({ token: tokenToUse, hasJsonBody, csrfToken }),
-      body: hasBody ? body : undefined
+      body: hasBody ? body : undefined,
+      signal
     });
   } catch (error) {
     const responseStatus = Number(error?.status || 0);
@@ -415,6 +416,7 @@ async function requestArquivo(path, options = {}, tentativa = 0) {
     method = 'GET',
     token,
     body,
+    signal,
     fallbackFileName = 'download.bin'
   } = options;
 
@@ -438,6 +440,7 @@ async function requestArquivo(path, options = {}, tentativa = 0) {
       method: methodUpper,
       headers: buildHeaders({ token: tokenToUse, hasJsonBody, csrfToken }),
       body: hasBody ? body : undefined,
+      signal,
       responseType: 'raw'
     });
   } catch (error) {
@@ -717,20 +720,20 @@ export function atualizarPreferenciasWhatsapp({ telefone, whatsappOptIn }) {
   });
 }
 
-export function getPedidos(params = {}) {
-  return request(`/api/pedidos${buildQueryString(params)}`);
+export function getPedidos(params = {}, options = {}) {
+  return request(`/api/pedidos${buildQueryString(params)}`, options);
 }
 
-export function getPedidoById(pedidoId) {
-  return request(`/api/pedidos/${pedidoId}`);
+export function getPedidoById(pedidoId, options = {}) {
+  return request(`/api/pedidos/${pedidoId}`, options);
 }
 
-export function getPedidoStatus(pedidoId) {
-  return request(`/api/pedidos/${pedidoId}/status`);
+export function getPedidoStatus(pedidoId, options = {}) {
+  return request(`/api/pedidos/${pedidoId}/status`, options);
 }
 
-export function getPedidoRevisaoAtiva() {
-  return request('/api/pedidos/revisao/ativa');
+export function getPedidoRevisaoAtiva(options = {}) {
+  return request('/api/pedidos/revisao/ativa', options);
 }
 
 export function getPedidoDeliveryTracking(pedidoId) {
@@ -759,8 +762,8 @@ export function cancelarPedidoRevisao(pedidoId, { motivo } = {}) {
   });
 }
 
-export function getProdutos(params = {}) {
-  return request('/api/produtos' + buildQueryString(params));
+export function getProdutos(params = {}, options = {}) {
+  return request('/api/produtos' + buildQueryString(params), options);
 }
 
 export function getCategoriasAtivas() {

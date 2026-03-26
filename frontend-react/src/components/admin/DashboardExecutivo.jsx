@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AlertTriangle, BadgeX, Info } from 'lucide-react';
+import { AlertTriangle, BadgeX, Info } from '../../icons';
 import { adminGetDashboardResumo } from '../../lib/api';
 import { formatarDuracaoMs } from '../../lib/metricasOperacionais';
 

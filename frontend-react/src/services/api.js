@@ -255,7 +255,17 @@ export async function apiRequest(path, options = {}) {
     } catch (erro) {
       const isAbortError = erro?.name === 'AbortError';
       const timeoutError = isAbortError && timeoutHit;
+      const abortByCaller = isAbortError && !timeoutHit;
       const erroComStatus = Boolean(erro?.status);
+
+      if (abortByCaller) {
+        const erroCancelado = new Error('Requisicao cancelada.');
+        erroCancelado.name = 'AbortError';
+        erroCancelado.code = 'API_ABORTED';
+        erroCancelado.status = 499;
+        throw erroCancelado;
+      }
+
       const podeRetentar = tentativa < maxRetries && methodUpper === 'GET' && (timeoutError || !erroComStatus);
 
       if (podeRetentar) {

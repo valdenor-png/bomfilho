@@ -2,7 +2,7 @@
  * Componentes de entrega do checkout â€” extraÃ­dos de PagamentoPage.
  */
 import React from 'react';
-import { CircleCheck, Package, Store } from 'lucide-react';
+import { CircleCheck, Package, Store } from '../../icons';
 import SmartImage from '../ui/SmartImage';
 import { formatarMoeda, RETIRADA_LOJA_INFO } from '../../lib/checkoutUtils';
 

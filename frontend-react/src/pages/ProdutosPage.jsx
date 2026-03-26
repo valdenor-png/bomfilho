@@ -1,10 +1,28 @@
 ﻿import React from 'react';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Flame, Heart, House, Search, ShoppingCart, Tag } from 'lucide-react';
+import { AlertTriangle, Flame, Heart, House, Search, ShoppingCart, Tag } from '../icons';
 
 const EMPTY_RECOMENDACOES = [];
 const BEBIDAS_ALCOOLICAS_SECOES = new Set(['cervejas', 'vinho', 'destilados', 'licores', 'drinks-prontos']);
 const PREFETCH_CATEGORIAS_MAX_CONCORRENCIA = 2;
+const LIMITE_VITRINE_CATEGORIA = 10;
+
+function mergeChavesSemDuplicacao(chavesAtuais = [], chavesNovas = []) {
+  const conjunto = new Set(Array.isArray(chavesAtuais) ? chavesAtuais : []);
+  const resultado = Array.isArray(chavesAtuais) ? [...chavesAtuais] : [];
+
+  chavesNovas.forEach((chave) => {
+    const chaveNormalizada = String(chave || '').trim();
+    if (!chaveNormalizada || conjunto.has(chaveNormalizada)) {
+      return;
+    }
+
+    conjunto.add(chaveNormalizada);
+    resultado.push(chaveNormalizada);
+  });
+
+  return resultado;
+}
 import { Link, useSearchParams } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
@@ -328,20 +346,26 @@ export default function ProdutosPage() {
   const [subcategoriaEstruturadaAtiva, setSubcategoriaEstruturadaAtiva] = useState('todas');
   const [totaisCategoriasVitrine, setTotaisCategoriasVitrine] = useState({});
   const [statusCategoriasVitrine, setStatusCategoriasVitrine] = useState({});
+  const [chavesCategoriasVitrine, setChavesCategoriasVitrine] = useState({});
   const [secoesCategoriaExpandidas, setSecoesCategoriaExpandidas] = useState({});
   const requisicaoProdutosIdRef = useRef(0);
+  const requisicaoCategoriasVitrineRef = useRef(new Map());
+  const abortCategoriasVitrineRef = useRef(new Map());
+  const carregarProdutosAbortRef = useRef(null);
   const limparFeedbackAdicaoRef = useRef(null);
   const limparFeedbackRecorrenciaRef = useRef(null);
   const adicionandoIdsRef = useRef(new Set());
   const sectionRefsMap = useRef({});
   const sectionRefsSubcategoriaMap = useRef({});
   const sectionTopoSubcategoriasRef = useRef(null);
-  const prefetchCategoriasVitrineRef = useRef(new Set());
   const limparAdicionandoTimersRef = useRef(new Map());
   const quantidadesCarrinhoRef = useRef(new Map());
   const prefetchProdutosCacheRef = useRef(new Map());
   const prefetchEmAndamentoRef = useRef(new Set());
   const produtosSnapshotRef = useRef([]);
+  const chavesCategoriasVitrineRef = useRef({});
+  const statusCategoriasVitrineRef = useRef({});
+  const layoutCategoriasAtivoRef = useRef(false);
   const falhasConsecutivasProdutosRef = useRef(0);
   const buscaDebounced = useDebouncedValue(busca, 280);
   const termoBuscaDigitado = String(busca || '').trim();
@@ -353,6 +377,10 @@ export default function ProdutosPage() {
     [categoria]
   );
   const categoriaEhFrios = useMemo(() => isFriosCategoria(categoria), [categoria]);
+  const modoLayoutCategoriasAtivo = categoria === CATEGORIA_TODAS
+    && !normalizeText(termoBuscaDigitado)
+    && !categoriaEhBebidas
+    && !categoriaEhFrios;
   const categoriasEstruturadasLookup = useMemo(() => {
     const lookup = new Map();
 
@@ -595,6 +623,14 @@ export default function ProdutosPage() {
   }, [produtos]);
 
   useEffect(() => {
+    chavesCategoriasVitrineRef.current = chavesCategoriasVitrine;
+  }, [chavesCategoriasVitrine]);
+
+  useEffect(() => {
+    statusCategoriasVitrineRef.current = statusCategoriasVitrine;
+  }, [statusCategoriasVitrine]);
+
+  useEffect(() => {
     return () => {
       if (limparFeedbackAdicaoRef.current) {
         clearTimeout(limparFeedbackAdicaoRef.current);
@@ -609,6 +645,12 @@ export default function ProdutosPage() {
       });
       limparAdicionandoTimersRef.current.clear();
       adicionandoIdsRef.current.clear();
+
+      abortCategoriasVitrineRef.current.forEach((abortController) => {
+        abortController?.abort?.();
+      });
+      abortCategoriasVitrineRef.current.clear();
+      requisicaoCategoriasVitrineRef.current.clear();
     };
   }, []);
 
@@ -671,6 +713,147 @@ export default function ProdutosPage() {
     }
   }, [categoriaEstruturadaSlugAtiva, subcategoriaEstruturadaSlugAtiva]);
 
+  const carregarCategoriaVitrine = useCallback(async ({
+    categoriaId,
+    pagina = 1,
+    append = false
+  } = {}) => {
+    if (!layoutCategoriasAtivoRef.current) {
+      return;
+    }
+
+    const categoriaNormalizada = String(categoriaId || '').trim().toLowerCase();
+    if (
+      !categoriaNormalizada
+      || categoriaNormalizada === CATEGORIA_TODAS
+      || categoriaNormalizada === CATEGORIA_PROMOCOES
+      || categoriaNormalizada === 'outros'
+    ) {
+      return;
+    }
+
+    const statusAtual = statusCategoriasVitrineRef.current[categoriaNormalizada] || {};
+    if (statusAtual?.carregando) {
+      return;
+    }
+    if (!append && Number(pagina || 1) <= 1 && statusAtual?.carregado && !statusAtual?.erro) {
+      return;
+    }
+
+    const requestIdAnterior = Number(requisicaoCategoriasVitrineRef.current.get(categoriaNormalizada) || 0);
+    const requestIdAtual = requestIdAnterior + 1;
+    requisicaoCategoriasVitrineRef.current.set(categoriaNormalizada, requestIdAtual);
+
+    const abortAnterior = abortCategoriasVitrineRef.current.get(categoriaNormalizada);
+    if (abortAnterior) {
+      abortAnterior.abort();
+    }
+
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    if (abortController) {
+      abortCategoriasVitrineRef.current.set(categoriaNormalizada, abortController);
+    } else {
+      abortCategoriasVitrineRef.current.delete(categoriaNormalizada);
+    }
+
+    setStatusCategoriasVitrine((atual) => ({
+      ...atual,
+      [categoriaNormalizada]: {
+        ...atual[categoriaNormalizada],
+        carregando: true,
+        erro: false
+      }
+    }));
+
+    try {
+      const { lista, paginacao } = await fetchProdutosPage({
+        categoria: categoriaNormalizada,
+        busca: '',
+        page: Number(pagina || 1),
+        limit: LIMITE_VITRINE_CATEGORIA,
+        sort: 'mais-vendidos',
+        skipCount: true,
+        signal: abortController?.signal
+      });
+
+      if (Number(requisicaoCategoriasVitrineRef.current.get(categoriaNormalizada) || 0) !== requestIdAtual) {
+        return;
+      }
+      if (!layoutCategoriasAtivoRef.current) {
+        return;
+      }
+
+      const listaSegura = Array.isArray(lista) ? lista : [];
+      const chavesNovas = listaSegura
+        .map((produto) => getProdutoStableKey(produto))
+        .filter(Boolean);
+      const chavesAtuais = append
+        ? (chavesCategoriasVitrineRef.current[categoriaNormalizada] || [])
+        : [];
+      const chavesCombinadas = mergeChavesSemDuplicacao(chavesAtuais, chavesNovas);
+      const temMais = Boolean(paginacao?.tem_mais);
+      const paginaAtual = Number(paginacao?.pagina || pagina || 1);
+      const totalApi = Number(paginacao?.total || 0);
+      const totalInferido = totalApi > 0
+        ? Math.max(totalApi, chavesCombinadas.length)
+        : (temMais ? chavesCombinadas.length + 1 : chavesCombinadas.length);
+
+      setProdutos((atual) => mergeProdutosById(atual, listaSegura));
+      setChavesCategoriasVitrine((atual) => ({
+        ...atual,
+        [categoriaNormalizada]: chavesCombinadas
+      }));
+      setTotaisCategoriasVitrine((atual) => ({
+        ...atual,
+        [categoriaNormalizada]: totalInferido
+      }));
+      setStatusCategoriasVitrine((atual) => ({
+        ...atual,
+        [categoriaNormalizada]: {
+          ...atual[categoriaNormalizada],
+          carregado: true,
+          erro: false,
+          carregando: false,
+          pagina: paginaAtual,
+          temMais,
+          total: totalInferido
+        }
+      }));
+    } catch (erroCategoria) {
+      const erroCancelado = erroCategoria?.name === 'AbortError'
+        || erroCategoria?.code === 'API_ABORTED'
+        || Number(erroCategoria?.status || 0) === 499;
+      if (erroCancelado) {
+        return;
+      }
+
+      if (Number(requisicaoCategoriasVitrineRef.current.get(categoriaNormalizada) || 0) !== requestIdAtual) {
+        return;
+      }
+
+      setStatusCategoriasVitrine((atual) => {
+        const statusAnterior = atual[categoriaNormalizada] || {};
+        const manterCarregado = append && Boolean(statusAnterior?.carregado);
+        const manterTemMais = append ? Boolean(statusAnterior?.temMais) : false;
+
+        return {
+          ...atual,
+          [categoriaNormalizada]: {
+            ...statusAnterior,
+            carregado: manterCarregado,
+            erro: true,
+            carregando: false,
+            temMais: manterTemMais
+          }
+        };
+      });
+    } finally {
+      if (abortCategoriasVitrineRef.current.get(categoriaNormalizada) === abortController) {
+        abortCategoriasVitrineRef.current.delete(categoriaNormalizada);
+      }
+    }
+  }, []);
+
   const carregarProdutos = useCallback(async ({
     append = false,
     pagina = 1,
@@ -679,6 +862,12 @@ export default function ProdutosPage() {
   } = {}) => {
     // Evita sobrescrever estado com resposta antiga quando o usuário muda filtros rapidamente.
     const requestId = ++requisicaoProdutosIdRef.current;
+    if (carregarProdutosAbortRef.current) {
+      carregarProdutosAbortRef.current.abort();
+    }
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    carregarProdutosAbortRef.current = abortController;
+    const requestSignal = abortController?.signal;
 
     if (append) {
       setCarregandoMais(true);
@@ -718,12 +907,19 @@ export default function ProdutosPage() {
             subcategoriaSlug: subcategoriaSlugEfetiva,
             busca: buscaEfetiva,
             page: pagina,
-            limit: limiteEfetivo
+            limit: limiteEfetivo,
+            signal: requestSignal
           });
           erroTentativa = null;
           break;
         } catch (errorFetch) {
           erroTentativa = errorFetch;
+          const erroCancelado = errorFetch?.name === 'AbortError'
+            || errorFetch?.code === 'API_ABORTED'
+            || Number(errorFetch?.status || 0) === 499;
+          if (erroCancelado) {
+            throw errorFetch;
+          }
           const statusErro = Number(errorFetch?.status || 0);
           const mensagemErro = String(errorFetch?.message || '').toLowerCase();
           const erroRecuperavel = statusErro === 0
@@ -767,6 +963,13 @@ export default function ProdutosPage() {
         return;
       }
 
+      const erroCancelado = error?.name === 'AbortError'
+        || error?.code === 'API_ABORTED'
+        || Number(error?.status || 0) === 499;
+      if (erroCancelado) {
+        return;
+      }
+
       const falhasConsecutivas = ++falhasConsecutivasProdutosRef.current;
       const status = Number(error?.status || 0);
       const erroFatal = status >= 500 || status === 0;
@@ -798,6 +1001,8 @@ export default function ProdutosPage() {
         return;
       }
 
+      carregarProdutosAbortRef.current = null;
+
       if (append) {
         setCarregandoMais(false);
       } else {
@@ -807,13 +1012,26 @@ export default function ProdutosPage() {
   }, [buscaDebounced, categoria, categoriaNavAtiva, categoriasEstruturadasLookup, prefetchProximaPagina, subcategoriaEstruturadaAtiva]);
 
   useEffect(() => {
+    if (modoLayoutCategoriasAtivo) {
+      return;
+    }
+
     void carregarProdutos({
       append: false,
       pagina: 1,
       categoriaAlvo: categoria,
       buscaAlvo: buscaDebounced
     });
-  }, [buscaDebounced, carregarProdutos, categoria]);
+  }, [buscaDebounced, carregarProdutos, categoria, modoLayoutCategoriasAtivo]);
+
+  useEffect(() => {
+    return () => {
+      if (carregarProdutosAbortRef.current) {
+        carregarProdutosAbortRef.current.abort();
+        carregarProdutosAbortRef.current = null;
+      }
+    };
+  }, []);
 
   const handleCarregarMais = useCallback(async () => {
     if (carregando || carregandoMais || !temMaisProdutos) {
@@ -1168,6 +1386,19 @@ export default function ProdutosPage() {
     produtosIndexados.forEach((item) => {
       if (item.carrinhoId !== null) {
         mapa.set(item.carrinhoId, item);
+      }
+    });
+
+    return mapa;
+  }, [produtosIndexados]);
+
+  const produtosIndexadosPorChave = useMemo(() => {
+    const mapa = new Map();
+
+    produtosIndexados.forEach((item) => {
+      const chave = String(item?.chaveReact || '').trim();
+      if (chave) {
+        mapa.set(chave, item);
       }
     });
 
@@ -1717,32 +1948,49 @@ export default function ProdutosPage() {
     })).filter((secao) => secao.itensIndexados.length > 0);
   }, [categoriaEhFrios, produtosFiltradosIndexados]);
 
-  const mostrarLayoutCategorias = categoria === CATEGORIA_TODAS
-    && !normalizeText(termoBuscaDigitado)
-    && !categoriaEhBebidas
-    && !categoriaEhFrios;
+  const mostrarLayoutCategorias = modoLayoutCategoriasAtivo;
+
+  useEffect(() => {
+    const estavaNoLayout = layoutCategoriasAtivoRef.current;
+    const abortarCategoriasEmAndamento = () => {
+      abortCategoriasVitrineRef.current.forEach((abortController) => {
+        abortController?.abort?.();
+      });
+      abortCategoriasVitrineRef.current.clear();
+      requisicaoCategoriasVitrineRef.current.clear();
+    };
+
+    if (mostrarLayoutCategorias && !estavaNoLayout) {
+      abortarCategoriasEmAndamento();
+      setProdutos([]);
+      setErro('');
+      setPaginaAtual(1);
+      setTemMaisProdutos(false);
+      setTotalProdutosBackend(0);
+      setChavesCategoriasVitrine({});
+      setStatusCategoriasVitrine({});
+      setTotaisCategoriasVitrine({});
+      falhasConsecutivasProdutosRef.current = 0;
+      prefetchProdutosCacheRef.current.clear();
+      prefetchEmAndamentoRef.current.clear();
+    }
+    if (!mostrarLayoutCategorias && estavaNoLayout) {
+      abortarCategoriasEmAndamento();
+    }
+
+    layoutCategoriasAtivoRef.current = mostrarLayoutCategorias;
+  }, [mostrarLayoutCategorias]);
 
   const ORDEM_CATEGORIAS_VITRINE = useMemo(
     () => CATEGORIAS_PRINCIPAIS_NAVEGACAO.map((item) => item.id),
     []
   );
   const categoriasVitrineIds = useMemo(() => {
-    const categoriasDisponiveisNoCatalogo = Array.from(new Set(
+    const categoriasDisponiveis = Array.from(new Set(
       (Array.isArray(categoriasCatalogo) ? categoriasCatalogo : [])
         .map((categoriaRaw) => resolveCategoriaPrincipalVitrine(categoriaRaw))
         .filter((categoriaId) => ORDEM_CATEGORIAS_VITRINE.includes(categoriaId))
     ));
-
-    const categoriasInferidasDosProdutos = Array.from(new Set(
-      produtosIndexados
-        .map((item) => String(item?.categoriaVitrine || '').trim().toLowerCase())
-        .filter((categoriaId) => ORDEM_CATEGORIAS_VITRINE.includes(categoriaId))
-    ));
-
-    const categoriasDisponiveis = Array.from(new Set([
-      ...categoriasDisponiveisNoCatalogo,
-      ...categoriasInferidasDosProdutos
-    ]));
 
     if (
       categoriasDisponiveis.includes(CATEGORIA_BEBIDAS)
@@ -1756,7 +2004,7 @@ export default function ProdutosPage() {
     }
 
     return ORDEM_CATEGORIAS_VITRINE.filter((categoriaId) => categoriasDisponiveis.includes(categoriaId));
-  }, [ORDEM_CATEGORIAS_VITRINE, categoriasCatalogo, produtosIndexados]);
+  }, [ORDEM_CATEGORIAS_VITRINE, categoriasCatalogo]);
   const assinaturaCategoriasVitrineIds = useMemo(
     () => categoriasVitrineIds.join('|'),
     [categoriasVitrineIds]
@@ -1859,8 +2107,23 @@ export default function ProdutosPage() {
       return [];
     }
 
-    return produtosIndexados.filter((item) => item.categoriaVitrine === categoriaNavAtiva);
-  }, [categoriaNavAtiva, produtosIndexados]);
+    if (!mostrarLayoutCategorias) {
+      return produtosIndexados.filter((item) => item.categoriaVitrine === categoriaNavAtiva);
+    }
+
+    const chavesCategoria = Array.isArray(chavesCategoriasVitrine[categoriaNavAtiva])
+      ? chavesCategoriasVitrine[categoriaNavAtiva]
+      : [];
+    return chavesCategoria
+      .map((chave) => produtosIndexadosPorChave.get(chave))
+      .filter(Boolean);
+  }, [
+    categoriaNavAtiva,
+    chavesCategoriasVitrine,
+    mostrarLayoutCategorias,
+    produtosIndexados,
+    produtosIndexadosPorChave
+  ]);
 
   const subcategoriasVitrineAtiva = useMemo(() => {
     if (!mostrarLayoutCategorias) {
@@ -1879,84 +2142,55 @@ export default function ProdutosPage() {
       return [];
     }
 
-    const secoesMap = new Map(
-      categoriasVitrineIds.map((categoriaId) => [
-        categoriaId,
-        {
+    return categoriasVitrineIds
+      .map((categoriaId) => {
+        const chavesCategoria = Array.isArray(chavesCategoriasVitrine[categoriaId])
+          ? chavesCategoriasVitrine[categoriaId]
+          : [];
+        const itensIndexados = chavesCategoria
+          .map((chave) => produtosIndexadosPorChave.get(chave))
+          .filter(Boolean);
+        const totalBackendCategoria = Number(
+          totaisCategoriasVitrine[categoriaId]
+          || statusCategoriasVitrine[categoriaId]?.total
+          || 0
+        );
+
+        return {
           id: categoriaId,
           label: formatCategoriaLabel(categoriaId),
-          itensIndexados: []
-        }
-      ])
-    );
-
-    produtosIndexados.forEach((item) => {
-      const catKey = item.categoriaVitrine || item.categoriaAgrupada || 'outros';
-      const catEntry = CATEGORIAS_LEGADO.find((c) => c.id === catKey);
-      const catLabel = catEntry?.label || item.categoriaLabel || 'Outros';
-
-      if (!secoesMap.has(catKey)) {
-        secoesMap.set(catKey, {
-          id: catKey,
-          label: catLabel,
-          itensIndexados: []
-        });
-      }
-
-      secoesMap.get(catKey).itensIndexados.push(item);
-    });
-
-    const normalizarSecao = (secao) => {
-      if (!secao) {
-        return null;
-      }
-
-      const itensOrdenados = [...secao.itensIndexados].sort((a, b) => {
-        const estoqueA = Number(a.produto?.estoque || 0);
-        const estoqueB = Number(b.produto?.estoque || 0);
-        if (estoqueA !== estoqueB) {
-          return estoqueB - estoqueA;
-        }
-
-        const scoreMaisVendidoDiff = Number(b.scoreMaisVendido || 0) - Number(a.scoreMaisVendido || 0);
-        if (scoreMaisVendidoDiff !== 0) {
-          return scoreMaisVendidoDiff;
-        }
-
-        const scoreConversaoDiff = Number(b.scoreConversao || 0) - Number(a.scoreConversao || 0);
-        if (scoreConversaoDiff !== 0) {
-          return scoreConversaoDiff;
-        }
-
-        return compareProdutosPorNome(a, b);
-      });
-
-      const totalBackendCategoria = Number(totaisCategoriasVitrine[secao.id] || 0);
-      const totalItensSecao = Math.max(
-        itensOrdenados.length,
-        Number.isFinite(totalBackendCategoria) ? totalBackendCategoria : 0
-      );
-
-      return {
-        ...secao,
-        totalItens: totalItensSecao,
-        itensIndexados: itensOrdenados.slice(0, 20)
-      };
-    };
-
-    const secoesOrdenadas = categoriasVitrineIds
-      .map((categoriaId) => normalizarSecao(secoesMap.get(categoriaId)))
-      .filter(Boolean);
-
-    return secoesOrdenadas;
-  }, [categoriasVitrineIds, formatCategoriaLabel, mostrarLayoutCategorias, produtosIndexados, totaisCategoriasVitrine]);
+          totalItens: Math.max(
+            itensIndexados.length,
+            Number.isFinite(totalBackendCategoria) ? totalBackendCategoria : 0
+          ),
+          itensIndexados
+        };
+      })
+      .filter((secao) => Boolean(secao?.id));
+  }, [
+    categoriasVitrineIds,
+    chavesCategoriasVitrine,
+    formatCategoriaLabel,
+    mostrarLayoutCategorias,
+    produtosIndexadosPorChave,
+    statusCategoriasVitrine,
+    totaisCategoriasVitrine
+  ]);
 
   useEffect(() => {
     const categoriasAtivasSet = new Set(categoriasVitrineIds);
+    abortCategoriasVitrineRef.current.forEach((abortController, categoriaId) => {
+      if (categoriasAtivasSet.has(categoriaId)) {
+        return;
+      }
 
-    prefetchCategoriasVitrineRef.current.forEach((categoriaId) => {
+      abortController?.abort?.();
+      abortCategoriasVitrineRef.current.delete(categoriaId);
+      requisicaoCategoriasVitrineRef.current.delete(categoriaId);
+    });
+    requisicaoCategoriasVitrineRef.current.forEach((_, categoriaId) => {
       if (!categoriasAtivasSet.has(categoriaId)) {
-        prefetchCategoriasVitrineRef.current.delete(categoriaId);
+        requisicaoCategoriasVitrineRef.current.delete(categoriaId);
       }
     });
 
@@ -1968,6 +2202,22 @@ export default function ProdutosPage() {
       entradas.forEach(([categoriaId, total]) => {
         if (categoriasAtivasSet.has(categoriaId)) {
           proximo[categoriaId] = total;
+        } else {
+          removeuCategoria = true;
+        }
+      });
+
+      return removeuCategoria ? proximo : atual;
+    });
+
+    setChavesCategoriasVitrine((atual) => {
+      const entradas = Object.entries(atual || {});
+      let removeuCategoria = false;
+      const proximo = {};
+
+      entradas.forEach(([categoriaId, chaves]) => {
+        if (categoriasAtivasSet.has(categoriaId)) {
+          proximo[categoriaId] = chaves;
         } else {
           removeuCategoria = true;
         }
@@ -2001,7 +2251,7 @@ export default function ProdutosPage() {
     let cancelado = false;
     const categoriasPendentes = categoriasVitrineIds.filter((categoriaId) => (
       categoriaId !== 'outros'
-      && !prefetchCategoriasVitrineRef.current.has(categoriaId)
+      && !(statusCategoriasVitrineRef.current[categoriaId]?.carregado && !statusCategoriasVitrineRef.current[categoriaId]?.erro)
     ));
 
     if (!categoriasPendentes.length) {
@@ -2022,59 +2272,11 @@ export default function ProdutosPage() {
         }
 
         const categoriaId = categoriasPendentes[indiceAtual];
-        prefetchCategoriasVitrineRef.current.add(categoriaId);
-
-        try {
-          const { lista, paginacao } = await fetchProdutosPage({
-            categoria: categoriaId,
-            busca: '',
-            page: 1,
-            limit: 21
-          });
-
-          if (cancelado) {
-            return;
-          }
-
-          const listaSegura = Array.isArray(lista) ? lista : [];
-          const totalApi = Number(paginacao?.total || 0);
-          const totalInferido = totalApi > 0
-            ? totalApi
-            : (Boolean(paginacao?.tem_mais) ? Math.max(21, listaSegura.length + 1) : listaSegura.length);
-
-          setTotaisCategoriasVitrine((atual) => ({
-            ...atual,
-            [categoriaId]: totalInferido
-          }));
-
-          setStatusCategoriasVitrine((atual) => ({
-            ...atual,
-            [categoriaId]: {
-              carregado: true,
-              erro: false,
-              total: totalInferido
-            }
-          }));
-
-          if (listaSegura.length > 0) {
-            setProdutos((atual) => mergeProdutosById(atual, listaSegura));
-          }
-        } catch {
-          if (cancelado) {
-            return;
-          }
-
-          // Permite nova tentativa em erro sem quebrar a página.
-          prefetchCategoriasVitrineRef.current.delete(categoriaId);
-          setStatusCategoriasVitrine((atual) => ({
-            ...atual,
-            [categoriaId]: {
-              carregado: false,
-              erro: true,
-              total: 0
-            }
-          }));
-        }
+        await carregarCategoriaVitrine({
+          categoriaId,
+          pagina: 1,
+          append: false
+        });
       }
     };
 
@@ -2088,7 +2290,30 @@ export default function ProdutosPage() {
     return () => {
       cancelado = true;
     };
-  }, [categoriasVitrineIds, mostrarLayoutCategorias]);
+  }, [carregarCategoriaVitrine, categoriasVitrineIds, mostrarLayoutCategorias]);
+
+  const handleVerMaisCategoria = useCallback((categoriaId) => {
+    if (!layoutCategoriasAtivoRef.current) {
+      return;
+    }
+
+    const categoriaNormalizada = String(categoriaId || '').trim().toLowerCase();
+    if (!categoriaNormalizada) {
+      return;
+    }
+
+    const statusCategoria = statusCategoriasVitrineRef.current[categoriaNormalizada] || {};
+    if (statusCategoria?.carregando || !statusCategoria?.temMais) {
+      return;
+    }
+
+    const proximaPagina = Number(statusCategoria?.pagina || 1) + 1;
+    void carregarCategoriaVitrine({
+      categoriaId: categoriaNormalizada,
+      pagina: proximaPagina,
+      append: true
+    });
+  }, [carregarCategoriaVitrine]);
 
   const secoesCategoriaDetalhe = useMemo(() => {
     if (!exibirVisaoCategoriaDetalhe) {
@@ -2893,7 +3118,7 @@ export default function ProdutosPage() {
         </button>
       </div>
     );
-  } else if (produtosFiltradosIndexados.length === 0) {
+  } else if (produtosFiltradosIndexados.length === 0 && !mostrarLayoutCategorias) {
     return renderSemResultados(
       'Nenhum produto encontrado',
       termoBuscaDigitado
@@ -2942,7 +3167,7 @@ export default function ProdutosPage() {
                     className="vitrine-ver-mais products-subcategory-toggle"
                     onClick={() => handleAlternarSecaoCategoria(secaoId)}
                   >
-                    {secaoExpandida ? 'Ver menos' : `Ver todos (${secao.totalItens})`}
+                    {secaoExpandida ? 'Ver menos' : `Ver mais (${secao.totalItens})`}
                   </button>
                 ) : null}
               </header>
@@ -3048,7 +3273,7 @@ export default function ProdutosPage() {
         {secoesCategorias.map((secao) => {
           const secaoEhAtiva = categoriaNavAtiva === secao.id;
           const statusSecao = statusCategoriasVitrine[secao.id];
-          const secaoCarregando = !statusSecao?.carregado && !statusSecao?.erro;
+          const secaoCarregando = Boolean(statusSecao?.carregando || (!statusSecao?.carregado && !statusSecao?.erro));
           const itensSecao = secaoEhAtiva && subcategoriaNavAtiva !== 'todas'
             ? secao.itensIndexados.filter((item) => item._subcategoriaId === subcategoriaNavAtiva)
             : secao.itensIndexados;
@@ -3069,7 +3294,10 @@ export default function ProdutosPage() {
               items={itensSecao}
               emptyMessage={mensagemVazia}
               renderRow={renderCategoriaHorizontalRow}
-              onViewAll={() => handleAplicarSugestaoBusca({ termo: '', categoria: secao.id })}
+              onLoadMore={() => handleVerMaisCategoria(secao.id)}
+              hasMore={Boolean(statusSecao?.temMais)}
+              isLoadingMore={Boolean(statusSecao?.carregando)}
+              loadMoreLabel="Ver mais"
             />
           );
         })}
@@ -3093,11 +3321,11 @@ export default function ProdutosPage() {
     growthExperimento,
     gruposMarcaBebidas,
     handleAddItem,
-    handleAplicarSugestaoBusca,
     handleAtualizarProdutos,
     handleDecreaseItem,
     handleIncreaseItem,
     handleToggleFavorito,
+    handleVerMaisCategoria,
     abrirDetalheProduto,
     idsAltaConversaoSet,
     idsNovidades,

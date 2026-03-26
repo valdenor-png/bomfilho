@@ -1,5 +1,27 @@
 import React from 'react';
 
+function resetKeysChanged(prevResetKeys = [], nextResetKeys = []) {
+  if (prevResetKeys === nextResetKeys) {
+    return false;
+  }
+
+  if (!Array.isArray(prevResetKeys) || !Array.isArray(nextResetKeys)) {
+    return true;
+  }
+
+  if (prevResetKeys.length !== nextResetKeys.length) {
+    return true;
+  }
+
+  for (let index = 0; index < prevResetKeys.length; index += 1) {
+    if (prevResetKeys[index] !== nextResetKeys[index]) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * Error boundary genérico — evita tela branca total em caso de erro de render.
  *
@@ -25,8 +47,21 @@ export default class ErrorBoundary extends React.Component {
     }
   }
 
+  componentDidUpdate(prevProps) {
+    if (!this.state.error) {
+      return;
+    }
+
+    if (resetKeysChanged(prevProps.resetKeys, this.props.resetKeys)) {
+      this.resetError();
+    }
+  }
+
   resetError() {
     this.setState({ error: null });
+    if (typeof this.props.onReset === 'function') {
+      this.props.onReset();
+    }
   }
 
   render() {

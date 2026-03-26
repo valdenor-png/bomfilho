@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ClipboardList, Mail, MapPin, Phone, Users, X } from 'lucide-react';
+import { ClipboardList, Mail, MapPin, Phone, Users, X } from '../../icons';
 import { adminGetClientes, adminGetClienteDetalhe } from '../../lib/api';
 import { R$, LABELS_PAGAMENTO, LABELS_STATUS } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';

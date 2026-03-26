@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, CircleCheck, Package, Receipt, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CircleCheck, Package, Receipt, ShieldCheck } from '../../icons';
 import { adminGetCatalogoSaude } from '../../lib/api';
 import { formatarMoeda } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';

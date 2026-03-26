@@ -1,31 +1,20 @@
-/**
- * Componentes de seleção e resumo de pagamento — extraídos de PagamentoPage.
+﻿/**
+ * Componentes de seleção e resumo de pagamento extraídos de PagamentoPage.
  */
 import React from 'react';
+import { Icon } from '../../icons';
 import { formatarMoeda } from '../../lib/checkoutUtils';
+
+const PAYMENT_METHOD_ICON_NAMES = Object.freeze({
+  pix: 'IconPix',
+  'credit-card': 'IconCreditCard',
+  'debit-card': 'IconDebitCard'
+});
 
 function PaymentMethodGlyph({ icon }) {
   const key = String(icon || '').trim().toLowerCase();
-
-  if (key === 'pix') {
-    return (
-      <svg viewBox="0 0 24 24" role="img" aria-label="PIX" focusable="false">
-        <path d="M7.5 5.5a2.5 2.5 0 0 1 3.54 0L12 6.46l.96-.96a2.5 2.5 0 0 1 3.54 3.54L15.54 10l.96.96a2.5 2.5 0 0 1-3.54 3.54L12 13.54l-.96.96a2.5 2.5 0 0 1-3.54-3.54L8.46 10l-.96-.96a2.5 2.5 0 0 1 0-3.54Z" fill="currentColor" />
-      </svg>
-    );
-  }
-
-  if (key === 'debit-card' || key === 'credit-card') {
-    return (
-      <svg viewBox="0 0 24 24" role="img" aria-label={key === 'debit-card' ? 'Cartão de débito' : 'Cartão de crédito'} focusable="false">
-        <rect x="3" y="5" width="18" height="14" rx="2.2" ry="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-        <rect x="3" y="8.2" width="18" height="2.4" fill="currentColor" />
-        {key === 'credit-card' ? <circle cx="8.2" cy="15.3" r="1.4" fill="currentColor" /> : <rect x="6.8" y="14.2" width="3" height="2.2" rx="0.5" fill="currentColor" />}
-      </svg>
-    );
-  }
-
-  return <span>{String(icon || '').trim() || 'P'}</span>;
+  const iconName = PAYMENT_METHOD_ICON_NAMES[key] || 'IconInfo';
+  return <Icon name={iconName} size={18} strokeWidth={1.9} />;
 }
 
 export function PaymentMethodCard({

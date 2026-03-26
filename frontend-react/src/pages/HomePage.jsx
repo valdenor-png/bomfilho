@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, Heart, MessageCircle, Repeat2, ShoppingCart, Store, Truck, Wallet } from 'lucide-react';
+import { Eye, Heart, MessageCircle, Repeat2, ShoppingCart, Store, Truck, Wallet } from '../icons';
 import { useNavigate } from 'react-router-dom';
 import { getProdutos } from '../lib/api';
 import { getProdutoEstoqueInfo, getEstoqueBadge } from '../lib/produtosUtils';

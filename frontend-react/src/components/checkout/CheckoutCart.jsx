@@ -2,7 +2,7 @@
  * Componentes de carrinho e resumo do checkout - extraidos de PagamentoPage.
  */
 import React, { useState } from 'react';
-import { AlertTriangle, Package } from 'lucide-react';
+import { AlertTriangle, Package } from '../../icons';
 import SmartImage from '../ui/SmartImage';
 import { formatarMoeda } from '../../lib/checkoutUtils';
 import {
@@ -231,9 +231,13 @@ export function CheckoutCrossSellRail({
   subtitle = 'Que tal adicionar tambem?',
   produtos = [],
   carregando = false,
+  alwaysVisible = false,
   onAdd
 }) {
-  if (!carregando && !produtos.length) {
+  const listaProdutos = Array.isArray(produtos) ? produtos : [];
+  const onAddProduto = typeof onAdd === 'function' ? onAdd : () => {};
+
+  if (!alwaysVisible && !carregando && !listaProdutos.length) {
     return null;
   }
 
@@ -249,35 +253,48 @@ export function CheckoutCrossSellRail({
           Array.from({ length: 4 }).map((_, idx) => (
             <article key={`skeleton-${idx}`} className="checkout-cross-sell-card is-loading" role="listitem" aria-hidden="true" />
           ))
-        ) : produtos.map((produto) => (
-          <article key={produto.id} className="checkout-cross-sell-card" role="listitem">
+        ) : listaProdutos.length ? (
+          listaProdutos.map((produto) => (
+            <article key={produto.id} className="checkout-cross-sell-card" role="listitem">
+              <div className="checkout-cross-sell-media" aria-hidden="true">
+                {produto.imagem ? (
+                  <SmartImage src={produto.imagem} alt="" className="checkout-cross-sell-image" loading="lazy" />
+                ) : (
+                  <span className="checkout-cross-sell-placeholder" aria-hidden="true">
+                    <Package size={18} strokeWidth={2} />
+                  </span>
+                )}
+              </div>
+
+              {Number.isFinite(Number(produto?.estoque)) ? (
+                <span className={`checkout-cross-sell-stock ${Number(produto.estoque) > 0 ? 'is-in-stock' : 'is-low-stock'}`.trim()}>
+                  {Number(produto.estoque) > 0 ? 'Em estoque' : 'Estoque baixo'}
+                </span>
+              ) : null}
+
+              <p className="checkout-cross-sell-name">{produto.nome}</p>
+              <strong className="checkout-cross-sell-price">{formatarMoeda(produto.preco)}</strong>
+
+              <button
+                type="button"
+                className="checkout-cross-sell-add-btn"
+                onClick={() => onAddProduto(produto)}
+                aria-label={`Adicionar ${produto.nome}`}
+              >
+                Adicionar
+              </button>
+            </article>
+          ))
+        ) : (
+          <article className="checkout-cross-sell-card checkout-cross-sell-card-empty" role="listitem">
             <div className="checkout-cross-sell-media" aria-hidden="true">
-              {produto.imagem ? (
-                <SmartImage src={produto.imagem} alt="" className="checkout-cross-sell-image" loading="lazy" />
-              ) : (
-                <span className="checkout-cross-sell-emoji">Item</span>
-              )}
-            </div>
-
-            {Number.isFinite(Number(produto?.estoque)) ? (
-              <span className={`checkout-cross-sell-stock ${Number(produto.estoque) > 0 ? 'is-in-stock' : 'is-low-stock'}`.trim()}>
-                {Number(produto.estoque) > 0 ? 'Disponivel' : 'Estoque baixo'}
+              <span className="checkout-cross-sell-placeholder" aria-hidden="true">
+                <Package size={18} strokeWidth={2} />
               </span>
-            ) : null}
-
-            <p className="checkout-cross-sell-name">{produto.nome}</p>
-            <strong className="checkout-cross-sell-price">{formatarMoeda(produto.preco)}</strong>
-
-            <button
-              type="button"
-              className="checkout-cross-sell-add-btn"
-              onClick={() => onAdd(produto)}
-              aria-label={`Adicionar ${produto.nome}`}
-            >
-              Adicionar
-            </button>
+            </div>
+            <p className="checkout-cross-sell-name">Buscando opcoes para completar sua compra...</p>
           </article>
-        ))}
+        )}
       </div>
     </section>
   );

@@ -1114,7 +1114,16 @@ export function getCategoriaApi(categoria) {
   return valor;
 }
 
-export function buildProdutosQueryKey({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit }) {
+export function buildProdutosQueryKey({
+  categoria,
+  categoriaSlug,
+  subcategoriaSlug,
+  busca,
+  page,
+  limit,
+  sort,
+  skipCount
+}) {
   return [
     'produtos',
     {
@@ -1123,7 +1132,9 @@ export function buildProdutosQueryKey({ categoria, categoriaSlug, subcategoriaSl
       subcategoriaSlug: normalizeText(subcategoriaSlug),
       busca: normalizeText(busca),
       page: Number(page || 1),
-      limit: Number(limit || PRODUTOS_POR_PAGINA)
+      limit: Number(limit || PRODUTOS_POR_PAGINA),
+      sort: normalizeText(sort),
+      skipCount: Boolean(skipCount)
     }
   ];
 }
@@ -1131,19 +1142,34 @@ export function buildProdutosQueryKey({ categoria, categoriaSlug, subcategoriaSl
 const fetchProdutosPageInFlight = new Map();
 
 // Mantem a assinatura de busca isolada para facilitar migracao para React Query.
-export async function fetchProdutosPage({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit }) {
+export async function fetchProdutosPage({
+  categoria,
+  categoriaSlug,
+  subcategoriaSlug,
+  busca,
+  page,
+  limit,
+  sort,
+  skipCount = false,
+  signal
+}) {
   const queryKey = buildProdutosQueryKey({
     categoria,
     categoriaSlug,
     subcategoriaSlug,
     busca,
     page,
-    limit
+    limit,
+    sort,
+    skipCount
   });
   const requestCacheKey = JSON.stringify(queryKey);
-  const requestInFlight = fetchProdutosPageInFlight.get(requestCacheKey);
-  if (requestInFlight) {
-    return requestInFlight;
+  const usarCacheInFlight = !signal;
+  if (usarCacheInFlight) {
+    const requestInFlight = fetchProdutosPageInFlight.get(requestCacheKey);
+    if (requestInFlight) {
+      return requestInFlight;
+    }
   }
 
   const requestPromise = (async () => {
@@ -1154,6 +1180,8 @@ export async function fetchProdutosPage({ categoria, categoriaSlug, subcategoria
       page: Number(page || 1),
       limit: Number(limit || PRODUTOS_POR_PAGINA)
     };
+    const ordenacaoNormalizada = String(sort || '').trim().toLowerCase();
+    const pularCount = Boolean(skipCount);
 
     if (categoriaSlugNormalizada) {
       params.categoria_slug = categoriaSlugNormalizada;
@@ -1173,7 +1201,15 @@ export async function fetchProdutosPage({ categoria, categoriaSlug, subcategoria
       params.busca = buscaNormalizada;
     }
 
-    let data = await getProdutos(params);
+    if (ordenacaoNormalizada) {
+      params.sort = ordenacaoNormalizada;
+    }
+
+    if (pularCount) {
+      params.skip_count = '1';
+    }
+
+    let data = await getProdutos(params, { signal });
     let lista = Array.isArray(data?.produtos) ? data.produtos : [];
     let paginacao = data?.paginacao || {};
 
@@ -1188,7 +1224,7 @@ export async function fetchProdutosPage({ categoria, categoriaSlug, subcategoria
         ...params,
         categoria: CATEGORIA_BEBIDAS,
         busca: 'cerveja'
-      });
+      }, { signal });
       lista = Array.isArray(data?.produtos) ? data.produtos : [];
       paginacao = data?.paginacao || {};
     }
@@ -1200,18 +1236,40 @@ export async function fetchProdutosPage({ categoria, categoriaSlug, subcategoria
     };
   })();
 
-  fetchProdutosPageInFlight.set(requestCacheKey, requestPromise);
+  if (usarCacheInFlight) {
+    fetchProdutosPageInFlight.set(requestCacheKey, requestPromise);
+  }
 
   try {
     return await requestPromise;
   } finally {
-    fetchProdutosPageInFlight.delete(requestCacheKey);
+    if (usarCacheInFlight) {
+      fetchProdutosPageInFlight.delete(requestCacheKey);
+    }
   }
 }
 
-export function buildProdutosPageCacheKey({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit }) {
+export function buildProdutosPageCacheKey({
+  categoria,
+  categoriaSlug,
+  subcategoriaSlug,
+  busca,
+  page,
+  limit,
+  sort,
+  skipCount
+}) {
   return JSON.stringify(
-    buildProdutosQueryKey({ categoria, categoriaSlug, subcategoriaSlug, busca, page, limit })
+    buildProdutosQueryKey({
+      categoria,
+      categoriaSlug,
+      subcategoriaSlug,
+      busca,
+      page,
+      limit,
+      sort,
+      skipCount
+    })
   );
 }
 

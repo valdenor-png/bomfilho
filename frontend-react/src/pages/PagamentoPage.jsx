@@ -2,7 +2,7 @@ import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import ReCAPTCHA from 'react-google-recaptcha';
-import { AlertTriangle, BadgeX, CircleCheck, ClipboardList, MapPin, ShoppingCart } from 'lucide-react';
+import { AlertTriangle, BadgeX, CircleCheck, ClipboardList, MapPin, ShoppingCart } from '../icons';
 import {
   buscarEnderecoViaCep,
   criarPedido,
@@ -45,7 +45,7 @@ import {
 import { useCart } from '../context/CartContext';
 import { useReviewTracker } from '../context/ReviewTrackerContext';
 
-// â”€â”€ Utilitários e constantes extraídos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ UtilitÃ¡rios e constantes extraÃ­dos Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 import {
   ETAPAS,
   PARCELAMENTO_MINIMO_CREDITO,
@@ -104,10 +104,13 @@ import {
 } from '../lib/checkoutUtils';
 import {
   calcularSubtotalPeso,
-  isItemPeso
+  isItemPeso,
+  isProdutoAlcoolico,
+  isProdutoTabaco,
+  isProdutoVisivelNoCatalogo
 } from '../lib/produtoCatalogoRules';
 
-// â”€â”€ Sub-componentes do checkout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Sub-componentes do checkout Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 import {
   CheckoutSecurityTrust,
   DeliveryOptionCard,
@@ -130,6 +133,81 @@ import InternalTopBar from '../components/navigation/InternalTopBar';
 const CHECKOUT_ENDERECO_CACHE_KEY = 'bf_checkout_endereco_preferido';
 const CHECKOUT_CPF_NOTA_CACHE_KEY = 'bf_checkout_cpf_nota';
 const STATUS_REVISAO_ATIVOS = new Set(['aguardando_revisao', 'pendente', 'pagamento_recusado']);
+const LIMITE_SUGESTOES_CHECKOUT = 8;
+const MINIMO_PRIORIDADE_IMPULSO = 6;
+const TERMOS_PRIORIDADE_IMPULSO = [
+  'biscoito',
+  'biscoitos',
+  'bolacha',
+  'bolachas',
+  'chocolate',
+  'chocolates',
+  'bombom',
+  'bombons',
+  'bala',
+  'balas',
+  'salgadinho',
+  'salgadinhos',
+  'refrigerante',
+  'refri',
+  'suco',
+  'sucos',
+  'sobremesa',
+  'conveniencia'
+];
+const TERMOS_FALLBACK_GERAL = [
+  'conveniencia',
+  'snack',
+  'sobremesa',
+  'suco',
+  'refrigerante'
+];
+const TOKENS_MEDICAMENTOS_BLOQUEADOS = [
+  'medicamento',
+  'medicamentos',
+  'remedio',
+  'remedios',
+  'farmacia',
+  'tarja',
+  'analgesico',
+  'antibiotico'
+];
+const TOKENS_ALCOOL_BLOQUEADOS = [
+  'bebida alcoolica',
+  'bebidas alcoolicas',
+  'cerveja',
+  'vinho',
+  'whisky',
+  'vodka',
+  'gin',
+  'rum',
+  'tequila',
+  'licor',
+  'aperitivo',
+  'cachaca'
+];
+const TOKENS_TABACO_BLOQUEADOS = [
+  'tabaco',
+  'cigarro',
+  'cigarros',
+  'fumo',
+  'narguile',
+  'vape'
+];
+const RELACOES_CATEGORIA_SUGESTAO = [
+  {
+    match: ['mercearia', 'biscoito', 'bolacha', 'doce', 'conveniencia', 'snack'],
+    termos: ['biscoito', 'chocolate', 'salgadinho', 'bombom', 'sobremesa']
+  },
+  {
+    match: ['bebida', 'refrigerante', 'refri', 'suco', 'agua'],
+    termos: ['refrigerante', 'refri', 'suco', 'biscoito', 'salgadinho']
+  },
+  {
+    match: ['laticinio', 'frios', 'padaria', 'cafe', 'pao'],
+    termos: ['chocolate', 'biscoito', 'sobremesa', 'suco']
+  }
+];
 
 function statusEhElegivelParaFluxoRevisao(statusRaw) {
   const status = String(statusRaw || '').trim().toLowerCase();
@@ -162,7 +240,7 @@ function salvarEnderecoCheckoutNoCache(endereco = {}) {
       estado: String(endereco?.estado || '').trim().toUpperCase()
     }));
   } catch {
-    // Fallback silencioso quando storage não está disponível.
+    // Fallback silencioso quando storage nÃ£o estÃ¡ disponÃ­vel.
   }
 }
 
@@ -201,7 +279,7 @@ function salvarCpfNotaNoCache(cpf = '') {
 
     localStorage.removeItem(CHECKOUT_CPF_NOTA_CACHE_KEY);
   } catch {
-    // Fallback silencioso quando storage não está disponível.
+    // Fallback silencioso quando storage nÃ£o estÃ¡ disponÃ­vel.
   }
 }
 
@@ -232,7 +310,7 @@ export default function PagamentoPage() {
   const [qrCodePixDataUrl, setQrCodePixDataUrl] = useState('');
   const [feedbackCopiaPix, setFeedbackCopiaPix] = useState('');
   const [sugestoesCheckout, setSugestoesCheckout] = useState([]);
-  const [modoSugestoesCheckout, setModoSugestoesCheckout] = useState('inteligente');
+  const [modoSugestoesCheckout, setModoSugestoesCheckout] = useState('impulso');
   const [carregandoSugestoesCheckout, setCarregandoSugestoesCheckout] = useState(false);
   const [verificandoStatusPix, setVerificandoStatusPix] = useState(false);
   const [resumoPedidoSnapshot, setResumoPedidoSnapshot] = useState(null);
@@ -296,6 +374,7 @@ export default function PagamentoPage() {
   const startCheckoutTrackedRef = useRef(false);
   const purchaseTrackedOrdersRef = useRef(new Set());
   const cacheSugestoesRef = useRef(new Map());
+  const ultimaSugestaoCheckoutValidaRef = useRef([]);
   const growthInsights = useMemo(() => getGrowthInsights({ windowDays: 7 }), [growthVersion]);
   const growthCheckoutPaymentConfig = growthInsights?.experiment?.ui?.checkoutPayment || {
     enabled: false,
@@ -324,100 +403,56 @@ export default function PagamentoPage() {
     .toLowerCase()
     .trim(), []);
 
-  const COMBO_MAP = useMemo(() => ({
-    macarrao: ['molho de tomate', 'queijo ralado'],
-    arroz: ['feijao', 'oleo'],
-    cafe: ['acucar', 'leite'],
-    pao: ['manteiga', 'presunto'],
-    cerveja: ['salgadinho', 'gelo']
-  }), []);
-
-  const RECEITAS_MAP = useMemo(() => ({
-    macarronada: ['macarrao', 'molho de tomate', 'carne moida', 'alho'],
-    'cafe da manha': ['pao', 'leite', 'cafe', 'manteiga']
-  }), []);
-
-  const palavrasCarrinho = useMemo(
-    () => itens.map((item) => normalizarTextoSugestao(item.nome)).filter(Boolean),
-    [itens, normalizarTextoSugestao]
+  const termosSugestaoImpulso = useMemo(
+    () => TERMOS_PRIORIDADE_IMPULSO.map((termo) => normalizarTextoSugestao(termo)).filter(Boolean),
+    [normalizarTextoSugestao]
   );
 
-  const termosSugestaoPriorizados = useMemo(() => {
-    const diretos = [];
-    const receita = [];
-    const existeNoCarrinho = (termo) => palavrasCarrinho.some((nome) => nome.includes(termo));
+  const termosSugestaoCategoriaRelacionada = useMemo(() => {
+    const termos = [];
+    const vistos = new Set(termosSugestaoImpulso);
 
-    Object.entries(COMBO_MAP).forEach(([gatilho, relacionados]) => {
-      if (!existeNoCarrinho(gatilho)) {
-        return;
-      }
-      relacionados.forEach((termo) => diretos.push(normalizarTextoSugestao(termo)));
-    });
-
-    Object.values(RECEITAS_MAP).forEach((ingredientes) => {
-      const ingredientesNorm = ingredientes.map((item) => normalizarTextoSugestao(item));
-      const temMatchReceita = ingredientesNorm.some((ingrediente) => existeNoCarrinho(ingrediente));
-      if (!temMatchReceita) {
-        return;
-      }
-      ingredientesNorm.forEach((ingrediente) => {
-        if (!existeNoCarrinho(ingrediente)) {
-          receita.push(ingrediente);
-        }
-      });
-    });
-
-    const unicos = [];
-    const vistos = new Set();
-    [...diretos, ...receita].forEach((termo) => {
-      if (!termo || vistos.has(termo)) {
+    const adicionarTermo = (valor) => {
+      const termo = normalizarTextoSugestao(valor);
+      if (!termo || vistos.has(termo) || termo.length < 3) {
         return;
       }
       vistos.add(termo);
-      unicos.push(termo);
-    });
-
-    return unicos.slice(0, 12);
-  }, [COMBO_MAP, RECEITAS_MAP, palavrasCarrinho, normalizarTextoSugestao]);
-
-  const categoriaFallbackSugestoes = useMemo(() => {
-    const contagemCategorias = new Map();
+      termos.push(termo);
+    };
 
     itens.forEach((item) => {
-      const categoria = String(
-        item?.categoria
-        || item?.categoria_nome
-        || item?.departamento
-        || item?.secao
-        || ''
-      ).trim();
+      const textoFonte = [
+        item?.categoria,
+        item?.categoria_nome,
+        item?.departamento,
+        item?.secao,
+        item?.nome_base,
+        item?.nome
+      ]
+        .map((parte) => normalizarTextoSugestao(parte))
+        .filter(Boolean)
+        .join(' ');
 
-      if (!categoria) {
+      if (!textoFonte) {
         return;
       }
 
-      const chave = normalizarTextoSugestao(categoria);
-      if (!chave) {
-        return;
-      }
+      textoFonte.split(/\s+/)
+        .filter((token) => token.length >= 4)
+        .slice(0, 6)
+        .forEach(adicionarTermo);
 
-      const quantidade = Number(item?.quantidade || 1);
-      const peso = Number.isFinite(quantidade) && quantidade > 0 ? quantidade : 1;
-      const atual = contagemCategorias.get(chave);
-
-      if (!atual) {
-        contagemCategorias.set(chave, { categoria, score: peso });
-        return;
-      }
-
-      atual.score += peso;
+      RELACOES_CATEGORIA_SUGESTAO.forEach((regra) => {
+        if (!regra.match.some((token) => textoFonte.includes(token))) {
+          return;
+        }
+        regra.termos.forEach(adicionarTermo);
+      });
     });
 
-    const categoriaPrincipal = Array.from(contagemCategorias.values())
-      .sort((a, b) => b.score - a.score)[0];
-
-    return categoriaPrincipal?.categoria || '';
-  }, [itens, normalizarTextoSugestao]);
+    return termos.slice(0, 18);
+  }, [itens, normalizarTextoSugestao, termosSugestaoImpulso]);
 
   const sairDoFluxoRevisaoEncerrado = useCallback((mensagem = '') => {
     clearTracking();
@@ -528,7 +563,7 @@ export default function PagamentoPage() {
     }
 
     if (modo === 'uber' && !uberQuoteDisponivel) {
-      setErroEntrega('Entrega Uber indisponível no momento. Escolha Bike ou Retirada na loja.');
+      setErroEntrega('Entrega Uber indisponÃ­vel no momento. Escolha Bike ou Retirada na loja.');
       return;
     }
 
@@ -577,7 +612,7 @@ export default function PagamentoPage() {
 
     itens.forEach((item) => {
       const nomeNormalizado = normalizarTextoSugestao(item?.nome || '');
-      const ehAgua = nomeNormalizado.includes('agua') || nomeNormalizado.includes('água');
+      const ehAgua = nomeNormalizado.includes('agua') || nomeNormalizado.includes('Ã¡gua');
       const ehVolume20l =
         nomeNormalizado.includes('20l')
         || nomeNormalizado.includes('20 l')
@@ -585,22 +620,22 @@ export default function PagamentoPage() {
         || nomeNormalizado.includes('20 litros')
         || nomeNormalizado.includes('20litros')
         || nomeNormalizado.includes('galao 20')
-        || nomeNormalizado.includes('galão 20');
+        || nomeNormalizado.includes('galÃ£o 20');
 
       if (!ehAgua || !ehVolume20l) {
         return;
       }
 
-      let mensagem = `Água 20L: entregamos só por Bike, em até ${limiteBikeTexto} km do mercado.`;
+      let mensagem = `Ãgua 20L: entregamos sÃ³ por Bike, em atÃ© ${limiteBikeTexto} km do mercado.`;
 
       if (veiculoEntrega !== 'bike') {
         mensagem += ' Selecione Bike para continuar.';
       }
 
       if (distanciaValida && Number(distanciaSelecionada) > LIMITE_BIKE_KM) {
-        mensagem += ` Distância atual: ${distanciaSelecionada.toFixed(2)} km (acima do limite).`;
+        mensagem += ` DistÃ¢ncia atual: ${distanciaSelecionada.toFixed(2)} km (acima do limite).`;
       } else if (!distanciaValida) {
-        mensagem += ' Calcule a entrega para validar a distância.';
+        mensagem += ' Calcule a entrega para validar a distÃ¢ncia.';
       }
 
       avisos.set(Number(item?.id), mensagem);
@@ -657,8 +692,8 @@ export default function PagamentoPage() {
   const tituloFormaPagamento = formaPagamento === 'pix'
     ? 'PIX'
     : formaPagamento === 'debito'
-      ? 'Cartão de Débito'
-      : 'Cartão de Crédito';
+      ? 'CartÃ£o de DÃ©bito'
+      : 'CartÃ£o de CrÃ©dito';
   const sessao3DSValida = Boolean(sessao3DS)
     && Number(sessao3DSGeradaEm) > 0
     && (Date.now() - Number(sessao3DSGeradaEm)) < SESSAO_3DS_TTL_MS;
@@ -681,11 +716,11 @@ export default function PagamentoPage() {
     const numero = String(numeroEntrega || '').trim();
 
     if (!rua || !numero) {
-      return 'Informe CEP e número';
+      return 'Informe CEP e nÃºmero';
     }
 
     const linha = `${rua}, ${numero}`;
-    const complemento = [bairro, cidade, estado].filter(Boolean).join(' • ');
+    const complemento = [bairro, cidade, estado].filter(Boolean).join(' â€¢ ');
     return complemento ? `${linha} - ${complemento}` : linha;
   }, [enderecoCepEntrega, numeroEntrega]);
   const enderecoEntregaComplemento = useMemo(() => {
@@ -713,7 +748,7 @@ export default function PagamentoPage() {
 
     const linhaPrincipal = [logradouro, numero].filter(Boolean).join(', ');
     const linhaSecundaria = [bairro, cidade && estado ? `${cidade}/${estado}` : (cidade || estado), cep].filter(Boolean).join(' - ');
-    return [linhaPrincipal, linhaSecundaria].filter(Boolean).join(' • ');
+    return [linhaPrincipal, linhaSecundaria].filter(Boolean).join(' â€¢ ');
   }, [enderecoContaSalvo, temEnderecoContaSalvo]);
   const enderecoSalvoJaSelecionado = useMemo(() => {
     if (!temEnderecoContaSalvo) {
@@ -734,7 +769,7 @@ export default function PagamentoPage() {
   const temAgua20LNoCarrinho = useMemo(() => {
     return itens.some((item) => {
       const nome = normalizarTextoSugestao(item?.nome || '');
-      const ehAgua = nome.includes('agua') || nome.includes('água');
+      const ehAgua = nome.includes('agua') || nome.includes('Ã¡gua');
       const ehVolume20l =
         nome.includes('20l')
         || nome.includes('20 l')
@@ -742,7 +777,7 @@ export default function PagamentoPage() {
         || nome.includes('20 litros')
         || nome.includes('20litros')
         || nome.includes('galao 20')
-        || nome.includes('galão 20');
+        || nome.includes('galÃ£o 20');
 
       return ehAgua && ehVolume20l;
     });
@@ -756,15 +791,15 @@ export default function PagamentoPage() {
     const limiteTexto = LIMITE_BIKE_KM.toFixed(1).replace('.', ',');
 
     if (veiculoEntrega !== 'bike') {
-      return `Água 20L: selecione Bike. Esse item só vai por Bike em até ${limiteTexto} km.`;
+      return `Ãgua 20L: selecione Bike. Esse item sÃ³ vai por Bike em atÃ© ${limiteTexto} km.`;
     }
 
     if (!freteCalculado || distanciaEntregaAtualKm <= 0) {
-      return 'Água 20L: calcule a entrega para validar a distância máxima da Bike.';
+      return 'Ãgua 20L: calcule a entrega para validar a distÃ¢ncia mÃ¡xima da Bike.';
     }
 
     if (distanciaEntregaAtualKm > LIMITE_BIKE_KM) {
-      return `Água 20L: distância ${distanciaEntregaAtualKm.toFixed(2)} km. Limite para Bike: ${limiteTexto} km.`;
+      return `Ãgua 20L: distÃ¢ncia ${distanciaEntregaAtualKm.toFixed(2)} km. Limite para Bike: ${limiteTexto} km.`;
     }
 
     return '';
@@ -787,7 +822,7 @@ export default function PagamentoPage() {
     [itens, distanciaBikeKm, pesoEstimadoCarrinhoKg, resumo.itens]
   );
   const avisoRestricaoVeiculo = itensRestritosEntrega
-    ? 'Alguns itens exigem entrega em veículo maior'
+    ? 'Alguns itens exigem entrega em veÃ­culo maior'
     : '';
 
   useEffect(() => {
@@ -837,7 +872,7 @@ export default function PagamentoPage() {
     }
   }, [enderecoContaSalvo, temEnderecoContaSalvo]);
 
-  // Consolida feedback da simulação para manter mensagens consistentes na UX da entrega.
+  // Consolida feedback da simulaÃ§Ã£o para manter mensagens consistentes na UX da entrega.
   const mensagemFrete = useMemo(() => {
     if (retiradaSelecionada) {
       return {
@@ -868,7 +903,7 @@ export default function PagamentoPage() {
 
     return {
       tone: 'neutral',
-      text: 'Informe CEP e número para calcular a entrega.'
+      text: 'Informe CEP e nÃºmero para calcular a entrega.'
     };
   }, [economiaFreteRetirada, erroEntrega, freteAtual, retiradaSelecionada, simulacaoFrete, simulandoFrete]);
 
@@ -988,7 +1023,7 @@ export default function PagamentoPage() {
       }
 
       setSimulacaoFrete(mapa[proximoVeiculo] || null);
-      setErroEntrega(opcoesDisponiveis.length ? '' : 'Sem opção de entrega disponível para este CEP.');
+      setErroEntrega(opcoesDisponiveis.length ? '' : 'Sem opÃ§Ã£o de entrega disponÃ­vel para este CEP.');
       setSimulandoFrete(false);
     }
 
@@ -1007,7 +1042,7 @@ export default function PagamentoPage() {
       setEnderecoCepEntrega(null);
       setCepEnderecoConsultado('');
       if (mostrarErro && cepNormalizado.length > 0) {
-        setErroEnderecoCepEntrega('Informe um CEP válido com 8 dígitos.');
+        setErroEnderecoCepEntrega('Informe um CEP vÃ¡lido com 8 dÃ­gitos.');
       } else {
         setErroEnderecoCepEntrega('');
       }
@@ -1018,7 +1053,7 @@ export default function PagamentoPage() {
       return enderecoCepEntrega;
     }
 
-    // Evita que uma resposta antiga sobrescreva o endereço de um CEP mais novo.
+    // Evita que uma resposta antiga sobrescreva o endereÃ§o de um CEP mais novo.
     const requestId = ++buscaEnderecoRef.current;
     setBuscandoEnderecoCepEntrega(true);
     setErroEnderecoCepEntrega('');
@@ -1043,12 +1078,12 @@ export default function PagamentoPage() {
 
       if (mostrarErro) {
         const mensagem = String(error?.message || '').trim();
-        if (mensagem === 'CEP não encontrado') {
-          setErroEnderecoCepEntrega('Não encontramos endereço para este CEP.');
-        } else if (mensagem === 'CEP inválido') {
-          setErroEnderecoCepEntrega('Informe um CEP válido com 8 dígitos.');
+        if (mensagem === 'CEP nÃ£o encontrado') {
+          setErroEnderecoCepEntrega('NÃ£o encontramos endereÃ§o para este CEP.');
+        } else if (mensagem === 'CEP invÃ¡lido') {
+          setErroEnderecoCepEntrega('Informe um CEP vÃ¡lido com 8 dÃ­gitos.');
         } else {
-          setErroEnderecoCepEntrega(mensagem || 'Não foi possível consultar o endereço deste CEP.');
+          setErroEnderecoCepEntrega(mensagem || 'NÃ£o foi possÃ­vel consultar o endereÃ§o deste CEP.');
         }
       }
 
@@ -1080,7 +1115,7 @@ export default function PagamentoPage() {
     }
 
     const timer = setTimeout(() => {
-      // Busca automática do endereço assim que o CEP fica completo.
+      // Busca automÃ¡tica do endereÃ§o assim que o CEP fica completo.
       void consultarEnderecoCepEntrega(cepNormalizado, { mostrarErro: true });
     }, 260);
 
@@ -1248,7 +1283,7 @@ export default function PagamentoPage() {
               });
             }
           } catch {
-            // Se não houver endereço salvo, mantém fallback atual.
+            // Se nÃ£o houver endereÃ§o salvo, mantÃ©m fallback atual.
             setEnderecoContaSalvo(null);
           }
         }
@@ -1262,7 +1297,7 @@ export default function PagamentoPage() {
           setAutenticado(false);
         } else {
           setAutenticado(false);
-          setErro(error.message || 'Não foi possível validar sua sessão.');
+          setErro(error.message || 'NÃ£o foi possÃ­vel validar sua sessÃ£o.');
         }
       })
       .finally(() => {
@@ -1333,7 +1368,7 @@ export default function PagamentoPage() {
 
         if (!statusEhElegivelParaFluxoRevisao(statusRetomado)) {
           trackOrder(orderIdOrigem, statusData || { status: statusRetomado });
-          sairDoFluxoRevisaoEncerrado('Esse pedido em revisão já foi encerrado. Monte um novo carrinho para continuar.');
+          sairDoFluxoRevisaoEncerrado('Esse pedido em revisÃ£o jÃ¡ foi encerrado. Monte um novo carrinho para continuar.');
           return;
         }
 
@@ -1399,7 +1434,7 @@ export default function PagamentoPage() {
         if (isAuthErrorMessage(error?.message)) {
           setAutenticado(false);
         } else if (pedidoRetomadaId > 0) {
-          setErro(error?.message || 'Não foi possível retomar o pedido informado.');
+          setErro(error?.message || 'NÃ£o foi possÃ­vel retomar o pedido informado.');
         }
       } finally {
         if (ativo) {
@@ -1429,10 +1464,24 @@ export default function PagamentoPage() {
     }
 
     let ativo = true;
+    let emAndamento = false;
+    let statusAbortController = null;
 
     async function atualizarStatus() {
+      if (!ativo || emAndamento) {
+        return;
+      }
+
+      emAndamento = true;
+      if (statusAbortController) {
+        statusAbortController.abort();
+      }
+      statusAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
       try {
-        const data = await getPedidos();
+        const data = await getPedidos({}, {
+          signal: statusAbortController?.signal
+        });
         const pedido = (data.pedidos || []).find((item) => Number(item.id) === Number(resultadoPedido.pedido_id));
         if (ativo && pedido?.status) {
           const novoStatus = String(pedido.status || '').toLowerCase();
@@ -1441,17 +1490,17 @@ export default function PagamentoPage() {
           trackOrder(resultadoPedido.pedido_id, pedido);
 
           if (!statusEhElegivelParaFluxoRevisao(novoStatus) && novoStatus !== 'pago') {
-            sairDoFluxoRevisaoEncerrado('Seu pedido em revisão foi encerrado. Você pode montar um novo carrinho.');
+            sairDoFluxoRevisaoEncerrado('Seu pedido em revisÃ£o foi encerrado. VocÃª pode montar um novo carrinho.');
             return;
           }
 
-          // Evita travar na etapa de revisão quando o status já foi aprovado no admin.
+          // Evita travar na etapa de revisÃ£o quando o status jÃ¡ foi aprovado no admin.
           if (etapaAtual === ETAPAS.REVISAO && (novoStatus === 'pendente' || novoStatus === 'pago' || novoStatus === 'pagamento_recusado')) {
             setEtapaAtual(ETAPAS.PIX);
           }
 
           if (etapaAtual === ETAPAS.REVISAO && (novoStatus === 'cancelado' || novoStatus === 'expirado')) {
-            sairDoFluxoRevisaoEncerrado('Seu pedido em revisão foi encerrado. Monte um novo pedido para continuar.');
+            sairDoFluxoRevisaoEncerrado('Seu pedido em revisÃ£o foi encerrado. Monte um novo pedido para continuar.');
             return;
           }
 
@@ -1460,9 +1509,17 @@ export default function PagamentoPage() {
           }
         }
       } catch (error) {
+        const erroCancelado = error?.name === 'AbortError'
+          || error?.code === 'API_ABORTED'
+          || Number(error?.status || 0) === 499;
+        if (erroCancelado) {
+          return;
+        }
         if (isAuthErrorMessage(error.message)) {
           setAutenticado(false);
         }
+      } finally {
+        emAndamento = false;
       }
     }
 
@@ -1472,6 +1529,10 @@ export default function PagamentoPage() {
     return () => {
       ativo = false;
       clearInterval(interval);
+      if (statusAbortController) {
+        statusAbortController.abort();
+      }
+      emAndamento = false;
     };
   }, [resultadoPedido?.pedido_id, autenticado, etapaAtual, sairDoFluxoRevisaoEncerrado, trackOrder]);
 
@@ -1484,7 +1545,7 @@ export default function PagamentoPage() {
 
     const cepNormalizado = normalizarCep(cepEntrega);
     if (cepNormalizado.length !== 8) {
-      const mensagem = 'Informe um CEP válido com 8 dígitos.';
+      const mensagem = 'Informe um CEP vÃ¡lido com 8 dÃ­gitos.';
       setSimulacaoFrete(null);
       if (mostrarErro) {
         setErroEntrega(mensagem);
@@ -1493,7 +1554,7 @@ export default function PagamentoPage() {
     }
 
     if (!String(numeroEntrega || '').trim()) {
-      const mensagem = 'Informe o número do endereço para calcular a entrega.';
+      const mensagem = 'Informe o nÃºmero do endereÃ§o para calcular a entrega.';
       setSimulacaoFrete(null);
       if (mostrarErro) {
         setErroEntrega(mensagem);
@@ -1527,7 +1588,7 @@ export default function PagamentoPage() {
         };
       } else {
         if (!uberQuoteDisponivel) {
-          throw new Error('Entrega Uber indisponível no momento. Escolha Bike para continuar.');
+          throw new Error('Entrega Uber indisponÃ­vel no momento. Escolha Bike para continuar.');
         }
 
         const data = await getUberDeliveryQuote({
@@ -1567,7 +1628,7 @@ export default function PagamentoPage() {
     } catch (error) {
       setSimulacaoFrete(null);
       if (mostrarErro) {
-        setErroEntrega(error.message || 'Não foi possível calcular o frete pelo CEP.');
+        setErroEntrega(error.message || 'NÃ£o foi possÃ­vel calcular o frete pelo CEP.');
       }
       return null;
     } finally {
@@ -1654,7 +1715,7 @@ export default function PagamentoPage() {
 
     throw new Error(
       recaptchaCheckoutErroCarregamento
-      || 'Confirme o reCAPTCHA de segurança antes de continuar.'
+      || 'Confirme o reCAPTCHA de seguranÃ§a antes de continuar.'
     );
   }
 
@@ -1956,7 +2017,7 @@ export default function PagamentoPage() {
       const data = await mpGetPublicKey();
       const chave = String(data?.public_key || '').trim();
       if (!chave) {
-        throw new Error('Não foi possível iniciar o pagamento com cartão no momento.');
+        throw new Error('NÃ£o foi possÃ­vel iniciar o pagamento com cartÃ£o no momento.');
       }
 
       setGatewayPublicKey(chave);
@@ -1980,24 +2041,24 @@ export default function PagamentoPage() {
     const securityCode = formatarCvvCartao(cvvCartao);
 
     if (holder.length < 3) {
-      throw new Error('Informe o nome completo do titular do cartão.');
+      throw new Error('Informe o nome completo do titular do cartÃ£o.');
     }
 
     if (number.length < 13) {
-      throw new Error('Número do cartão inválido.');
+      throw new Error('NÃºmero do cartÃ£o invÃ¡lido.');
     }
 
     const mes = Number.parseInt(expMonth, 10);
     if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
-      throw new Error('Mês de expiração inválido.');
+      throw new Error('MÃªs de expiraÃ§Ã£o invÃ¡lido.');
     }
 
     if (expYear.length !== 2) {
-      throw new Error('Ano de expiração inválido.');
+      throw new Error('Ano de expiraÃ§Ã£o invÃ¡lido.');
     }
 
     if (![3, 4].includes(securityCode.length)) {
-      throw new Error('CVV inválido.');
+      throw new Error('CVV invÃ¡lido.');
     }
 
     setCriptografandoCartao(true);
@@ -2015,7 +2076,7 @@ export default function PagamentoPage() {
 
       const token = String(tokenizacao?.token || '').trim();
       if (!token) {
-        throw new Error('Não foi possível tokenizar o cartão no Mercado Pago.');
+        throw new Error('NÃ£o foi possÃ­vel tokenizar o cartÃ£o no Mercado Pago.');
       }
 
       const paymentMethodId = String(tokenizacao?.paymentMethodId || '').trim();
@@ -2048,7 +2109,7 @@ export default function PagamentoPage() {
 
     if (autenticado !== true) {
       setAutenticado(false);
-      setErro('Faça login para concluir o pedido.');
+      setErro('FaÃ§a login para concluir o pedido.');
       return;
     }
 
@@ -2062,7 +2123,7 @@ export default function PagamentoPage() {
 
     if (!retiradaSelecionada) {
       if (cepNormalizado.length !== 8) {
-        setErroEntrega('Informe um CEP válido com 8 dígitos para calcular a entrega.');
+        setErroEntrega('Informe um CEP vÃ¡lido com 8 dÃ­gitos para calcular a entrega.');
         setEtapaAtual(ETAPAS.ENTREGA);
         return;
       }
@@ -2088,13 +2149,13 @@ export default function PagamentoPage() {
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
-      setErro(`Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartão'}.`);
+      setErro(`Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartÃ£o'}.`);
       setEtapaAtual(ETAPAS.PAGAMENTO);
       return;
     }
 
     if (formaPagamento === 'debito' && !validarDocumentoFiscal3DS(documentoDigits)) {
-      setErro('Para débito com autenticação 3DS, informe um CPF ou CNPJ válido.');
+      setErro('Para dÃ©bito com autenticaÃ§Ã£o 3DS, informe um CPF ou CNPJ vÃ¡lido.');
       setEtapaAtual(ETAPAS.PAGAMENTO);
       return;
     }
@@ -2103,7 +2164,7 @@ export default function PagamentoPage() {
       try {
         await carregarChavePublicaGateway();
       } catch (error) {
-        setErro(error.message || 'Não foi possível preparar o pagamento com cartão.');
+        setErro(error.message || 'NÃ£o foi possÃ­vel preparar o pagamento com cartÃ£o.');
         setEtapaAtual(ETAPAS.PAGAMENTO);
         return;
       }
@@ -2113,7 +2174,7 @@ export default function PagamentoPage() {
     try {
       recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
     } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar.');
+      setErro(error.message || 'Confirme o reCAPTCHA de seguranÃ§a para continuar.');
       return;
     }
 
@@ -2199,7 +2260,7 @@ export default function PagamentoPage() {
 
   async function handleIrParaPagamento() {
     if (resultadoPedido?.pedido_id) {
-      // Se já está pendente (aprovado), vai direto pro pagamento
+      // Se jÃ¡ estÃ¡ pendente (aprovado), vai direto pro pagamento
       if (statusPedidoAtual === 'pendente' || statusPedidoAtual === 'pagamento_recusado') {
         setEtapaAtual(ETAPAS.PIX);
       } else {
@@ -2217,7 +2278,7 @@ export default function PagamentoPage() {
     }
 
     const confirmarCancelamento = typeof window !== 'undefined'
-      ? window.confirm('Deseja cancelar este pedido em revisão? O estoque será devolvido e você poderá montar outro pedido.')
+      ? window.confirm('Deseja cancelar este pedido em revisÃ£o? O estoque serÃ¡ devolvido e vocÃª poderÃ¡ montar outro pedido.')
       : true;
 
     if (!confirmarCancelamento) {
@@ -2229,16 +2290,16 @@ export default function PagamentoPage() {
 
     try {
       const data = await cancelarPedidoRevisao(pedidoId, {
-        motivo: 'Cancelado pelo cliente durante revisão.'
+        motivo: 'Cancelado pelo cliente durante revisÃ£o.'
       });
 
       trackOrder(pedidoId, data || { status: 'cancelado' });
-      sairDoFluxoRevisaoEncerrado('Pedido cancelado. Você pode montar outro carrinho normalmente.');
+      sairDoFluxoRevisaoEncerrado('Pedido cancelado. VocÃª pode montar outro carrinho normalmente.');
     } catch (error) {
       if (isAuthErrorMessage(error.message)) {
         setAutenticado(false);
       }
-      setErro(error.message || 'Não foi possível cancelar o pedido em revisão.');
+      setErro(error.message || 'NÃ£o foi possÃ­vel cancelar o pedido em revisÃ£o.');
     } finally {
       setCancelandoRevisao(false);
     }
@@ -2249,7 +2310,7 @@ export default function PagamentoPage() {
 
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     if (!(documentoDigits.length === 11 || documentoDigits.length === 14)) {
-      setErro(`Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartão'}.`);
+      setErro(`Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartÃ£o'}.`);
       return;
     }
 
@@ -2257,14 +2318,29 @@ export default function PagamentoPage() {
     await handleIrParaPagamento();
   }
 
-  // ── Polling de revisão: verifica a cada 10s se o pedido foi aprovado ────
+  // â”€â”€ Polling de revisÃ£o: verifica a cada 10s se o pedido foi aprovado â”€â”€â”€â”€
   useEffect(() => {
     if (etapaAtual !== ETAPAS.REVISAO || !resultadoPedido?.pedido_id) return undefined;
 
     let ativo = true;
-    const intervalo = setInterval(async () => {
+    let emAndamento = false;
+    let statusAbortController = null;
+
+    const executarPolling = async () => {
+      if (!ativo || emAndamento) {
+        return;
+      }
+
+      emAndamento = true;
+      if (statusAbortController) {
+        statusAbortController.abort();
+      }
+      statusAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
       try {
-        const data = await getPedidoStatus(resultadoPedido.pedido_id);
+        const data = await getPedidoStatus(resultadoPedido.pedido_id, {
+          signal: statusAbortController?.signal
+        });
         const novoStatus = String(data?.status || '').toLowerCase();
 
         if (!ativo) return;
@@ -2281,18 +2357,35 @@ export default function PagamentoPage() {
           setEtapaAtual(ETAPAS.STATUS);
         } else if (novoStatus === 'cancelado' || novoStatus === 'expirado') {
           setStatusPedidoAtual(novoStatus);
-          sairDoFluxoRevisaoEncerrado('Seu pedido em revisão foi encerrado. Você pode montar um novo carrinho.');
+          sairDoFluxoRevisaoEncerrado('Seu pedido em revisao foi encerrado. Voce pode montar um novo carrinho.');
         } else if (novoStatus) {
           setStatusPedidoAtual(novoStatus);
         }
-      } catch (_) {
-        // Silenciar — tentará novamente no próximo tick
+      } catch (error) {
+        const erroCancelado = error?.name === 'AbortError'
+          || error?.code === 'API_ABORTED'
+          || Number(error?.status || 0) === 499;
+        if (erroCancelado) {
+          return;
+        }
+        // Silencioso: tenta novamente no proximo tick.
+      } finally {
+        emAndamento = false;
       }
+    };
+
+    void executarPolling();
+    const intervalo = setInterval(() => {
+      void executarPolling();
     }, 3000);
 
     return () => {
       ativo = false;
       clearInterval(intervalo);
+      if (statusAbortController) {
+        statusAbortController.abort();
+      }
+      emAndamento = false;
     };
   }, [etapaAtual, resultadoPedido?.pedido_id, sairDoFluxoRevisaoEncerrado, trackOrder]);
 
@@ -2326,11 +2419,11 @@ export default function PagamentoPage() {
     return () => clearTimeout(timer);
   }, [navigate, resultadoPedido?.pedido_id, resultadoPedido?.status, statusPedidoAtual]);
 
-  // ── Auto-gerar PIX via Mercado Pago ao entrar na etapa de pagamento ──
+  // â”€â”€ Auto-gerar PIX via Mercado Pago ao entrar na etapa de pagamento â”€â”€
   useEffect(() => {
     if (etapaAtual !== ETAPAS.PIX) return;
     if (!resultadoPedido?.pedido_id) return;
-    if (resultadoPix) return; // Já tem PIX gerado
+    if (resultadoPix) return; // JÃ¡ tem PIX gerado
     if (formaPagamento !== 'pix') return;
     if (recaptchaCheckoutEnabled && !String(recaptchaCheckoutToken || '').trim()) return;
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
@@ -2349,13 +2442,13 @@ export default function PagamentoPage() {
     recaptchaCheckoutToken
   ]);
 
-  // ── Gerar PIX via Mercado Pago ──────────────────────────────────────────
+  // â”€â”€ Gerar PIX via Mercado Pago â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function handleGerarPixMercadoPago(pedidoId) {
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
       setDocumentoTocado(true);
-      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para gerar o PIX.');
+      setErro('Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para gerar o PIX.');
       return;
     }
 
@@ -2363,7 +2456,7 @@ export default function PagamentoPage() {
     try {
       recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
     } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para gerar o PIX.');
+      setErro(error.message || 'Confirme o reCAPTCHA de seguranÃ§a para gerar o PIX.');
       return;
     }
 
@@ -2386,7 +2479,7 @@ export default function PagamentoPage() {
       if (isAuthErrorMessage(error.message)) {
         setAutenticado(false);
       }
-      setErro(error.message || 'Não foi possível gerar o PIX. Tente novamente.');
+      setErro(error.message || 'NÃ£o foi possÃ­vel gerar o PIX. Tente novamente.');
     } finally {
       setCarregando(false);
       if (recaptchaCheckoutEnabled) {
@@ -2395,12 +2488,12 @@ export default function PagamentoPage() {
     }
   }
 
-  // ── Pagar com cartão via Mercado Pago ──────────────────────────────────
+  // â”€â”€ Pagar com cartÃ£o via Mercado Pago â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function handlePagarCartaoMercadoPago(pedidoId) {
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
-      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagar com cartão.');
+      setErro('Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para pagar com cartÃ£o.');
       return;
     }
 
@@ -2408,21 +2501,21 @@ export default function PagamentoPage() {
     try {
       recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
     } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar no cartão.');
+      setErro(error.message || 'Confirme o reCAPTCHA de seguranÃ§a para continuar no cartÃ£o.');
       return;
     }
 
     let tokenParaPagamento = String(tokenCartao || '').trim();
     if (!tokenParaPagamento) {
       if (!dadosCartaoCompletos) {
-        setErro('Preencha os dados do cartão para continuar.');
+        setErro('Preencha os dados do cartÃ£o para continuar.');
         return;
       }
 
       try {
         tokenParaPagamento = await handleCriptografarCartao();
       } catch (error) {
-        setErro(error?.message || 'Não foi possível validar os dados do cartão.');
+        setErro(error?.message || 'NÃ£o foi possÃ­vel validar os dados do cartÃ£o.');
         return;
       }
     }
@@ -2450,7 +2543,7 @@ export default function PagamentoPage() {
           throw erroPagamento;
         }
 
-        // Token MP pode expirar entre etapas; refaz tokenização e tenta uma única vez.
+        // Token MP pode expirar entre etapas; refaz tokenizaÃ§Ã£o e tenta uma Ãºnica vez.
         setTokenCartao('');
         const novoToken = await handleCriptografarCartao();
         data = await tentarPagamentoCartao(novoToken);
@@ -2461,12 +2554,12 @@ export default function PagamentoPage() {
         setPagamentoConfirmado(true);
         setEtapaAtual(ETAPAS.STATUS);
       } else if (data?.status === 'rejected') {
-        setErro('Pagamento recusado. Verifique os dados do cartão e tente novamente.');
+        setErro('Pagamento recusado. Verifique os dados do cartÃ£o e tente novamente.');
       } else {
-        setErro('Pagamento em análise. Aguarde a confirmação.');
+        setErro('Pagamento em anÃ¡lise. Aguarde a confirmaÃ§Ã£o.');
       }
     } catch (error) {
-      setErro(error.message || 'Não foi possível processar o pagamento.');
+      setErro(error.message || 'NÃ£o foi possÃ­vel processar o pagamento.');
     } finally {
       setCarregando(false);
       if (recaptchaCheckoutEnabled) {
@@ -2484,14 +2577,14 @@ export default function PagamentoPage() {
     try {
       recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
     } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para gerar o PIX.');
+      setErro(error.message || 'Confirme o reCAPTCHA de seguranÃ§a para gerar o PIX.');
       return;
     }
 
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
-      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para gerar o PIX.');
+      setErro('Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para gerar o PIX.');
       return;
     }
 
@@ -2530,7 +2623,7 @@ export default function PagamentoPage() {
       const data = await getPedidos();
       const pedidoAtual = (data?.pedidos || []).find((item) => Number(item.id) === Number(resultadoPedido.pedido_id));
       if (!pedidoAtual) {
-        throw new Error('Não foi possível localizar o pedido para verificar o pagamento.');
+        throw new Error('NÃ£o foi possÃ­vel localizar o pedido para verificar o pagamento.');
       }
 
       const statusInterno = String(pedidoAtual.status || '').toLowerCase();
@@ -2562,7 +2655,7 @@ export default function PagamentoPage() {
       if (isAuthErrorMessage(error.message)) {
         setAutenticado(false);
       }
-      setErro(error.message || 'Não foi possível atualizar o status do pagamento PIX.');
+      setErro(error.message || 'NÃ£o foi possÃ­vel atualizar o status do pagamento PIX.');
     } finally {
       setVerificandoStatusPix(false);
     }
@@ -2588,9 +2681,9 @@ export default function PagamentoPage() {
         document.body.removeChild(campoTemporario);
       }
 
-      setFeedbackCopiaPix('Código copiado com sucesso.');
+      setFeedbackCopiaPix('CÃ³digo copiado com sucesso.');
     } catch {
-      setFeedbackCopiaPix('Não foi possível copiar automaticamente. Selecione e copie manualmente.');
+      setFeedbackCopiaPix('NÃ£o foi possÃ­vel copiar automaticamente. Selecione e copie manualmente.');
     }
   }
 
@@ -2658,12 +2751,12 @@ export default function PagamentoPage() {
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
-      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento com cartão.');
+      setErro('Informe CPF (11 dÃ­gitos) ou CNPJ (14 dÃ­gitos) para pagamento com cartÃ£o.');
       return;
     }
 
     if (debitoSelecionado && !validarDocumentoFiscal3DS(documentoDigits)) {
-      setErro('Para débito com autenticação 3DS, informe um CPF ou CNPJ válido.');
+      setErro('Para dÃ©bito com autenticaÃ§Ã£o 3DS, informe um CPF ou CNPJ vÃ¡lido.');
       return;
     }
 
@@ -2671,7 +2764,7 @@ export default function PagamentoPage() {
     try {
       recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
     } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar no cartão.');
+      setErro(error.message || 'Confirme o reCAPTCHA de seguranÃ§a para continuar no cartÃ£o.');
       return;
     }
 
@@ -2682,7 +2775,7 @@ export default function PagamentoPage() {
       try {
         tokenNormalizado = await handleCriptografarCartao();
       } catch (error) {
-        setErro(error.message || 'Não foi possível validar os dados do cartão.');
+        setErro(error.message || 'NÃ£o foi possÃ­vel validar os dados do cartÃ£o.');
         pagandoCartaoRef.current = false;
         return;
       }
@@ -2807,9 +2900,9 @@ export default function PagamentoPage() {
     if (etapaAtual === ETAPAS.CARRINHO) return 'Carrinho';
     if (etapaAtual === ETAPAS.ENTREGA) return 'Entrega';
     if (etapaAtual === ETAPAS.PAGAMENTO) return 'Pagamento';
-    if (etapaAtual === ETAPAS.REVISAO) return 'Revisão';
+    if (etapaAtual === ETAPAS.REVISAO) return 'RevisÃ£o';
     if (etapaAtual === ETAPAS.PIX) return formaPagamento === 'pix' ? 'Pagamento' : `Pagamento com ${tituloFormaPagamento}`;
-    return 'Confirmação';
+    return 'ConfirmaÃ§Ã£o';
   })();
   const subtituloEtapaAtual = `Etapa ${etapaIndex + 1} de 5`;
   const subtituloEtapaAtualTexto = etapaAtual === ETAPAS.PAGAMENTO
@@ -2823,7 +2916,7 @@ export default function PagamentoPage() {
     const syncIso = ultimaAtualizacaoRevisao || reviewTrackerGlobal?.lastSyncAt || '';
     const syncMs = Number(new Date(syncIso || 0).getTime());
     if (!Number.isFinite(syncMs) || syncMs <= 0) {
-      return 'Atualização automática ativa a cada poucos segundos';
+      return 'AtualizaÃ§Ã£o automÃ¡tica ativa a cada poucos segundos';
     }
 
     const elapsedSec = Math.max(0, Math.floor((Date.now() - syncMs) / 1000));
@@ -2832,10 +2925,10 @@ export default function PagamentoPage() {
     }
 
     if (elapsedSec < 60) {
-      return `Atualizado há ${elapsedSec}s`;
+      return `Atualizado hÃ¡ ${elapsedSec}s`;
     }
 
-    return `Atualizado há ${Math.floor(elapsedSec / 60)} min`;
+    return `Atualizado hÃ¡ ${Math.floor(elapsedSec / 60)} min`;
   })();
   const carrinhoVazio = itens.length === 0;
   const statusCartaoAtual = String(resultadoCartao?.status || '').toUpperCase();
@@ -2848,7 +2941,7 @@ export default function PagamentoPage() {
   const documentoValidoPagamento = documentoDigits.length === 11 || documentoDigits.length === 14;
   const feedbackEvidencia3DSTone = feedbackEvidencia3DS
     ? (String(feedbackEvidencia3DS).toLowerCase().includes('nao foi possivel')
-      || String(feedbackEvidencia3DS).toLowerCase().includes('não foi possível')
+      || String(feedbackEvidencia3DS).toLowerCase().includes('nÃ£o foi possÃ­vel')
       ? 'is-warning'
       : 'is-success')
     : '';
@@ -2907,17 +3000,17 @@ export default function PagamentoPage() {
     || !recaptchaCheckoutPronto
     || (pagamentoCartaoSelecionado && !cartaoProntoParaContinuar);
   const mensagemBloqueioPagamento = pagamentoSemItens
-    ? 'Seu carrinho está vazio. Adicione produtos para seguir com o pagamento.'
+    ? 'Seu carrinho estÃ¡ vazio. Adicione produtos para seguir com o pagamento.'
     : pagamentoSemFreteCalculado
-      ? 'Frete ainda não calculado. Volte para entrega e calcule o CEP para continuar.'
+      ? 'Frete ainda nÃ£o calculado. Volte para entrega e calcule o CEP para continuar.'
       : documentoDigits.length === 0
-        ? 'Informe CPF/CNPJ para habilitar a continuação.'
+        ? 'Informe CPF/CNPJ para habilitar a continuaÃ§Ã£o.'
         : !documentoValidoPagamento
-          ? 'Documento inválido. Use CPF com 11 dígitos ou CNPJ com 14 dígitos.'
+          ? 'Documento invÃ¡lido. Use CPF com 11 dÃ­gitos ou CNPJ com 14 dÃ­gitos.'
           : !recaptchaCheckoutPronto
             ? 'Confirme o reCAPTCHA de seguranca para habilitar a continuacao.'
           : pagamentoCartaoSelecionado && !cartaoProntoParaContinuar
-            ? 'Complete os dados do cartão para habilitar a continuação.'
+            ? 'Complete os dados do cartÃ£o para habilitar a continuaÃ§Ã£o.'
         : '';
   const codigoPixAtual = String(resultadoPix?.qr_data || resultadoPix?.pix_codigo || resultadoPedido?.pix_codigo || '').trim();
   const qrCodeBase64Atual = String(resultadoPix?.qr_code_base64 || '').trim();
@@ -2954,15 +3047,25 @@ export default function PagamentoPage() {
   const resumoItensCarrinho = formatarQuantidadeItens(resumo.itens);
   const mensagemProcessamentoCheckout = etapaAtual === ETAPAS.PIX
     ? (formaPagamento === 'pix'
-      ? 'Processando informações do PIX. Aguarde para evitar pagamentos duplicados.'
-      : `Processando ${tituloFormaPagamento.toLowerCase()}. Aguarde a confirmação do gateway.`)
-    : 'Processando as informações do seu pedido com segurança.';
+      ? 'Processando informaÃ§Ãµes do PIX. Aguarde para evitar pagamentos duplicados.'
+      : `Processando ${tituloFormaPagamento.toLowerCase()}. Aguarde a confirmaÃ§Ã£o do gateway.`)
+    : 'Processando as informaÃ§Ãµes do seu pedido com seguranÃ§a.';
   const pagamentoAprovadoCheckout = pagamentoConfirmado || pixPagamentoAprovado || cartaoAprovado;
+  const sugestoesPorImpulsoAtivas = modoSugestoesCheckout === 'impulso';
   const sugestoesPorCategoriaAtivas = modoSugestoesCheckout === 'categoria';
-  const tituloSugestoesCheckout = sugestoesPorCategoriaAtivas ? 'Produtos da mesma categoria' : 'Combine com sua compra';
-  const subtituloSugestoesCheckout = sugestoesPorCategoriaAtivas
-    ? 'Selecionamos itens próximos do que você já colocou no carrinho.'
-    : 'Sugestões rápidas para completar o pedido sem sair do checkout.';
+  const sugestoesPorFallbackAtivas = modoSugestoesCheckout === 'fallback';
+  const tituloSugestoesCheckout = sugestoesPorImpulsoAtivas
+    ? 'Aproveite tambem'
+    : sugestoesPorCategoriaAtivas
+      ? 'Leve junto'
+      : 'Mais para o seu pedido';
+  const subtituloSugestoesCheckout = sugestoesPorImpulsoAtivas
+    ? 'Itens de impulso para aumentar praticidade sem sair do carrinho.'
+    : sugestoesPorCategoriaAtivas
+      ? 'Produtos da mesma categoria ou relacionados ao que voce escolheu.'
+      : sugestoesPorFallbackAtivas
+        ? 'Selecionamos opcoes atrativas em estoque para nao perder o ritmo da compra.'
+        : 'Sugestoes para completar o pedido.';
 
   const handleVoltarEtapaAtual = useCallback(() => {
     if (etapaAtual === ETAPAS.CARRINHO) {
@@ -3007,7 +3110,7 @@ export default function PagamentoPage() {
         stepLabel: subtituloEtapaAtual,
         totalLabel: `Total parcial: ${formatarMoeda(resumo.total)}`,
         caption: '',
-        primaryLabel: `Ir para entrega • ${formatarMoeda(Number(resumo.total || 0) + Number(taxaServicoAtual || 0))}`,
+        primaryLabel: `Ir para entrega â€¢ ${formatarMoeda(Number(resumo.total || 0) + Number(taxaServicoAtual || 0))}`,
         onPrimaryClick: () => setEtapaAtual(ETAPAS.ENTREGA),
         primaryDisabled: carrinhoVazio
       };
@@ -3035,7 +3138,7 @@ export default function PagamentoPage() {
         stepLabel: 'Etapa 3 de 5',
         totalLabel: `Total do pedido: ${formatarMoeda(resumoTotalPagamento)}`,
         caption: mensagemBloqueioPagamento || `Forma atual: ${formaPagamentoAtual.title}`,
-        primaryLabel: carregando ? 'Processando...' : `Revisar pedido • ${formatarMoeda(resumoTotalPagamento)}`,
+        primaryLabel: carregando ? 'Processando...' : `Revisar pedido â€¢ ${formatarMoeda(resumoTotalPagamento)}`,
         onPrimaryClick: () => {
           void handleContinuarPagamento();
         },
@@ -3051,7 +3154,7 @@ export default function PagamentoPage() {
         totalLabel: `Total do pedido: ${formatarMoeda(totalComEntregaPedido)}`,
         caption: ['cancelado', 'expirado'].includes(String(statusPedidoAtual || '').toLowerCase())
           ? 'Pedido encerrado.'
-          : 'Aguardando revisão da equipe do mercado...',
+          : 'Aguardando revisÃ£o da equipe do mercado...',
         primaryLabel: 'Confirmar pedido',
         onPrimaryClick: () => setEtapaAtual(ETAPAS.PIX),
         primaryDisabled: !['pendente', 'pago', 'pagamento_recusado'].includes(String(statusPedidoAtual || '').toLowerCase())
@@ -3065,9 +3168,9 @@ export default function PagamentoPage() {
           totalLabel: `Total do pedido: ${formatarMoeda(totalComEntregaPedido)}`,
           caption: podeContinuarConfirmacaoPix
             ? 'Pagamento aprovado. Siga para confirmar o pedido.'
-            : 'Após pagar no banco, confirme o status aqui.',
+            : 'ApÃ³s pagar no banco, confirme o status aqui.',
           primaryLabel: podeContinuarConfirmacaoPix
-            ? 'Ir para confirmação'
+            ? 'Ir para confirmaÃ§Ã£o'
             : (verificandoStatusPix ? 'Verificando pagamento PIX...' : 'Verificar pagamento PIX'),
           onPrimaryClick: () => {
             if (podeContinuarConfirmacaoPix) {
@@ -3094,9 +3197,9 @@ export default function PagamentoPage() {
         stepLabel: 'Etapa 4 de 5',
         totalLabel: `Total do pedido: ${formatarMoeda(totalComEntregaPedido)}`,
         caption: cartaoAprovado
-          ? 'Pagamento aprovado. Siga para a confirmação.'
-          : 'Conclua o pagamento no cartão para continuar.',
-        primaryLabel: 'Ir para confirmação',
+          ? 'Pagamento aprovado. Siga para a confirmaÃ§Ã£o.'
+          : 'Conclua o pagamento no cartÃ£o para continuar.',
+        primaryLabel: 'Ir para confirmaÃ§Ã£o',
         onPrimaryClick: () => {
           setPagamentoConfirmado(cartaoAprovado);
           setEtapaAtual(ETAPAS.STATUS);
@@ -3266,7 +3369,7 @@ export default function PagamentoPage() {
 
     if (etapaAtual !== ETAPAS.CARRINHO || !itens.length) {
       setSugestoesCheckout([]);
-      setModoSugestoesCheckout('inteligente');
+      setModoSugestoesCheckout('impulso');
       setCarregandoSugestoesCheckout(false);
       return () => {
         ativo = false;
@@ -3274,27 +3377,116 @@ export default function PagamentoPage() {
     }
 
     const idsCarrinho = new Set(itens.map((item) => Number(item.id)));
+    const textosCarrinho = itens
+      .map((item) =>
+        normalizarTextoSugestao([
+          item?.nome_base,
+          item?.nome,
+          item?.categoria,
+          item?.categoria_nome
+        ].join(' '))
+      )
+      .filter(Boolean);
 
     async function carregarSugestoes() {
       setCarregandoSugestoesCheckout(true);
       const vistos = new Set();
       const agregados = [];
+      let modoSugestaoAtivo = 'impulso';
 
-      const adicionarSugestao = (produto, termoBusca = '') => {
+      const includesAny = (texto, termos = []) => termos.some((termo) => texto.includes(termo));
+
+      const extrairTextoProduto = (produto) => normalizarTextoSugestao([
+        produto?.nome_externo,
+        produto?.nome,
+        produto?.categoria,
+        produto?.categoria_nome,
+        produto?.departamento,
+        produto?.descricao,
+        produto?.marca,
+        produto?.produto_controlado
+      ].join(' '));
+
+      const produtoEhProibido = (produto, textoProduto) => {
+        if (!isProdutoVisivelNoCatalogo(produto)) {
+          return true;
+        }
+
+        if (isProdutoTabaco(produto) || isProdutoAlcoolico(produto)) {
+          return true;
+        }
+
+        if (includesAny(textoProduto, TOKENS_TABACO_BLOQUEADOS)) {
+          return true;
+        }
+
+        if (includesAny(textoProduto, TOKENS_ALCOOL_BLOQUEADOS)) {
+          return true;
+        }
+
+        if (includesAny(textoProduto, TOKENS_MEDICAMENTOS_BLOQUEADOS)) {
+          return true;
+        }
+
+        if (textoProduto.includes('+18') || textoProduto.includes('18 anos')) {
+          return true;
+        }
+
+        return false;
+      };
+
+      const pontuarProduto = ({ textoProduto, estoque, preco, origem }) => {
+        let pontuacao = 0;
+        const impulso = includesAny(textoProduto, termosSugestaoImpulso);
+        const relacionado = includesAny(textoProduto, termosSugestaoCategoriaRelacionada)
+          || textosCarrinho.some((textoCarrinho) => textoCarrinho && textoProduto.includes(textoCarrinho.slice(0, 10)));
+
+        if (impulso) {
+          pontuacao += 320;
+        }
+
+        if (relacionado) {
+          pontuacao += 180;
+        }
+
+        if (origem === 'impulso') {
+          pontuacao += 140;
+        } else if (origem === 'categoria') {
+          pontuacao += 90;
+        } else {
+          pontuacao += 40;
+        }
+
+        if (Number.isFinite(preco) && preco > 0 && preco <= 25) {
+          pontuacao += 35;
+        }
+
+        if (Number.isFinite(estoque) && estoque > 0) {
+          pontuacao += Math.min(30, Math.floor(estoque / 4));
+        }
+
+        return pontuacao;
+      };
+
+      const adicionarSugestao = (produto, origem = 'fallback') => {
         const id = Number(produto?.id || 0);
         const nome = String(produto?.nome_externo || produto?.nome || '').trim();
-        const nomeNormalizado = normalizarTextoSugestao(nome);
-        const termoNormalizado = normalizarTextoSugestao(termoBusca);
         const ativoProduto = !Object.prototype.hasOwnProperty.call(produto || {}, 'ativo') || Number(produto?.ativo) !== 0;
-        const estoqueRaw = produto?.estoque ?? produto?.quantidade_estoque ?? produto?.stock ?? null;
-        const estoqueNumerico = estoqueRaw === null ? null : Number(estoqueRaw);
-        const possuiEstoque = estoqueNumerico === null || (Number.isFinite(estoqueNumerico) ? estoqueNumerico > 0 : true);
+        const estoqueRaw = produto?.estoque ?? produto?.quantidade_estoque ?? produto?.stock;
+        const estoqueNumerico = Number(estoqueRaw);
+        const possuiEstoque = Number.isFinite(estoqueNumerico) && estoqueNumerico > 0;
+        const textoProduto = extrairTextoProduto(produto);
+        const preco = Number(produto?.preco_promocional ?? produto?.preco ?? produto?.preco_venda ?? 0);
 
         if (!id || !nome || vistos.has(id) || idsCarrinho.has(id) || !ativoProduto || !possuiEstoque) {
           return false;
         }
 
-        if (termoNormalizado && !nomeNormalizado.includes(termoNormalizado)) {
+        if (!textoProduto || produtoEhProibido(produto, textoProduto)) {
+          return false;
+        }
+
+        if (!Number.isFinite(preco) || preco <= 0) {
           return false;
         }
 
@@ -3302,69 +3494,143 @@ export default function PagamentoPage() {
         agregados.push({
           id,
           nome,
-          preco: Number(produto?.preco_promocional || produto?.preco || produto?.preco_venda || 0),
-          emoji: String(produto?.emoji || ''),
-          imagem: String(produto?.imagem || '').trim(),
-          categoria: String(produto?.categoria || '').trim(),
+          preco,
+          imagem: String(produto?.imagem || produto?.imagem_url || '').trim(),
+          categoria: String(
+            produto?.categoria
+            || produto?.categoria_nome
+            || produto?.departamento
+            || ''
+          ).trim(),
           unidade: String(produto?.unidade || '').trim(),
-          estoque: Number.isFinite(estoqueNumerico) ? estoqueNumerico : null
+          estoque: estoqueNumerico,
+          score: pontuarProduto({
+            textoProduto,
+            estoque: estoqueNumerico,
+            preco,
+            origem
+          })
         });
 
         return true;
       };
 
-      if (termosSugestaoPriorizados.length) {
-        const consultas = termosSugestaoPriorizados.slice(0, 10).map(async (termo) => {
-          if (cacheSugestoesRef.current.has(termo)) {
-            return { termo, lista: cacheSugestoesRef.current.get(termo) };
-          }
-
-          try {
-            const data = await getProdutos({ busca: termo, page: 1, limit: 16 });
-            const lista = Array.isArray(data?.produtos) ? data.produtos : [];
-            cacheSugestoesRef.current.set(termo, lista);
-            return { termo, lista };
-          } catch {
-            cacheSugestoesRef.current.set(termo, []);
-            return { termo, lista: [] };
-          }
-        });
-
-        const lotes = await Promise.all(consultas);
-        if (!ativo) {
-          return;
+      const buscarProdutos = async ({
+        busca = '',
+        categoria = '',
+        limit = 24,
+        page = 1,
+        sort = 'estoque'
+      } = {}) => {
+        const termoBusca = normalizarTextoSugestao(busca);
+        const termoCategoria = normalizarTextoSugestao(categoria);
+        const cacheKey = `checkout_sugestoes:${termoBusca || '-'}:${termoCategoria || '-'}:${limit}:${page}:${sort}`;
+        if (cacheSugestoesRef.current.has(cacheKey)) {
+          return cacheSugestoesRef.current.get(cacheKey);
         }
 
-        lotes.forEach(({ termo, lista }) => {
-          lista.forEach((produto) => {
-            adicionarSugestao(produto, termo);
-          });
-        });
-      }
-
-      let usouFallbackCategoria = false;
-
-      if (agregados.length < 4 && categoriaFallbackSugestoes) {
         try {
-          const fallbackData = await getProdutos({ categoria: categoriaFallbackSugestoes, page: 1, limit: 24 });
+          const data = await getProdutos({
+            busca: termoBusca || undefined,
+            categoria: termoCategoria || undefined,
+            page,
+            limit,
+            sort
+          });
+          const lista = Array.isArray(data?.produtos) ? data.produtos : [];
+          cacheSugestoesRef.current.set(cacheKey, lista);
+          return lista;
+        } catch {
+          cacheSugestoesRef.current.set(cacheKey, []);
+          return [];
+        }
+      };
+
+      const preencherPorTermos = async (termos, origem, maxTermos = 12) => {
+        for (const termo of termos.slice(0, maxTermos)) {
+          if (!ativo || agregados.length >= LIMITE_SUGESTOES_CHECKOUT) {
+            return;
+          }
+          const lista = await buscarProdutos({ busca: termo, limit: 18, page: 1, sort: 'estoque' });
           if (!ativo) {
             return;
           }
-
-          const fallbackLista = Array.isArray(fallbackData?.produtos) ? fallbackData.produtos : [];
-          fallbackLista.forEach((produto) => {
-            const adicionado = adicionarSugestao(produto);
-            if (adicionado) {
-              usouFallbackCategoria = true;
-            }
+          lista.forEach((produto) => {
+            adicionarSugestao(produto, origem);
           });
-        } catch {
-          // Sem fallback adicional em erro de rede.
         }
+      };
+
+      await preencherPorTermos(termosSugestaoImpulso, 'impulso', 14);
+      if (!ativo) {
+        return;
       }
 
-      setModoSugestoesCheckout(usouFallbackCategoria ? 'categoria' : 'inteligente');
-      setSugestoesCheckout(agregados.slice(0, 8));
+      if (agregados.length < MINIMO_PRIORIDADE_IMPULSO && termosSugestaoCategoriaRelacionada.length) {
+        modoSugestaoAtivo = 'categoria';
+        await preencherPorTermos(termosSugestaoCategoriaRelacionada, 'categoria', 14);
+      }
+
+      if (!ativo) {
+        return;
+      }
+
+      if (agregados.length < MINIMO_PRIORIDADE_IMPULSO) {
+        modoSugestaoAtivo = 'fallback';
+        await preencherPorTermos(TERMOS_FALLBACK_GERAL, 'fallback', TERMOS_FALLBACK_GERAL.length);
+      }
+
+      if (!ativo) {
+        return;
+      }
+
+      if (agregados.length < MINIMO_PRIORIDADE_IMPULSO) {
+        const fallbackGeral = await buscarProdutos({ limit: 120, page: 1, sort: 'estoque' });
+        if (!ativo) {
+          return;
+        }
+        fallbackGeral.forEach((produto) => {
+          adicionarSugestao(produto, 'fallback');
+        });
+      }
+
+      let sugestoesOrdenadas = agregados
+        .sort((a, b) => {
+          const scoreA = Number(a?.score || 0);
+          const scoreB = Number(b?.score || 0);
+          if (scoreA !== scoreB) {
+            return scoreB - scoreA;
+          }
+          const estoqueA = Number(a?.estoque || 0);
+          const estoqueB = Number(b?.estoque || 0);
+          if (estoqueA !== estoqueB) {
+            return estoqueB - estoqueA;
+          }
+          return Number(a?.preco || 0) - Number(b?.preco || 0);
+        })
+        .slice(0, LIMITE_SUGESTOES_CHECKOUT)
+        .map((produto) => ({
+          id: produto.id,
+          nome: produto.nome,
+          preco: produto.preco,
+          imagem: produto.imagem,
+          categoria: produto.categoria,
+          unidade: produto.unidade,
+          estoque: produto.estoque
+        }));
+
+      if (!sugestoesOrdenadas.length && ultimaSugestaoCheckoutValidaRef.current.length) {
+        sugestoesOrdenadas = ultimaSugestaoCheckoutValidaRef.current
+          .filter((produto) => !idsCarrinho.has(Number(produto?.id || 0)))
+          .slice(0, LIMITE_SUGESTOES_CHECKOUT);
+      }
+
+      if (sugestoesOrdenadas.length) {
+        ultimaSugestaoCheckoutValidaRef.current = sugestoesOrdenadas;
+      }
+
+      setModoSugestoesCheckout(modoSugestaoAtivo);
+      setSugestoesCheckout(sugestoesOrdenadas);
       setCarregandoSugestoesCheckout(false);
     }
 
@@ -3373,7 +3639,13 @@ export default function PagamentoPage() {
     return () => {
       ativo = false;
     };
-  }, [etapaAtual, itens, termosSugestaoPriorizados, categoriaFallbackSugestoes, normalizarTextoSugestao]);
+  }, [
+    etapaAtual,
+    itens,
+    normalizarTextoSugestao,
+    termosSugestaoImpulso,
+    termosSugestaoCategoriaRelacionada
+  ]);
 
   useEffect(() => {
     let ativo = true;
@@ -3406,7 +3678,7 @@ export default function PagamentoPage() {
     return (
       <section className="page">
         <h1>Finalizar pedido</h1>
-        <p>Validando sua sessão...</p>
+        <p>Validando sua sessÃ£o...</p>
       </section>
     );
   }
@@ -3415,7 +3687,7 @@ export default function PagamentoPage() {
     return (
       <section className="page">
         <h1>Finalizar pedido</h1>
-        <p>Retomando o status do seu pedido em revisão...</p>
+        <p>Retomando o status do seu pedido em revisÃ£o...</p>
       </section>
     );
   }
@@ -3445,7 +3717,7 @@ export default function PagamentoPage() {
 
       {erro ? (
         <article className="checkout-inline-feedback is-error" role="alert">
-          <p className="checkout-inline-feedback-title">Não foi possível concluir esta ação.</p>
+          <p className="checkout-inline-feedback-title">NÃ£o foi possÃ­vel concluir esta aÃ§Ã£o.</p>
           <p className="checkout-inline-feedback-text">{erro}</p>
         </article>
       ) : null}
@@ -3502,7 +3774,7 @@ export default function PagamentoPage() {
               <p className="checkout-cart-live-feedback" role="status" aria-live="polite">
                 {feedbackCarrinho || (carrinhoVazio
                   ? 'Nenhum item no carrinho por enquanto.'
-                  : `${itensDistintosCarrinho} produtos diferentes • ${resumoItensCarrinho}.`)}
+                  : `${itensDistintosCarrinho} produtos diferentes â€¢ ${resumoItensCarrinho}.`)}
               </p>
             </div>
 
@@ -3512,8 +3784,8 @@ export default function PagamentoPage() {
                   <ShoppingCart size={22} strokeWidth={2} />
                 </span>
                 <div>
-                  <strong>Seu carrinho está vazio.</strong>
-                  <p>Adicione produtos para continuar com a finalização do pedido.</p>
+                  <strong>Seu carrinho estÃ¡ vazio.</strong>
+                  <p>Adicione produtos para continuar com a finalizaÃ§Ã£o do pedido.</p>
                   <Link className="btn-primary checkout-cart-empty-cta" to="/produtos">
                     Ir para produtos
                   </Link>
@@ -3538,6 +3810,7 @@ export default function PagamentoPage() {
               subtitle={subtituloSugestoesCheckout}
               produtos={sugestoesCheckout}
               carregando={carregandoSugestoesCheckout}
+              alwaysVisible={Boolean(itens.length)}
               onAdd={(produto) => addItem(produto, 1, { source: 'checkout_cross_sell' })}
             />
           </div>
@@ -3591,7 +3864,7 @@ export default function PagamentoPage() {
                   className={`delivery-mode-toggle-btn ${formaRecebimentoSelecionada === 'uber' ? 'is-active' : ''}`.trim()}
                   onClick={() => selecionarFormaRecebimento('uber')}
                   disabled={!uberQuoteDisponivel}
-                  title={!uberQuoteDisponivel ? 'Uber indisponível no momento' : ''}
+                  title={!uberQuoteDisponivel ? 'Uber indisponÃ­vel no momento' : ''}
                 >
                   Uber
                 </button>
@@ -3599,7 +3872,7 @@ export default function PagamentoPage() {
             </section>
 
             {formaRecebimentoSelecionada === 'uber' ? (
-              <article className="delivery-uber-info" role="status" aria-live="polite" aria-label="Informações da entrega via Uber">
+              <article className="delivery-uber-info" role="status" aria-live="polite" aria-label="InformaÃ§Ãµes da entrega via Uber">
                 <div className="delivery-uber-info-head">
                   <span className="delivery-uber-info-icon" aria-hidden="true">
                     <AlertTriangle size={16} strokeWidth={2} />
@@ -3607,7 +3880,7 @@ export default function PagamentoPage() {
                   <p className="delivery-uber-info-title">Entrega realizada pela Uber</p>
                 </div>
                 <p className="delivery-uber-info-text">
-                  Sua entrega será feita por um parceiro logístico da Uber. Você poderá acompanhar o andamento da entrega e terá mais segurança no processo. Quando disponível, a localização e as atualizações do entregador aparecerão para você durante a rota.
+                  Sua entrega serÃ¡ feita por um parceiro logÃ­stico da Uber. VocÃª poderÃ¡ acompanhar o andamento da entrega e terÃ¡ mais seguranÃ§a no processo. Quando disponÃ­vel, a localizaÃ§Ã£o e as atualizaÃ§Ãµes do entregador aparecerÃ£o para vocÃª durante a rota.
                 </p>
               </article>
             ) : null}
@@ -3656,7 +3929,7 @@ export default function PagamentoPage() {
                 <section className="checkout-delivery-section checkout-delivery-compact checkout-delivery-minimal" aria-label="Entrega">
                   {temEnderecoContaSalvo ? (
                     <div className="checkout-saved-address-option" role="status" aria-live="polite">
-                      <p className="checkout-saved-address-label">Endereço salvo na conta</p>
+                      <p className="checkout-saved-address-label">EndereÃ§o salvo na conta</p>
                       <p className="checkout-saved-address-text">{enderecoContaSalvoResumo}</p>
                       <button
                         type="button"
@@ -3664,14 +3937,14 @@ export default function PagamentoPage() {
                         onClick={aplicarEnderecoSalvoNoCheckout}
                         disabled={enderecoSalvoJaSelecionado}
                       >
-                        {enderecoSalvoJaSelecionado ? 'Endereço salvo em uso' : 'Usar endereço salvo'}
+                        {enderecoSalvoJaSelecionado ? 'EndereÃ§o salvo em uso' : 'Usar endereÃ§o salvo'}
                       </button>
                     </div>
                   ) : null}
 
                   <div className="delivery-input-labels" aria-hidden="true">
                     <span>CEP</span>
-                    <span>Número</span>
+                    <span>NÃºmero</span>
                   </div>
 
                   <div className="delivery-cep-row">
@@ -3706,7 +3979,7 @@ export default function PagamentoPage() {
                       type="text"
                       inputMode="numeric"
                       maxLength={10}
-                      placeholder="Número"
+                      placeholder="NÃºmero"
                       value={numeroEntrega}
                       onChange={(event) => setNumeroEntrega(String(event.target.value || '').replace(/\D/g, '').slice(0, 10))}
                     />
@@ -3762,7 +4035,7 @@ export default function PagamentoPage() {
                       const disabledBike = key === 'bike' && !bikeDisponivel;
                       const titulo = key === 'bike' ? 'Bike' : 'Entrega Uber';
                       const descricao = key === 'bike'
-                        ? `Entrega local até ${LIMITE_BIKE_KM.toFixed(1)} km`
+                        ? `Entrega local atÃ© ${LIMITE_BIKE_KM.toFixed(1)} km`
                         : 'Entrega para fora do raio da bike ou pedidos maiores';
 
                       return (
@@ -3772,7 +4045,7 @@ export default function PagamentoPage() {
                         selecionado={veiculoEntrega === key}
                         precoLabel={sim ? formatarMoeda(Number(sim.frete || 0)) : 'A calcular'}
                         disabled={disabledBike}
-                        disabledReason={disabledBike ? `Disponível apenas até ${LIMITE_BIKE_KM.toFixed(1)} km` : ''}
+                        disabledReason={disabledBike ? `DisponÃ­vel apenas atÃ© ${LIMITE_BIKE_KM.toFixed(1)} km` : ''}
                         onSelect={() => {
                           setTipoEntrega('entrega');
                           setVeiculoEntrega(key);
@@ -3790,8 +4063,8 @@ export default function PagamentoPage() {
                       <AlertTriangle size={18} strokeWidth={2} />
                     </span>
                     <div>
-                      <strong>Sem opção de entrega disponível para este CEP.</strong>
-                      <p>Verifique o CEP informado ou tente outro endereço para continuar.</p>
+                      <strong>Sem opÃ§Ã£o de entrega disponÃ­vel para este CEP.</strong>
+                      <p>Verifique o CEP informado ou tente outro endereÃ§o para continuar.</p>
                     </div>
                   </div>
                 ) : null}
@@ -3807,27 +4080,27 @@ export default function PagamentoPage() {
           <div className="card-box checkout-payment-main">
             <div className="checkout-payment-header">
               <h2>Pagamento</h2>
-              <p className="muted-text">Escolha o método e revise seus dados de forma rápida.</p>
+              <p className="muted-text">Escolha o mÃ©todo e revise seus dados de forma rÃ¡pida.</p>
             </div>
 
             <p className={`payment-frete-info ${(retiradaSelecionada || simulacaoFrete || resultadoPedido?.pedido_id) ? 'is-ready' : 'is-warning'}`}>
               {retiradaSelecionada
-                ? `Retirada na loja selecionada. Sem frete${Number(economiaFreteRetirada || 0) > 0 ? ` • Economia ${formatarMoeda(economiaFreteRetirada)}` : ''}.`
+                ? `Retirada na loja selecionada. Sem frete${Number(economiaFreteRetirada || 0) > 0 ? ` â€¢ Economia ${formatarMoeda(economiaFreteRetirada)}` : ''}.`
                 : (simulacaoFrete || resultadoPedido?.pedido_id)
-                  ? `Frete ${atendimentoSelecionadoLabel}: ${formatarMoeda(resumoFretePagamento)} • Distância ${distanciaSelecionadaTexto}`
-                  : 'Frete não calculado. Volte para entrega e simule o CEP antes de continuar.'}
+                  ? `Frete ${atendimentoSelecionadoLabel}: ${formatarMoeda(resumoFretePagamento)} â€¢ DistÃ¢ncia ${distanciaSelecionadaTexto}`
+                  : 'Frete nÃ£o calculado. Volte para entrega e simule o CEP antes de continuar.'}
             </p>
 
             {autenticado === true ? (
               <>
-                {/* Cards de método com destaque explícito para a opção ativa. */}
-                <section className="checkout-payment-section" aria-label="Métodos de pagamento disponíveis">
+                {/* Cards de mÃ©todo com destaque explÃ­cito para a opÃ§Ã£o ativa. */}
+                <section className="checkout-payment-section" aria-label="MÃ©todos de pagamento disponÃ­veis">
                   <div className="checkout-payment-section-head">
                     <h3>Forma de pagamento</h3>
-                    <p>Selecione uma opção para continuar.</p>
+                    <p>Selecione uma opÃ§Ã£o para continuar.</p>
                   </div>
 
-                  <div className="payment-methods-grid" role="radiogroup" aria-label="Seleção da forma de pagamento">
+                  <div className="payment-methods-grid" role="radiogroup" aria-label="SeleÃ§Ã£o da forma de pagamento">
                     <PaymentMethodCard
                       icon={FORMAS_PAGAMENTO_OPCOES.pix.icon}
                       title={FORMAS_PAGAMENTO_OPCOES.pix.title}
@@ -3870,7 +4143,7 @@ export default function PagamentoPage() {
 
                   {buscandoChavePublica ? (
                     <p className="payment-method-unavailable" role="status">
-                      Métodos no cartão temporariamente indisponíveis enquanto preparamos a conexão segura com o gateway.
+                      MÃ©todos no cartÃ£o temporariamente indisponÃ­veis enquanto preparamos a conexÃ£o segura com o gateway.
                     </p>
                   ) : null}
                 </section>
@@ -3884,7 +4157,7 @@ export default function PagamentoPage() {
                   value={documentoPagador}
                   id="documento-pagador"
                   label="CPF/CNPJ do pagador"
-                  helperText="Necessário para processar PIX e cartão com segurança."
+                  helperText="NecessÃ¡rio para processar PIX e cartÃ£o com seguranÃ§a."
                   onChange={(event) => {
                     setDocumentoPagador(formatarDocumentoFiscal(event.target.value));
                     if (erro) {
@@ -3900,7 +4173,7 @@ export default function PagamentoPage() {
                 <section className="checkout-payment-section checkout-payment-fiscal" aria-label="CPF na nota fiscal">
                   <div className="checkout-payment-section-head">
                     <h3>CPF na nota</h3>
-                    <p>Opcional. Use apenas para emissão fiscal.</p>
+                    <p>Opcional. Use apenas para emissÃ£o fiscal.</p>
                   </div>
 
                   {!cpfNotaFiscalAtivo ? (
@@ -3937,9 +4210,9 @@ export default function PagamentoPage() {
                         id="cpf-nota-fiscal"
                         label="CPF na nota (opcional)"
                         placeholder="000.000.000-00"
-                        helperText="Se informado, será usado apenas para emissão da nota fiscal."
-                        invalidMessage="CPF inválido. Confira os 11 dígitos."
-                        validMessage="CPF fiscal válido."
+                        helperText="Se informado, serÃ¡ usado apenas para emissÃ£o da nota fiscal."
+                        invalidMessage="CPF invÃ¡lido. Confira os 11 dÃ­gitos."
+                        validMessage="CPF fiscal vÃ¡lido."
                         onChange={(event) => {
                           const documentoFormatado = formatarDocumentoFiscal(event.target.value);
                           setCpfNotaFiscal(documentoFormatado);
@@ -3971,21 +4244,21 @@ export default function PagamentoPage() {
                 </section>
 
                 {pagamentoCartaoSelecionado ? (
-                  <section className="payment-card-panel" aria-label="Dados do cartão">
+                  <section className="payment-card-panel" aria-label="Dados do cartÃ£o">
                     <div className="payment-card-panel-head">
-                      <h3>{formaPagamento === 'credito' ? 'Dados do cartão de crédito' : 'Dados do cartão de débito'}</h3>
-                      <p>Preencha os dados exatamente como no cartão para reduzir chance de recusa.</p>
+                      <h3>{formaPagamento === 'credito' ? 'Dados do cartÃ£o de crÃ©dito' : 'Dados do cartÃ£o de dÃ©bito'}</h3>
+                      <p>Preencha os dados exatamente como no cartÃ£o para reduzir chance de recusa.</p>
                     </div>
 
                     <div className="payment-card-grid">
                       <div className="payment-card-field payment-card-field-span-2">
-                        <label htmlFor="nome-titular-cartao">Nome impresso no cartão</label>
+                        <label htmlFor="nome-titular-cartao">Nome impresso no cartÃ£o</label>
                         <input
                           id="nome-titular-cartao"
                           className="field-input"
                           type="text"
                           autoComplete="off"
-                          placeholder="Nome igual ao cartão"
+                          placeholder="Nome igual ao cartÃ£o"
                           value={nomeTitularCartao}
                           onChange={(event) => {
                             setNomeTitularCartao(event.target.value);
@@ -3995,7 +4268,7 @@ export default function PagamentoPage() {
                       </div>
 
                       <div className="payment-card-field payment-card-field-span-2">
-                        <label htmlFor="numero-cartao">Número do cartão</label>
+                        <label htmlFor="numero-cartao">NÃºmero do cartÃ£o</label>
                         <input
                           id="numero-cartao"
                           className="field-input"
@@ -4012,7 +4285,7 @@ export default function PagamentoPage() {
                       </div>
 
                       <div className="payment-card-field">
-                        <label htmlFor="mes-expiracao-cartao">Mês</label>
+                        <label htmlFor="mes-expiracao-cartao">MÃªs</label>
                         <input
                           id="mes-expiracao-cartao"
                           className="field-input"
@@ -4087,11 +4360,11 @@ export default function PagamentoPage() {
                     {formaPagamento === 'credito' ? (
                       <p className="payment-card-note">
                         {parcelamentoCreditoDisponivel
-                          ? `Parcelamento liberado para este pedido (até ${PARCELAMENTO_MAXIMO_CREDITO}x).`
-                          : `Parcelamento disponível apenas para pedidos a partir de R$ ${valorMinimoParcelamentoTexto}.`}
+                          ? `Parcelamento liberado para este pedido (atÃ© ${PARCELAMENTO_MAXIMO_CREDITO}x).`
+                          : `Parcelamento disponÃ­vel apenas para pedidos a partir de R$ ${valorMinimoParcelamentoTexto}.`}
                       </p>
                     ) : (
-                      <p className="payment-card-note">No débito, o pagamento é sempre à vista (1x).</p>
+                      <p className="payment-card-note">No dÃ©bito, o pagamento Ã© sempre Ã  vista (1x).</p>
                     )}
 
                     <div className="payment-card-actions">
@@ -4101,17 +4374,17 @@ export default function PagamentoPage() {
                         disabled={criptografandoCartao || buscandoChavePublica}
                         onClick={() => {
                           void handleCriptografarCartao().catch((error) => {
-                            setErro(error.message || 'Não foi possível validar os dados do cartão.');
+                            setErro(error.message || 'NÃ£o foi possÃ­vel validar os dados do cartÃ£o.');
                           });
                         }}
                       >
-                        {criptografandoCartao ? 'Validando dados do cartão...' : 'Validar cartão com segurança'}
+                        {criptografandoCartao ? 'Validando dados do cartÃ£o...' : 'Validar cartÃ£o com seguranÃ§a'}
                       </button>
 
                       <p className={`payment-card-token-feedback ${tokenCartao ? 'is-success' : ''}`.trim()}>
                         {tokenCartao
-                          ? 'Dados do cartão validados com sucesso.'
-                          : 'Os dados do cartão são protegidos antes do envio para pagamento.'}
+                          ? 'Dados do cartÃ£o validados com sucesso.'
+                          : 'Os dados do cartÃ£o sÃ£o protegidos antes do envio para pagamento.'}
                       </p>
 
                       {debitoSelecionado ? (
@@ -4123,7 +4396,7 @@ export default function PagamentoPage() {
 
                           {sessao3DSExpirando && sessao3DS ? (
                             <p className="payment-action-feedback is-warning" role="alert">
-                              Sua sessão de autenticação 3DS está expirando. Finalize o pagamento em breve ou ela será renovada automaticamente.
+                              Sua sessÃ£o de autenticaÃ§Ã£o 3DS estÃ¡ expirando. Finalize o pagamento em breve ou ela serÃ¡ renovada automaticamente.
                             </p>
                           ) : null}
 
@@ -4138,7 +4411,7 @@ export default function PagamentoPage() {
               </>
             ) : (
               <div className="payment-login-state">
-                <p className="muted-text">Faça login para continuar com o pagamento e acompanhar seu pedido.</p>
+                <p className="muted-text">FaÃ§a login para continuar com o pagamento e acompanhar seu pedido.</p>
                 <div className="checkout-payment-actions">
                   <Link to="/conta" className="btn-primary entrega-ir-pagamento-btn checkout-payment-primary-btn">
                     Ir para Conta
@@ -4149,7 +4422,7 @@ export default function PagamentoPage() {
           </div>
 
           <aside className="checkout-payment-side">
-            {/* Resumo financeiro com maior visibilidade antes da confirmação. */}
+            {/* Resumo financeiro com maior visibilidade antes da confirmaÃ§Ã£o. */}
             <PaymentOrderSummary
               itens={resumoItensPagamento}
               subtotal={totalProdutosPedido}
@@ -4167,12 +4440,12 @@ export default function PagamentoPage() {
                 <article className="payment-readiness-card" aria-label="Estado da etapa de pagamento">
                   <p className="payment-readiness-title">Pronto para revisar</p>
                   <p className="payment-readiness-description">
-                    {mensagemBloqueioPagamento || `Método selecionado: ${formaPagamentoAtual.title}.`}
+                    {mensagemBloqueioPagamento || `MÃ©todo selecionado: ${formaPagamentoAtual.title}.`}
                   </p>
                 </article>
 
                 {buscandoChavePublica ? (
-                  <p className="payment-action-feedback is-loading" role="status">Preparando conexão segura com o gateway de cartão...</p>
+                  <p className="payment-action-feedback is-loading" role="status">Preparando conexÃ£o segura com o gateway de cartÃ£o...</p>
                 ) : null}
               </div>
             ) : null}
@@ -4180,16 +4453,16 @@ export default function PagamentoPage() {
         </div>
       ) : null}
 
-      {/* ── ETAPA REVISÃO: aguardando equipe confirmar disponibilidade ── */}
+      {/* â”€â”€ ETAPA REVISÃƒO: aguardando equipe confirmar disponibilidade â”€â”€ */}
       {etapaAtual === ETAPAS.REVISAO ? (
         <div className="checkout-revisao-layout">
           <div className="card-box checkout-revisao-main">
             <div className="checkout-revisao-header">
               <p className="checkout-pix-kicker">Etapa 4</p>
-              <h2>Pedido em revisão</h2>
+              <h2>Pedido em revisÃ£o</h2>
               <p className="muted-text">
-                Seu pedido #{resultadoPedido?.pedido_id} foi recebido e está sendo verificado pela nossa equipe.
-                Vamos confirmar se todos os itens estão disponíveis.
+                Seu pedido #{resultadoPedido?.pedido_id} foi recebido e estÃ¡ sendo verificado pela nossa equipe.
+                Vamos confirmar se todos os itens estÃ£o disponÃ­veis.
               </p>
             </div>
 
@@ -4198,10 +4471,10 @@ export default function PagamentoPage() {
                 <div className="checkout-revisao-icon" aria-hidden="true">
                   <ClipboardList size={18} strokeWidth={2} />
                 </div>
-                <h3>Aguardando revisão da equipe</h3>
+                <h3>Aguardando revisÃ£o da equipe</h3>
                 <p className="muted-text">
-                  A equipe do mercado está verificando a disponibilidade dos seus itens.
-                  Esta página atualiza automaticamente — você será direcionado para o pagamento assim que o pedido for aprovado.
+                  A equipe do mercado estÃ¡ verificando a disponibilidade dos seus itens.
+                  Esta pÃ¡gina atualiza automaticamente â€” vocÃª serÃ¡ direcionado para o pagamento assim que o pedido for aprovado.
                 </p>
                 <div className="checkout-revisao-loading">
                   <div className="checkout-revisao-spinner"></div>
@@ -4234,8 +4507,8 @@ export default function PagamentoPage() {
                 <h3>{statusRevisaoAtual === 'pagamento_recusado' ? 'Pagamento recusado' : 'Pedido aprovado para pagamento'}</h3>
                 <p className={statusRevisaoAtual === 'pagamento_recusado' ? 'error-text' : 'muted-text'}>
                   {statusRevisaoAtual === 'pagamento_recusado'
-                    ? 'Seu pedido está aprovado, mas o pagamento foi recusado. Revise os dados e tente novamente.'
-                    : 'A revisão terminou. Você já pode seguir para o pagamento.'}
+                    ? 'Seu pedido estÃ¡ aprovado, mas o pagamento foi recusado. Revise os dados e tente novamente.'
+                    : 'A revisÃ£o terminou. VocÃª jÃ¡ pode seguir para o pagamento.'}
                 </p>
                 <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                   <button className="btn-primary" type="button" onClick={() => setEtapaAtual(ETAPAS.PIX)}>
@@ -4265,10 +4538,10 @@ export default function PagamentoPage() {
                 </div>
                 <h3>Pedido encerrado</h3>
                 <p className="error-text">
-                  {erro || 'Esse pedido em revisão foi encerrado. Você pode iniciar um novo carrinho normalmente.'}
+                  {erro || 'Esse pedido em revisÃ£o foi encerrado. VocÃª pode iniciar um novo carrinho normalmente.'}
                 </p>
                 <Link to="/produtos" className="btn-primary" style={{ marginTop: '1rem' }}>
-                  Voltar às compras
+                  Voltar Ã s compras
                 </Link>
               </div>
             ) : null}
@@ -4301,7 +4574,7 @@ export default function PagamentoPage() {
             <div className="checkout-pix-header">
               <p className="muted-text">
                 {formaPagamento === 'pix'
-                  ? 'Escaneie o QR Code ou copie o código para pagar.'
+                  ? 'Escaneie o QR Code ou copie o cÃ³digo para pagar.'
                   : `Finalize com ${tituloFormaPagamento.toLowerCase()} para continuar.`}
               </p>
             </div>
@@ -4317,7 +4590,7 @@ export default function PagamentoPage() {
 
             {formaPagamento === 'pix' ? (
               <>
-                {/* Estrutura principal do PIX com QR em destaque e código copia e cola. */}
+                {/* Estrutura principal do PIX com QR em destaque e cÃ³digo copia e cola. */}
                 <section className="checkout-pix-payment-panel" aria-label="Pagamento PIX">
                   <div className="checkout-pix-payment-grid">
                     <PixQrCodeCard qrCodeSrc={qrCodePixSrc} carregando={carregando} />
@@ -4338,7 +4611,7 @@ export default function PagamentoPage() {
                 <PixStatusCard statusVisual={statusPixVisual} />
               </>
             ) : (
-              <section className="checkout-pix-payment-panel" aria-label="Pagamento com cartão">
+              <section className="checkout-pix-payment-panel" aria-label="Pagamento com cartÃ£o">
                 {debitoSelecionado ? (
                   <>
                     <p className={`payment-action-feedback ${status3DSTone}`.trim()} role="status">
@@ -4346,7 +4619,7 @@ export default function PagamentoPage() {
                     </p>
                     {sessao3DSExpirando && sessao3DS ? (
                       <p className="payment-action-feedback is-warning" role="alert">
-                        Sua sessão de autenticação 3DS está expirando. Finalize o pagamento em breve ou ela será renovada automaticamente.
+                        Sua sessÃ£o de autenticaÃ§Ã£o 3DS estÃ¡ expirando. Finalize o pagamento em breve ou ela serÃ¡ renovada automaticamente.
                       </p>
                     ) : null}
                   </>
@@ -4369,10 +4642,10 @@ export default function PagamentoPage() {
                   <>
                     <p>Status do pagamento: {formatarStatusPagamento(resultadoCartao.status)}</p>
                     <p>Status do pedido: {formatarStatusPedido(resultadoCartao.status_interno || 'pendente')}</p>
-                    <p>Referência do gateway: {resultadoCartao.payment_id || resultadoCartao.gateway_order_id || '-'}</p>
-                    <p>Referência lógica: {resultadoCartao.reference_id || '-'}</p>
-                    <p>Referência da transação: {resultadoCartao.payment_id || '-'}</p>
-                    <p>Método: {resultadoCartao.tipo_cartao === 'debito' ? 'Cartão de Débito' : 'Cartão de Crédito'}</p>
+                    <p>ReferÃªncia do gateway: {resultadoCartao.payment_id || resultadoCartao.gateway_order_id || '-'}</p>
+                    <p>ReferÃªncia lÃ³gica: {resultadoCartao.reference_id || '-'}</p>
+                    <p>ReferÃªncia da transaÃ§Ã£o: {resultadoCartao.payment_id || '-'}</p>
+                    <p>MÃ©todo: {resultadoCartao.tipo_cartao === 'debito' ? 'CartÃ£o de DÃ©bito' : 'CartÃ£o de CrÃ©dito'}</p>
                     <p>Parcelas: {resultadoCartao.tipo_cartao === 'debito' ? '1x' : `${resultadoCartao.parcelas || parcelasCartaoEfetivas}x`}</p>
                     {debitoSelecionado ? (
                       <>
@@ -4383,16 +4656,16 @@ export default function PagamentoPage() {
                       </>
                     ) : null}
                     {cartaoRecusado ? (
-                      <p className="error-text">Pagamento não aprovado. Revise os dados do cartão e tente novamente.</p>
+                      <p className="error-text">Pagamento nÃ£o aprovado. Revise os dados do cartÃ£o e tente novamente.</p>
                     ) : null}
                   </>
                 ) : (
-                  <p className="muted-text">Revise os dados e conclua o pagamento para liberar a confirmação do pedido.</p>
+                  <p className="muted-text">Revise os dados e conclua o pagamento para liberar a confirmaÃ§Ã£o do pedido.</p>
                 )}
 
                 {debitoSelecionado && eventosHomologacao3DS.length > 0 ? (
                   <div className="payment-homologacao-logs" aria-label="Evidencia sanitizada de homologacao 3DS">
-                    <p className="payment-homologacao-logs-title">Evidência de homologação 3DS (dados mascarados)</p>
+                    <p className="payment-homologacao-logs-title">EvidÃªncia de homologaÃ§Ã£o 3DS (dados mascarados)</p>
 
                     <div className="payment-homologacao-logs-actions">
                       <button
@@ -4450,7 +4723,7 @@ export default function PagamentoPage() {
                 </button>
 
                 {!podeContinuarConfirmacaoPix ? (
-                  <p className="pix-action-helper">A confirmação só é liberada após aprovação do pagamento PIX.</p>
+                  <p className="pix-action-helper">A confirmaÃ§Ã£o sÃ³ Ã© liberada apÃ³s aprovaÃ§Ã£o do pagamento PIX.</p>
                 ) : null}
               </div>
             ) : null}
@@ -4460,13 +4733,13 @@ export default function PagamentoPage() {
 
       {etapaAtual === ETAPAS.STATUS ? (
         <div className="card-box">
-          <p><strong>Etapa 4: Confirmação e acompanhamento</strong></p>
+          <p><strong>Etapa 4: ConfirmaÃ§Ã£o e acompanhamento</strong></p>
           {resultadoPedido ? (
             <>
               <p>Pedido: #{resultadoPedido.pedido_id}</p>
               <p>Total com entrega estimado: {formatarMoeda(totalComEntregaPedido)}</p>
               <p>
-                Situação atual: <span className="pedido-status-badge">{labelStatus}</span>
+                SituaÃ§Ã£o atual: <span className="pedido-status-badge">{labelStatus}</span>
               </p>
               {pagamentoConfirmado ? (
                 <div className="pagamento-ok" aria-label="Pagamento confirmado com sucesso">
@@ -4475,10 +4748,10 @@ export default function PagamentoPage() {
                 </div>
               ) : (
                 <p className="checkout-status-pending" role="status">
-                  Ainda estamos aguardando a confirmação final do pagamento. Mantenha esta tela aberta para acompanhar.
+                  Ainda estamos aguardando a confirmaÃ§Ã£o final do pagamento. Mantenha esta tela aberta para acompanhar.
                 </p>
               )}
-              <p className="muted-text">Atualização automática a cada 15 segundos.</p>
+              <p className="muted-text">AtualizaÃ§Ã£o automÃ¡tica a cada 15 segundos.</p>
             </>
           ) : (
             <p className="muted-text">Finalize um pedido para acompanhar o status.</p>
@@ -4488,10 +4761,10 @@ export default function PagamentoPage() {
             <p><strong>Precisa de ajuda?</strong></p>
             <p>
               {formaPagamento === 'pix'
-                ? 'Se o QR Code não abrir no seu banco, copie o código PIX e cole manualmente no aplicativo.'
-                : 'Se o pagamento não for aprovado, revise os dados do cartão e tente novamente.'}
+                ? 'Se o QR Code nÃ£o abrir no seu banco, copie o cÃ³digo PIX e cole manualmente no aplicativo.'
+                : 'Se o pagamento nÃ£o for aprovado, revise os dados do cartÃ£o e tente novamente.'}
             </p>
-            <p>Após a confirmação do pagamento, iniciamos a preparação e o envio do pedido.</p>
+            <p>ApÃ³s a confirmaÃ§Ã£o do pagamento, iniciamos a preparaÃ§Ã£o e o envio do pedido.</p>
           </div>
 
           <Link className="btn-secondary" to="/pedidos" style={{ display: 'inline-flex', width: 'fit-content' }}>
@@ -4503,4 +4776,3 @@ export default function PagamentoPage() {
     </section>
   );
 }
-

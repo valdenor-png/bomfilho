@@ -164,6 +164,8 @@ export function ReviewTrackerProvider({ children }) {
   const [expanded, setExpanded] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const lastNotifiedRef = useRef('');
+  const trackerPollAbortRef = useRef(null);
+  const trackerPollInFlightRef = useRef(false);
 
   useEffect(() => {
     const fromStorage = parseStorageTracker();
@@ -171,6 +173,15 @@ export function ReviewTrackerProvider({ children }) {
       setTracker(fromStorage);
     }
     setHydrated(true);
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (trackerPollAbortRef.current) {
+        trackerPollAbortRef.current.abort();
+        trackerPollAbortRef.current = null;
+      }
+      trackerPollInFlightRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -212,6 +223,11 @@ export function ReviewTrackerProvider({ children }) {
   }, []);
 
   const clearTracking = useCallback(() => {
+    if (trackerPollAbortRef.current) {
+      trackerPollAbortRef.current.abort();
+      trackerPollAbortRef.current = null;
+    }
+    trackerPollInFlightRef.current = false;
     setTracker(null);
     setExpanded(false);
     persistStorageTracker(null);
@@ -256,15 +272,31 @@ export function ReviewTrackerProvider({ children }) {
   }, [toast]);
 
   const refreshStatus = useCallback(async () => {
-    if (!tracker?.orderId) {
+    if (!tracker?.orderId || trackerPollInFlightRef.current) {
       return null;
     }
 
+    trackerPollInFlightRef.current = true;
+    if (trackerPollAbortRef.current) {
+      trackerPollAbortRef.current.abort();
+    }
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    trackerPollAbortRef.current = abortController;
+
     try {
-      const data = await getPedidoStatus(tracker.orderId);
+      const data = await getPedidoStatus(tracker.orderId, {
+        signal: abortController?.signal
+      });
       applyIncomingStatus(data || {});
       return data;
     } catch (error) {
+      const erroCancelado = error?.name === 'AbortError'
+        || error?.code === 'API_ABORTED'
+        || Number(error?.status || 0) === 499;
+      if (erroCancelado) {
+        return null;
+      }
+
       setTracker((current) => {
         if (!current) {
           return current;
@@ -277,6 +309,11 @@ export function ReviewTrackerProvider({ children }) {
         };
       });
       return null;
+    } finally {
+      if (trackerPollAbortRef.current === abortController) {
+        trackerPollAbortRef.current = null;
+      }
+      trackerPollInFlightRef.current = false;
     }
   }, [applyIncomingStatus, tracker?.orderId]);
 
@@ -286,10 +323,13 @@ export function ReviewTrackerProvider({ children }) {
     }
 
     let ativo = true;
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
     async function bootstrapFromBackend() {
       try {
-        const data = await getPedidoRevisaoAtiva();
+        const data = await getPedidoRevisaoAtiva({
+          signal: abortController?.signal
+        });
         const pedido = data?.pedido || null;
 
         if (!ativo || !pedido?.id) {
@@ -306,7 +346,14 @@ export function ReviewTrackerProvider({ children }) {
             ? normalized
             : null;
         });
-      } catch {
+      } catch (error) {
+        const erroCancelado = error?.name === 'AbortError'
+          || error?.code === 'API_ABORTED'
+          || Number(error?.status || 0) === 499;
+        if (erroCancelado) {
+          return;
+        }
+
         // Não bloqueia a aplicação quando a retomada automática falha.
       }
     }
@@ -315,6 +362,7 @@ export function ReviewTrackerProvider({ children }) {
 
     return () => {
       ativo = false;
+      abortController?.abort();
     };
   }, [hydrated, tracker?.orderId]);
 
@@ -341,6 +389,11 @@ export function ReviewTrackerProvider({ children }) {
     return () => {
       ativo = false;
       window.clearInterval(interval);
+      if (trackerPollAbortRef.current) {
+        trackerPollAbortRef.current.abort();
+        trackerPollAbortRef.current = null;
+      }
+      trackerPollInFlightRef.current = false;
     };
   }, [refreshStatus, tracker?.orderId]);
 
@@ -370,4 +423,3 @@ export function useReviewTracker() {
   }
   return context;
 }
-

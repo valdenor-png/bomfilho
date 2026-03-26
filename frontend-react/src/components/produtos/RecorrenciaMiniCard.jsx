@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart } from 'lucide-react';
+import { Heart } from '../../icons';
 import SmartImage from '../ui/SmartImage';
 import {
   CATEGORY_IMAGES,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, BarChart3, CircleCheck, CreditCard, Package, Search } from 'lucide-react';
+import { AlertTriangle, BarChart3, CircleCheck, CreditCard, Package, Search } from '../../icons';
 import { adminGetConciliacao, adminGetFechamentoDiario } from '../../lib/api';
 import { R$, LABELS_PAGAMENTO, LABELS_CANAL } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';

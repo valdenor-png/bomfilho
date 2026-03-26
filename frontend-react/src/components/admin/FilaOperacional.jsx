@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { BadgeX, CircleCheck, ClipboardList, Clock3, Package, RefreshCw, Search, Store, Truck, Wallet, X } from 'lucide-react';
+import { BadgeX, CircleCheck, ClipboardList, Clock3, Package, RefreshCw, Search, Store, Truck, Wallet, X } from '../../icons';
 import {
   adminGetFilaOperacional,
   adminGetPedidoDetalhes,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Circle, CircleCheck } from 'lucide-react';
+import { Circle, CircleCheck } from '../../icons';
 import ReCAPTCHA from 'react-google-recaptcha';
 import { formatarTelefoneCadastro } from '../../lib/contaUtils';
 

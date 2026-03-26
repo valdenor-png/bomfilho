@@ -1,6 +1,6 @@
 ﻿import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { House, Package, Search, User } from 'lucide-react';
+import { IconAccount, IconHome, IconOrders, IconProducts } from './icons';
 import HomePage from './pages/HomePage';
 import { useCart } from './context/CartContext';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -30,6 +30,7 @@ const loadPoliticaPrivacidadePage = () => import('./pages/PoliticaPrivacidadePag
 const loadTermosUsoPage = () => import('./pages/TermosUsoPage');
 const loadPoliticaTrocaDevolucaoPage = () => import('./pages/PoliticaTrocaDevolucaoPage');
 const loadPoliticaEntregaPage = () => import('./pages/PoliticaEntregaPage');
+const loadIconGalleryPage = () => import('./pages/IconGalleryPage');
 
 const ProdutosPage = lazy(loadProdutosPage);
 const PagamentoPage = lazy(loadPagamentoPage);
@@ -42,6 +43,7 @@ const PoliticaPrivacidadePage = lazy(loadPoliticaPrivacidadePage);
 const TermosUsoPage = lazy(loadTermosUsoPage);
 const PoliticaTrocaDevolucaoPage = lazy(loadPoliticaTrocaDevolucaoPage);
 const PoliticaEntregaPage = lazy(loadPoliticaEntregaPage);
+const IconGalleryPage = lazy(loadIconGalleryPage);
 
 function podePrefetchNavegacao() {
   if (typeof navigator === 'undefined') {
@@ -88,10 +90,10 @@ function RouteLoadingFallback({ message = 'Carregando pagina...' }) {
 }
 
 const links = [
-  { to: '/', Icon: House, label: 'Inicio' },
-  { to: '/produtos', Icon: Search, label: 'Produtos' },
-  { to: '/pedidos', Icon: Package, label: 'Pedidos' },
-  { to: '/conta', Icon: User, label: 'Conta' }
+  { to: '/', Icon: IconHome, label: 'Inicio' },
+  { to: '/produtos', Icon: IconProducts, label: 'Produtos' },
+  { to: '/pedidos', Icon: IconOrders, label: 'Pedidos' },
+  { to: '/conta', Icon: IconAccount, label: 'Conta' }
 ];
 
 export default function App() {
@@ -143,7 +145,7 @@ export default function App() {
 
   if (isAdminRoute) {
     return (
-      <ErrorBoundary>
+      <ErrorBoundary resetKeys={[location.pathname]}>
         <Suspense fallback={<RouteLoadingFallback message="Carregando area administrativa..." />}>
           <Routes>
             <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/admin/gerencia" replace />} />
@@ -159,7 +161,7 @@ export default function App() {
     <div className="app-shell">
       <a href="#main-content" className="skip-to-content">Pular para o conteÃºdo</a>
       <main className={`content${isProdutosRoute ? ' content-produtos' : ''}${podeMostrarBarraGlobalCarrinho ? ' has-global-cart-bar' : ''}${mostrarBottomNavCliente ? ' has-bottom-nav' : ''}`} id="main-content">
-        <ErrorBoundary>
+        <ErrorBoundary resetKeys={[location.pathname]}>
         <Suspense fallback={<RouteLoadingFallback />}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -169,6 +171,7 @@ export default function App() {
             <Route path="/admin" element={<Navigate to="/admin/gerencia" replace />} />
             <Route path="/sobre" element={<SobrePage />} />
             <Route path="/conta" element={<ContaPage />} />
+            <Route path="/icons" element={<IconGalleryPage />} />
             <Route path="/politica-de-privacidade" element={<PoliticaPrivacidadePage />} />
             <Route path="/termos-de-uso" element={<TermosUsoPage />} />
             <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
@@ -178,21 +181,25 @@ export default function App() {
         </ErrorBoundary>
       </main>
 
-      <GlobalCartBar
-        visible={podeMostrarBarraGlobalCarrinho}
-        resumo={resumo}
-        isCheckoutRoute={isPagamentoRoute}
-        hasBottomNav={mostrarBottomNavCliente}
-        checkoutContext={checkoutContext}
-        onCheckoutPrimaryAction={() => {
-          window.dispatchEvent(new CustomEvent('bomfilho:checkout-primary-action'));
-        }}
-      />
+      <ErrorBoundary fallback={null} resetKeys={[location.pathname, Number(resumo?.itens || 0)]}>
+        <GlobalCartBar
+          visible={podeMostrarBarraGlobalCarrinho}
+          resumo={resumo}
+          isCheckoutRoute={isPagamentoRoute}
+          hasBottomNav={mostrarBottomNavCliente}
+          checkoutContext={checkoutContext}
+          onCheckoutPrimaryAction={() => {
+            window.dispatchEvent(new CustomEvent('bomfilho:checkout-primary-action'));
+          }}
+        />
+      </ErrorBoundary>
 
-      <ReviewTrackerWidget
-        hasBottomNav={mostrarBottomNavCliente}
-        hasGlobalCartBar={podeMostrarBarraGlobalCarrinho}
-      />
+      <ErrorBoundary fallback={null} resetKeys={[location.pathname]}>
+        <ReviewTrackerWidget
+          hasBottomNav={mostrarBottomNavCliente}
+          hasGlobalCartBar={podeMostrarBarraGlobalCarrinho}
+        />
+      </ErrorBoundary>
 
       <section className="site-trust-bar" aria-label="Canais de atendimento e links legais">
         <p className="site-trust-contact">
@@ -214,25 +221,27 @@ export default function App() {
         </div>
       </section>
 
-      {mostrarBottomNavCliente ? (
-        <nav className="bottom-nav" aria-label="NavegaÃ§Ã£o principal">
-          {links.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              className={({ isActive }) =>
-                `bottom-nav-link ${isActive ? 'active' : ''}`
-              }
-            >
-              <span className="bottom-nav-icon">
-                <item.Icon size={18} strokeWidth={2} aria-hidden="true" />
-              </span>
-              <span className="bottom-nav-label">{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
-      ) : null}
+      <ErrorBoundary fallback={null} resetKeys={[location.pathname]}>
+        {mostrarBottomNavCliente ? (
+          <nav className="bottom-nav" aria-label="NavegaÃ§Ã£o principal">
+            {links.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === '/'}
+                className={({ isActive }) =>
+                  `bottom-nav-link ${isActive ? 'active' : ''}`
+                }
+              >
+                <span className="bottom-nav-icon">
+                  <item.Icon size={18} strokeWidth={2} aria-hidden="true" />
+                </span>
+                <span className="bottom-nav-label">{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+        ) : null}
+      </ErrorBoundary>
 
 
       <AlcoholAgeGateModal
@@ -244,5 +253,3 @@ export default function App() {
     </div>
   );
 }
-
-

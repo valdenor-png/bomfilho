@@ -1,5 +1,5 @@
 import React from 'react';
-import { Package, ShoppingCart, Store, Wallet } from 'lucide-react';
+import { Package, ShoppingCart, Store, Wallet } from '../../icons';
 import { getPlaceholderIconePorCategoria } from '../../lib/produtosUtils';
 
 function resolveProdutoFallbackIcon(iconKey) {

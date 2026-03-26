@@ -137,6 +137,42 @@ const VEICULOS_ENTREGA = {
   }
 };
 
+const EXTERNAL_HTTP_TIMEOUT_MS = Number.parseInt(String(process.env.EXTERNAL_HTTP_TIMEOUT_MS || '8000'), 10) || 8000;
+const BRASIL_API_TIMEOUT_MS = Number.parseInt(String(process.env.BRASIL_API_TIMEOUT_MS || '5000'), 10) || 5000;
+const WHATSAPP_HTTP_TIMEOUT_MS = Number.parseInt(String(process.env.WHATSAPP_HTTP_TIMEOUT_MS || '8000'), 10) || 8000;
+const BARCODE_LEGADO_TIMEOUT_MS = Number.parseInt(String(process.env.BARCODE_LEGADO_TIMEOUT_MS || '4500'), 10) || 4500;
+
+async function fetchWithTimeout(url, {
+  method = 'GET',
+  headers,
+  body,
+  timeoutMs = EXTERNAL_HTTP_TIMEOUT_MS
+} = {}) {
+  const fetchTimeoutMs = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+    ? Number(timeoutMs)
+    : EXTERNAL_HTTP_TIMEOUT_MS;
+
+  if (typeof AbortController === 'undefined') {
+    return fetch(url, { method, headers, body });
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, fetchTimeoutMs);
+
+  try {
+    return await fetch(url, {
+      method,
+      headers,
+      body,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function normalizarCep(valor) {
   return String(valor || '').replace(/\D/g, '').slice(0, 8);
 }
@@ -474,7 +510,9 @@ async function buscarDadosCepComFallback(cepNormalizado) {
   let dadosV2 = null;
 
   try {
-    const responseV2 = await fetch(`https://brasilapi.com.br/api/cep/v2/${cepNormalizado}`);
+    const responseV2 = await fetchWithTimeout(`https://brasilapi.com.br/api/cep/v2/${cepNormalizado}`, {
+      timeoutMs: BRASIL_API_TIMEOUT_MS
+    });
     if (responseV2.ok) {
       dadosV2 = await responseV2.json().catch(() => ({}));
     } else if (responseV2.status === 404) {
@@ -484,12 +522,20 @@ async function buscarDadosCepComFallback(cepNormalizado) {
     if (erro?.status === 400) {
       throw erro;
     }
+
+    logger.warn('Falha ao consultar BrasilAPI CEP v2.', {
+      cep: formatarCep(cepNormalizado),
+      timeout: erro?.name === 'AbortError',
+      message: erro?.message || null
+    });
   }
 
   let dadosV1 = null;
   if (!dadosV2 || !String(dadosV2?.city || '').trim()) {
     try {
-      const responseV1 = await fetch(`https://brasilapi.com.br/api/cep/v1/${cepNormalizado}`);
+      const responseV1 = await fetchWithTimeout(`https://brasilapi.com.br/api/cep/v1/${cepNormalizado}`, {
+        timeoutMs: BRASIL_API_TIMEOUT_MS
+      });
       if (responseV1.ok) {
         dadosV1 = await responseV1.json().catch(() => ({}));
       } else if (responseV1.status === 404) {
@@ -499,6 +545,12 @@ async function buscarDadosCepComFallback(cepNormalizado) {
       if (erro?.status === 400) {
         throw erro;
       }
+
+      logger.warn('Falha ao consultar BrasilAPI CEP v1.', {
+        cep: formatarCep(cepNormalizado),
+        timeout: erro?.name === 'AbortError',
+        message: erro?.message || null
+      });
     }
   }
 
@@ -509,6 +561,10 @@ async function buscarDadosCepComFallback(cepNormalizado) {
   };
 
   if (!Object.keys(dadosMesclados).length) {
+    logger.error('Falha ao resolver CEP via BrasilAPI (v1/v2).', {
+      cep: formatarCep(cepNormalizado),
+      etapa: 'buscarDadosCepComFallback'
+    });
     throw criarErroHttp(503, 'Falha ao consultar CEP.');
   }
 
@@ -1653,13 +1709,14 @@ async function enviarWhatsappTexto({ telefone, mensagem }) {
   };
 
   try {
-    const resp = await fetch(url, {
+    const resp = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'apikey': EVOLUTION_API_KEY,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      timeoutMs: WHATSAPP_HTTP_TIMEOUT_MS
     });
 
     if (!resp.ok) {
@@ -1672,7 +1729,9 @@ async function enviarWhatsappTexto({ telefone, mensagem }) {
       return true;
     }
   } catch (erro) {
-    logger.error('❌ Erro ao enviar WhatsApp:', erro.message);
+    logger.error('❌ Erro ao enviar WhatsApp:', erro?.name === 'AbortError'
+      ? 'timeout ao chamar Evolution API'
+      : erro.message);
     return false;
   }
 }
@@ -1772,7 +1831,9 @@ function inferirEmojiPorCategoria(categoria) {
 }
 
 async function _buscarProdutoOpenFoodFacts(codigo) {
-  const resposta = await fetch(`https://world.openfoodfacts.org/api/v2/product/${codigo}.json`);
+  const resposta = await fetchWithTimeout(`https://world.openfoodfacts.org/api/v2/product/${codigo}.json`, {
+    timeoutMs: BARCODE_LEGADO_TIMEOUT_MS
+  });
   if (!resposta.ok) {
     return null;
   }
@@ -1808,7 +1869,9 @@ async function _buscarProdutoOpenFoodFacts(codigo) {
 }
 
 async function _buscarProdutoUpcItemDb(codigo) {
-  const resposta = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`);
+  const resposta = await fetchWithTimeout(`https://api.upcitemdb.com/prod/trial/lookup?upc=${codigo}`, {
+    timeoutMs: BARCODE_LEGADO_TIMEOUT_MS
+  });
   if (!resposta.ok) {
     return null;
   }

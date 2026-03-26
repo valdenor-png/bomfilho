@@ -1,7 +1,7 @@
 import React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AlertTriangle, BadgeX, CircleCheck, Clock3, Lock, Package, Receipt, ShoppingCart, Store, Wallet } from 'lucide-react';
+import { AlertTriangle, BadgeX, CircleCheck, Clock3, Lock, Package, Receipt, ShoppingCart, Store, Wallet } from '../icons';
 import useDocumentHead from '../hooks/useDocumentHead';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
@@ -263,6 +263,9 @@ export default function PedidosPage() {
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [buscaPedido, setBuscaPedido] = useState('');
   const [pedidoPagoAgoraId, setPedidoPagoAgoraId] = useState(null);
+  const pedidosLoadAbortRef = useRef(null);
+  const pedidosPollAbortRef = useRef(null);
+  const pedidosPollInFlightRef = useRef(false);
 
   const pedidoRecemPagoIdDaRota = useMemo(() => {
     const id = Number(location.state?.pedidoRecemPagoId || 0);
@@ -272,11 +275,18 @@ export default function PedidosPage() {
   async function carregarPedidosIniciais() {
     setCarregando(true);
     setErro('');
+    if (pedidosLoadAbortRef.current) {
+      pedidosLoadAbortRef.current.abort();
+    }
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    pedidosLoadAbortRef.current = abortController;
 
     try {
       const data = await getPedidos({
         page: 1,
         limit: PEDIDOS_POR_PAGINA
+      }, {
+        signal: abortController?.signal
       });
 
       const pedidosLista = Array.isArray(data?.pedidos) ? data.pedidos : [];
@@ -286,6 +296,13 @@ export default function PedidosPage() {
       setTemMaisPedidos(Boolean(data?.paginacao?.tem_mais));
       setAutenticado(true);
     } catch (error) {
+      const erroCancelado = error?.name === 'AbortError'
+        || error?.code === 'API_ABORTED'
+        || Number(error?.status || 0) === 499;
+      if (erroCancelado) {
+        return;
+      }
+
       if (isAuthErrorMessage(error.message)) {
         setAutenticado(false);
         setPedidos([]);
@@ -293,6 +310,9 @@ export default function PedidosPage() {
         setErro(error.message || 'NÃ£o foi possÃ­vel carregar o histÃ³rico de pedidos.');
       }
     } finally {
+      if (pedidosLoadAbortRef.current === abortController) {
+        pedidosLoadAbortRef.current = null;
+      }
       setCarregando(false);
     }
   }
@@ -374,6 +394,20 @@ export default function PedidosPage() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      if (pedidosLoadAbortRef.current) {
+        pedidosLoadAbortRef.current.abort();
+        pedidosLoadAbortRef.current = null;
+      }
+      if (pedidosPollAbortRef.current) {
+        pedidosPollAbortRef.current.abort();
+        pedidosPollAbortRef.current = null;
+      }
+      pedidosPollInFlightRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!pedidoRecemPagoIdDaRota) {
       return;
     }
@@ -387,29 +421,106 @@ export default function PedidosPage() {
     navigate(location.pathname, { replace: true, state: {} });
   }, [carregarDetalhesPedido, location.pathname, navigate, pedidoRecemPagoIdDaRota]);
 
-  // Polling automÃ¡tico: atualiza status de pedidos ativos a cada 20s
+  // Polling defensivo: evita concorrencia de requests e preserva ultimo estado valido.
   useEffect(() => {
     if (autenticado !== true || pedidos.length === 0) return;
 
     const statusAtivos = ['aguardando_revisao', 'pendente', 'pagamento_recusado', 'pago', 'preparando', 'pronto_para_retirada', 'enviado'];
-    const pedidosAtivos = pedidos.filter(p => statusAtivos.includes(p?.status));
+    const pedidosAtivos = pedidos.filter((pedido) => statusAtivos.includes(pedido?.status));
     if (pedidosAtivos.length === 0) return;
 
-    const intervalo = setInterval(async () => {
+    let ativo = true;
+
+    const atualizarStatusPedidosAtivos = async () => {
+      if (!ativo || pedidosPollInFlightRef.current) {
+        return;
+      }
+
+      pedidosPollInFlightRef.current = true;
+      if (pedidosPollAbortRef.current) {
+        pedidosPollAbortRef.current.abort();
+      }
+      const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      pedidosPollAbortRef.current = abortController;
+
       try {
-        for (const pedido of pedidosAtivos) {
-          const statusData = await getPedidoStatus(pedido.id);
-          if (statusData && statusData.status !== pedido.status) {
-            setPedidos(atuais => atuais.map(p =>
-              p.id === pedido.id ? { ...p, status: statusData.status, atualizado_em: statusData.atualizado_em } : p
-            ));
-          }
+        const resultados = await Promise.allSettled(
+          pedidosAtivos.map(async (pedido) => {
+            const statusData = await getPedidoStatus(pedido.id, {
+              signal: abortController?.signal
+            });
+            return {
+              pedidoId: Number(pedido?.id || 0),
+              statusAtual: String(pedido?.status || '').trim().toLowerCase(),
+              statusData
+            };
+          })
+        );
+
+        if (!ativo) {
+          return;
         }
-      } catch (_) { /* silencioso */ }
+
+        const atualizacoes = new Map();
+        resultados.forEach((resultado) => {
+          if (resultado.status !== 'fulfilled') {
+            return;
+          }
+
+          const pedidoId = Number(resultado.value?.pedidoId || 0);
+          const statusAtual = String(resultado.value?.statusAtual || '').trim().toLowerCase();
+          const statusNovo = String(resultado.value?.statusData?.status || '').trim().toLowerCase();
+          if (!pedidoId || !statusNovo || statusNovo === statusAtual) {
+            return;
+          }
+
+          atualizacoes.set(pedidoId, {
+            status: statusNovo,
+            atualizado_em: resultado.value?.statusData?.atualizado_em
+          });
+        });
+
+        if (atualizacoes.size > 0) {
+          setPedidos((atuais) => atuais.map((pedidoAtual) => {
+            const patch = atualizacoes.get(Number(pedidoAtual?.id || 0));
+            if (!patch) {
+              return pedidoAtual;
+            }
+            return {
+              ...pedidoAtual,
+              status: patch.status,
+              atualizado_em: patch.atualizado_em || pedidoAtual?.atualizado_em
+            };
+          }));
+        }
+      } catch {
+        // Falha parcial nao derruba listagem de pedidos.
+      } finally {
+        if (pedidosPollAbortRef.current === abortController) {
+          pedidosPollAbortRef.current = null;
+        }
+        pedidosPollInFlightRef.current = false;
+      }
+    };
+
+    void atualizarStatusPedidosAtivos();
+
+    const intervalo = setInterval(() => {
+      void atualizarStatusPedidosAtivos();
     }, 20000);
 
-    return () => clearInterval(intervalo);
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+      if (pedidosPollAbortRef.current) {
+        pedidosPollAbortRef.current.abort();
+        pedidosPollAbortRef.current = null;
+      }
+      pedidosPollInFlightRef.current = false;
+    };
   }, [autenticado, pedidos]);
+
+
 
   async function handleConfirmarRecebimento(pedidoId) {
     setConfirmandoRecebimento(pedidoId);
@@ -450,11 +561,18 @@ export default function PedidosPage() {
 
     setCarregandoMais(true);
     setErro('');
+    if (pedidosLoadAbortRef.current) {
+      pedidosLoadAbortRef.current.abort();
+    }
+    const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    pedidosLoadAbortRef.current = abortController;
     try {
       const proximaPagina = paginaAtual + 1;
       const data = await getPedidos({
         page: proximaPagina,
         limit: PEDIDOS_POR_PAGINA
+      }, {
+        signal: abortController?.signal
       });
 
       const novosPedidos = Array.isArray(data.pedidos) ? data.pedidos : [];
@@ -470,6 +588,13 @@ export default function PedidosPage() {
       setTotalPedidos((atual) => Number(data?.paginacao?.total || atual));
       setTemMaisPedidos(Boolean(data?.paginacao?.tem_mais));
     } catch (error) {
+      const erroCancelado = error?.name === 'AbortError'
+        || error?.code === 'API_ABORTED'
+        || Number(error?.status || 0) === 499;
+      if (erroCancelado) {
+        return;
+      }
+
       if (isAuthErrorMessage(error.message)) {
         setAutenticado(false);
         return;
@@ -477,6 +602,9 @@ export default function PedidosPage() {
 
       setErro(error.message || 'NÃ£o foi possÃ­vel carregar mais pedidos.');
     } finally {
+      if (pedidosLoadAbortRef.current === abortController) {
+        pedidosLoadAbortRef.current = null;
+      }
       setCarregandoMais(false);
     }
   }
@@ -941,4 +1069,3 @@ export default function PedidosPage() {
     </section>
   );
 }
-

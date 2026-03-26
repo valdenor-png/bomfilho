@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { BarChart3, Download, FileSpreadsheet, Store, Truck } from 'lucide-react';
+import { BarChart3, Download, FileSpreadsheet, Store, Truck } from '../../icons';
 import { adminGetRelatorioVendas, adminExportarRelatorioVendasCSV } from '../../lib/api';
 import { R$, LABELS_PAGAMENTO, LABELS_STATUS } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';

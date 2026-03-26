@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, ArrowRight, ClipboardList, Search } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ClipboardList, Search } from '../../icons';
 import { adminGetAuditoria } from '../../lib/api';
 import { LABELS_ACAO, LABELS_ENTIDADE } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';

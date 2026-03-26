@@ -11,7 +11,7 @@ import {
   Star,
   TicketPercent,
   User
-} from 'lucide-react';
+} from '../../icons';
 
 function Chevron() {
   return <ChevronRight className="account-menu-chevron" size={16} strokeWidth={2} aria-hidden="true" />;

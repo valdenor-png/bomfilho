@@ -5,9 +5,12 @@ const CategorySection = React.memo(function CategorySection({
   sectionRef,
   items = [],
   isActive = false,
-  onViewAll,
+  onLoadMore,
+  hasMore = false,
+  isLoadingMore = false,
+  loadMoreLabel = 'Ver mais',
   renderRow,
-  emptyMessage = 'Nenhum produto disponível nesta categoria no momento.'
+  emptyMessage = 'Nenhum produto disponivel nesta categoria no momento.'
 }) {
   if (!section) {
     return null;
@@ -15,9 +18,8 @@ const CategorySection = React.memo(function CategorySection({
 
   const id = String(section?.id || 'outros');
   const title = String(section?.label || 'Categoria');
-  const totalItems = Number(section?.totalItens || 0);
   const displayedItems = Array.isArray(items) ? items : [];
-  const hasViewAll = totalItems > 20 && typeof onViewAll === 'function';
+  const canLoadMore = Boolean(hasMore) && typeof onLoadMore === 'function';
 
   return (
     <section
@@ -29,13 +31,14 @@ const CategorySection = React.memo(function CategorySection({
     >
       <div className="vitrine-secao-header">
         <h2 className="vitrine-secao-titulo">{title}</h2>
-        {hasViewAll ? (
+        {canLoadMore ? (
           <button
             type="button"
             className="vitrine-ver-mais"
-            onClick={onViewAll}
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
           >
-            Ver todos ({totalItems})
+            {isLoadingMore ? 'Carregando...' : loadMoreLabel}
           </button>
         ) : null}
       </div>

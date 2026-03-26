@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag } from 'lucide-react';
+import { Tag } from '../../icons';
 
 const CategoryNav = React.memo(function CategoryNav({
   categories = [],

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AlertTriangle, BadgeX, BarChart3, Bell, CircleCheck, Clock3, Info, Radio, Receipt, RefreshCw, Target, Zap } from 'lucide-react';
+import { AlertTriangle, BadgeX, BarChart3, Bell, CircleCheck, Clock3, Info, Radio, Receipt, RefreshCw, Target, Zap } from '../../icons';
 import { adminGetCentralVivo, adminGetFeed, adminGetAlertas } from '../../lib/api';
 import { formatarMoeda, formatarNum, tempoRelativo, R$ } from './ui/adminUtils';
 import LoadingSkeleton from './ui/LoadingSkeleton';

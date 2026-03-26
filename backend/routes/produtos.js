@@ -108,6 +108,11 @@ function toSlug(value) {
     .replace(/^-+|-+$/g, '');
 }
 
+function parseBooleanQuery(value) {
+  const normalizado = String(value || '').trim().toLowerCase();
+  return normalizado === '1' || normalizado === 'true' || normalizado === 'yes';
+}
+
 function buildProdutoTextoBuscaExpr(colunas, alias = '') {
   const prefixo = alias ? `${alias}.` : '';
   const partes = [`COALESCE(${prefixo}nome, '')`];
@@ -376,7 +381,7 @@ module.exports = function createProdutosPublicRoutes({
         : 'p.preco';
       const precoOrdenacaoExpr = precoBaseExpr;
 
-      const fromSql = taxonomiaEstruturadaDisponivel
+      const fromSqlBase = taxonomiaEstruturadaDisponivel
         ? `FROM produtos p
            LEFT JOIN catalogo_categorias cc ON cc.id = p.categoria_principal_id
            LEFT JOIN catalogo_subcategorias cs ON cs.id = p.subcategoria_id`
@@ -442,13 +447,35 @@ module.exports = function createProdutosPublicRoutes({
         campos.push('cs.slug AS subcategoria_slug');
       }
 
+
       const busca = (toLowerTrim(req.query?.busca) || '').slice(0, 200);
       const categoriaRaw = toLowerTrim(req.query?.categoria);
       const categoria = categoriaRaw && categoriaRaw !== 'todas' ? categoriaRaw : '';
       const categoriaSlug = toSlug(req.query?.categoria_slug || req.query?.categoriaSlug || '');
       const subcategoriaSlug = toSlug(req.query?.subcategoria_slug || req.query?.subcategoriaSlug || '');
       const ordenacaoRaw = toLowerTrim(req.query?.sort || req.query?.ordenacao);
+      const skipCount = parseBooleanQuery(req.query?.skip_count || req.query?.skipCount);
+      const ordenacaoMaisVendidos = ['mais-vendidos', 'mais_vendidos', 'maisvendidos', 'mais-comprados'].includes(ordenacaoRaw);
+      const chaveOrdenacao = ordenacaoMaisVendidos ? 'mais-vendidos' : ordenacaoRaw;
+      const criterioOfertaMaisVendidos = colunas.has('preco_promocional')
+        ? 'CASE WHEN p.preco_promocional IS NOT NULL AND p.preco_promocional > 0 AND p.preco_promocional < p.preco THEN 1 ELSE 0 END'
+        : '0';
+      const fromSql = ordenacaoMaisVendidos
+        ? `${fromSqlBase}
+           LEFT JOIN (
+             SELECT
+               pi.produto_id,
+               COUNT(DISTINCT pi.pedido_id) AS total_pedidos,
+               COALESCE(SUM(pi.quantidade), 0) AS total_quantidade,
+               MAX(ped.criado_em) AS ultima_venda_em
+             FROM pedido_itens pi
+             INNER JOIN pedidos ped ON ped.id = pi.pedido_id
+             WHERE ped.status <> 'cancelado'
+             GROUP BY pi.produto_id
+           ) vendas_produtos ON vendas_produtos.produto_id = p.id`
+        : fromSqlBase;
       const ordenacaoMap = {
+        'mais-vendidos': `COALESCE(vendas_produtos.total_pedidos, 0) DESC, COALESCE(vendas_produtos.total_quantidade, 0) DESC, ${criterioOfertaMaisVendidos} DESC, p.estoque DESC, nome ASC`,
         nome_asc: 'p.categoria ASC, nome ASC',
         nome_desc: 'p.categoria DESC, nome DESC',
         preco_asc: `${precoOrdenacaoExpr} ASC, nome ASC`,
@@ -456,7 +483,13 @@ module.exports = function createProdutosPublicRoutes({
         recentes: 'p.id DESC',
         estoque: 'p.estoque DESC, nome ASC'
       };
-      const ordenacaoSql = ordenacaoMap[ordenacaoRaw] || 'p.estoque DESC, p.categoria ASC, nome ASC';
+      const ordenacaoSql = ordenacaoMap[chaveOrdenacao] || 'p.estoque DESC, p.categoria ASC, nome ASC';
+
+      if (ordenacaoMaisVendidos) {
+        campos.push('COALESCE(vendas_produtos.total_pedidos, 0) AS frequencia_pedidos');
+        campos.push('COALESCE(vendas_produtos.total_quantidade, 0) AS quantidade_vendida');
+        campos.push('vendas_produtos.ultima_venda_em');
+      }
 
       const limite = parsePositiveInt(req.query?.limit || req.query?.limite, 60, { min: 1, max: 200 });
       const paginaSolicitada = parsePositiveInt(req.query?.page || req.query?.pagina, 1, { min: 1, max: 500000 });
@@ -467,7 +500,8 @@ module.exports = function createProdutosPublicRoutes({
           categoria,
           categoria_slug: categoriaSlug,
           subcategoria_slug: subcategoriaSlug,
-          sort: ordenacaoRaw || '',
+          sort: chaveOrdenacao || '',
+          skip_count: skipCount,
           page: paginaSolicitada,
           limit: limite
         },
@@ -575,8 +609,8 @@ module.exports = function createProdutosPublicRoutes({
         pagina: paginaSolicitada,
         limite,
         busca,
-        categoria: categoriaSlug || categoria,
-        ordenacao: ordenacaoSql
+        categoria: `${categoriaSlug || categoria || 'todas'}|sub:${subcategoriaSlug || 'todas'}|skip_count:${skipCount ? '1' : '0'}`,
+        ordenacao: `${chaveOrdenacao || 'padrao'}|${ordenacaoSql}`
       });
       const cachePayload = obterCacheProdutos(chaveCache);
       if (cachePayload) {
@@ -601,31 +635,49 @@ module.exports = function createProdutosPublicRoutes({
         });
       }
 
-      const countSql = `SELECT COUNT(*) AS total ${fromSql} ${whereSql}`;
-      logger.info('[PRODUTOS][SQL]', {
-        request_id: requestId,
-        etapa: 'count',
-        sql: countSql
-      });
-      logger.info('[PRODUTOS][PARAMS]', {
-        request_id: requestId,
-        etapa: 'count',
-        params: sanitizeParamsForLog(params)
-      });
-      etapa = 'query_count';
-      const inicioCountMs = Date.now();
-      const [[countRow]] = await queryWithRetry(countSql, params);
-      duracaoCountMs = Date.now() - inicioCountMs;
-      const total = Number(countRow?.total || 0);
-      const paginacao = montarPaginacao(total, paginaSolicitada, limite);
-      const offset = (paginacao.pagina - 1) * paginacao.limite;
+      let total = 0;
+      let paginacao = null;
+      let offset = 0;
 
+      if (skipCount) {
+        const paginaNormalizada = Math.max(1, Number(paginaSolicitada || 1));
+        const limiteNormalizado = Math.max(1, Number(limite || 1));
+        paginacao = {
+          pagina: paginaNormalizada,
+          limite: limiteNormalizado,
+          total: 0,
+          total_paginas: 0,
+          tem_mais: false
+        };
+        offset = (paginaNormalizada - 1) * limiteNormalizado;
+      } else {
+        const countSql = `SELECT COUNT(*) AS total ${fromSql} ${whereSql}`;
+        logger.info('[PRODUTOS][SQL]', {
+          request_id: requestId,
+          etapa: 'count',
+          sql: countSql
+        });
+        logger.info('[PRODUTOS][PARAMS]', {
+          request_id: requestId,
+          etapa: 'count',
+          params: sanitizeParamsForLog(params)
+        });
+        etapa = 'query_count';
+        const inicioCountMs = Date.now();
+        const [[countRow]] = await queryWithRetry(countSql, params);
+        duracaoCountMs = Date.now() - inicioCountMs;
+        total = Number(countRow?.total || 0);
+        paginacao = montarPaginacao(total, paginaSolicitada, limite);
+        offset = (paginacao.pagina - 1) * paginacao.limite;
+      }
+
+      const limiteConsulta = skipCount ? paginacao.limite + 1 : paginacao.limite;
       const listaSql = `SELECT ${campos.join(', ')}
          ${fromSql}
          ${whereSql}
          ORDER BY ${ordenacaoSql}
          LIMIT ? OFFSET ?`;
-      const paramsLista = [...params, paginacao.limite, offset];
+      const paramsLista = [...params, limiteConsulta, offset];
       logger.info('[PRODUTOS][SQL]', {
         request_id: requestId,
         etapa: 'lista',
@@ -638,11 +690,34 @@ module.exports = function createProdutosPublicRoutes({
       });
       etapa = 'query_lista';
       const inicioListaMs = Date.now();
-      const [produtos] = await queryWithRetry(listaSql, paramsLista);
+      const [produtosRows] = await queryWithRetry(listaSql, paramsLista);
       duracaoListaMs = Date.now() - inicioListaMs;
+
+      const produtosLista = Array.isArray(produtosRows) ? produtosRows : [];
+      let produtosPaginados = produtosLista;
+
+      if (skipCount) {
+        const temMais = produtosLista.length > paginacao.limite;
+        if (temMais) {
+          produtosPaginados = produtosLista.slice(0, paginacao.limite);
+        }
+
+        total = temMais
+          ? (offset + produtosPaginados.length + 1)
+          : (offset + produtosPaginados.length);
+        const totalPaginas = paginacao.limite > 0 ? Math.max(1, Math.ceil(total / paginacao.limite)) : 1;
+
+        paginacao = {
+          ...paginacao,
+          total,
+          total_paginas: totalPaginas,
+          tem_mais: temMais
+        };
+      }
+
       etapa = 'serializacao_resposta';
       const inicioSerializacaoMs = Date.now();
-      const produtosEnriquecidos = (Array.isArray(produtos) ? produtos : [])
+      const produtosEnriquecidos = produtosPaginados
         .map((produto) => {
           const enriquecido = enriquecerProdutoParaCatalogo(produto);
           const visibilidade = resolveVisibilidadePublica(enriquecido);

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Package, ShoppingCart, Store, Wallet } from 'lucide-react';
+import { Package, ShoppingCart, Store, Wallet } from '../icons';
 import SmartImage from './ui/SmartImage';
 import { getEstoqueBadge } from '../lib/produtosUtils';
 import {
