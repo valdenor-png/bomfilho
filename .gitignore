@@ -1,20 +1,25 @@
 # ============================================
-# .GITIGNORE - BOM FILHO SUPERMERCADO
+# .gitignore - BOM FILHO SUPERMERCADO
 # ============================================
 
 # Dependências do Node.js
-
-**/node_modules/
-yarn.lock
+node_modules/
 pnpm-lock.yaml
+
+# Se usar npm → manter
+# package-lock.json
+
+# Se usar yarn → NÃO ignore
+# yarn.lock
+# Arquivos env sem prefixo de ponto
+**/env
 
 # Variáveis de ambiente (NUNCA enviar para o Git)
 .env
-.env.local
-.env.production
-*.env
+.env.*
 !.env.example
-
+!.env*.example
+frontend-react/env
 # Banco de Dados
 *.sql.backup
 *.db
@@ -29,7 +34,7 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
-# Arquivos do sistema operacional
+# Sistema operacional
 .DS_Store
 .DS_Store?
 ._*
@@ -38,8 +43,13 @@ lerna-debug.log*
 ehthumbs.db
 Thumbs.db
 desktop.ini
+.AppleDouble
+.LSOverride
+$RECYCLE.BIN/
+.directory
+.Trash-*
 
-# Editores e IDEs
+# Editores
 .vscode/
 .idea/
 *.swp
@@ -52,7 +62,7 @@ desktop.ini
 *.sublime-project
 *.sublime-workspace
 
-# Build e distribuição
+# Build
 dist/
 build/
 out/
@@ -62,14 +72,14 @@ out/
 temp/
 tmp/
 
-# Documentação (manter apenas o contexto principal no Git)
+# Docs (controle fino)
 docs/**
 !docs/
 !docs/CONTEXTO_PROJETO.md
 !docs/GO_LIVE_TECNICO_CHECKLIST.md
 !docs/OPERACAO_ADMIN_PEDIDOS_PAGAMENTOS.md
 
-# Uploads e arquivos temporários
+# Uploads
 uploads/
 temp-uploads/
 *.tmp
@@ -79,7 +89,7 @@ coverage/
 .nyc_output/
 *.test.js.snap
 
-# Certificados e chaves
+# Certificados
 *.pem
 *.key
 *.cert
@@ -87,22 +97,20 @@ coverage/
 *.p12
 *.pfx
 
-# Arquivos de configuração locais
+# Config local
 config.local.js
 config.local.json
 
-# Cache do npm
+# Cache
 .npm
 .eslintcache
 
-# Dados sensíveis (exemplo)
+# Dados sensíveis
 credenciais.txt
 senhas.txt
 tokens.txt
 
-# Scripts
-scripts/
-!backend/scripts/
+# Scripts (whitelist)
 backend/scripts/*
 !backend/scripts/enrichment-barcode-saneamento.js
 !backend/scripts/enrichment-barcode-revisao-manual.js
@@ -112,23 +120,9 @@ backend/scripts/*
 !backend/scripts/enrichment-barcode-pad-left-zero-apply.js
 !backend/scripts/enrichment-backlog-drain.js
 
-# Backup local
+# Backup
 backup/
 *.backup
 
-# MacOS
-.AppleDouble
-.LSOverride
-
-# Windows
-$RECYCLE.BIN/
-Desktop.ini
-
-# Linux
-.directory
-.Trash-*
-
-# Evita clone aninhado do proprio repositorio na raiz
+# Evitar clone dentro do repo
 /bomfilho/
-
-
