@@ -14,6 +14,7 @@
 
 const crypto = require('crypto');
 const logger = require('../lib/logger');
+const { mapGatewayStatusToOrderStatus } = require('./mercadoPagoStatusPolicy');
 
 const MP_API_BASE = 'https://api.mercadopago.com';
 
@@ -330,18 +331,7 @@ function criarMercadoPagoService({
   // Mapear status MP → status pedido BomFilho
   // ============================================
   function mapearStatusPagamento(mpStatus) {
-    const mapa = {
-      approved: 'pago',
-      pending: 'pendente',
-      authorized: 'pago',
-      in_process: 'pendente',
-      in_mediation: 'pendente',
-      rejected: 'pagamento_recusado',
-      cancelled: 'cancelado',
-      refunded: 'cancelado',
-      charged_back: 'cancelado'
-    };
-    return mapa[mpStatus] || 'pendente';
+    return mapGatewayStatusToOrderStatus(mpStatus);
   }
 
   return {

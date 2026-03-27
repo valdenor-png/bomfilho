@@ -3,8 +3,8 @@
 /**
  * Rotas de pagamento via Mercado Pago.
  *
- * POST /api/mercadopago/criar-pix     - Gera pagamento PIX para pedido já aprovado
- * POST /api/mercadopago/criar-cartao  - Processa pagamento com cartão de crédito
+ * POST /api/mercadopago/criar-pix     - Gera pagamento PIX para pedido jÃ¡ aprovado
+ * POST /api/mercadopago/criar-cartao  - Processa pagamento com cartÃ£o de crÃ©dito
  * GET  /api/mercadopago/status        - Health check do gateway
  */
 
@@ -22,6 +22,8 @@ const {
 } = require('../lib/config');
 const { buildErrorPayload } = require('../lib/apiError');
 const { ACTIVE_PAYMENT_GATEWAY, LEGACY_PAYMENT_GATEWAYS } = require('../services/paymentRuntime');
+const { criarMercadoPagoPaymentSyncService } = require('../services/mercadoPagoPaymentSyncService');
+const { mapGatewayStatusToOrderStatus } = require('../services/mercadoPagoStatusPolicy');
 const {
   normalizarIdempotencyKey,
   hashFingerprint,
@@ -81,12 +83,15 @@ module.exports = function createMercadoPagoRoutes(deps) {
     autenticarToken,
     mercadoPagoService,
     pool,
+    paymentSyncService: paymentSyncServiceFromDeps,
     validarRecaptcha,
     isProduction = IS_PRODUCTION,
     recaptchaPaymentProtectionEnabled = RECAPTCHA_PAYMENT_PROTECTION_ENABLED
   } = deps;
 
   const router = express.Router();
+  const paymentSyncService = paymentSyncServiceFromDeps
+    || criarMercadoPagoPaymentSyncService({ pool, mercadoPagoService });
   let recaptchaRelaxadoAvisado = false;
 
   if (!recaptchaPaymentProtectionEnabled && !isProduction && !recaptchaRelaxadoAvisado) {
@@ -188,9 +193,9 @@ module.exports = function createMercadoPagoRoutes(deps) {
   // ============================================
   // CRIAR PIX via Mercado Pago
   // ============================================
-  // Observação estrutural:
-  // Este arquivo representa a superfície de pagamento ativa em runtime (Mercado Pago).
-  // O legado PagBank permanece no repositório apenas para referência/migração controlada.
+  // ObservaÃ§Ã£o estrutural:
+  // Este arquivo representa a superfÃ­cie de pagamento ativa em runtime (Mercado Pago).
+  // O legado PagBank permanece no repositÃ³rio apenas para referÃªncia/migraÃ§Ã£o controlada.
   router.post('/api/mercadopago/criar-pix', autenticarToken, async (req, res) => {
     let contextoIdempotencia = null;
     let idempotenciaAdquirida = false;
@@ -207,21 +212,33 @@ module.exports = function createMercadoPagoRoutes(deps) {
       const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
 
       if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
-        return res.status(400).json(buildErrorPayload('Informe um pedido_id válido.'));
+        return res.status(400).json(buildErrorPayload('Informe um pedido_id vÃ¡lido.'));
       }
 
       if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
-        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ válido para gerar o PIX.'));
+        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ vÃ¡lido para gerar o PIX.'));
       }
 
-      // Buscar pedido ? só permite gerar PIX para pedido do próprio usuário com status pendente
+      // Buscar pedido ? sÃ³ permite gerar PIX para pedido do prÃ³prio usuÃ¡rio com status pendente
       const [pedidos] = await pool.query(
-        'SELECT id, usuario_id, total, status, gateway_pagamento, mp_payment_id_mp FROM pedidos WHERE id = ? LIMIT 1',
+        `SELECT id,
+                usuario_id,
+                total,
+                status,
+                gateway_pagamento,
+                mp_payment_id_mp,
+                pix_status,
+                pix_codigo,
+                pix_qrcode,
+                pix_qr_base64
+           FROM pedidos
+          WHERE id = ?
+          LIMIT 1`,
         [pedidoId]
       );
 
       if (!pedidos.length) {
-        return res.status(404).json(buildErrorPayload('Pedido não encontrado.'));
+        return res.status(404).json(buildErrorPayload('Pedido nÃ£o encontrado.'));
       }
 
       const pedido = pedidos[0];
@@ -232,7 +249,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
 
       const podeGerarPix = ['pendente', 'pagamento_recusado'].includes(String(pedido.status || '').trim().toLowerCase());
       if (!podeGerarPix) {
-        return res.status(400).json(buildErrorPayload(`Pedido já se encontra com status "${pedido.status}". Não é possível gerar PIX.`));
+        return res.status(400).json(buildErrorPayload(`Pedido jÃ¡ se encontra com status "${pedido.status}". NÃ£o Ã© possÃ­vel gerar PIX.`));
       }
 
       contextoIdempotencia = montarContextoIdempotenciaPagamento({
@@ -286,42 +303,43 @@ module.exports = function createMercadoPagoRoutes(deps) {
         gateway_idempotency_key: contextoIdempotencia?.gatewayIdempotencyKey || null
       });
 
-      // Se já tem pagamento MP criado, retornar dados existentes
-      if (pedido.mp_payment_id_mp) {
-        try {
-          const pagamento = await mercadoPagoService.consultarPagamento(pedido.mp_payment_id_mp);
-          if (pagamento.status === 'pending' || pagamento.status === 'approved') {
-            const [pixData] = await pool.query(
-              'SELECT pix_codigo, pix_qrcode, pix_qr_base64 FROM pedidos WHERE id = ? LIMIT 1',
-              [pedidoId]
-            );
-            const respostaExistente = {
-              payment_id: pedido.mp_payment_id_mp,
-              status: pagamento.status,
-              pix_codigo: pixData[0]?.pix_codigo || '',
-              pix_qrcode: pixData[0]?.pix_qrcode || '',
-              qr_code_base64: pixData[0]?.pix_qr_base64 || ''
-            };
-            if (DISTRIBUTED_IDEMPOTENCY_ENABLED && idempotenciaAdquirida && contextoIdempotencia) {
-              await concluirOperacaoDistribuida({
-                pool,
-                scope: contextoIdempotencia.scope,
-                idempotencyKey: contextoIdempotencia.idempotencyKey,
-                userId: req.usuario.id,
-                pedidoId,
-                httpStatus: 200,
-                responsePayload: respostaExistente,
-                successTtlSeconds: 180
-              });
-            }
-            return res.json(respostaExistente);
-          }
-        } catch (err) {
-          logger.warn(`[MP] Pagamento anterior ${pedido.mp_payment_id_mp} inválido, criando novo:`, err.message);
+      // Se jÃ¡ tem pagamento MP criado, retornar dados existentes
+      if (pedido.mp_payment_id_mp && (pedido.pix_codigo || pedido.pix_qrcode || pedido.pix_qr_base64)) {
+        const pixStatusLocal = String(pedido.pix_status || '').trim().toUpperCase();
+        const statusGateway =
+          pixStatusLocal === 'PAID' ? 'approved'
+            : pixStatusLocal === 'DECLINED' ? 'rejected'
+              : pixStatusLocal === 'CANCELED' ? 'cancelled'
+                : pixStatusLocal === 'EXPIRED' ? 'expired'
+                  : pixStatusLocal === 'IN_PROCESS' ? 'in_process'
+                    : pixStatusLocal === 'AUTHORIZED' ? 'authorized'
+                      : 'pending';
+
+        const respostaExistente = {
+          payment_id: pedido.mp_payment_id_mp,
+          status: statusGateway,
+          status_interno: String(pedido.status || '').trim().toLowerCase() || mapGatewayStatusToOrderStatus(statusGateway),
+          pix_codigo: String(pedido.pix_codigo || '').trim(),
+          pix_qrcode: String(pedido.pix_qrcode || '').trim(),
+          qr_code_base64: String(pedido.pix_qr_base64 || '').trim()
+        };
+
+        if (DISTRIBUTED_IDEMPOTENCY_ENABLED && idempotenciaAdquirida && contextoIdempotencia) {
+          await concluirOperacaoDistribuida({
+            pool,
+            scope: contextoIdempotencia.scope,
+            idempotencyKey: contextoIdempotencia.idempotencyKey,
+            userId: req.usuario.id,
+            pedidoId,
+            httpStatus: 200,
+            responsePayload: respostaExistente,
+            successTtlSeconds: 180
+          });
         }
+        return res.json(respostaExistente);
       }
 
-      // Buscar dados do usuário
+      // Buscar dados do usuÃ¡rio
       const [usuarios] = await pool.query(
         'SELECT nome, email FROM usuarios WHERE id = ? LIMIT 1',
         [req.usuario.id]
@@ -338,24 +356,28 @@ module.exports = function createMercadoPagoRoutes(deps) {
         idempotencyKey: contextoIdempotencia?.gatewayIdempotencyKey || null
       });
 
-      // Salvar dados do PIX no pedido
-      await pool.query(
-        `UPDATE pedidos SET
-          mp_payment_id_mp = ?,
-          gateway_pagamento = 'mercadopago',
-          pix_status = 'WAITING',
-          pix_codigo = ?,
-          pix_qrcode = ?,
-          pix_qr_base64 = ?
-         WHERE id = ?`,
-        [
-          String(resultado.payment_id),
-          resultado.qr_code || '',
-          resultado.qr_code || '',
-          resultado.qr_code_base64 || '',
-          pedidoId
-        ]
-      );
+      const syncResultado = await paymentSyncService.sincronizarPagamentoComPedido({
+        payment: {
+          id: String(resultado.payment_id || ''),
+          status: String(resultado.status || 'pending').toLowerCase() || 'pending',
+          status_detail: String(resultado.status_detail || '').trim() || null,
+          external_reference: String(pedidoId),
+          qr_code: String(resultado.qr_code || '').trim(),
+          qr_code_base64: String(resultado.qr_code_base64 || '').trim(),
+          ticket_url: String(resultado.ticket_url || '').trim(),
+          date_created: new Date().toISOString()
+        },
+        source: 'api_criar_pagamento_pix',
+        requestId,
+        idempotencyKey: contextoIdempotencia?.idempotencyKey || null,
+        rawPayload: {
+          pedido_id: pedidoId,
+          criar_pagamento_pix: resultado
+        }
+      });
+
+      const statusInterno = String(syncResultado?.pedido?.status_novo || '').trim().toLowerCase()
+        || mapGatewayStatusToOrderStatus(resultado.status);
 
       logger.info('[MP][PIX] Cobranca registrada no pedido.', {
         request_id: requestId,
@@ -365,13 +387,14 @@ module.exports = function createMercadoPagoRoutes(deps) {
         x_request_id: requestId,
         event_id: null,
         status_anterior: String(pedido?.status || '').trim().toLowerCase() || null,
-        status_novo: String(pedido?.status || '').trim().toLowerCase() || null,
+        status_novo: statusInterno,
         origem_transicao: 'api_criar_pagamento_pix'
       });
 
       const respostaPix = {
         payment_id: resultado.payment_id,
         status: resultado.status,
+        status_interno: statusInterno,
         pix_codigo: resultado.qr_code || '',
         pix_qrcode: resultado.qr_code || '',
         qr_code_base64: resultado.qr_code_base64 || '',
@@ -397,7 +420,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
         erro?.mpResponse?.message
         || erro?.mpResponse?.error
         || erro?.message
-        || 'Não foi possível gerar o pagamento PIX. Tente novamente.';
+        || 'NÃ£o foi possÃ­vel gerar o pagamento PIX. Tente novamente.';
       const mensagemDetalhada = causas.length
         ? `${mensagem} (${causas.join(' | ')})`
         : mensagem;
@@ -433,7 +456,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
   });
 
   // ============================================
-  // CRIAR PAGAMENTO COM CARTÃƒO via Mercado Pago
+  // CRIAR PAGAMENTO COM CARTÃƒÆ’O via Mercado Pago
   // ============================================
   router.post('/api/mercadopago/criar-cartao', autenticarToken, async (req, res) => {
     let contextoIdempotencia = null;
@@ -450,21 +473,21 @@ module.exports = function createMercadoPagoRoutes(deps) {
       pedidoIdContexto = pedidoId;
 
       if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
-        return res.status(400).json(buildErrorPayload('Informe um pedido_id válido.'));
+        return res.status(400).json(buildErrorPayload('Informe um pedido_id vÃ¡lido.'));
       }
 
       if (!token || typeof token !== 'string') {
-        return res.status(400).json(buildErrorPayload('Token do cartão é obrigatório.'));
+        return res.status(400).json(buildErrorPayload('Token do cartÃ£o Ã© obrigatÃ³rio.'));
       }
 
       const parcelasNum = Number(parcelas) || 1;
       if (parcelasNum < 1 || parcelasNum > 12) {
-        return res.status(400).json(buildErrorPayload('Número de parcelas deve ser entre 1 e 12.'));
+        return res.status(400).json(buildErrorPayload('NÃºmero de parcelas deve ser entre 1 e 12.'));
       }
 
       const taxIdDigits = String(tax_id || '').replace(/\D/g, '');
       if (taxIdDigits.length !== 11 && taxIdDigits.length !== 14) {
-        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ válido para o pagamento com cartão.'));
+        return res.status(400).json(buildErrorPayload('Informe um CPF ou CNPJ vÃ¡lido para o pagamento com cartÃ£o.'));
       }
 
       // Buscar pedido
@@ -474,7 +497,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
       );
 
       if (!pedidos.length) {
-        return res.status(404).json(buildErrorPayload('Pedido não encontrado.'));
+        return res.status(404).json(buildErrorPayload('Pedido nÃ£o encontrado.'));
       }
 
       const pedido = pedidos[0];
@@ -485,7 +508,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
 
       const podeProcessarCartao = ['pendente', 'pagamento_recusado'].includes(String(pedido.status || '').trim().toLowerCase());
       if (!podeProcessarCartao) {
-        return res.status(400).json(buildErrorPayload(`Pedido já se encontra com status "${pedido.status}". Não é possível processar pagamento.`));
+        return res.status(400).json(buildErrorPayload(`Pedido jÃ¡ se encontra com status "${pedido.status}". NÃ£o Ã© possÃ­vel processar pagamento.`));
       }
 
       contextoIdempotencia = montarContextoIdempotenciaPagamento({
@@ -540,7 +563,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
         gateway_idempotency_key: contextoIdempotencia?.gatewayIdempotencyKey || null
       });
 
-      // Buscar dados do usuário
+      // Buscar dados do usuÃ¡rio
       const [usuarios] = await pool.query(
         'SELECT nome, email FROM usuarios WHERE id = ? LIMIT 1',
         [req.usuario.id]
@@ -561,23 +584,29 @@ module.exports = function createMercadoPagoRoutes(deps) {
         idempotencyKey: contextoIdempotencia?.gatewayIdempotencyKey || null
       });
 
-      const statusInterno = mercadoPagoService.mapearStatusPagamento(resultado.status);
+      const syncResultado = await paymentSyncService.sincronizarPagamentoComPedido({
+        payment: {
+          id: String(resultado.payment_id || ''),
+          status: String(resultado.status || 'pending').toLowerCase() || 'pending',
+          status_detail: String(resultado.status_detail || '').trim() || null,
+          external_reference: String(pedidoId),
+          date_created: new Date().toISOString()
+        },
+        source: 'api_criar_pagamento_cartao',
+        requestId,
+        idempotencyKey: contextoIdempotencia?.idempotencyKey || null,
+        rawPayload: {
+          pedido_id: pedidoId,
+          criar_pagamento_cartao: {
+            status: resultado.status,
+            status_detail: resultado.status_detail,
+            payment_id: resultado.payment_id
+          }
+        }
+      });
 
-      // Atualizar pedido com resultado
-      await pool.query(
-        `UPDATE pedidos SET
-          mp_payment_id_mp = ?,
-          gateway_pagamento = 'mercadopago',
-          pix_status = ?,
-          status = ?
-         WHERE id = ?`,
-        [
-          String(resultado.payment_id),
-          String(resultado.status).toUpperCase(),
-          statusInterno,
-          pedidoId
-        ]
-      );
+      const statusInterno = String(syncResultado?.pedido?.status_novo || '').trim().toLowerCase()
+        || mapGatewayStatusToOrderStatus(resultado.status);
 
       logger.info('[MP][CARD] Pedido atualizado apos retorno do gateway.', {
         request_id: requestId,
@@ -617,7 +646,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
         erro?.mpResponse?.message
         || erro?.mpResponse?.error
         || erro?.message
-        || 'Não foi possível processar o pagamento com cartão.';
+        || 'NÃ£o foi possÃ­vel processar o pagamento com cartÃ£o.';
       const mensagemDetalhada = causas.length
         ? `${mensagem} (${causas.join(' | ')})`
         : mensagem;
@@ -634,7 +663,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
         });
       }
 
-      logger.error('[MP] Erro ao processar cartão:', {
+      logger.error('[MP] Erro ao processar cartÃ£o:', {
         request_id: String(req?.requestId || req?.headers?.['x-request-id'] || '').trim() || null,
         status,
         message: erro?.message,
@@ -669,3 +698,4 @@ module.exports = function createMercadoPagoRoutes(deps) {
 
   return router;
 };
+

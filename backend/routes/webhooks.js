@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const logger = require('../lib/logger');
 const { pool } = require('../lib/db');
 const { buildErrorPayload } = require('../lib/apiError');
+const { criarMercadoPagoPaymentSyncService } = require('../services/mercadoPagoPaymentSyncService');
 const {
   WHATSAPP_AUTO_REPLY_ENABLED, WHATSAPP_AUTO_REPLY_TEXT, WHATSAPP_AUTO_REPLY_COOLDOWN_SECONDS,
 } = require('../lib/config');
@@ -121,7 +122,11 @@ module.exports = function createWebhookRoutes(deps) {
     formatarTelefoneWhatsapp, enviarWhatsappTexto, limparCacheEvolution,
     evolutionProcessedMessageIds, evolutionLastReplyByNumber,
     mercadoPagoService, enviarWhatsappPedido,
+    paymentSyncService: paymentSyncServiceFromDeps
   } = deps;
+  const paymentSyncService = mercadoPagoService
+    ? (paymentSyncServiceFromDeps || criarMercadoPagoPaymentSyncService({ pool, mercadoPagoService }))
+    : null;
 
   // ============================================
   // WEBHOOK EVOLUTION (WHATSAPP)
@@ -330,124 +335,63 @@ module.exports = function createWebhookRoutes(deps) {
         }));
       }
 
-      const pedidoId = Number(pagamento.external_reference);
-      if (!Number.isFinite(pedidoId) || pedidoId <= 0) {
-        logger.warn('[MP Webhook] external_reference invalido; evento ignorado.', {
-          request_id: requestId,
-          pedido_id: null,
-          payment_id: String(pagamento.id),
-          external_reference: String(pagamento.external_reference || ''),
-          x_request_id: xRequestId || null,
-          event_id: String(payload?.id || '').trim() || null,
-          idempotency_key: idempotencyKey || null,
-          idempotency_strategy: idempotencyStrategy || null,
-          motivo: 'external_reference_invalido',
-          etapa: 'mapear_pedido'
-        });
-        return res.sendStatus(200);
-      }
-
-      const statusInterno = mercadoPagoService.mapearStatusPagamento(pagamento.status);
-      logger.info('[MP Webhook] Pagamento mapeado para status interno', {
-        request_id: requestId,
-        pedido_id: pedidoId,
-        payment_id: String(pagamento.id),
-        payment_status: pagamento.status,
-        status_interno: statusInterno,
-        external_reference: String(pagamento.external_reference || ''),
-        x_request_id: xRequestId || null,
-        event_id: String(payload?.id || '').trim() || null
+      const syncResult = await paymentSyncService.sincronizarPagamentoComPedido({
+        payment: pagamento,
+        source: 'webhook_mercadopago',
+        requestId,
+        eventId: String(payload?.id || '').trim() || null,
+        idempotencyKey,
+        rawPayload: {
+          webhook: payload,
+          payment: pagamento
+        },
+        markWebhookReceived: true
       });
 
-      const [pedidos] = await pool.query(
-        'SELECT id, status, usuario_id, mp_payment_id_mp FROM pedidos WHERE id = ? LIMIT 1',
-        [pedidoId]
-      );
-
-      if (!pedidos.length) {
-        logger.warn('[MP Webhook] Pedido nao encontrado no banco.', {
+      if (!syncResult?.applied) {
+        logger.info('[MP Webhook] Evento processado sem transicao de estado.', {
           request_id: requestId,
-          pedido_id: pedidoId,
-          payment_id: String(pagamento.id),
+          pedido_id: Number(syncResult?.pedido?.id || 0) || null,
+          payment_id: String(pagamento.id || dataId || ''),
           external_reference: String(pagamento.external_reference || ''),
           x_request_id: xRequestId || null,
           event_id: String(payload?.id || '').trim() || null,
           idempotency_key: idempotencyKey || null,
           idempotency_strategy: idempotencyStrategy || null,
-          motivo: 'pedido_nao_encontrado',
-          etapa: 'buscar_pedido'
+          motivo: String(syncResult?.reason || '').trim() || 'transicao_ignorada'
         });
         return res.sendStatus(200);
       }
-
-      const pedidoAtual = pedidos[0];
-      const statusAtual = String(pedidoAtual.status || '').trim().toLowerCase();
-      const statusNovo = String(statusInterno || '').trim().toLowerCase();
-      const fluxoAvancado = ['preparando', 'pronto_para_retirada', 'enviado', 'entregue', 'retirado'].includes(statusAtual);
-      const statusRegressivoFinanceiro = ['pendente', 'pagamento_recusado', 'cancelado'].includes(statusNovo);
-      const bloqueioPorCancelamento = statusAtual === 'cancelado' && statusNovo !== 'cancelado';
-      const bloqueioPorRegressao = bloqueioPorCancelamento
-        || (fluxoAvancado && statusRegressivoFinanceiro)
-        || (statusAtual === 'pago' && ['pendente', 'pagamento_recusado'].includes(statusNovo));
-
-      if (bloqueioPorRegressao) {
-        logger.info('[MP Webhook] Transicao ignorada para evitar regressao indevida.', {
-          request_id: requestId,
-          pedido_id: pedidoId,
-          payment_id: String(pagamento.id),
-          external_reference: String(pagamento.external_reference || ''),
-          x_request_id: xRequestId || null,
-          event_id: String(payload?.id || '').trim() || null,
-          status_anterior: statusAtual,
-          status_novo: statusNovo,
-          origem_transicao: 'webhook_mercadopago'
-        });
-        return res.sendStatus(200);
-      }
-
-      const updateFields = ['status = ?', 'mp_payment_id_mp = ?'];
-      const updateValues = [statusInterno, String(pagamento.id)];
-
-      if (statusInterno === 'pago') {
-        updateFields.push('pix_status = ?');
-        updateValues.push('PAID');
-        updateFields.push('pago_em = COALESCE(pago_em, NOW())');
-      } else if (statusInterno === 'cancelado' || statusInterno === 'pagamento_recusado') {
-        updateFields.push('pix_status = ?');
-        updateValues.push(statusInterno === 'cancelado' ? 'CANCELED' : 'DECLINED');
-      }
-
-      updateValues.push(pedidoId);
-      await pool.query(
-        `UPDATE pedidos SET ${updateFields.join(', ')} WHERE id = ?`,
-        updateValues
-      );
 
       logger.info('[MP Webhook] Pedido atualizado com sucesso.', {
         request_id: requestId,
-        pedido_id: pedidoId,
-        payment_id: String(pagamento.id),
+        pedido_id: Number(syncResult?.pedido?.id || 0) || null,
+        payment_id: String(pagamento.id || ''),
         external_reference: String(pagamento.external_reference || ''),
         x_request_id: xRequestId || null,
         event_id: String(payload?.id || '').trim() || null,
-        status_anterior: statusAtual,
-        status_novo: statusNovo,
+        status_anterior: String(syncResult?.pedido?.status_anterior || '').trim().toLowerCase() || null,
+        status_novo: String(syncResult?.pedido?.status_novo || '').trim().toLowerCase() || null,
         origem_transicao: 'webhook_mercadopago'
       });
 
-      if (statusInterno === 'pago' && enviarWhatsappPedido) {
+      if (
+        enviarWhatsappPedido
+        && String(syncResult?.pedido?.status_novo || '').trim().toLowerCase() === 'pago'
+        && String(syncResult?.pedido?.status_anterior || '').trim().toLowerCase() !== 'pago'
+      ) {
         try {
           const [dadosNotifica] = await pool.query(
             `SELECT p.total, u.nome, u.telefone, u.whatsapp_opt_in
              FROM pedidos p JOIN usuarios u ON p.usuario_id = u.id
              WHERE p.id = ? LIMIT 1`,
-            [pedidoId]
+            [syncResult?.pedido?.id]
           );
           if (dadosNotifica.length && dadosNotifica[0].whatsapp_opt_in) {
             await enviarWhatsappPedido({
               telefone: dadosNotifica[0].telefone,
               nome: dadosNotifica[0].nome,
-              pedidoId,
+              pedidoId: syncResult?.pedido?.id,
               total: dadosNotifica[0].total,
               mensagemExtra: 'Pagamento confirmado! Seu pedido esta sendo preparado.'
             });
@@ -474,4 +418,3 @@ module.exports = function createWebhookRoutes(deps) {
 
   return router;
 };
-

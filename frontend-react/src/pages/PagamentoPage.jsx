@@ -12,7 +12,6 @@ import {
   getEndereco,
   getProdutos,
   getMe,
-  getPedidos,
   getPedidoStatus,
   cancelarPedidoRevisao,
   isAuthErrorMessage,
@@ -133,6 +132,7 @@ import InternalTopBar from '../components/navigation/InternalTopBar';
 const CHECKOUT_ENDERECO_CACHE_KEY = 'bf_checkout_endereco_preferido';
 const CHECKOUT_CPF_NOTA_CACHE_KEY = 'bf_checkout_cpf_nota';
 const STATUS_REVISAO_ATIVOS = new Set(['aguardando_revisao', 'pendente', 'pagamento_recusado']);
+const STATUS_TERMINAIS_PIX_POLLING = new Set(['pago', 'entregue', 'pagamento_recusado', 'cancelado', 'expirado', 'retirado']);
 const LIMITE_SUGESTOES_CHECKOUT = 8;
 const MINIMO_PRIORIDADE_IMPULSO = 6;
 const TERMOS_PRIORIDADE_IMPULSO = [
@@ -1459,7 +1459,7 @@ export default function PagamentoPage() {
   ]);
 
   useEffect(() => {
-    if (!resultadoPedido?.pedido_id || autenticado !== true) {
+    if (!resultadoPedido?.pedido_id || autenticado !== true || etapaAtual !== ETAPAS.STATUS) {
       return;
     }
 
@@ -1479,30 +1479,15 @@ export default function PagamentoPage() {
       statusAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
       try {
-        const data = await getPedidos({}, {
+        const data = await getPedidoStatus(resultadoPedido.pedido_id, {
           signal: statusAbortController?.signal
         });
-        const pedido = (data.pedidos || []).find((item) => Number(item.id) === Number(resultadoPedido.pedido_id));
-        if (ativo && pedido?.status) {
-          const novoStatus = String(pedido.status || '').toLowerCase();
+
+        if (ativo && data?.status) {
+          const novoStatus = String(data.status || '').toLowerCase();
           setStatusPedidoAtual(novoStatus);
           setUltimaAtualizacaoRevisao(new Date().toISOString());
-          trackOrder(resultadoPedido.pedido_id, pedido);
-
-          if (!statusEhElegivelParaFluxoRevisao(novoStatus) && novoStatus !== 'pago') {
-            sairDoFluxoRevisaoEncerrado('Seu pedido em revisão foi encerrado. Você pode montar um novo carrinho.');
-            return;
-          }
-
-          // Evita travar na etapa de revisão quando o status já foi aprovado no admin.
-          if (etapaAtual === ETAPAS.REVISAO && (novoStatus === 'pendente' || novoStatus === 'pago' || novoStatus === 'pagamento_recusado')) {
-            setEtapaAtual(ETAPAS.PIX);
-          }
-
-          if (etapaAtual === ETAPAS.REVISAO && (novoStatus === 'cancelado' || novoStatus === 'expirado')) {
-            sairDoFluxoRevisaoEncerrado('Seu pedido em revisão foi encerrado. Monte um novo pedido para continuar.');
-            return;
-          }
+          trackOrder(resultadoPedido.pedido_id, data);
 
           if (novoStatus === 'pago' || novoStatus === 'entregue') {
             setPagamentoConfirmado(true);
@@ -1523,7 +1508,7 @@ export default function PagamentoPage() {
       }
     }
 
-    atualizarStatus();
+    void atualizarStatus();
     const interval = setInterval(atualizarStatus, 15000);
 
     return () => {
@@ -1534,7 +1519,7 @@ export default function PagamentoPage() {
       }
       emAndamento = false;
     };
-  }, [resultadoPedido?.pedido_id, autenticado, etapaAtual, sairDoFluxoRevisaoEncerrado, trackOrder]);
+  }, [resultadoPedido?.pedido_id, autenticado, etapaAtual, trackOrder]);
 
   async function executarSimulacaoFrete({ mostrarErro = true } = {}) {
     if (retiradaSelecionada) {
@@ -2390,6 +2375,133 @@ export default function PagamentoPage() {
   }, [etapaAtual, resultadoPedido?.pedido_id, sairDoFluxoRevisaoEncerrado, trackOrder]);
 
   useEffect(() => {
+    if (etapaAtual !== ETAPAS.PIX || formaPagamento !== 'pix' || !resultadoPedido?.pedido_id) {
+      return undefined;
+    }
+
+    let ativo = true;
+    let emAndamento = false;
+    let tentativa = 0;
+    let timeoutId = null;
+    let statusAbortController = null;
+    const inicioObservacao = Date.now();
+
+    const resolverDelay = () => {
+      if (tentativa < 10) return 4000;
+      if (tentativa < 30) return 7000;
+      return 12000;
+    };
+
+    const agendarProxima = () => {
+      if (!ativo) {
+        return;
+      }
+
+      if ((Date.now() - inicioObservacao) >= 240000) {
+        return;
+      }
+
+      timeoutId = setTimeout(() => {
+        void executarPolling();
+      }, resolverDelay());
+    };
+
+    const executarPolling = async () => {
+      if (!ativo || emAndamento) {
+        return;
+      }
+
+      emAndamento = true;
+      if (statusAbortController) {
+        statusAbortController.abort();
+      }
+      statusAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
+      try {
+        const data = await getPedidoStatus(resultadoPedido.pedido_id, {
+          signal: statusAbortController?.signal
+        });
+
+        if (!ativo) {
+          return;
+        }
+
+        const novoStatus = String(data?.status || '').toLowerCase();
+        if (novoStatus) {
+          setStatusPedidoAtual(novoStatus);
+          setUltimaAtualizacaoRevisao(new Date().toISOString());
+          trackOrder(resultadoPedido.pedido_id, data || { status: novoStatus });
+
+          const aprovado = novoStatus === 'pago' || novoStatus === 'entregue';
+          setPagamentoConfirmado(aprovado);
+
+          setResultadoPix((atual) => {
+            const base = atual || {};
+            const mpStatusGateway = String(data?.mp_status || '').trim().toUpperCase();
+            const statusGateway = mpStatusGateway
+              || (aprovado
+                ? 'PAID'
+                : novoStatus === 'cancelado'
+                  ? 'CANCELED'
+                  : novoStatus === 'pagamento_recusado'
+                    ? 'DECLINED'
+                    : novoStatus === 'expirado'
+                      ? 'EXPIRED'
+                      : String(base.status || 'WAITING').toUpperCase());
+
+            return {
+              ...base,
+              status: statusGateway,
+              status_interno: novoStatus,
+              pix_codigo: String(data?.pix_codigo || base.pix_codigo || base.qr_data || '').trim(),
+              qr_data: String(data?.pix_codigo || base.qr_data || base.pix_codigo || '').trim(),
+              pix_qrcode: String(data?.pix_qrcode || base.pix_qrcode || '').trim(),
+              qr_code_base64: String(data?.pix_qr_base64 || data?.qr_code_base64 || base.qr_code_base64 || '').trim()
+            };
+          });
+
+          if (STATUS_TERMINAIS_PIX_POLLING.has(novoStatus)) {
+            return;
+          }
+        }
+
+        tentativa += 1;
+        agendarProxima();
+      } catch (error) {
+        const erroCancelado = error?.name === 'AbortError'
+          || error?.code === 'API_ABORTED'
+          || Number(error?.status || 0) === 499;
+        if (erroCancelado) {
+          return;
+        }
+
+        if (isAuthErrorMessage(error?.message)) {
+          setAutenticado(false);
+          return;
+        }
+
+        tentativa += 1;
+        agendarProxima();
+      } finally {
+        emAndamento = false;
+      }
+    };
+
+    void executarPolling();
+
+    return () => {
+      ativo = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (statusAbortController) {
+        statusAbortController.abort();
+      }
+      emAndamento = false;
+    };
+  }, [etapaAtual, formaPagamento, resultadoPedido?.pedido_id, trackOrder]);
+
+  useEffect(() => {
     const statusAtual = String(statusPedidoAtual || resultadoPedido?.status || '').toLowerCase();
     if (statusAtual !== 'pago') {
       return;
@@ -2620,42 +2732,48 @@ export default function PagamentoPage() {
     setVerificandoStatusPix(true);
 
     try {
-      const data = await getPedidos();
-      const pedidoAtual = (data?.pedidos || []).find((item) => Number(item.id) === Number(resultadoPedido.pedido_id));
-      if (!pedidoAtual) {
-        throw new Error('Não foi possível localizar o pedido para verificar o pagamento.');
+      const data = await getPedidoStatus(resultadoPedido.pedido_id);
+      const statusInterno = String(data?.status || '').toLowerCase();
+      if (!statusInterno) {
+        throw new Error('Nao foi possivel localizar o pedido para verificar o pagamento.');
       }
 
-      const statusInterno = String(pedidoAtual.status || '').toLowerCase();
       setStatusPedidoAtual(statusInterno);
       setUltimaAtualizacaoRevisao(new Date().toISOString());
-      trackOrder(resultadoPedido.pedido_id, pedidoAtual);
+      trackOrder(resultadoPedido.pedido_id, data || { status: statusInterno });
 
       const aprovado = statusInterno === 'pago' || statusInterno === 'entregue';
       setPagamentoConfirmado(aprovado);
 
       setResultadoPix((atual) => {
-        if (!atual) {
-          return atual;
-        }
-
-        return {
-          ...atual,
-          status: aprovado
+        const base = atual || {};
+        const mpStatusGateway = String(data?.mp_status || '').trim().toUpperCase();
+        const statusGateway = mpStatusGateway
+          || (aprovado
             ? 'PAID'
             : statusInterno === 'cancelado'
               ? 'CANCELED'
               : statusInterno === 'pagamento_recusado'
                 ? 'DECLINED'
-              : String(atual.status || 'WAITING').toUpperCase(),
-          status_interno: statusInterno
+                : statusInterno === 'expirado'
+                  ? 'EXPIRED'
+                  : String(base.status || 'WAITING').toUpperCase());
+
+        return {
+          ...base,
+          status: statusGateway,
+          status_interno: statusInterno,
+          pix_codigo: String(data?.pix_codigo || base.pix_codigo || base.qr_data || '').trim(),
+          qr_data: String(data?.pix_codigo || base.qr_data || base.pix_codigo || '').trim(),
+          pix_qrcode: String(data?.pix_qrcode || base.pix_qrcode || '').trim(),
+          qr_code_base64: String(data?.pix_qr_base64 || data?.qr_code_base64 || base.qr_code_base64 || '').trim()
         };
       });
     } catch (error) {
       if (isAuthErrorMessage(error.message)) {
         setAutenticado(false);
       }
-      setErro(error.message || 'Não foi possível atualizar o status do pagamento PIX.');
+      setErro(error.message || 'Nao foi possivel atualizar o status do pagamento PIX.');
     } finally {
       setVerificandoStatusPix(false);
     }

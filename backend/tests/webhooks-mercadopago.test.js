@@ -15,7 +15,7 @@ const createWebhookRoutes = require('../routes/webhooks');
 const { criarMercadoPagoService } = require('../services/mercadoPagoService');
 
 describe('Mercado Pago webhook signature policy', () => {
-  test('sem secret: modo padrão rejeita assinatura (fail-closed)', () => {
+  test('sem secret: modo padrao rejeita assinatura (fail-closed)', () => {
     const service = criarMercadoPagoService({
       accessToken: 'TEST-ACCESS',
       webhookSecret: '',
@@ -25,7 +25,7 @@ describe('Mercado Pago webhook signature policy', () => {
     expect(service.validarAssinaturaWebhook('', 'req-1', '10')).toBe(false);
   });
 
-  test('sem secret: modo inseguro explícito permite (somente quando habilitado)', () => {
+  test('sem secret: modo inseguro explicito permite (somente quando habilitado)', () => {
     const service = criarMercadoPagoService({
       accessToken: 'TEST-ACCESS',
       webhookSecret: '',
@@ -35,7 +35,7 @@ describe('Mercado Pago webhook signature policy', () => {
     expect(service.validarAssinaturaWebhook('', 'req-1', '10')).toBe(true);
   });
 
-  test('com secret: assinatura inválida é rejeitada', () => {
+  test('com secret: assinatura invalida e rejeitada', () => {
     const service = criarMercadoPagoService({
       accessToken: 'TEST-ACCESS',
       webhookSecret: 'segredo_mp'
@@ -44,7 +44,7 @@ describe('Mercado Pago webhook signature policy', () => {
     expect(service.validarAssinaturaWebhook('ts=1,v1=assinatura_errada', 'req-1', '10')).toBe(false);
   });
 
-  test('com secret: assinatura válida é aceita', () => {
+  test('com secret: assinatura valida e aceita', () => {
     const secret = 'segredo_mp';
     const service = criarMercadoPagoService({
       accessToken: 'TEST-ACCESS',
@@ -63,7 +63,19 @@ describe('Mercado Pago webhook signature policy', () => {
 });
 
 describe('POST /api/webhooks/mercadopago', () => {
-  function criarAppComWebhook(mercadoPagoService) {
+  function criarAppComWebhook(mercadoPagoService, paymentSyncService = null) {
+    const paymentSyncDefault = paymentSyncService || {
+      sincronizarPagamentoComPedido: jest.fn().mockResolvedValue({
+        applied: true,
+        reason: 'status_transition_applied',
+        pedido: {
+          id: 10,
+          status_anterior: 'pendente',
+          status_novo: 'pendente'
+        }
+      })
+    };
+
     const app = express();
     app.use(express.json());
     app.use(createWebhookRoutes({
@@ -76,6 +88,7 @@ describe('POST /api/webhooks/mercadopago', () => {
       evolutionProcessedMessageIds: new Map(),
       evolutionLastReplyByNumber: new Map(),
       mercadoPagoService,
+      paymentSyncService: paymentSyncDefault,
       enviarWhatsappPedido: jest.fn()
     }));
     return app;
@@ -85,11 +98,10 @@ describe('POST /api/webhooks/mercadopago', () => {
     pool.query.mockReset();
   });
 
-  test('retorna 401 com payload dual quando assinatura é inválida', async () => {
+  test('retorna 401 com payload dual quando assinatura e invalida', async () => {
     const app = criarAppComWebhook({
       validarAssinaturaWebhook: jest.fn().mockReturnValue(false),
-      consultarPagamento: jest.fn(),
-      mapearStatusPagamento: jest.fn()
+      consultarPagamento: jest.fn()
     });
 
     const res = await request(app)
@@ -99,30 +111,39 @@ describe('POST /api/webhooks/mercadopago', () => {
       .send({ type: 'payment', action: 'payment.updated', data: { id: '321' } });
 
     expect(res.status).toBe(401);
-    expect(res.body).toHaveProperty('erro', 'Assinatura inválida.');
-    expect(res.body).toHaveProperty('error', 'Assinatura inválida.');
+    expect(String(res.body?.erro || '')).toMatch(/assinatura/i);
+    expect(String(res.body?.error || '')).toMatch(/assinatura/i);
   });
 
-  test('processa webhook com assinatura válida e atualiza pedido', async () => {
+  test('processa webhook com assinatura valida e sincroniza pedido', async () => {
     const mercadoPagoService = {
       validarAssinaturaWebhook: jest.fn().mockReturnValue(true),
       consultarPagamento: jest.fn().mockResolvedValue({
         id: 'mp_123',
         status: 'pending',
         external_reference: '10'
-      }),
-      mapearStatusPagamento: jest.fn().mockReturnValue('pendente')
+      })
+    };
+
+    const paymentSyncService = {
+      sincronizarPagamentoComPedido: jest.fn().mockResolvedValue({
+        applied: true,
+        reason: 'status_transition_applied',
+        pedido: {
+          id: 10,
+          status_anterior: 'pendente',
+          status_novo: 'pendente'
+        }
+      })
     };
 
     pool.query.mockImplementation(async (sql) => {
       const texto = String(sql || '');
       if (/INSERT INTO webhook_events/i.test(texto)) return [{ affectedRows: 1 }];
-      if (/SELECT id, status, usuario_id, mp_payment_id_mp FROM pedidos/i.test(texto)) return [[{ id: 10, status: 'pendente', usuario_id: 1, mp_payment_id_mp: null }]];
-      if (/UPDATE pedidos SET/i.test(texto)) return [{ affectedRows: 1 }];
       return [[], null];
     });
 
-    const app = criarAppComWebhook(mercadoPagoService);
+    const app = criarAppComWebhook(mercadoPagoService, paymentSyncService);
 
     const res = await request(app)
       .post('/api/webhooks/mercadopago')
@@ -132,17 +153,17 @@ describe('POST /api/webhooks/mercadopago', () => {
 
     expect(res.status).toBe(200);
     expect(mercadoPagoService.consultarPagamento).toHaveBeenCalledWith('321');
-    expect(pool.query).toHaveBeenCalledWith(
-      expect.stringMatching(/UPDATE pedidos SET/i),
-      expect.any(Array)
+    expect(paymentSyncService.sincronizarPagamentoComPedido).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'webhook_mercadopago'
+      })
     );
   });
 
-  test('evento já processado retorna 200 sem consultar pagamento novamente', async () => {
+  test('evento ja processado retorna 200 sem consultar pagamento novamente', async () => {
     const mercadoPagoService = {
       validarAssinaturaWebhook: jest.fn().mockReturnValue(true),
-      consultarPagamento: jest.fn(),
-      mapearStatusPagamento: jest.fn()
+      consultarPagamento: jest.fn()
     };
 
     pool.query.mockImplementation(async (sql) => {

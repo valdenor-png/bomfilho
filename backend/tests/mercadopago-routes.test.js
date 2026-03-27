@@ -26,6 +26,17 @@ describe('MercadoPago routes surface and error contract', () => {
       consultarPagamento: jest.fn(),
       mapearStatusPagamento: jest.fn((v) => v)
     };
+    const paymentSyncService = {
+      sincronizarPagamentoComPedido: jest.fn().mockResolvedValue({
+        applied: true,
+        reason: 'status_transition_applied',
+        pedido: {
+          id: 10,
+          status_anterior: 'pendente',
+          status_novo: 'pendente'
+        }
+      })
+    };
 
     const validarRecaptcha = jest.fn().mockResolvedValue();
 
@@ -35,6 +46,7 @@ describe('MercadoPago routes surface and error contract', () => {
         next();
       },
       mercadoPagoService,
+      paymentSyncService,
       pool,
       validarRecaptcha,
       isProduction: false,
@@ -51,6 +63,7 @@ describe('MercadoPago routes surface and error contract', () => {
       deps,
       pool,
       mercadoPagoService,
+      paymentSyncService: deps.paymentSyncService,
       validarRecaptcha: deps.validarRecaptcha
     };
   }

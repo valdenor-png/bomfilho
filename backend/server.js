@@ -76,6 +76,7 @@ const readQueryCache = new BoundedCache({ maxSize: 500, ttlMs: READ_QUERY_CACHE_
 
 // ── Mercado Pago service instance ───────────────────────────────────────
 const { criarMercadoPagoService } = require('./services/mercadoPagoService');
+const { criarMercadoPagoPaymentSyncService } = require('./services/mercadoPagoPaymentSyncService');
 const {
   MP_ACCESS_TOKEN,
   MP_ENV,
@@ -1585,6 +1586,10 @@ if (SHOULD_SERVE_REACT && fs.existsSync(FRONTEND_DIST_PATH)) {
 // CONEXÃO COM O BANCO DE DADOS (lib/db.js)
 // ============================================
 const { pool, queryWithRetry, testConnection } = require('./lib/db');
+const mercadoPagoPaymentSyncService = criarMercadoPagoPaymentSyncService({
+  pool,
+  mercadoPagoService
+});
 
 const barcodeLookupService = createDefaultBarcodeLookupService({
   pool,
@@ -1960,6 +1965,7 @@ app.post('/api/mercadopago/criar-cartao', paymentLimiter);
 app.use(require('./routes/mercadopago')({
   autenticarToken,
   mercadoPagoService,
+  paymentSyncService: mercadoPagoPaymentSyncService,
   pool,
   validarRecaptcha
 }));
@@ -2011,6 +2017,13 @@ app.use(require('./routes/admin-operacional')({
   registrarAuditoria
 }));
 
+app.use(require('./routes/admin-pagamentos')({
+  exigirAcessoLocalAdmin,
+  autenticarAdminToken,
+  paymentSyncService: mercadoPagoPaymentSyncService,
+  registrarAuditoria: async (payload) => registrarAuditoria(pool, payload)
+}));
+
 // ============================================
 // WEBHOOKS (routes/webhooks.js)
 // ============================================
@@ -2019,7 +2032,9 @@ app.use(require('./routes/webhooks')({
   extrairDadosMensagemEvolution, isJidGrupoOuBroadcast,
   formatarTelefoneWhatsapp, enviarWhatsappTexto, limparCacheEvolution,
   evolutionProcessedMessageIds, evolutionLastReplyByNumber,
-  mercadoPagoService, enviarWhatsappPedido,
+  mercadoPagoService,
+  paymentSyncService: mercadoPagoPaymentSyncService,
+  enviarWhatsappPedido,
 }));
 
 app.use(require('./routes/uber-webhook')({
