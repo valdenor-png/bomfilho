@@ -1,3 +1,4 @@
+import React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, MapPin } from '../../icons';
 import { useCheckout, CHECKOUT_ACTIONS } from '../../context/CheckoutContext';

@@ -1,3 +1,4 @@
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { CircleCheck } from '../../icons';
 import { formatarMoeda } from '../../lib/checkoutUtils';
