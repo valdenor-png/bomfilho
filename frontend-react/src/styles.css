@@ -12783,10 +12783,9 @@ body {
 
 /* Visual refresh: checkout + account */
 body {
-  background:
-    radial-gradient(120% 120% at 0% -10%, rgba(22, 108, 62, 0.12) 0%, rgba(22, 108, 62, 0) 44%),
-    linear-gradient(180deg, #f8fbf9 0%, #f0f4f2 100%);
-  color: #111827;
+  background: linear-gradient(180deg, #1F5C50 0%, #174A40 100%);
+  color: #FFFFFF;
+  min-height: 100vh;
 }
 
 .content {
@@ -18338,29 +18337,11 @@ body {
   --ck-accent-glow: rgba(34, 197, 94, 0.16);
 }
 
-html,
-body,
 #root,
 .app-shell,
 .content,
-.admin-shell,
-.admin-content,
-.ck-layout,
-.ck-main,
-.ck-sidebar,
-.ck-topbar,
-.page,
-.card-box,
-.form-box,
-.route-loading-card,
-.bottom-nav,
-.floating-cart,
-.fila-grupo,
-.fila-card,
-.ck-card,
-.ck-kpi {
-  background: transparent !important;
-  background-image: none !important;
+.page {
+  background: transparent;
 }
 
 body,
