@@ -453,6 +453,12 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
         ['pendente', obsCurada, pedidoId]
       );
 
+      // SSE — notificar frontend em tempo real
+      try {
+        const { broadcast } = require('../lib/sseHub');
+        broadcast(pedidoId, { type: 'status_update', pedido_id: pedidoId, status: 'pendente', timestamp: new Date().toISOString() });
+      } catch { /* SSE falha silenciosamente */ }
+
       // Notificar cliente por WhatsApp
       try {
         const [dados] = await pool.query(
@@ -660,6 +666,17 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
           await pool.query('UPDATE pedidos SET status = ? WHERE id = ?', [status, pedidoId]);
         }
       }
+
+      // SSE — notificar frontend em tempo real
+      try {
+        const { broadcast } = require('../lib/sseHub');
+        broadcast(pedidoId, {
+          type: 'status_update',
+          pedido_id: pedidoId,
+          status,
+          timestamp: new Date().toISOString()
+        });
+      } catch { /* SSE falha silenciosamente */ }
 
       // Notificar cliente via WhatsApp se estiver configurado e houver opt-in
       if (status === 'preparando' || status === 'enviado' || status === 'entregue' || status === 'pronto_para_retirada' || status === 'retirado') {

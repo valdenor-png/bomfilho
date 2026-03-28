@@ -16,16 +16,24 @@ export default function GlobalCartBar({
   isCheckoutRoute,
   hasBottomNav = false,
   checkoutContext,
-  onCheckoutPrimaryAction
+  onCheckoutPrimaryAction,
+  onCheckoutSecondaryAction
 }) {
   const navigate = useNavigate();
 
-  if (!visible || Number(resumo?.itens || 0) <= 0) {
+  const temItensNoCarrinho = Number(resumo?.itens || 0) > 0;
+  const checkoutAtivo = isCheckoutRoute && checkoutContext;
+
+  if (!visible || (!temItensNoCarrinho && !checkoutAtivo)) {
     return null;
   }
 
-  const totalLabel = formatarMoeda(Number(resumo?.total || 0));
-  const itensLabel = formatarQuantidade(resumo?.itens);
+  const totalLabel = temItensNoCarrinho
+    ? formatarMoeda(Number(resumo?.total || 0))
+    : (checkoutAtivo ? String(checkoutContext?.totalLabel || '').trim() : '');
+  const itensLabel = temItensNoCarrinho
+    ? formatarQuantidade(resumo?.itens)
+    : (checkoutAtivo ? String(checkoutContext?.stepLabel || '').trim() : '');
 
   const ctaLabel = isCheckoutRoute
     ? String(checkoutContext?.primaryLabel || 'Continuar pedido').trim()
@@ -36,6 +44,8 @@ export default function GlobalCartBar({
     : 'Continue de onde parou';
 
   const disabled = isCheckoutRoute && Boolean(checkoutContext?.primaryDisabled);
+  const secondaryLabel = isCheckoutRoute ? String(checkoutContext?.secondaryLabel || '').trim() : '';
+  const secondaryDisabled = isCheckoutRoute && Boolean(checkoutContext?.secondaryDisabled);
 
   return (
     <div className={`global-cart-bar ${hasBottomNav ? 'is-with-bottom-nav' : ''}`.trim()} role="region" aria-label="Resumo rápido do carrinho">
@@ -45,20 +55,33 @@ export default function GlobalCartBar({
         {caption ? <p className="global-cart-bar-caption">{caption}</p> : null}
       </div>
 
-      <button
-        type="button"
-        className="btn-primary global-cart-bar-cta"
-        disabled={disabled}
-        onClick={() => {
-          if (isCheckoutRoute) {
-            onCheckoutPrimaryAction();
-            return;
-          }
-          navigate('/pagamento');
-        }}
-      >
-        {ctaLabel}
-      </button>
+      <div className="global-cart-bar-actions">
+        {secondaryLabel ? (
+          <button
+            type="button"
+            className="btn-secondary global-cart-bar-secondary"
+            disabled={secondaryDisabled}
+            onClick={onCheckoutSecondaryAction}
+          >
+            {secondaryLabel}
+          </button>
+        ) : null}
+
+        <button
+          type="button"
+          className="btn-primary global-cart-bar-cta"
+          disabled={disabled}
+          onClick={() => {
+            if (isCheckoutRoute) {
+              onCheckoutPrimaryAction();
+              return;
+            }
+            navigate('/pagamento');
+          }}
+        >
+          {ctaLabel}
+        </button>
+      </div>
     </div>
   );
 }

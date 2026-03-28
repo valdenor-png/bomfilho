@@ -997,7 +997,9 @@ function extrairBearerToken(req) {
 }
 
 function extrairTokenUsuarioRequest(req) {
-  return extrairBearerToken(req) || String(req.cookies?.[USER_AUTH_COOKIE_NAME] || '').trim();
+  return extrairBearerToken(req)
+    || String(req.cookies?.[USER_AUTH_COOKIE_NAME] || '').trim()
+    || String(req.query?.token || '').trim();
 }
 
 function extrairTokenAdminRequest(req) {
@@ -2075,6 +2077,11 @@ app.use(require('./routes/uber-webhook')({
   webhookToken: UBER_DIRECT_WEBHOOK_TOKEN,
   IS_PRODUCTION
 }));
+
+// ============================================
+// SSE — acompanhamento de pedido em tempo real
+// ============================================
+app.use(require('./routes/pedidos-stream')({ autenticarToken }));
 
 // ============================================
 // ROTAS DE TESTE/MONITORAMENTO (routes/health.js)

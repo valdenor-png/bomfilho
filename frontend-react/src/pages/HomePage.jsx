@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, Heart, MessageCircle, Repeat2, ShoppingCart, Store, Truck, Wallet } from '../icons';
+import { Eye, Heart, MessageCircle, Repeat2, Search, ShoppingCart, Store, Truck, Wallet } from '../icons';
 import { useNavigate } from 'react-router-dom';
 import { getProdutos } from '../lib/api';
 import { getProdutoEstoqueInfo, getEstoqueBadge } from '../lib/produtosUtils';
-import BrandLogo from '../components/BrandLogo';
 import SmartImage from '../components/ui/SmartImage';
 import { useRecorrencia } from '../context/RecorrenciaContext';
+import { useCart } from '../context/CartContext';
 import usePreloadImage from '../hooks/usePreloadImage';
 import useDocumentHead from '../hooks/useDocumentHead';
 import { STORE_WHATSAPP_URL, STORE_WHATSAPP_DISPLAY, STORE_TELEFONE_URL, STORE_TELEFONE_DISPLAY, STORE_CNPJ, STORE_ENDERECO, STORE_HORARIO_CURTO } from '../config/store';
@@ -27,6 +27,21 @@ const CATEGORY_IMAGES = {
 };
 const HOME_PRODUTOS_LIMIT = 60;
 
+const CATEGORIAS_GRID = [
+  { slug: 'bebidas', emoji: '🥤', nome: 'Bebidas' },
+  { slug: 'mercearia', emoji: '🛒', nome: 'Mercearia' },
+  { slug: 'hortifruti', emoji: '🥬', nome: 'Hortifruti' },
+  { slug: 'higiene', emoji: '🧴', nome: 'Higiene' },
+  { slug: 'limpeza', emoji: '🧹', nome: 'Limpeza' },
+  { slug: 'frios', emoji: '🧊', nome: 'Frios' },
+];
+
+const BANNERS = [
+  { id: 1, gradient: 'linear-gradient(135deg, #1E7D1E, #27A027)', titulo: 'Primeira compra', subtitulo: '20% OFF com Pix', codigo: 'BOM20' },
+  { id: 2, gradient: 'linear-gradient(135deg, #F9A825, #FFD600)', titulo: 'Frete Grátis', subtitulo: 'Pedidos acima de R$80', codigo: 'FRETEBOM', dark: true },
+  { id: 3, gradient: 'linear-gradient(135deg, #0A4D0A, #145A14)', titulo: 'Hortifruti', subtitulo: 'Até 30% OFF esta semana', codigo: 'HORTA30' },
+];
+
 function isProdutoEmPromocao(produto) {
   return (
     Number(produto?.desconto || 0) > 0
@@ -44,72 +59,35 @@ function getProdutoId(produto) {
 
 function getOfertaComercialLabel(produto) {
   const percentual = Number(produto?.percentual_desconto || 0);
-  const descontoValor = Number(produto?.desconto || 0);
-
-  if (percentual >= 5) {
-    return `${Math.round(percentual)}% OFF`;
-  }
-
-  if (descontoValor >= 1) {
-    return 'OFERTA';
-  }
-
+  if (percentual >= 5) return `${Math.round(percentual)}% OFF`;
   return 'OFERTA';
 }
 
-function HomeShelfSkeleton({ quantidade = 4 }) {
+function getProdutoImagem(produto) {
+  const imagem = String(produto?.imagem || '').trim();
+  if (imagem) return imagem;
+  const categoria = String(produto?.categoria || '').toLowerCase();
+  return CATEGORY_IMAGES[categoria] || 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?auto=format&fit=crop&w=900&q=60';
+}
+
+function HomeCardSkeleton({ count = 4 }) {
   return (
-    <div className="home-shelf-skeleton-grid" aria-hidden="true">
-      {Array.from({ length: quantidade }).map((_, index) => (
-        <article className="home-shelf-skeleton-card" key={`home-skeleton-${index}`}>
-          <div className="home-shelf-skeleton-media" />
-          <div className="home-shelf-skeleton-line home-shelf-skeleton-line-title" />
-          <div className="home-shelf-skeleton-line" />
-          <div className="home-shelf-skeleton-line home-shelf-skeleton-line-price" />
-        </article>
+    <div className="v2-home-skeleton-rail" aria-hidden="true">
+      {Array.from({ length: count }).map((_, i) => (
+        <div className="v2-home-skeleton-card" key={i}>
+          <div className="v2-home-skeleton-img" />
+          <div className="v2-home-skeleton-line" />
+          <div className="v2-home-skeleton-line v2-home-skeleton-line--short" />
+        </div>
       ))}
     </div>
   );
 }
 
-function getProdutoImagem(produto) {
-  const imagem = String(produto?.imagem || '').trim();
-  if (imagem) {
-    return imagem;
-  }
-
-  const categoria = String(produto?.categoria || '').toLowerCase();
-  return CATEGORY_IMAGES[categoria] || 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?auto=format&fit=crop&w=900&q=60';
-}
-
-function isUnsplashImageUrl(value) {
-  return String(value || '').includes('images.unsplash.com');
-}
-
-function buildUnsplashBlurVariant(url) {
-  if (!isUnsplashImageUrl(url)) {
-    return '';
-  }
-
-  try {
-    const parsed = new URL(url);
-    parsed.searchParams.set('auto', 'format');
-    parsed.searchParams.set('fit', 'crop');
-    parsed.searchParams.set('q', '24');
-    parsed.searchParams.set('w', '64');
-    return parsed.toString();
-  } catch {
-    return '';
-  }
-}
-
-function getProdutoImagemBlur(produto) {
-  return buildUnsplashBlurVariant(getProdutoImagem(produto));
-}
-
 export default function HomePage() {
   useDocumentHead({ description: 'Supermercado online BomFilho — ofertas reais, entrega rápida e compra simples pelo celular.' });
   const navigate = useNavigate();
+  const { addItem } = useCart();
   const {
     favoritosProdutos,
     recentesProdutos,
@@ -120,6 +98,7 @@ export default function HomePage() {
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [buscaRapida, setBuscaRapida] = useState('');
+  const [recorrenciaTab, setRecorrenciaTab] = useState('recentes');
 
   useEffect(() => {
     carregarProdutos();
@@ -149,7 +128,6 @@ export default function HomePage() {
         .map(p => getProdutoId(p))
         .filter(id => id !== null)
     );
-
     return produtos
       .map((produto) => {
         const id = getProdutoId(produto);
@@ -160,37 +138,22 @@ export default function HomePage() {
         return { produto, id, score };
       })
       .filter((item) => item.score > 0)
-      .sort((a, b) => {
-        const scoreDiff = b.score - a.score;
-        if (scoreDiff !== 0) return scoreDiff;
-        return String(a.produto?.nome || '').localeCompare(String(b.produto?.nome || ''), 'pt-BR');
-      })
-      .slice(0, 4);
+      .sort((a, b) => b.score - a.score || String(a.produto?.nome || '').localeCompare(String(b.produto?.nome || ''), 'pt-BR'))
+      .slice(0, 8);
   }, [produtos, favoritosProdutos, recentesProdutos, recomprasProdutos]);
 
   const imagemLcpHome = useMemo(() => {
-    const candidatoPrincipal = oportunidadesComerciais[0]?.produto;
-    if (candidatoPrincipal) {
-      return getProdutoImagem(candidatoPrincipal);
-    }
-
-    const candidatoRecorrente = favoritosHome[0] || recentesHome[0] || recompraHome[0];
-    return candidatoRecorrente ? getProdutoImagem(candidatoRecorrente) : '';
+    const p = oportunidadesComerciais[0]?.produto || favoritosHome[0] || recentesHome[0] || recompraHome[0];
+    return p ? getProdutoImagem(p) : '';
   }, [favoritosHome, oportunidadesComerciais, recentesHome, recompraHome]);
 
   usePreloadImage(imagemLcpHome);
 
   function abrirProdutos(params = {}) {
     const query = new URLSearchParams();
-    if (params.categoria) {
-      query.set('categoria', params.categoria);
-    }
-    if (params.busca) {
-      query.set('busca', params.busca);
-    }
-    if (params.recorrencia) {
-      query.set('recorrencia', params.recorrencia);
-    }
+    if (params.categoria) query.set('categoria', params.categoria);
+    if (params.busca) query.set('busca', params.busca);
+    if (params.recorrencia) query.set('recorrencia', params.recorrencia);
     const suffix = query.toString();
     navigate(`/produtos${suffix ? `?${suffix}` : ''}`);
   }
@@ -198,140 +161,171 @@ export default function HomePage() {
   function handleBuscaRapidaSubmit(event) {
     event.preventDefault();
     const termo = String(buscaRapida || '').trim();
-    if (!termo) {
-      abrirProdutos();
-      return;
-    }
-
-    abrirProdutos({ busca: termo });
+    abrirProdutos(termo ? { busca: termo } : {});
   }
 
+  const recorrenciaItens = recorrenciaTab === 'favoritos' ? favoritosHome
+    : recorrenciaTab === 'recompra' ? recompraHome
+    : recentesHome;
+
   return (
-    <section className="page home-page home-page-clean">
-      <form className="home-quick-search home-quick-search-top" aria-label="Busca rapida no catalogo" onSubmit={handleBuscaRapidaSubmit}>
-        <div className="home-quick-search-row">
-          <label htmlFor="home-quick-search-input" className="sr-only">Buscar no catálogo</label>
+    <section className="page v2-home">
+      {/* Saudação */}
+      <div className="v2-home-greeting">
+        <p className="v2-home-greeting-sub">Seu supermercado online</p>
+        <h2 className="v2-home-greeting-title">
+          O que você precisa <span className="v2-accent-green">hoje</span><span className="v2-accent-yellow">?</span>
+        </h2>
+      </div>
+
+      {/* Busca */}
+      <form className="v2-home-search" onSubmit={handleBuscaRapidaSubmit} aria-label="Busca rápida">
+        <div className="v2-home-search-row">
+          <Search size={16} className="v2-home-search-icon" aria-hidden="true" />
           <input
-            id="home-quick-search-input"
-            className="field-input home-quick-search-input"
+            className="v2-home-search-input"
             type="search"
             value={buscaRapida}
-            onChange={(event) => setBuscaRapida(event.target.value)}
-            placeholder="Buscar: arroz, cafe, leite..."
+            onChange={(e) => setBuscaRapida(e.target.value)}
+            placeholder="Buscar: arroz, café, leite..."
           />
-          <button className="btn-primary home-quick-search-btn" type="submit">Buscar</button>
+          <button className="v2-home-search-btn" type="submit">Buscar</button>
         </div>
       </form>
 
-      <section className="home-hero home-hero-clean" aria-label="Boas-vindas Bomfilho">
-        <BrandLogo subtitle="Seu supermercado online" />
-        <p className="home-hero-description">
-          Faz suas compras pelo celular com entrega rapida no seu bairro. Precos de supermercado, sem surpresa.
-        </p>
-        <div className="home-hero-highlights">
-          <span className="home-hero-pill"><Truck size={14} aria-hidden="true" /> Entrega rapida</span>
-          <span className="home-hero-pill"><Wallet size={14} aria-hidden="true" /> Desconto no Pix</span>
-          <span className="home-hero-pill"><ShoppingCart size={14} aria-hidden="true" /> +21 mil produtos</span>
-        </div>
-      </section>
+      {/* Badges informativos */}
+      <div className="v2-home-badges">
+        <span className="v2-home-badge">⚡ Entrega rápida</span>
+        <span className="v2-home-badge">💰 Desconto no Pix</span>
+        <span className="v2-home-badge">📦 +21 mil produtos</span>
+      </div>
 
-      <section className="home-opportunities home-section-clean" aria-label="Ofertas do dia">
-        <h2>Ofertas do dia</h2>
+      {/* Banners de promoção */}
+      <div className="v2-home-banners">
+        {BANNERS.map((b) => (
+          <div className={`v2-home-banner ${b.dark ? 'is-dark-text' : ''}`} key={b.id} style={{ background: b.gradient }}>
+            <div className="v2-home-banner-circle" />
+            <p className="v2-home-banner-title">{b.titulo}</p>
+            <p className="v2-home-banner-sub">{b.subtitulo}</p>
+            <span className="v2-home-banner-code">{b.codigo}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Grid de categorias */}
+      <div className="v2-home-cats">
+        {CATEGORIAS_GRID.map((cat) => (
+          <button key={cat.slug} className="v2-home-cat" type="button" onClick={() => abrirProdutos({ categoria: cat.slug })}>
+            <span className="v2-home-cat-emoji">{cat.emoji}</span>
+            <span className="v2-home-cat-name">{cat.nome}</span>
+          </button>
+        ))}
+        <button className="v2-home-cat v2-home-cat--all" type="button" onClick={() => abrirProdutos()}>
+          <span className="v2-home-cat-emoji">📋</span>
+          <span className="v2-home-cat-name">Ver tudo</span>
+        </button>
+      </div>
+
+      {/* Ofertas do dia */}
+      <section className="v2-home-section" aria-label="Ofertas do dia">
+        <div className="v2-home-section-head">
+          <h2>🔥 Ofertas do dia</h2>
+          <button type="button" className="v2-home-section-link" onClick={() => abrirProdutos()}>Ver todas →</button>
+        </div>
 
         {carregando ? (
-          <HomeShelfSkeleton quantidade={4} />
+          <HomeCardSkeleton count={4} />
         ) : oportunidadesComerciais.length > 0 ? (
-          <div className="home-opportunities-rail" role="list" aria-label="Lista horizontal de ofertas do dia">
+          <div className="v2-home-product-rail">
             {oportunidadesComerciais.map(({ produto, id }, index) => {
               const temOferta = isProdutoEmPromocao(produto);
-              const blurSrc = getProdutoImagemBlur(produto);
-              const precoLabel = Number(produto.preco || 0).toFixed(2);
+              const preco = Number(produto.preco || 0);
+              const precoPromo = Number(produto.preco_promocional || 0);
+              const descontoPercent = Number(produto.percentual_desconto || 0);
 
               return (
-                <article className="home-opportunity-card" role="listitem" key={`home-opportunity-${id || produto.nome}`}>
-                  {temOferta ? (
-                    <span className="home-opportunity-badge">{getOfertaComercialLabel(produto)}</span>
-                  ) : null}
-
-                  <SmartImage
-                    className="home-opportunity-image"
-                    src={getProdutoImagem(produto)}
-                    blurSrc={blurSrc}
-                    alt={produto.nome}
-                    priority={index === 0}
-                    loading="lazy"
-                    fallbackSrc="/img/logo-oficial.png"
-                  />
-
-                  <p className="home-opportunity-name">{produto.nome}</p>
-                  <p className="home-opportunity-price">R$ {precoLabel}</p>
-
-                  {(() => {
-                    const badge = getEstoqueBadge(getProdutoEstoqueInfo(produto));
-                    return (
-                      <span className={`estoque-badge estoque-badge-sm ${badge.classe}`}>{badge.label}</span>
-                    );
-                  })()}
-
-                  <button className="btn-primary home-card-cta" type="button" onClick={() => abrirProdutos({ busca: produto.nome })}>
-                    Comprar
-                  </button>
+                <article className="v2-product-card-compact" key={`oferta-${id || index}`} style={{ animationDelay: `${index * 0.04}s` }}>
+                  <div className="v2-product-card-media">
+                    {temOferta && descontoPercent >= 5 ? (
+                      <span className="v2-product-card-discount">-{Math.round(descontoPercent)}%</span>
+                    ) : temOferta ? (
+                      <span className="v2-product-card-tag">Oferta</span>
+                    ) : null}
+                    <SmartImage className="v2-product-card-img" src={getProdutoImagem(produto)} alt={produto.nome} loading={index < 2 ? 'eager' : 'lazy'} />
+                  </div>
+                  <p className="v2-product-card-name">{produto.nome}</p>
+                  <div className="v2-product-card-price-row">
+                    <span className="v2-product-card-price">R$ {(precoPromo > 0 ? precoPromo : preco).toFixed(2).replace('.', ',')}</span>
+                    {precoPromo > 0 && preco > precoPromo ? (
+                      <span className="v2-product-card-old-price">R$ {preco.toFixed(2).replace('.', ',')}</span>
+                    ) : null}
+                  </div>
+                  <button className="v2-product-card-add" type="button" onClick={() => addItem(produto)} aria-label={`Adicionar ${produto.nome}`}>+</button>
                 </article>
               );
             })}
           </div>
         ) : (
-          <p className="muted-text">As melhores ofertas aparecem aqui.</p>
+          <p className="v2-home-empty">As melhores ofertas aparecem aqui.</p>
         )}
       </section>
 
+      {/* Continue de onde parou */}
       {temDadosRecorrencia ? (
-        <section className="home-recorrencia home-section-clean" aria-label="Continue de onde parou">
+        <section className="v2-home-section" aria-label="Continue de onde parou">
           <h2>Continue de onde parou</h2>
-
-          <div className="home-recorrencia-actions">
-            {favoritosHome.length > 0 ? (
-              <button type="button" className="home-recorrencia-chip" onClick={() => abrirProdutos({ recorrencia: 'favoritos' })}>
-                <Heart size={14} aria-hidden="true" /> Favoritos ({favoritosHome.length})
-              </button>
-            ) : null}
+          <div className="v2-home-tabs">
             {recentesHome.length > 0 ? (
-              <button type="button" className="home-recorrencia-chip" onClick={() => abrirProdutos({ recorrencia: 'recentes' })}>
-                <Eye size={14} aria-hidden="true" /> Vistos ({recentesHome.length})
+              <button type="button" className={`v2-home-tab ${recorrenciaTab === 'recentes' ? 'is-active' : ''}`} onClick={() => setRecorrenciaTab('recentes')}>
+                Vistos ({recentesHome.length})
               </button>
             ) : null}
             {recompraHome.length > 0 ? (
-              <button type="button" className="home-recorrencia-chip" onClick={() => abrirProdutos({ recorrencia: 'recompra' })}>
-                <Repeat2 size={14} aria-hidden="true" /> Comprar de novo ({recompraHome.length})
+              <button type="button" className={`v2-home-tab ${recorrenciaTab === 'recompra' ? 'is-active' : ''}`} onClick={() => setRecorrenciaTab('recompra')}>
+                Comprar de novo ({recompraHome.length})
               </button>
             ) : null}
+            {favoritosHome.length > 0 ? (
+              <button type="button" className={`v2-home-tab ${recorrenciaTab === 'favoritos' ? 'is-active' : ''}`} onClick={() => setRecorrenciaTab('favoritos')}>
+                Favoritos ({favoritosHome.length})
+              </button>
+            ) : null}
+          </div>
+          <div className="v2-home-recurrence-grid">
+            {recorrenciaItens.map((produto, i) => (
+              <article className="v2-product-card-compact v2-product-card-compact--grid" key={`rec-${getProdutoId(produto) || i}`}>
+                <div className="v2-product-card-media">
+                  <SmartImage className="v2-product-card-img" src={getProdutoImagem(produto)} alt={produto.nome} loading="lazy" />
+                </div>
+                <p className="v2-product-card-name">{produto.nome}</p>
+                <div className="v2-product-card-price-row">
+                  <span className="v2-product-card-price">R$ {Number(produto.preco || 0).toFixed(2).replace('.', ',')}</span>
+                </div>
+                <button className="v2-product-card-add" type="button" onClick={() => addItem(produto)} aria-label={`Adicionar ${produto.nome}`}>+</button>
+              </article>
+            ))}
           </div>
         </section>
       ) : null}
 
       {erro ? <p className="error-text" role="alert">{erro}</p> : null}
 
-      <footer className="home-footer">
-        <div className="footer-brand">
-          <BrandLogo compact titleTag="h2" subtitle="Supermercado de confianca" />
-        </div>
-        <div className="home-trust-inline">
-          <span><Truck size={14} aria-hidden="true" /> Entrega e retirada</span>
-          <span><MessageCircle size={14} aria-hidden="true" /> Atendimento por WhatsApp</span>
-          <span><Store size={14} aria-hidden="true" /> Compra rapida no celular</span>
-        </div>
-        <div className="footer-info-simple" aria-label="Informações da loja">
-          <div className="footer-info-line">
-            <a className="footer-link" href={STORE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
-              WhatsApp: {STORE_WHATSAPP_DISPLAY}
-            </a>
-            {' · '}
-            <a className="footer-link" href={STORE_TELEFONE_URL}>Fixo: {STORE_TELEFONE_DISPLAY}</a>
+      {/* Footer da loja */}
+      <footer className="v2-home-footer">
+        <div className="v2-home-footer-brand">
+          <div className="app-header-logo-icon" aria-hidden="true" style={{ width: 40, height: 40, fontSize: '1.2rem' }}>🛒</div>
+          <div>
+            <p className="v2-home-footer-name"><strong>Bom</strong><span style={{ color: 'var(--bf-green-500)' }}>Filho</span></p>
+            <p className="v2-home-footer-sub">Supermercado de confiança</p>
           </div>
-          <div className="footer-info-line">Horario: {STORE_HORARIO_CURTO}</div>
-          <div className="footer-info-line">CNPJ: {STORE_CNPJ} · {STORE_ENDERECO}</div>
         </div>
-        <small>© 2026 BomFilho. Todos os direitos reservados.</small>
+        <div className="v2-home-footer-info">
+          <p>📱 WhatsApp: <a href={STORE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">{STORE_WHATSAPP_DISPLAY}</a></p>
+          <p>📞 Fixo: <a href={STORE_TELEFONE_URL}>{STORE_TELEFONE_DISPLAY}</a></p>
+          <p>🕐 {STORE_HORARIO_CURTO}</p>
+          <p style={{ fontSize: '0.68rem', color: 'var(--bf-ink-400)' }}>CNPJ: {STORE_CNPJ} · {STORE_ENDERECO}</p>
+        </div>
+        <small style={{ color: 'var(--bf-ink-400)' }}>© 2026 BomFilho. Todos os direitos reservados.</small>
       </footer>
     </section>
   );

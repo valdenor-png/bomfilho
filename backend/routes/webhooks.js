@@ -375,6 +375,21 @@ module.exports = function createWebhookRoutes(deps) {
         origem_transicao: 'webhook_mercadopago'
       });
 
+      // SSE — notificar frontend em tempo real
+      try {
+        const { broadcast } = require('../lib/sseHub');
+        const pedidoIdSSE = Number(syncResult?.pedido?.id || 0);
+        const statusNovo = String(syncResult?.pedido?.status_novo || '').trim().toLowerCase();
+        if (pedidoIdSSE && statusNovo) {
+          broadcast(pedidoIdSSE, {
+            type: 'status_update',
+            pedido_id: pedidoIdSSE,
+            status: statusNovo,
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch { /* SSE falha silenciosamente */ }
+
       if (
         enviarWhatsappPedido
         && String(syncResult?.pedido?.status_novo || '').trim().toLowerCase() === 'pago'

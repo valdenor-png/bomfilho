@@ -2,6 +2,7 @@ import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { tryGetRecaptchaToken } from '../lib/recaptchaEnterprise';
+import useOrderStream from '../hooks/useOrderStream';
 import {
   buscarEnderecoViaCep,
   criarPedido,
@@ -254,6 +255,21 @@ export default function PagamentoPage() {
     const etapa = String(params.get('etapa') || '').trim().toLowerCase();
     return ['revisao', 'pagamento', 'pix'].includes(etapa) ? etapa : '';
   }, [location.search]);
+
+  // SSE — recebe status em tempo real via push do backend
+  useOrderStream(
+    resultadoPedido?.pedido_id || null,
+    useCallback((data) => {
+      if (!data?.status) return;
+      const novoStatus = String(data.status).toLowerCase();
+      setStatusPedidoAtual(novoStatus);
+      setUltimaAtualizacaoRevisao(new Date().toISOString());
+      if (novoStatus === 'pago' || novoStatus === 'entregue') {
+        setPagamentoConfirmado(true);
+      }
+    }, []),
+    { enabled: Boolean(resultadoPedido?.pedido_id) && autenticado === true }
+  );
 
   const normalizarTextoSugestao = useCallback((valor) => String(valor || '')
     .normalize('NFD')
@@ -1127,13 +1143,19 @@ export default function PagamentoPage() {
   ]);
 
   useEffect(() => {
+    const STATUS_TERMINAIS = new Set(['pago', 'entregue', 'cancelado', 'expirado', 'retirado']);
     if (!resultadoPedido?.pedido_id || autenticado !== true || etapaAtual !== ETAPAS.STATUS) {
+      return;
+    }
+
+    if (STATUS_TERMINAIS.has(String(statusPedidoAtual || '').toLowerCase()) && pagamentoConfirmado) {
       return;
     }
 
     let ativo = true;
     let emAndamento = false;
     let statusAbortController = null;
+    let interval = null;
 
     async function atualizarStatus() {
       if (!ativo || emAndamento) {
@@ -1160,6 +1182,11 @@ export default function PagamentoPage() {
           if (novoStatus === 'pago' || novoStatus === 'entregue') {
             setPagamentoConfirmado(true);
           }
+
+          if (STATUS_TERMINAIS.has(novoStatus)) {
+            ativo = false;
+            clearInterval(interval);
+          }
         }
       } catch (error) {
         const erroCancelado = error?.name === 'AbortError'
@@ -1177,7 +1204,7 @@ export default function PagamentoPage() {
     }
 
     void atualizarStatus();
-    const interval = setInterval(atualizarStatus, 15000);
+    interval = setInterval(atualizarStatus, 15000);
 
     return () => {
       ativo = false;
@@ -1187,7 +1214,7 @@ export default function PagamentoPage() {
       }
       emAndamento = false;
     };
-  }, [resultadoPedido?.pedido_id, autenticado, etapaAtual, trackOrder]);
+  }, [resultadoPedido?.pedido_id, autenticado, etapaAtual, statusPedidoAtual, pagamentoConfirmado, trackOrder]);
 
   async function executarSimulacaoFrete({ mostrarErro = true } = {}) {
     if (retiradaSelecionada) {
@@ -2312,7 +2339,9 @@ export default function PagamentoPage() {
         caption: captionEntrega,
         primaryLabel: 'Ir para pagamento',
         onPrimaryClick: () => setEtapaAtual(ETAPAS.PAGAMENTO),
-        primaryDisabled: !podeAvancarParaPagamento
+        primaryDisabled: !podeAvancarParaPagamento,
+        secondaryLabel: 'Voltar ao carrinho',
+        onSecondaryClick: () => setEtapaAtual(ETAPAS.CARRINHO)
       };
     }
 
@@ -2351,9 +2380,11 @@ export default function PagamentoPage() {
         caption: ['cancelado', 'expirado'].includes(String(statusPedidoAtual || '').toLowerCase())
           ? 'Pedido encerrado.'
           : 'Aguardando revisão da equipe do mercado...',
-        primaryLabel: 'Confirmar pedido',
+        primaryLabel: 'Ir para pagamento',
         onPrimaryClick: () => setEtapaAtual(ETAPAS.PIX),
-        primaryDisabled: !['pendente', 'pago', 'pagamento_recusado'].includes(String(statusPedidoAtual || '').toLowerCase())
+        primaryDisabled: !['pendente', 'pago', 'pagamento_recusado'].includes(String(statusPedidoAtual || '').toLowerCase()),
+        secondaryLabel: 'Voltar',
+        onSecondaryClick: () => setEtapaAtual(ETAPAS.PAGAMENTO)
       };
     }
 
@@ -2379,13 +2410,8 @@ export default function PagamentoPage() {
           primaryDisabled: podeContinuarConfirmacaoPix
             ? false
             : (bloqueioVerificacaoPix || !pixDisponivelParaPagar),
-          secondaryLabel: textoBotaoGerarPix,
-          onSecondaryClick: () => {
-            if (resultadoPedido?.pedido_id) {
-              void handleGerarPixMercadoPago(resultadoPedido.pedido_id);
-            }
-          },
-          secondaryDisabled: bloqueioGeracaoPix
+          secondaryLabel: 'Voltar',
+          onSecondaryClick: () => setEtapaAtual(ETAPAS.REVISAO)
         };
       }
 
@@ -2421,7 +2447,9 @@ export default function PagamentoPage() {
           totalLabel: mobileActionBarConfig?.totalLabel || '',
           caption: mobileActionBarConfig?.caption || '',
           primaryLabel: mobileActionBarConfig?.primaryLabel || '',
-          primaryDisabled: Boolean(mobileActionBarConfig?.primaryDisabled)
+          primaryDisabled: Boolean(mobileActionBarConfig?.primaryDisabled),
+          secondaryLabel: mobileActionBarConfig?.secondaryLabel || '',
+          secondaryDisabled: Boolean(mobileActionBarConfig?.secondaryDisabled)
         };
 
     window.dispatchEvent(new CustomEvent('bomfilho:checkout-context', { detail: contextoCheckout }));
@@ -2451,9 +2479,19 @@ export default function PagamentoPage() {
       mobileActionBarConfig.onPrimaryClick();
     }
 
+    function handleGlobalCheckoutSecondaryAction() {
+      if (!mobileActionBarConfig?.onSecondaryClick || mobileActionBarConfig?.secondaryDisabled) {
+        return;
+      }
+
+      mobileActionBarConfig.onSecondaryClick();
+    }
+
     window.addEventListener('bomfilho:checkout-primary-action', handleGlobalCheckoutPrimaryAction);
+    window.addEventListener('bomfilho:checkout-secondary-action', handleGlobalCheckoutSecondaryAction);
     return () => {
       window.removeEventListener('bomfilho:checkout-primary-action', handleGlobalCheckoutPrimaryAction);
+      window.removeEventListener('bomfilho:checkout-secondary-action', handleGlobalCheckoutSecondaryAction);
     };
   }, [mobileActionBarConfig]);
 

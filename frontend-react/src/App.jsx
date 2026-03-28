@@ -5,6 +5,7 @@ import HomePage from './pages/HomePage';
 import { useCart } from './context/CartContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import GlobalCartBar from './components/GlobalCartBar';
+import AppHeader from './components/AppHeader';
 import ReviewTrackerWidget from './components/review/ReviewTrackerWidget';
 import AlcoholAgeGateModal from './components/AlcoholAgeGateModal';
 import {
@@ -106,7 +107,7 @@ export default function App() {
   const isProdutosRoute = location.pathname.startsWith('/produtos');
   const isPagamentoRoute = location.pathname.startsWith('/pagamento');
   const mostrarBottomNavCliente = !isAdminRoute;
-  const podeMostrarBarraGlobalCarrinho = Number(resumo?.itens || 0) > 0;
+  const podeMostrarBarraGlobalCarrinho = Number(resumo?.itens || 0) > 0 || (isPagamentoRoute && checkoutContext);
 
   useEffect(() => {
     function handleCheckoutContextEvent(event) {
@@ -160,6 +161,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <a href="#main-content" className="skip-to-content">Pular para o conteúdo</a>
+      {mostrarBottomNavCliente && !isPagamentoRoute ? <AppHeader /> : null}
       <main className={`content${isProdutosRoute ? ' content-produtos' : ''}${podeMostrarBarraGlobalCarrinho ? ' has-global-cart-bar' : ''}${mostrarBottomNavCliente ? ' has-bottom-nav' : ''}`} id="main-content">
         <ErrorBoundary resetKeys={[location.pathname]}>
         <Suspense fallback={<RouteLoadingFallback />}>
@@ -190,6 +192,9 @@ export default function App() {
           checkoutContext={checkoutContext}
           onCheckoutPrimaryAction={() => {
             window.dispatchEvent(new CustomEvent('bomfilho:checkout-primary-action'));
+          }}
+          onCheckoutSecondaryAction={() => {
+            window.dispatchEvent(new CustomEvent('bomfilho:checkout-secondary-action'));
           }}
         />
       </ErrorBoundary>
