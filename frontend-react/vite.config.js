@@ -19,10 +19,6 @@ function criarManualChunks(id) {
     return 'vendor-qrcode';
   }
 
-  if (caminhoNormalizado.includes('react-google-recaptcha')) {
-    return 'vendor-recaptcha';
-  }
-
   if (caminhoNormalizado.includes('react-window')) {
     return 'vendor-virtualized';
   }
