@@ -4,10 +4,10 @@ import { AlertTriangle, Flame, Heart, House, Search, ShoppingCart, Tag } from '.
 
 const EMPTY_RECOMENDACOES = [];
 const BEBIDAS_ALCOOLICAS_SECOES = new Set(['cervejas', 'vinho', 'destilados', 'licores', 'drinks-prontos']);
-const PREFETCH_CATEGORIAS_MAX_CONCORRENCIA = 2;
+const PREFETCH_CATEGORIAS_MAX_CONCORRENCIA = 3;
 const LIMITE_VITRINE_CATEGORIA = 10;
 const LIMITE_SUBCATEGORIA_CATEGORIA = 10;
-const CARGA_SUBCATEGORIAS_MAX_CONCORRENCIA = 2;
+const CARGA_SUBCATEGORIAS_MAX_CONCORRENCIA = 3;
 
 function mergeChavesSemDuplicacao(chavesAtuais = [], chavesNovas = []) {
   const conjunto = new Set(Array.isArray(chavesAtuais) ? chavesAtuais : []);
@@ -324,6 +324,7 @@ export default function ProdutosPage() {
   const [growthVersion, setGrowthVersion] = useState(0);
   const [ofertasDia, setOfertasDia] = useState([]);
   const [categoriasCatalogo, setCategoriasCatalogo] = useState([]);
+  const [categoriasCarregadas, setCategoriasCarregadas] = useState(false);
   const [categoriasEstruturadas, setCategoriasEstruturadas] = useState([]);
   const [subcategoriaEstruturadaAtiva, setSubcategoriaEstruturadaAtiva] = useState('todas');
   const [totaisCategoriasVitrine, setTotaisCategoriasVitrine] = useState({});
@@ -543,6 +544,7 @@ export default function ProdutosPage() {
         if (taxonomiaEstruturadaUtilizavel) {
           setCategoriasEstruturadas(categoriasEstruturadasNormalizadas);
           setCategoriasCatalogo(categoriasEstruturadasPrincipais);
+          if (!cancelado) setCategoriasCarregadas(true);
           return;
         }
 
@@ -565,12 +567,14 @@ export default function ProdutosPage() {
 
           setCategoriasEstruturadas([]);
           setCategoriasCatalogo(categoriasNormalizadas);
+          setCategoriasCarregadas(true);
         });
       })
       .catch(() => {
         if (!cancelado) {
           setCategoriasEstruturadas([]);
           setCategoriasCatalogo([]);
+          setCategoriasCarregadas(true);
         }
       });
 
@@ -1038,10 +1042,7 @@ export default function ProdutosPage() {
       const detalheCategoriaAtivo = categoriaEfetiva !== CATEGORIA_TODAS
         && categoriaEfetiva !== CATEGORIA_PROMOCOES
         && categoriaEfetiva === categoriaNavAtiva;
-      const categoriaPrecisaAmostraAmpla = !buscaEfetiva && (
-        categoriaEfetiva === CATEGORIA_CERVEJAS
-        || detalheCategoriaAtivo
-      );
+      const categoriaPrecisaAmostraAmpla = !buscaEfetiva && categoriaEfetiva === CATEGORIA_CERVEJAS;
       const limiteEfetivo = categoriaPrecisaAmostraAmpla ? 200 : PRODUTOS_POR_PAGINA;
       let respostaProdutos = null;
       let erroTentativa = null;
@@ -2141,6 +2142,10 @@ export default function ProdutosPage() {
     []
   );
   const categoriasVitrineIds = useMemo(() => {
+    if (!categoriasCarregadas) {
+      return [];
+    }
+
     const categoriasDisponiveis = Array.from(new Set(
       (Array.isArray(categoriasCatalogo) ? categoriasCatalogo : [])
         .map((categoriaRaw) => resolveCategoriaPrincipalVitrine(categoriaRaw))
@@ -2159,7 +2164,7 @@ export default function ProdutosPage() {
     }
 
     return ORDEM_CATEGORIAS_VITRINE.filter((categoriaId) => categoriasDisponiveis.includes(categoriaId));
-  }, [ORDEM_CATEGORIAS_VITRINE, categoriasCatalogo]);
+  }, [ORDEM_CATEGORIAS_VITRINE, categoriasCatalogo, categoriasCarregadas]);
   const assinaturaCategoriasVitrineIds = useMemo(
     () => categoriasVitrineIds.join('|'),
     [categoriasVitrineIds]
@@ -3496,9 +3501,11 @@ export default function ProdutosPage() {
 
         {secoesCategoriaDetalhe.length === 0 ? (
           <div className="categoria-horizontal-empty" role="status" aria-live="polite">
-            {modoCategoriaProgressivaExecutando
-              ? 'Carregando subcategorias desta categoria...'
-              : 'Carregando produtos desta categoria...'}
+            {carregando || (modoCategoriaProgressivaAtivo && !fallbackCategoriaProgressiva)
+              ? (modoCategoriaProgressivaExecutando
+                ? 'Carregando subcategorias desta categoria...'
+                : 'Carregando produtos desta categoria...')
+              : 'Nenhum produto disponivel nesta categoria no momento.'}
           </div>
         ) : secoesCategoriaDetalhe.map((secao) => {
           const secaoId = String(secao.id || '').trim();
@@ -3637,6 +3644,8 @@ export default function ProdutosPage() {
         'Nenhum produto encontrado',
         'Não encontramos produtos de frios e laticínios para os filtros atuais.'
       );
+  } else if (mostrarLayoutCategorias && !categoriasCarregadas) {
+    return <ProdutosSkeletonGrid quantidade={6} />;
   } else if (mostrarLayoutCategorias && secoesCategorias.length > 0) {
     return (
       <div className="vitrine-categorias" id="produtos-lista">
@@ -3743,7 +3752,11 @@ export default function ProdutosPage() {
     statusSubcategoriasCategoria,
     subcategoriasCategoriaProgressiva,
     subcategoriaNavAtiva,
-    termoBuscaDigitado
+    termoBuscaDigitado,
+    carregando,
+    categoriasCarregadas,
+    fallbackCategoriaProgressiva,
+    modoCategoriaProgressivaAtivo
   ]);
 
   return (

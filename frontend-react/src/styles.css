@@ -17084,9 +17084,9 @@ body {
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  padding: 0.52rem 0.65rem;
+  padding: 0.62rem 0.75rem;
   border-radius: 7px;
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   font-weight: 500;
   color: var(--ck-text-muted);
   cursor: pointer;
@@ -17393,7 +17393,7 @@ body {
 }
 
 .ck-card-title {
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: var(--ck-text);
   display: flex;
@@ -17407,7 +17407,7 @@ body {
 }
 
 .ck-card-subtitle {
-  font-size: 0.68rem;
+  font-size: 0.77rem;
   color: var(--ck-text-dim);
 }
 
@@ -17455,7 +17455,7 @@ body {
 }
 
 .ck-kpi-label {
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   font-weight: 700;
   color: var(--ck-text-dim);
   text-transform: uppercase;
@@ -23676,4 +23676,666 @@ a {
 .icon-gallery-card small {
   font-size: 0.72rem;
   color: #64748b;
+}
+
+/* =============================================
+   ADMIN — Melhorias de acessibilidade para
+   usuários acima de 60 anos
+   ============================================= */
+
+/* KPI value maior para leitura rápida */
+.ck-kpi-value {
+  font-size: 1.55rem;
+}
+
+/* Topbar — título de aba mais legível */
+.ck-topbar-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+/* Alertas na topbar — texto mais visível */
+.ck-topbar-alert-pill {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.65rem;
+  min-height: 30px;
+}
+
+/* Live block — números grandes e rótulos claros */
+.ck-live-num {
+  font-size: 1.7rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ck-live-label {
+  font-size: 0.72rem;
+}
+
+/* Feed de atividade — texto mais legível */
+.ck-feed-titulo {
+  font-size: 0.88rem;
+}
+
+.ck-feed-detalhe {
+  font-size: 0.78rem;
+}
+
+/* Alertas — maior impacto visual */
+.ck-alerta-titulo {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.ck-alerta-desc {
+  font-size: 0.78rem;
+}
+
+/* Recentes — números do pedido mais visíveis */
+.ck-recente-id {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.ck-recente-cliente {
+  font-size: 0.84rem;
+}
+
+.ck-recente-valor {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+/* Botão principal da topbar */
+.ck-topbar-refresh {
+  font-size: 0.84rem;
+  padding: 0.45rem 0.9rem;
+  min-height: 36px;
+}
+
+/* =============================================
+   CATALOGO SAUDE — Lista operacional de estoque
+   ============================================= */
+
+.cs-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 0 0 2rem;
+}
+
+/* ─── Cabeçalho ─── */
+.cs-cabecalho {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.cs-cabecalho-esq {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.cs-cabecalho-icone {
+  color: var(--ck-accent);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.cs-titulo {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--ck-text);
+  margin: 0 0 0.2rem;
+  line-height: 1.2;
+}
+
+.cs-subtitulo {
+  font-size: 0.82rem;
+  color: var(--ck-text-dim);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.cs-cabecalho-dir {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* Score de saúde */
+.cs-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  border: 2px solid;
+  line-height: 1.2;
+}
+
+.cs-score-bom   { border-color: var(--ck-green); background: var(--ck-green-bg); }
+.cs-score-medio { border-color: var(--ck-yellow); background: var(--ck-yellow-bg); }
+.cs-score-ruim  { border-color: var(--ck-red); background: var(--ck-red-bg); }
+
+.cs-score-num {
+  font-size: 1.3rem;
+  font-weight: 900;
+}
+
+.cs-score-bom .cs-score-num   { color: var(--ck-green); }
+.cs-score-medio .cs-score-num { color: var(--ck-yellow); }
+.cs-score-ruim .cs-score-num  { color: var(--ck-red); }
+
+.cs-score-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ck-text-dim);
+  white-space: nowrap;
+}
+
+/* Botão recarregar */
+.cs-btn-recarregar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  border-radius: 7px;
+  border: 1px solid var(--ck-border);
+  background: var(--ck-surface);
+  color: var(--ck-text-muted);
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  min-height: 38px;
+  font-family: inherit;
+}
+
+.cs-btn-recarregar:hover:not(:disabled) {
+  background: var(--ck-bg);
+  border-color: var(--ck-accent);
+  color: var(--ck-accent);
+}
+
+.cs-btn-recarregar:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ─── Aviso crítico ─── */
+.cs-aviso-critico {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+  background: #fff4f4;
+  border: 1.5px solid #f87171;
+  border-radius: 8px;
+  color: #b91c1c;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.cs-aviso-critico svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ─── Filtros por problema ─── */
+.cs-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cs-contador {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.55rem 0.9rem;
+  border-radius: 9px;
+  border: 2px solid var(--ck-border);
+  background: var(--ck-surface);
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 80px;
+  font-family: inherit;
+  line-height: 1.2;
+}
+
+.cs-contador:hover {
+  border-color: var(--ck-accent);
+}
+
+.cs-contador.is-ativo {
+  border-color: var(--ck-accent);
+  background: rgba(11, 143, 58, 0.07);
+}
+
+.cs-contador-neutro.is-ativo  { border-color: #64748b; background: #f1f5f9; }
+.cs-contador-critico.is-ativo { border-color: #ef4444; background: #fff5f5; }
+.cs-contador-alerta.is-ativo  { border-color: #f59e0b; background: #fffbeb; }
+.cs-contador-info.is-ativo    { border-color: #3b82f6; background: #eff6ff; }
+
+.cs-contador-num {
+  font-size: 1.3rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ck-text);
+}
+
+.cs-contador-critico .cs-contador-num { color: #dc2626; }
+.cs-contador-alerta .cs-contador-num  { color: #d97706; }
+.cs-contador-info .cs-contador-num    { color: #2563eb; }
+
+.cs-contador-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--ck-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+/* ─── Tabela de produtos ─── */
+.cs-tabela {
+  background: var(--ck-surface);
+  border: 1px solid var(--ck-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.cs-linha {
+  display: grid;
+  grid-template-columns: 2.5fr 1.2fr 0.9fr 1fr 1.5fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--ck-border);
+  transition: background 0.1s;
+}
+
+.cs-linha:last-child {
+  border-bottom: none;
+}
+
+.cs-linha:hover:not(.cs-linha-cabecalho):not(.cs-linha-skeleton) {
+  background: rgba(11, 143, 58, 0.03);
+}
+
+.cs-linha-inativa {
+  opacity: 0.6;
+}
+
+/* Cabeçalho da tabela */
+.cs-linha-cabecalho {
+  background: var(--ck-bg);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ck-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.55rem 1rem;
+  border-bottom: 2px solid var(--ck-border);
+}
+
+/* Colunas */
+.cs-linha-nome {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.cs-nome-texto {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ck-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cs-nome-marca {
+  font-size: 0.72rem;
+  color: var(--ck-text-dim);
+}
+
+.cs-linha-cat {
+  font-size: 0.8rem;
+  color: var(--ck-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cs-linha-estoque {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.cs-estoque {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.cs-estoque-zero  { color: #ef4444; }
+.cs-estoque-neg   { color: #9333ea; }
+.cs-estoque-baixo { color: #d97706; }
+.cs-estoque-ok    { color: var(--ck-green); }
+
+.cs-unidade {
+  font-size: 0.7rem;
+  color: var(--ck-text-dim);
+}
+
+.cs-linha-preco {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--ck-text);
+}
+
+.cs-sem-dado {
+  color: var(--ck-text-dim);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+/* Badges de problema */
+.cs-linha-problemas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.cs-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.5rem;
+  border-radius: 5px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cs-badge-critico { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.cs-badge-alerta  { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+.cs-badge-info    { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+
+.cs-ok-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--ck-green);
+  font-weight: 600;
+}
+
+/* Botão ver produto */
+.cs-linha-acoes {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.cs-btn-ver {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(11, 143, 58, 0.08);
+  border: 1px solid rgba(11, 143, 58, 0.25);
+  color: var(--ck-accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.12s;
+  font-family: inherit;
+  min-height: 32px;
+}
+
+.cs-btn-ver:hover {
+  background: rgba(11, 143, 58, 0.15);
+}
+
+/* Skeleton */
+.cs-linha-skeleton {
+  animation: cs-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cs-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+.cs-skeleton-bloco {
+  height: 14px;
+  background: var(--ck-border);
+  border-radius: 4px;
+}
+
+.cs-sk-nome  { width: 60%; }
+.cs-sk-cat   { width: 50%; }
+.cs-sk-est   { width: 30%; }
+.cs-sk-preco { width: 45%; }
+.cs-sk-badge { width: 55%; }
+.cs-sk-btn   { width: 70px; margin-left: auto; }
+
+/* Estado vazio */
+.cs-vazio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 3rem 1rem;
+  color: var(--ck-text-dim);
+  text-align: center;
+}
+
+.cs-vazio svg {
+  color: var(--ck-green);
+  opacity: 0.7;
+}
+
+.cs-vazio p {
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+/* ─── Paginação ─── */
+.cs-paginacao {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.cs-paginacao-info {
+  font-size: 0.82rem;
+  color: var(--ck-text-dim);
+}
+
+.cs-paginacao-btns {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.cs-pag-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.8rem;
+  min-width: 40px;
+  min-height: 36px;
+  border-radius: 6px;
+  border: 1px solid var(--ck-border);
+  background: var(--ck-surface);
+  color: var(--ck-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s;
+  font-family: inherit;
+}
+
+.cs-pag-btn:hover:not(:disabled) {
+  border-color: var(--ck-accent);
+  color: var(--ck-accent);
+  background: rgba(11, 143, 58, 0.05);
+}
+
+.cs-pag-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cs-pag-btn.is-current {
+  background: var(--ck-accent);
+  border-color: var(--ck-accent);
+  color: #fff;
+  cursor: default;
+}
+
+.cs-pag-ellipsis {
+  padding: 0 0.2rem;
+  color: var(--ck-text-dim);
+  font-size: 0.82rem;
+}
+
+/* ─── Rodapé de resumo ─── */
+.cs-rodape-resumo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  background: var(--ck-surface);
+  border: 1px solid var(--ck-border);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+}
+
+.cs-resumo-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  border-right: 1px solid var(--ck-border);
+  min-width: 80px;
+}
+
+.cs-resumo-item:last-child {
+  border-right: none;
+}
+
+.cs-resumo-num {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--ck-text);
+}
+
+.cs-resumo-alerta .cs-resumo-num { color: #d97706; }
+.cs-resumo-critico .cs-resumo-num { color: #dc2626; }
+
+.cs-resumo-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--ck-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* ─── Skeleton do topo ─── */
+.cs-topo-skeleton {
+  padding: 0.5rem 0;
+}
+
+/* =============================================
+   ADMIN — KPI text mais legível para 60+ anos
+   Sobrescreve valores muito pequenos
+   ============================================= */
+
+/* Status pills na sidebar — texto mais claro */
+.sb-status-pill {
+  font-size: 0.73rem;
+}
+
+/* Seção da sidebar — título maior */
+.sb-section-title {
+  font-size: 0.72rem;
+}
+
+/* Footer da sidebar */
+.sb-conn-label,
+.sb-conn-clock {
+  font-size: 0.77rem;
+}
+
+/* Botão logout — texto claro */
+.sb-btn-logout {
+  font-size: 0.84rem;
+  padding: 0.55rem 0.9rem;
+  min-height: 38px;
+}
+
+/* Fila operacional — cards maiores */
+.fila-card {
+  font-size: 0.88rem;
+}
+
+/* Botões de ação na fila operacional */
+.fila-card-actions .btn {
+  min-height: 38px;
+  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
+}
+
+/* Aviso de dados parciais */
+.ck-partial-warning {
+  font-size: 0.84rem;
+  padding: 0.65rem 0.9rem;
+}
+
+/* Responsive — mobile-first admin */
+@media (max-width: 640px) {
+  .cs-linha {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto auto;
+  }
+
+  .cs-linha-nome    { grid-column: 1 / 3; }
+  .cs-linha-cat     { font-size: 0.75rem; }
+  .cs-linha-acoes   { grid-column: 1 / 3; justify-content: flex-start; }
+  .cs-linha-problemas { grid-column: 1 / 3; }
+
+  .cs-filtros {
+    gap: 0.4rem;
+  }
+
+  .cs-contador {
+    min-width: 65px;
+    padding: 0.45rem 0.6rem;
+  }
+
+  .cs-contador-num {
+    font-size: 1.1rem;
+  }
+
+  .cs-paginacao {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }

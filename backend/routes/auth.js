@@ -40,14 +40,8 @@ module.exports = function createAuthRoutes(deps) {
   // Cadastro de usuário
   router.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     try {
-      const { nome, email, senha, telefone, whatsapp_opt_in, recaptcha_token } = req.body || {};
+      const { nome, email, senha, telefone, whatsapp_opt_in } = req.body || {};
       const optIn = !!whatsapp_opt_in;
-
-      await validarRecaptcha({
-        token: recaptcha_token,
-        req,
-        action: 'auth_cadastro'
-      });
 
       if (!nome || !email || !senha || !telefone) {
         return res.status(400).json({ erro: 'Preencha todos os campos obrigatórios.' });

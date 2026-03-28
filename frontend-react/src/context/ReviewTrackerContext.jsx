@@ -322,6 +322,12 @@ export function ReviewTrackerProvider({ children }) {
       return;
     }
 
+    // Não executar em rotas administrativas — o admin usa bf_admin_token, não bf_access_token.
+    // Chamar esta rota de cliente sem autenticação de cliente gera 401 desnecessário.
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+      return;
+    }
+
     let ativo = true;
     const abortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 

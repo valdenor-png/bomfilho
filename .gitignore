@@ -20,9 +20,6 @@ pnpm-lock.yaml
 !.env.example
 !.env*.example
 frontend-react/env
-# Banco de Dados
-*.sql.backup
-*.db
 *.sqlite
 *.sqlite3
 

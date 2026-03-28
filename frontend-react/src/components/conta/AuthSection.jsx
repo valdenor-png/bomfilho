@@ -1,6 +1,5 @@
 import React from 'react';
 import { Circle, CircleCheck } from '../../icons';
-import ReCAPTCHA from 'react-google-recaptcha';
 import { formatarTelefoneCadastro } from '../../lib/contaUtils';
 
 export default function AuthSection({
@@ -13,10 +12,6 @@ export default function AuthSection({
   telefone,
   whatsappOptIn,
   carregando,
-  recaptchaEnabled,
-  recaptchaSiteKey,
-  recaptchaRef,
-  recaptchaErroCarregamento,
   senhaStrength,
   senhaFracaCadastro,
   confirmacaoSenhaInvalida,
@@ -29,9 +24,6 @@ export default function AuthSection({
   onMostrarSenhaToggle,
   onTelefoneChange,
   onWhatsappOptInChange,
-  onRecaptchaChange,
-  onRecaptchaExpired,
-  onRecaptchaError,
   onLogin,
   onCadastro
 }) {
@@ -187,25 +179,6 @@ export default function AuthSection({
             />
             Quero receber atualizações do pedido no WhatsApp
           </label>
-        ) : null}
-
-        {recaptchaEnabled ? (
-          <div style={{ marginBottom: '12px' }}>
-            <ReCAPTCHA
-              ref={recaptchaRef}
-              sitekey={recaptchaSiteKey}
-              hl="pt-BR"
-              onChange={onRecaptchaChange}
-              onExpired={onRecaptchaExpired}
-              onErrored={onRecaptchaError}
-            />
-
-            {recaptchaErroCarregamento ? (
-              <p className="error-text" role="alert" style={{ marginTop: '0.5rem' }}>
-                {recaptchaErroCarregamento}
-              </p>
-            ) : null}
-          </div>
         ) : null}
 
         <button className="btn-primary" type="submit" disabled={carregando}>

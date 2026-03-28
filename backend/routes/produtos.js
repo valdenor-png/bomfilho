@@ -213,7 +213,7 @@ module.exports = function createProdutosPublicRoutes({
   const router = express.Router();
   let escalaPrecoVitrineCache = 1;
   let escalaPrecoVitrineCacheExpiraEm = 0;
-  const ESCALA_PRECO_CACHE_TTL_MS = 5 * 60 * 1000;
+  const ESCALA_PRECO_CACHE_TTL_MS = 30 * 60 * 1000;
 
   function possuiTaxonomiaEstruturada(colunas) {
     return colunas.has('categoria_principal_id') && colunas.has('subcategoria_id');

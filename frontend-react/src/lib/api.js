@@ -158,8 +158,8 @@ function mapUserMessage({ message, status, path, isAdminPath = false } = {}) {
     return 'Sua sessão expirou por segurança. Atualize a página e tente novamente.';
   }
 
-  if (normalizedMessage.includes('recaptcha')) {
-    return 'Confirme o reCAPTCHA para continuar.';
+  if (normalizedMessage.includes('recaptcha') || normalizedMessage.includes('proteção de segurança') || normalizedMessage.includes('protecao de seguranca')) {
+    return 'Proteção de segurança indisponível ou expirada. Tente novamente.';
   }
 
   if (/token não fornecido|token inválido|não autenticado|credenciais|acesso negado/.test(normalizedMessage)) {
@@ -1227,4 +1227,8 @@ export function adminGetAlertas() {
 
 export function adminGetCatalogoSaude() {
   return request('/api/admin/catalogo/saude');
+}
+
+export function adminGetCatalogoSaudeProdutos(params = {}) {
+  return request(`/api/admin/catalogo/saude/produtos${buildQueryString(params)}`);
 }

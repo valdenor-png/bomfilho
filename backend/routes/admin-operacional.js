@@ -1633,8 +1633,262 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
     }
   });
 
+  // ─── Cache lazy de colunas opcionais da tabela produtos ───────────────────────
+  // Detecta uma única vez por processo (TTL 5 min) quais colunas opcionais existem
+  // no schema. Evita 1-5 queries extras a cada request.
+  // Definido dentro do closure da factory — correto para múltiplas instâncias de pool.
+  let _colsProdCache   = null;
+  let _colsProdCacheTs = 0;
+  const _COLS_PROD_TTL = 5 * 60 * 1000; // 5 min — cobre migrations quentes com margem
+
+  async function _detectarColunasProdutos() {
+    const agora = Date.now();
+    if (_colsProdCache !== null && (agora - _colsProdCacheTs) < _COLS_PROD_TTL) {
+      return _colsProdCache; // cache hit — zero custo adicional
+    }
+
+    const t0 = Date.now();
+    let cols = { imagem_url: false, descricao: false, unidade: false, marca: false };
+
+    // Caminho feliz: valida todas de uma só query (schema completo)
+    try {
+      await pool.query('SELECT imagem_url, descricao, unidade, marca FROM produtos LIMIT 0');
+      cols = { imagem_url: true, descricao: true, unidade: true, marca: true };
+    } catch (_) {
+      // Probe individual — determina quais colunas existem
+      for (const col of Object.keys(cols)) {
+        try { await pool.query(`SELECT ${col} FROM produtos LIMIT 0`); cols[col] = true; } catch (_2) {}
+      }
+    }
+
+    const faltando = Object.entries(cols).filter(([, v]) => !v).map(([k]) => k);
+    if (faltando.length > 0) {
+      logger.warn('[catalogo/saude] modo compatibilidade — colunas opcionais ausentes no schema', {
+        faltando,
+        duracao_ms: Date.now() - t0,
+      });
+    } else {
+      logger.info('[catalogo/saude] schema completo — colunas opcionais OK', { duracao_ms: Date.now() - t0 });
+    }
+
+    _colsProdCache   = cols;
+    _colsProdCacheTs = agora;
+    return cols;
+  }
+
   // ============================================
-  // Saúde do catálogo
+  // Saúde do catálogo — listagem operacional de produtos
+  // ============================================
+  router.get('/api/admin/catalogo/saude/produtos', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
+    try {
+      const page = parsePositiveInt(req.query?.page, 1, { min: 1, max: 100000 });
+      const limit = parsePositiveInt(req.query?.limit, 100, { min: 10, max: 200 });
+      const problema = String(req.query?.problema || 'todos').trim().toLowerCase();
+      const offset = (page - 1) * limit;
+
+      // Colunas opcionais — resultado cacheado por processo (TTL 5 min)
+      const cols = await _detectarColunasProdutos();
+
+      // Filtros disponíveis — só inclui verificações cujas colunas existem no schema
+      const FILTROS = {
+        sem_estoque:      `COALESCE(p.estoque, 0) = 0 AND p.ativo = 1`,
+        estoque_baixo:    `COALESCE(p.estoque, 0) > 0 AND COALESCE(p.estoque, 0) <= 5 AND p.ativo = 1`,
+        estoque_negativo: `COALESCE(p.estoque, 0) < 0`,
+        sem_preco:        `(p.preco IS NULL OR p.preco <= 0) AND p.ativo = 1`,
+        inativos:         `p.ativo = 0`,
+        ...(cols.imagem_url ? { sem_imagem:    `(p.imagem_url IS NULL OR p.imagem_url = '') AND p.ativo = 1` } : {}),
+        ...(cols.descricao  ? { sem_descricao: `(p.descricao  IS NULL OR p.descricao  = '') AND p.ativo = 1` } : {}),
+      };
+
+      // Filtro indisponível (coluna ausente) → retorna vazio em vez de enganosamente mostrar "todos"
+      const filtroDisponivel = problema === 'todos' || (problema in FILTROS);
+      const filtroCond  = filtroDisponivel ? (FILTROS[problema] || null) : null;
+      const whereClause = !filtroDisponivel
+        ? 'WHERE 1 = 0'
+        : filtroCond ? `WHERE ${filtroCond}` : `WHERE p.ativo = 1`;
+
+      // COUNT para paginação
+      const t0Count = Date.now();
+      const [[{ total_filtro }]] = await pool.query(
+        `SELECT COUNT(*) AS total_filtro FROM produtos p ${whereClause}`
+      );
+      const duracaoCount = Date.now() - t0Count;
+
+      // SELECT dinâmico — semântica explícita de ausência:
+      //   NULL  → coluna não existe no schema (frontend exibe "—" e não infere problema)
+      //   ''    → coluna existe, produto sem valor (frontend pode marcar como "ausente")
+      //   valor → dado real
+      // unidade sem COALESCE intencional: NULL real = produto sem unidade definida
+      const selectCols = [
+        'p.id', 'p.nome',
+        'COALESCE(p.preco, 0) AS preco',
+        "COALESCE(p.categoria, '') AS categoria",
+        'COALESCE(p.estoque, 0) AS estoque',
+        'p.ativo',
+        cols.imagem_url ? "COALESCE(p.imagem_url, '') AS imagem_url" : 'NULL AS imagem_url',
+        cols.descricao  ? "COALESCE(p.descricao,  '') AS descricao"  : 'NULL AS descricao',
+        cols.unidade    ? 'p.unidade AS unidade'                      : 'NULL AS unidade',
+        cols.marca      ? "COALESCE(p.marca, '') AS marca"            : 'NULL AS marca',
+      ].join(', ');
+
+      const t0Lista = Date.now();
+      const [produtos] = await pool.query(
+        `SELECT ${selectCols}
+         FROM produtos p
+         ${whereClause}
+         ORDER BY p.estoque ASC, p.nome ASC
+         LIMIT ? OFFSET ?`,
+        [limit, offset]
+      );
+      const duracaoLista = Date.now() - t0Lista;
+
+      // Contadores — colunas seguras em 1 query, opcionais separadas com try/catch
+      const t0Cont = Date.now();
+      const checksExecutados = [];
+      const checksPulados    = [];
+      // null semântico: distingue "zero itens com problema" de "coluna não verificada"
+      let cont = {
+        sem_estoque: 0, estoque_baixo: 0, estoque_negativo: 0,
+        sem_imagem: null, sem_preco: 0, sem_descricao: null,
+        inativos: 0, total_ativos: 0,
+      };
+
+      try {
+        const [[c]] = await pool.query(
+          `SELECT
+             SUM(CASE WHEN COALESCE(estoque,0) = 0  AND ativo = 1                              THEN 1 ELSE 0 END) AS sem_estoque,
+             SUM(CASE WHEN COALESCE(estoque,0) > 0  AND COALESCE(estoque,0) <= 5 AND ativo = 1 THEN 1 ELSE 0 END) AS estoque_baixo,
+             SUM(CASE WHEN COALESCE(estoque,0) < 0                                             THEN 1 ELSE 0 END) AS estoque_negativo,
+             SUM(CASE WHEN (preco IS NULL OR preco <= 0) AND ativo = 1                         THEN 1 ELSE 0 END) AS sem_preco,
+             SUM(CASE WHEN ativo = 0                                                           THEN 1 ELSE 0 END) AS inativos,
+             SUM(CASE WHEN ativo = 1                                                           THEN 1 ELSE 0 END) AS total_ativos
+           FROM produtos`
+        );
+        // Conversão explícita — SUM() pode retornar string em drivers MySQL/compat
+        cont.sem_estoque      = Number(c.sem_estoque      || 0);
+        cont.estoque_baixo    = Number(c.estoque_baixo    || 0);
+        cont.estoque_negativo = Number(c.estoque_negativo || 0);
+        cont.sem_preco        = Number(c.sem_preco        || 0);
+        cont.inativos         = Number(c.inativos         || 0);
+        cont.total_ativos     = Number(c.total_ativos     || 0);
+        checksExecutados.push('sem_estoque', 'estoque_baixo', 'estoque_negativo', 'sem_preco', 'inativos');
+      } catch (e) {
+        logger.warn('[catalogo/saude/produtos] falha nos contadores base', { erro: e.message });
+      }
+
+      if (cols.imagem_url) {
+        try {
+          const [[r]] = await pool.query(
+            `SELECT COUNT(*) AS t FROM produtos WHERE (imagem_url IS NULL OR imagem_url = '') AND ativo = 1`
+          );
+          cont.sem_imagem = Number(r.t);
+          checksExecutados.push('sem_imagem');
+        } catch (e) {
+          logger.warn('[catalogo/saude/produtos] falha no contador sem_imagem', { erro: e.message });
+          checksPulados.push('sem_imagem');
+        }
+      } else {
+        checksPulados.push('sem_imagem');
+      }
+
+      if (cols.descricao) {
+        try {
+          const [[r]] = await pool.query(
+            `SELECT COUNT(*) AS t FROM produtos WHERE (descricao IS NULL OR descricao = '') AND ativo = 1`
+          );
+          cont.sem_descricao = Number(r.t);
+          checksExecutados.push('sem_descricao');
+        } catch (e) {
+          logger.warn('[catalogo/saude/produtos] falha no contador sem_descricao', { erro: e.message });
+          checksPulados.push('sem_descricao');
+        }
+      } else {
+        checksPulados.push('sem_descricao');
+      }
+
+      const duracaoCont = Date.now() - t0Cont;
+      const totalFiltro = Number(total_filtro || 0);
+
+      logger.info('[catalogo/saude/produtos] listagem concluída', {
+        problema,
+        page,
+        filtro_disponivel: filtroDisponivel,
+        total_filtro: totalFiltro,
+        retornados: produtos.length,
+        duracao_count_ms:      duracaoCount,
+        duracao_lista_ms:      duracaoLista,
+        duracao_contadores_ms: duracaoCont,
+        ...(checksPulados.length > 0 ? { checks_pulados: checksPulados } : {}),
+      });
+
+      return res.json({
+        produtos: produtos.map(p => {
+          const estoque = Number(p.estoque ?? 0);
+          const preco   = Number(p.preco   ?? 0);
+          const ativo   = Boolean(p.ativo);
+          const imgUrl  = p.imagem_url; // null = coluna ausente | '' = sem imagem | 'http://...' = ok
+          const desc    = p.descricao;  // null = coluna ausente | '' = sem descrição | 'Texto' = ok
+
+          return {
+            id:        Number(p.id),
+            nome:      String(p.nome || ''),
+            preco,
+            categoria: String(p.categoria || ''),
+            estoque,
+            ativo,
+            imagem_url: imgUrl != null ? String(imgUrl) : null,
+            descricao:  desc   != null ? String(desc)   : null,
+            unidade:    p.unidade != null ? String(p.unidade) : null,
+            marca:      p.marca   != null ? String(p.marca)   : null,
+            problemas: [
+              estoque === 0 && ativo                    ? 'sem_estoque'      : null,
+              estoque > 0 && estoque <= 5 && ativo      ? 'estoque_baixo'    : null,
+              estoque < 0                               ? 'estoque_negativo' : null,
+              cols.imagem_url && imgUrl === '' && ativo ? 'sem_imagem'       : null,
+              preco <= 0 && ativo                       ? 'sem_preco'        : null,
+              cols.descricao  && desc  === '' && ativo  ? 'sem_descricao'    : null,
+              !ativo                                    ? 'inativo'          : null,
+            ].filter(Boolean),
+          };
+        }),
+        paginacao: {
+          page,
+          limit,
+          total: totalFiltro,
+          total_paginas: Math.max(1, Math.ceil(totalFiltro / limit)),
+          tem_mais: offset + limit < totalFiltro,
+        },
+        contadores: {
+          sem_estoque:      cont.sem_estoque,
+          estoque_baixo:    cont.estoque_baixo,
+          estoque_negativo: cont.estoque_negativo,
+          sem_imagem:       cont.sem_imagem,    // null → coluna ausente no schema
+          sem_preco:        cont.sem_preco,
+          sem_descricao:    cont.sem_descricao, // null → coluna ausente no schema
+          inativos:         cont.inativos,
+          total_ativos:     cont.total_ativos,
+        },
+        schema_info: {
+          optional_fields: {
+            imagem_url: cols.imagem_url,
+            descricao:  cols.descricao,
+            unidade:    cols.unidade,
+            marca:      cols.marca,
+          },
+          checks_executed:   checksExecutados,
+          checks_skipped:    checksPulados,
+          filtro_aplicado:   problema,
+          filtro_disponivel: filtroDisponivel,
+        },
+      });
+    } catch (erro) {
+      logger.error('[catalogo/saude/produtos] erro inesperado', { erro: erro.message });
+      return res.status(500).json({ erro: 'Falha ao listar produtos para saude do catalogo.' });
+    }
+  });
+
+  // ============================================
+  // Saúde do catálogo — resumo geral
   // ============================================
   router.get('/api/admin/catalogo/saude', exigirAcessoLocalAdmin, autenticarAdminToken, async (req, res) => {
     try {

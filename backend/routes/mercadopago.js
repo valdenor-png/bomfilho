@@ -449,8 +449,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
 
       res.status(status).json(buildErrorPayload(mensagemDetalhada, {
         message: mensagemDetalhada,
-        causes: causas,
-        details: erro?.mpResponse || null
+        causes: causas
       }));
     }
   });
@@ -675,8 +674,7 @@ module.exports = function createMercadoPagoRoutes(deps) {
 
       res.status(status).json(buildErrorPayload(mensagemDetalhada, {
         message: mensagemDetalhada,
-        causes: causas,
-        details: erro?.mpResponse || null
+        causes: causas
       }));
     }
   });

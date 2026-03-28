@@ -71,6 +71,9 @@ export default function CommandCenter({ onNavigate }) {
           <div className="ck-card"><LoadingSkeleton lines={5} /></div>
           <div className="ck-card"><LoadingSkeleton lines={5} /></div>
         </div>
+        <div className="ck-loading-msg" aria-live="polite" aria-busy="true">
+          Carregando resumo do dia…
+        </div>
       </div>
     );
   }
@@ -95,47 +98,48 @@ export default function CommandCenter({ onNavigate }) {
     <div className="ck-command-grid">
       {/* Aviso de dados parciais */}
       {errosParciais.length > 0 && (
-        <div className="ck-partial-warning">
-          <AlertTriangle size={14} aria-hidden="true" /> Falha parcial: {errosParciais.join(', ')} indisponíveis
-          <button type="button" className="ck-partial-retry" onClick={carregar}><RefreshCw size={14} aria-hidden="true" /> Recarregar</button>
+        <div className="ck-partial-warning" role="alert">
+          <AlertTriangle size={14} aria-hidden="true" />
+          Algumas informações não carregaram ({errosParciais.join(', ')}). O restante está funcionando normalmente.
+          <button type="button" className="ck-partial-retry" onClick={carregar}><RefreshCw size={14} aria-hidden="true" /> Tentar novamente</button>
         </div>
       )}
 
       {/* Row 1: KPIs principais */}
       <div className="ck-kpis-grid">
         <div className="ck-kpi accent">
-          <span className="ck-kpi-label">Faturamento Hoje</span>
+          <span className="ck-kpi-label">💰 Recebido Hoje</span>
           <span className="ck-kpi-value">{formatarMoeda(k.faturamento)}</span>
           {k.var_faturamento != null ? (
             <span className={`ck-kpi-var ${k.var_faturamento >= 0 ? 'up' : 'down'}`}>
-              {k.var_faturamento >= 0 ? '▲' : '▼'} {Math.abs(k.var_faturamento)}% vs ontem
+              {k.var_faturamento >= 0 ? '▲ mais' : '▼ menos'} {Math.abs(k.var_faturamento)}% que ontem
             </span>
           ) : null}
         </div>
         <div className="ck-kpi">
-          <span className="ck-kpi-label">Pedidos Hoje</span>
+          <span className="ck-kpi-label">📦 Pedidos Hoje</span>
           <span className="ck-kpi-value">{formatarNum(k.pedidos)}</span>
           {k.var_pedidos != null ? (
             <span className={`ck-kpi-var ${k.var_pedidos >= 0 ? 'up' : 'down'}`}>
-              {k.var_pedidos >= 0 ? '▲' : '▼'} {Math.abs(k.var_pedidos)}%
+              {k.var_pedidos >= 0 ? '▲' : '▼'} {Math.abs(k.var_pedidos)}% vs ontem
             </span>
           ) : null}
         </div>
         <div className="ck-kpi green">
-          <span className="ck-kpi-label">Concluídos</span>
+          <span className="ck-kpi-label">✅ Entregues</span>
           <span className="ck-kpi-value">{formatarNum(k.concluidos)}</span>
         </div>
         <div className="ck-kpi">
-          <span className="ck-kpi-label">Ticket Médio</span>
+          <span className="ck-kpi-label">🧾 Valor Médio</span>
           <span className="ck-kpi-value">{formatarMoeda(k.ticket_medio)}</span>
         </div>
         <div className={`ck-kpi ${k.cancelados > 0 ? 'red' : ''}`}>
-          <span className="ck-kpi-label">Cancelados</span>
+          <span className="ck-kpi-label">❌ Cancelados</span>
           <span className="ck-kpi-value">{formatarNum(k.cancelados)}</span>
-          {k.taxa_cancelamento > 0 ? <span className="ck-kpi-var down">{k.taxa_cancelamento}%</span> : null}
+          {k.taxa_cancelamento > 0 ? <span className="ck-kpi-var down">{k.taxa_cancelamento}% dos pedidos</span> : null}
         </div>
         <div className={`ck-kpi ${k.pendentes > 2 ? 'yellow' : ''}`}>
-          <span className="ck-kpi-label">Pendentes</span>
+          <span className="ck-kpi-label">⏳ Aguardando</span>
           <span className="ck-kpi-value">{formatarNum(k.pendentes)}</span>
         </div>
       </div>
@@ -144,30 +148,34 @@ export default function CommandCenter({ onNavigate }) {
       <div className="ck-command-top">
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon"><Zap size={16} aria-hidden="true" /></span> Agora na Operação</span>
-            <span className="ck-card-subtitle">{Number(op.total || 0)} pedido(s) em aberto</span>
+            <span className="ck-card-title"><span className="icon"><Zap size={16} aria-hidden="true" /></span> O que está acontecendo agora</span>
+            <span className="ck-card-subtitle">
+              {Number(op.total || 0) === 0
+                ? 'Nenhum pedido em aberto'
+                : `${Number(op.total || 0)} pedido${Number(op.total || 0) > 1 ? 's' : ''} em andamento`}
+            </span>
           </div>
           <div className="ck-live-block">
             <div className="ck-live-item">
               <span className="ck-live-num">{Number(op.pendentes || 0)}</span>
-              <span className="ck-live-label">Pendentes</span>
+              <span className="ck-live-label">Novos</span>
             </div>
             <div className="ck-live-item yellow">
               <span className="ck-live-num">{Number(op.em_preparo || 0)}</span>
-              <span className="ck-live-label">Em Preparo</span>
+              <span className="ck-live-label">Preparando</span>
             </div>
             <div className="ck-live-item purple">
               <span className="ck-live-num">{Number(op.aguardando_retirada || 0)}</span>
-              <span className="ck-live-label">Retirada</span>
+              <span className="ck-live-label">Retirando</span>
             </div>
             <div className="ck-live-item green">
               <span className="ck-live-num">{Number(op.em_rota || 0)}</span>
-              <span className="ck-live-label">Em Rota</span>
+              <span className="ck-live-label">Na rota</span>
             </div>
             {Number(op.atrasados) > 0 ? (
-              <div className="ck-live-item red">
+              <div className="ck-live-item red" role="alert">
                 <span className="ck-live-num">{op.atrasados}</span>
-                <span className="ck-live-label">Atrasados</span>
+                <span className="ck-live-label">⚠ Atrasados</span>
               </div>
             ) : null}
           </div>
@@ -175,21 +183,21 @@ export default function CommandCenter({ onNavigate }) {
 
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon"><Target size={16} aria-hidden="true" /></span> SLA Hoje</span>
+            <span className="ck-card-title"><span className="icon"><Target size={16} aria-hidden="true" /></span> Pontualidade das Entregas</span>
           </div>
           <div className="ck-sla-container">
             <div className="ck-sla-gauge">
               <div className={`ck-sla-ring ${slaClass}`} style={{ '--pct': `${slaPct || 0}%` }}>
                 <span>{slaPct != null ? `${slaPct}%` : '—'}</span>
               </div>
-              <div className="ck-sla-label">Dentro do SLA</div>
+              <div className="ck-sla-label">entregaram no prazo</div>
             </div>
             <div className="ck-sla-detail">
               <div className="ck-sla-detail-line">
-                {sla.dentro || 0} de {sla.total_concl || 0} no prazo
+                {sla.dentro || 0} de {sla.total_concl || 0} pedidos no prazo hoje
               </div>
               <div className="ck-sla-detail-meta">
-                Meta: ≥ 85% dentro do SLA
+                Ideal: acima de 85%
               </div>
             </div>
           </div>
@@ -200,11 +208,13 @@ export default function CommandCenter({ onNavigate }) {
       <div className="ck-command-bottom">
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon"><Bell size={16} aria-hidden="true" /></span> Atenção Imediata</span>
-            <span className="ck-card-subtitle">{alertas.length} alerta(s)</span>
+            <span className="ck-card-title"><span className="icon"><Bell size={16} aria-hidden="true" /></span> O que precisa de atenção</span>
+            <span className="ck-card-subtitle">
+              {alertas.length === 0 ? 'Tudo certo' : `${alertas.length} item${alertas.length > 1 ? 'ns' : ''} para resolver`}
+            </span>
           </div>
           {alertas.length === 0 ? (
-            <div className="ck-sem-alertas"><CircleCheck size={14} aria-hidden="true" /> Nenhum alerta — operação normal</div>
+            <div className="ck-sem-alertas"><CircleCheck size={14} aria-hidden="true" /> Tudo funcionando normalmente</div>
           ) : (
             <div className="ck-alertas-lista">
               {alertasCriticos.map(a => (
@@ -233,19 +243,19 @@ export default function CommandCenter({ onNavigate }) {
 
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon"><BarChart3 size={16} aria-hidden="true" /></span> Volume por Hora</span>
+            <span className="ck-card-title"><span className="icon"><BarChart3 size={16} aria-hidden="true" /></span> Pedidos por Hora (Hoje)</span>
           </div>
           {porHora.length > 0 ? (
             <div className="ck-hour-chart">
               {porHora.map(h => (
                 <div className="ck-hour-bar" key={h.hora}>
-                  <div className="ck-hour-fill" style={{ height: `${(h.qtd / maxHora) * 100}%` }} title={`${h.hora}h: ${h.qtd} pedido(s) — ${formatarMoeda(h.valor)}`} />
+                  <div className="ck-hour-fill" style={{ height: `${(h.qtd / maxHora) * 100}%` }} title={`${h.hora}h: ${h.qtd} pedido${h.qtd !== 1 ? 's' : ''} — ${formatarMoeda(h.valor)}`} />
                   <span className="ck-hour-label">{h.hora}h</span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="ck-chart-empty">Sem dados de volume por hora</div>
+            <div className="ck-chart-empty">Nenhum pedido registrado por hora ainda</div>
           )}
         </div>
       </div>
@@ -253,11 +263,11 @@ export default function CommandCenter({ onNavigate }) {
       {/* Row 4: Feed de atividade */}
       <div className="ck-card">
         <div className="ck-card-header">
-          <span className="ck-card-title"><span className="icon"><Radio size={16} aria-hidden="true" /></span> Atividade Recente</span>
-          <span className="ck-card-subtitle">Últimas 2 horas</span>
+          <span className="ck-card-title"><span className="icon"><Radio size={16} aria-hidden="true" /></span> Movimentação Recente</span>
+          <span className="ck-card-subtitle">O que aconteceu nas últimas 2 horas</span>
         </div>
         {feed.length === 0 ? (
-          <div className="ck-feed-vazio">Nenhuma atividade recente</div>
+          <div className="ck-feed-vazio">Nenhuma movimentação nas últimas 2 horas</div>
         ) : (
           <div className="ck-feed">
             {feed.slice(0, 15).map((ev, i) => (
@@ -278,9 +288,9 @@ export default function CommandCenter({ onNavigate }) {
       {recentes.length > 0 ? (
         <div className="ck-card">
           <div className="ck-card-header">
-            <span className="ck-card-title"><span className="icon"><Clock3 size={16} aria-hidden="true" /></span> Últimos 30 min</span>
+            <span className="ck-card-title"><span className="icon"><Clock3 size={16} aria-hidden="true" /></span> Pedidos dos Últimos 30 Min</span>
             <button type="button" className="ck-btn-link" onClick={() => onNavigate('pedidos')}>
-              Ver todos →
+              Ver histórico completo →
             </button>
           </div>
           <div className="ck-recentes-grid">

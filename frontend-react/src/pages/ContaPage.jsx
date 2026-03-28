@@ -1,5 +1,6 @@
 import React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { tryGetRecaptchaToken } from '../lib/recaptchaEnterprise';
 import { Link } from 'react-router-dom';
 import {
   atualizarPreferenciasWhatsapp,
@@ -48,7 +49,6 @@ export default function ContaPage() {
   const recaptchaAuthEnabled = String(import.meta.env.VITE_RECAPTCHA_AUTH_ENABLED || (import.meta.env.PROD ? 'true' : 'false')).trim().toLowerCase() === 'true';
   const recaptchaSiteKey = String(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '').trim();
   const recaptchaEnabled = recaptchaAuthEnabled && recaptchaSiteKey.length > 0;
-  const recaptchaRef = useRef(null);
   const consultaCepIdRef = useRef(0);
   const cepConsultadoRef = useRef('');
   const [modo, setModo] = useState('login');
@@ -59,8 +59,6 @@ export default function ContaPage() {
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [telefone, setTelefone] = useState('');
   const [whatsappOptIn, setWhatsappOptIn] = useState(true);
-  const [recaptchaToken, setRecaptchaToken] = useState('');
-  const [recaptchaErroCarregamento, setRecaptchaErroCarregamento] = useState('');
   const [usuario, setUsuario] = useState(null);
   const [enderecoPrincipal, setEnderecoPrincipal] = useState(null);
   const [enderecoForm, setEnderecoForm] = useState(ENDERECO_FORM_INICIAL);
@@ -483,25 +481,20 @@ export default function ContaPage() {
     }
   }
 
-  function resetRecaptcha() {
-    setRecaptchaToken('');
-    setRecaptchaErroCarregamento('');
-    if (recaptchaRef.current && typeof recaptchaRef.current.reset === 'function') {
-      recaptchaRef.current.reset();
-    }
-  }
-
   async function handleLogin(event) {
     event.preventDefault();
     setErro('');
     setMensagemInfo('');
+    setCarregando(true);
 
-    if (recaptchaEnabled && !recaptchaToken) {
-      setErro(recaptchaErroCarregamento || 'Confirme o reCAPTCHA para continuar.');
+    let recaptchaToken = '';
+    try {
+      recaptchaToken = await tryGetRecaptchaToken('auth_login', recaptchaSiteKey, recaptchaEnabled);
+    } catch {
+      setErro('Proteção de segurança indisponível. Tente novamente em instantes.');
+      setCarregando(false);
       return;
     }
-
-    setCarregando(true);
 
     try {
       const data = await login(email.trim(), senha, recaptchaToken);
@@ -511,7 +504,6 @@ export default function ContaPage() {
       setErro(error.message);
     } finally {
       setCarregando(false);
-      resetRecaptcha();
     }
   }
 
@@ -537,11 +529,6 @@ export default function ContaPage() {
       return;
     }
 
-    if (recaptchaEnabled && !recaptchaToken) {
-      setErro(recaptchaErroCarregamento || 'Confirme o reCAPTCHA para continuar.');
-      return;
-    }
-
     setCarregando(true);
 
     try {
@@ -550,8 +537,7 @@ export default function ContaPage() {
         email: email.trim(),
         senha,
         telefone: telefoneNormalizado,
-        whatsappOptIn,
-        recaptchaToken
+        whatsappOptIn
       });
       setUsuario(data.usuario);
       setPreferencias((current) => ({
@@ -565,7 +551,6 @@ export default function ContaPage() {
       setErro(error.message);
     } finally {
       setCarregando(false);
-      resetRecaptcha();
     }
   }
 
@@ -682,23 +667,6 @@ export default function ContaPage() {
     setMostrarSenha(false);
     setErro('');
     setMensagemInfo('');
-    resetRecaptcha();
-  }
-
-  function handleRecaptchaChange(token) {
-    setRecaptchaToken(String(token || '').trim());
-    if (token) {
-      setRecaptchaErroCarregamento('');
-    }
-  }
-
-  function handleRecaptchaExpired() {
-    setRecaptchaToken('');
-  }
-
-  function handleRecaptchaError() {
-    setRecaptchaToken('');
-    setRecaptchaErroCarregamento('Não foi possível validar o reCAPTCHA neste domínio. Acesse o endereço oficial da loja ou atualize os domínios permitidos no Google reCAPTCHA.');
   }
 
   const nomeExibicao = String(usuario?.nome || 'Cliente').trim() || 'Cliente';
@@ -1035,10 +1003,6 @@ export default function ContaPage() {
             telefone={telefone}
             whatsappOptIn={whatsappOptIn}
             carregando={carregando}
-            recaptchaEnabled={recaptchaEnabled}
-            recaptchaSiteKey={recaptchaSiteKey}
-            recaptchaRef={recaptchaRef}
-            recaptchaErroCarregamento={recaptchaErroCarregamento}
             senhaStrength={senhaStrength}
             senhaFracaCadastro={senhaFracaCadastro}
             confirmacaoSenhaInvalida={confirmacaoSenhaInvalida}
@@ -1051,9 +1015,6 @@ export default function ContaPage() {
             onMostrarSenhaToggle={() => setMostrarSenha((current) => !current)}
             onTelefoneChange={setTelefone}
             onWhatsappOptInChange={setWhatsappOptIn}
-            onRecaptchaChange={handleRecaptchaChange}
-            onRecaptchaExpired={handleRecaptchaExpired}
-            onRecaptchaError={handleRecaptchaError}
             onLogin={handleLogin}
             onCadastro={handleCadastro}
           />

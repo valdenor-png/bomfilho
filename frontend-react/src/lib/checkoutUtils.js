@@ -164,7 +164,8 @@ export const PIX_STATUS_META = Object.freeze({
   EXPIRED: { tone: 'danger', icon: 'expired', guidance: 'Este PIX expirou. Gere um novo QR Code para tentar novamente.' },
   CANCELED: { tone: 'danger', icon: 'canceled', guidance: 'Pagamento cancelado. Gere um novo PIX para concluir o pedido.' },
   DECLINED: { tone: 'danger', icon: 'declined', guidance: 'Pagamento não aprovado. Gere um novo PIX e tente novamente.' },
-  REJECTED: { tone: 'danger', icon: 'declined', guidance: 'Pagamento não aprovado. Gere um novo PIX e tente novamente.' }
+  REJECTED: { tone: 'danger', icon: 'declined', guidance: 'Pagamento não aprovado. Gere um novo PIX e tente novamente.' },
+  OBSERVATION_ENDED: { tone: 'neutral', icon: 'pending', guidance: 'A verificação automática foi encerrada. Se você já pagou, aguarde alguns instantes — a confirmação chegará pelo servidor. Caso contrário, gere um novo QR Code.' }
 });
 
 // ── QR Code lazy‑load ───────────────────────────────────────────────────

@@ -1,8 +1,8 @@
 import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import ReCAPTCHA from 'react-google-recaptcha';
 import { AlertTriangle, BadgeX, CircleCheck, ClipboardList, MapPin, ShoppingCart } from '../icons';
+import { tryGetRecaptchaToken } from '../lib/recaptchaEnterprise';
 import {
   buscarEnderecoViaCep,
   criarPedido,
@@ -133,6 +133,8 @@ const CHECKOUT_ENDERECO_CACHE_KEY = 'bf_checkout_endereco_preferido';
 const CHECKOUT_CPF_NOTA_CACHE_KEY = 'bf_checkout_cpf_nota';
 const STATUS_REVISAO_ATIVOS = new Set(['aguardando_revisao', 'pendente', 'pagamento_recusado']);
 const STATUS_TERMINAIS_PIX_POLLING = new Set(['pago', 'entregue', 'pagamento_recusado', 'cancelado', 'expirado', 'retirado']);
+const PIX_POLLING_DURACAO_MAXIMA_MS = 4 * 60 * 1000;
+const PIX_POLLING_MAX_TENTATIVAS = 80;
 const LIMITE_SUGESTOES_CHECKOUT = 8;
 const MINIMO_PRIORIDADE_IMPULSO = 6;
 const TERMOS_PRIORIDADE_IMPULSO = [
@@ -364,9 +366,6 @@ export default function PagamentoPage() {
   const [eventosHomologacao3DS, setEventosHomologacao3DS] = useState([]);
   const [feedbackEvidencia3DS, setFeedbackEvidencia3DS] = useState('');
   const [growthVersion, setGrowthVersion] = useState(0);
-  const [recaptchaCheckoutToken, setRecaptchaCheckoutToken] = useState('');
-  const [recaptchaCheckoutErroCarregamento, setRecaptchaCheckoutErroCarregamento] = useState('');
-  const recaptchaCheckoutRef = useRef(null);
   const cartaoPaymentMethodIdRef = useRef('');
   const cartaoIssuerIdRef = useRef(null);
   const pagandoCartaoRef = useRef(false);
@@ -686,9 +685,6 @@ export default function PagamentoPage() {
   const pagamentoCartaoSelecionado = formaPagamento === 'credito' || formaPagamento === 'debito';
   const debitoSelecionado = formaPagamento === 'debito';
   const recaptchaCheckoutEnabled = CHECKOUT_RECAPTCHA_ENABLED && Boolean(RECAPTCHA_SITE_KEY);
-  const exibirRecaptchaCheckout = recaptchaCheckoutEnabled
-    && autenticado === true
-    && (etapaAtual === ETAPAS.PAGAMENTO || etapaAtual === ETAPAS.PIX);
   const tituloFormaPagamento = formaPagamento === 'pix'
     ? 'PIX'
     : formaPagamento === 'debito'
@@ -1637,15 +1633,6 @@ export default function PagamentoPage() {
     limparResultadoAutenticacao3DS();
   }
 
-  function resetRecaptchaCheckout() {
-    setRecaptchaCheckoutToken('');
-    setRecaptchaCheckoutErroCarregamento('');
-
-    if (recaptchaCheckoutRef.current && typeof recaptchaCheckoutRef.current.reset === 'function') {
-      recaptchaCheckoutRef.current.reset();
-    }
-  }
-
   const registrarEventoHomologacao3DS = useCallback((evento, detalhes = {}) => {
     const registro = {
       timestamp: new Date().toISOString(),
@@ -1686,22 +1673,6 @@ export default function PagamentoPage() {
         : null,
       events: eventosHomologacao3DS
     };
-  }
-
-  function obterRecaptchaCheckoutTokenObrigatorio() {
-    if (!recaptchaCheckoutEnabled) {
-      return '';
-    }
-
-    const token = String(recaptchaCheckoutToken || '').trim();
-    if (token) {
-      return token;
-    }
-
-    throw new Error(
-      recaptchaCheckoutErroCarregamento
-      || 'Confirme o reCAPTCHA de segurança antes de continuar.'
-    );
   }
 
   function erroIndicaSessao3DSExpirada(error) {
@@ -2155,15 +2126,17 @@ export default function PagamentoPage() {
       }
     }
 
+    setCarregando(true);
+
     let recaptchaTokenAcao = '';
     try {
-      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
-    } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar.');
+      recaptchaTokenAcao = await tryGetRecaptchaToken('checkout_criar_pedido', RECAPTCHA_SITE_KEY, recaptchaCheckoutEnabled);
+    } catch {
+      setErro('Proteção de segurança indisponível. Tente novamente em instantes.');
+      setCarregando(false);
       return;
     }
 
-    setCarregando(true);
     try {
       const entregaPayload = retiradaSelecionada
         ? null
@@ -2237,9 +2210,6 @@ export default function PagamentoPage() {
       setErro(error.message);
     } finally {
       setCarregando(false);
-      if (recaptchaCheckoutEnabled) {
-        resetRecaptchaCheckout();
-      }
     }
   }
 
@@ -2397,7 +2367,16 @@ export default function PagamentoPage() {
         return;
       }
 
-      if ((Date.now() - inicioObservacao) >= 240000) {
+      const observacaoExpirada = (Date.now() - inicioObservacao) >= PIX_POLLING_DURACAO_MAXIMA_MS;
+      const tentativasExcedidas = tentativa >= PIX_POLLING_MAX_TENTATIVAS;
+
+      if (observacaoExpirada || tentativasExcedidas) {
+        setResultadoPix((atual) => {
+          if (!atual || atual.status === 'PAID' || atual.status === 'APPROVED') {
+            return atual;
+          }
+          return { ...atual, status: 'OBSERVATION_ENDED' };
+        });
         return;
       }
 
@@ -2537,7 +2516,6 @@ export default function PagamentoPage() {
     if (!resultadoPedido?.pedido_id) return;
     if (resultadoPix) return; // Já tem PIX gerado
     if (formaPagamento !== 'pix') return;
-    if (recaptchaCheckoutEnabled && !String(recaptchaCheckoutToken || '').trim()) return;
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) return;
@@ -2549,9 +2527,7 @@ export default function PagamentoPage() {
     formaPagamento,
     resultadoPedido?.pedido_id,
     resultadoPix,
-    documentoPagador,
-    recaptchaCheckoutEnabled,
-    recaptchaCheckoutToken
+    documentoPagador
   ]);
 
   // Gerar PIX via Mercado Pago.
@@ -2564,19 +2540,20 @@ export default function PagamentoPage() {
       return;
     }
 
-    let recaptchaTokenAcao = '';
-    try {
-      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
-    } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para gerar o PIX.');
-      return;
-    }
-
     setResultadoPix(null);
     setFeedbackCopiaPix('');
     setErro('');
-
     setCarregando(true);
+
+    let recaptchaTokenAcao = '';
+    try {
+      recaptchaTokenAcao = await tryGetRecaptchaToken('checkout_pix', RECAPTCHA_SITE_KEY, recaptchaCheckoutEnabled);
+    } catch {
+      setErro('Proteção de segurança indisponível. Tente novamente em instantes.');
+      setCarregando(false);
+      return;
+    }
+
     try {
       const data = await mpGerarPix(pedidoId, documentoDigits, recaptchaTokenAcao);
       setResultadoPix({
@@ -2594,9 +2571,6 @@ export default function PagamentoPage() {
       setErro(error.message || 'Não foi possível gerar o PIX. Tente novamente.');
     } finally {
       setCarregando(false);
-      if (recaptchaCheckoutEnabled) {
-        resetRecaptchaCheckout();
-      }
     }
   }
 
@@ -2611,9 +2585,9 @@ export default function PagamentoPage() {
 
     let recaptchaTokenAcao = '';
     try {
-      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
-    } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar no cartão.');
+      recaptchaTokenAcao = await tryGetRecaptchaToken('checkout_cartao', RECAPTCHA_SITE_KEY, recaptchaCheckoutEnabled);
+    } catch {
+      setErro('Proteção de segurança indisponível. Tente novamente em instantes.');
       return;
     }
 
@@ -2674,9 +2648,6 @@ export default function PagamentoPage() {
       setErro(error.message || 'Não foi possível processar o pagamento.');
     } finally {
       setCarregando(false);
-      if (recaptchaCheckoutEnabled) {
-        resetRecaptchaCheckout();
-      }
     }
   }
 
@@ -2687,9 +2658,9 @@ export default function PagamentoPage() {
 
     let recaptchaTokenAcao = '';
     try {
-      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
-    } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para gerar o PIX.');
+      recaptchaTokenAcao = await tryGetRecaptchaToken('checkout_pix', RECAPTCHA_SITE_KEY, recaptchaCheckoutEnabled);
+    } catch {
+      setErro('Proteção de segurança indisponível. Tente novamente em instantes.');
       return;
     }
 
@@ -2717,9 +2688,6 @@ export default function PagamentoPage() {
       setErro(error.message);
     } finally {
       setCarregando(false);
-      if (recaptchaCheckoutEnabled) {
-        resetRecaptchaCheckout();
-      }
     }
   }
 
@@ -2880,9 +2848,9 @@ export default function PagamentoPage() {
 
     let recaptchaTokenAcao = '';
     try {
-      recaptchaTokenAcao = obterRecaptchaCheckoutTokenObrigatorio();
-    } catch (error) {
-      setErro(error.message || 'Confirme o reCAPTCHA de segurança para continuar no cartão.');
+      recaptchaTokenAcao = await tryGetRecaptchaToken('checkout_cartao', RECAPTCHA_SITE_KEY, recaptchaCheckoutEnabled);
+    } catch {
+      setErro('Proteção de segurança indisponível. Tente novamente em instantes.');
       return;
     }
 
@@ -2998,9 +2966,6 @@ export default function PagamentoPage() {
     } finally {
       setCarregando(false);
       pagandoCartaoRef.current = false;
-      if (recaptchaCheckoutEnabled) {
-        resetRecaptchaCheckout();
-      }
     }
   }
 
@@ -3073,7 +3038,6 @@ export default function PagamentoPage() {
   const cpfNotaValido = cpfNotaDigits.length === 11 && validarCpf(cpfNotaDigits);
   const cpfNotaInvalido = cpfNotaFiscalTocado && cpfNotaDigits.length > 0 && !cpfNotaValido;
   const cpfNotaFeedbackValido = cpfNotaFiscalTocado && cpfNotaValido;
-  const recaptchaCheckoutPronto = !recaptchaCheckoutEnabled || Boolean(String(recaptchaCheckoutToken || '').trim());
   const nomeTitularCartaoValido = String(nomeTitularCartao || '').trim().length >= 3;
   const numeroCartaoValido = normalizarNumeroCartao(numeroCartao).length >= 13;
   const mesCartaoNumero = Number.parseInt(formatarMesCartao(mesExpiracaoCartao), 10);
@@ -3140,7 +3104,6 @@ export default function PagamentoPage() {
     || simulandoFrete
     || buscandoChavePublica
     || !documentoValidoPagamento
-    || !recaptchaCheckoutPronto
     || (pagamentoCartaoSelecionado && !cartaoProntoParaContinuar);
   const mensagemBloqueioPagamento = pagamentoSemItens
     ? 'Seu carrinho está vazio. Adicione produtos para seguir com o pagamento.'
@@ -3150,8 +3113,6 @@ export default function PagamentoPage() {
         ? 'Informe CPF/CNPJ para habilitar a continuação.'
         : !documentoValidoPagamento
           ? 'Documento inválido. Use CPF com 11 dígitos ou CNPJ com 14 dígitos.'
-          : !recaptchaCheckoutPronto
-            ? 'Confirme o reCAPTCHA de seguranca para habilitar a continuacao.'
           : pagamentoCartaoSelecionado && !cartaoProntoParaContinuar
             ? 'Complete os dados do cartão para habilitar a continuação.'
         : '';
@@ -3182,7 +3143,6 @@ export default function PagamentoPage() {
   const bloqueioGeracaoPix = carregando
     || verificandoStatusPix
     || !resultadoPedido?.pedido_id
-    || !recaptchaCheckoutPronto
     || !documentoValidoPagamento;
   const bloqueioVerificacaoPix = verificandoStatusPix || carregando || !resultadoPedido?.pedido_id;
   const pixDisponivelParaPagar = Boolean(codigoPixAtual || qrCodePixSrc);
@@ -3876,39 +3836,6 @@ export default function PagamentoPage() {
         </article>
       ) : null}
 
-      {exibirRecaptchaCheckout ? (
-        <section className="checkout-recaptcha-banner" aria-label="Validacao antiabuso">
-          <p className="checkout-recaptcha-title">Validacao de seguranca</p>
-          <p className="checkout-recaptcha-description">
-            Confirme o reCAPTCHA antes de concluir pedido, gerar PIX ou pagar com cartão.
-          </p>
-
-          <ReCAPTCHA
-            ref={recaptchaCheckoutRef}
-            sitekey={RECAPTCHA_SITE_KEY}
-            hl="pt-BR"
-            onChange={(token) => {
-              setRecaptchaCheckoutToken(String(token || '').trim());
-              if (token) {
-                setRecaptchaCheckoutErroCarregamento('');
-              }
-            }}
-            onExpired={() => setRecaptchaCheckoutToken('')}
-            onErrored={() => {
-              setRecaptchaCheckoutToken('');
-              setRecaptchaCheckoutErroCarregamento(
-                'Nao foi possivel validar o reCAPTCHA neste dominio. Confira os dominios permitidos na chave do Google.'
-              );
-            }}
-          />
-
-          {recaptchaCheckoutErroCarregamento ? (
-            <p className="error-text">{recaptchaCheckoutErroCarregamento}</p>
-          ) : (
-            <p className="muted-text">A validacao pode expirar; refaca o reCAPTCHA se necessario.</p>
-          )}
-        </section>
-      ) : null}
 
       {etapaAtual === ETAPAS.CARRINHO ? (
         <div className="checkout-cart-layout">
@@ -4754,7 +4681,7 @@ export default function PagamentoPage() {
                 <button
                   className="btn-secondary"
                   type="button"
-                  disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id || !recaptchaCheckoutPronto || !documentoValidoPagamento}
+                  disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id || !documentoValidoPagamento}
                   onClick={() => handlePagarCartaoMercadoPago(resultadoPedido.pedido_id)}
                 >
                   {carregando
