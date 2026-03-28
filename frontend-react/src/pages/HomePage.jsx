@@ -9,6 +9,7 @@ import { useCart } from '../context/CartContext';
 import usePreloadImage from '../hooks/usePreloadImage';
 import useDocumentHead from '../hooks/useDocumentHead';
 import { STORE_WHATSAPP_URL, STORE_WHATSAPP_DISPLAY, STORE_TELEFONE_URL, STORE_TELEFONE_DISPLAY, STORE_CNPJ, STORE_ENDERECO, STORE_HORARIO_CURTO } from '../config/store';
+import formatProductName from '../lib/formatProductName';
 
 const CATEGORY_IMAGES = {
   frios: 'https://images.unsplash.com/photo-1486297678162-eb2a19b0a32d?auto=format&fit=crop&w=900&q=60',
@@ -37,9 +38,9 @@ const CATEGORIAS_GRID = [
 ];
 
 const BANNERS = [
-  { id: 1, gradient: 'linear-gradient(135deg, #1E7D1E, #27A027)', titulo: 'Primeira compra', subtitulo: '20% OFF com Pix', codigo: 'BOM20' },
-  { id: 2, gradient: 'linear-gradient(135deg, #F9A825, #FFD600)', titulo: 'Frete Grátis', subtitulo: 'Pedidos acima de R$80', codigo: 'FRETEBOM', dark: true },
-  { id: 3, gradient: 'linear-gradient(135deg, #0A4D0A, #145A14)', titulo: 'Hortifruti', subtitulo: 'Até 30% OFF esta semana', codigo: 'HORTA30' },
+  { id: 1, gradient: 'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))', titulo: 'Primeira compra', subtitulo: '20% OFF com Pix', codigo: 'BOM20' },
+  { id: 2, gradient: 'linear-gradient(135deg, rgba(226,184,74,0.15), rgba(226,184,74,0.05))', titulo: 'Frete Grátis', subtitulo: 'Pedidos acima de R$80', codigo: 'FRETEBOM' },
+  { id: 3, gradient: 'linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))', titulo: 'Hortifruti', subtitulo: 'Até 30% OFF esta semana', codigo: 'HORTA30' },
 ];
 
 function isProdutoEmPromocao(produto) {
@@ -174,7 +175,7 @@ export default function HomePage() {
       <div className="v2-home-greeting">
         <p className="v2-home-greeting-sub">Seu supermercado online</p>
         <h2 className="v2-home-greeting-title">
-          O que você precisa <span className="v2-accent-green">hoje</span><span className="v2-accent-yellow">?</span>
+          O que você precisa <span className="v2-accent-gold">hoje?</span>
         </h2>
       </div>
 
@@ -253,7 +254,7 @@ export default function HomePage() {
                     ) : null}
                     <SmartImage className="v2-product-card-img" src={getProdutoImagem(produto)} alt={produto.nome} loading={index < 2 ? 'eager' : 'lazy'} />
                   </div>
-                  <p className="v2-product-card-name">{produto.nome}</p>
+                  <p className="v2-product-card-name">{formatProductName(produto.nome)}</p>
                   <div className="v2-product-card-price-row">
                     <span className="v2-product-card-price">R$ {(precoPromo > 0 ? precoPromo : preco).toFixed(2).replace('.', ',')}</span>
                     {precoPromo > 0 && preco > precoPromo ? (
@@ -297,7 +298,7 @@ export default function HomePage() {
                 <div className="v2-product-card-media">
                   <SmartImage className="v2-product-card-img" src={getProdutoImagem(produto)} alt={produto.nome} loading="lazy" />
                 </div>
-                <p className="v2-product-card-name">{produto.nome}</p>
+                <p className="v2-product-card-name">{formatProductName(produto.nome)}</p>
                 <div className="v2-product-card-price-row">
                   <span className="v2-product-card-price">R$ {Number(produto.preco || 0).toFixed(2).replace('.', ',')}</span>
                 </div>

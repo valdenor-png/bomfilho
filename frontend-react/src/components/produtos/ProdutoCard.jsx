@@ -8,6 +8,7 @@ import {
   getProdutoBadges,
   prefetchProductImage
 } from '../../lib/produtosUtils';
+import formatProductName from '../../lib/formatProductName';
 import {
   calcularSubtotalPeso,
   formatPesoInputValue,
@@ -40,7 +41,7 @@ const ProdutoCard = React.memo(function ProdutoCard({
 }) {
   const produto = produtoIndexado.produto;
   const imagem = produtoIndexado.imagemResponsiva;
-  const nomeProduto = produtoIndexado.nomeProduto;
+  const nomeProduto = formatProductName(produtoIndexado.nomeProduto);
   const detalhesProduto = produtoIndexado.detalhesComerciais;
   const medidaProduto = produtoIndexado.medidaProduto;
   const precoInfo = produtoIndexado.precoInfo;
