@@ -9,12 +9,14 @@
  *   import { tryGetRecaptchaToken } from '../lib/recaptchaEnterprise';
  *
  *   const token = await tryGetRecaptchaToken('auth_login', SITE_KEY, enabled);
- *   // token === '' se disabled/sem chave → backend ignora
+ *   // Retorna '' se disabled/sem chave OU se todos os retries falharem (backend ignora)
  */
 
 const ENTERPRISE_SCRIPT_BASE = 'https://www.google.com/recaptcha/enterprise.js';
-const EXECUTE_TIMEOUT_MS = 8000;
+const EXECUTE_TIMEOUT_MS = 12000;
 const SCRIPT_READY_TIMEOUT_MS = 5000;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1000;
 
 let _scriptPromise = null;
 
@@ -22,9 +24,12 @@ function _buildScriptSrc(siteKey) {
   return `${ENTERPRISE_SCRIPT_BASE}?render=${encodeURIComponent(siteKey)}`;
 }
 
+function _delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Carrega o script enterprise.js uma única vez por sessão (singleton).
- * Re-usa se já estiver no DOM ou em carregamento.
  */
 function _loadScript(siteKey) {
   if (_scriptPromise) {
@@ -36,12 +41,10 @@ function _loadScript(siteKey) {
       return reject(new Error('reCAPTCHA não disponível fora do browser.'));
     }
 
-    // Já carregado e pronto
     if (window.grecaptcha?.enterprise?.ready) {
       return resolve();
     }
 
-    // Script já está no DOM (outro componente o adicionou)
     const existing = document.querySelector('script[src*="recaptcha/enterprise.js"]');
     if (existing) {
       const checkReady = setInterval(() => {
@@ -63,9 +66,7 @@ function _loadScript(siteKey) {
     const script = document.createElement('script');
     script.src = _buildScriptSrc(siteKey);
     script.async = true;
-
     script.onload = () => resolve();
-
     script.onerror = () => {
       _scriptPromise = null;
       reject(new Error('Falha ao carregar proteção de segurança. Verifique sua conexão.'));
@@ -78,23 +79,14 @@ function _loadScript(siteKey) {
 }
 
 /**
- * Gera um token Enterprise Score para a ação informada.
- * Invisível — sem interação do usuário.
- *
- * @param {string} action  Ex: 'auth_login', 'auth_cadastro', 'checkout_pix'
- * @param {string} siteKey Chave pública VITE_RECAPTCHA_SITE_KEY
- * @returns {Promise<string>} Token para enviar ao backend
+ * Tentativa única de gerar token.
  */
-export async function getRecaptchaToken(action, siteKey) {
-  if (!siteKey) {
-    throw new Error('RECAPTCHA_SITE_KEY não configurada.');
-  }
-
+async function _executeOnce(action, siteKey) {
   await _loadScript(siteKey);
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error('Tempo limite ao gerar proteção de segurança. Tente novamente.'));
+      reject(new Error('Tempo limite ao gerar proteção de segurança.'));
     }, EXECUTE_TIMEOUT_MS);
 
     try {
@@ -105,19 +97,47 @@ export async function getRecaptchaToken(action, siteKey) {
           resolve(token);
         } catch {
           clearTimeout(timeout);
-          reject(new Error('Não foi possível gerar proteção de segurança. Tente novamente.'));
+          reject(new Error('Não foi possível gerar proteção de segurança.'));
         }
       });
     } catch {
       clearTimeout(timeout);
-      reject(new Error('Proteção de segurança indisponível. Recarregue a página e tente novamente.'));
+      reject(new Error('Proteção de segurança indisponível. Recarregue a página.'));
     }
   });
 }
 
 /**
- * Versão "safe" — retorna '' se reCAPTCHA estiver desabilitado ou sem chave.
- * Lança erro apenas se estiver habilitado e a geração falhar.
+ * Gera token com até MAX_RETRIES tentativas automáticas e delay entre elas.
+ *
+ * @param {string} action  Ex: 'auth_login', 'checkout_pix'
+ * @param {string} siteKey Chave pública VITE_RECAPTCHA_SITE_KEY
+ * @returns {Promise<string>} Token para enviar ao backend
+ */
+export async function getRecaptchaToken(action, siteKey) {
+  if (!siteKey) {
+    throw new Error('RECAPTCHA_SITE_KEY não configurada.');
+  }
+
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
+    try {
+      return await _executeOnce(action, siteKey);
+    } catch (err) {
+      lastError = err;
+      if (attempt <= MAX_RETRIES) {
+        await _delay(RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+/**
+ * Versão "safe" — nunca lança.
+ * Retorna '' se desabilitado, sem chave, ou após todos os retries falharem.
+ * Neste último caso emite console.warn — o backend aceita token vazio como bypass.
  *
  * @param {string}  action   Identificador da ação
  * @param {string}  siteKey  Chave pública reCAPTCHA
@@ -129,5 +149,13 @@ export async function tryGetRecaptchaToken(action, siteKey, enabled = true) {
     return '';
   }
 
-  return getRecaptchaToken(action, siteKey);
+  try {
+    return await getRecaptchaToken(action, siteKey);
+  } catch (err) {
+    console.warn(
+      `[reCAPTCHA] Bypass após ${MAX_RETRIES + 1} tentativas para ação "${action}". Prosseguindo sem token.`,
+      err?.message || err
+    );
+    return '';
+  }
 }

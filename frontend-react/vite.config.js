@@ -60,6 +60,12 @@ export default defineConfig(({ mode }) => {
       }
     },
     build: {
+      modulePreload: {
+        resolveDependencies: (_filename, deps) =>
+          deps.filter(
+            (dep) => !dep.includes('admin') && !dep.includes('vendor-xlsx')
+          )
+      },
       rollupOptions: {
         output: {
           manualChunks: criarManualChunks

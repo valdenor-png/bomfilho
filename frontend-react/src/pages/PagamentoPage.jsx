@@ -112,6 +112,7 @@ import {
 // Sub-componentes do checkout.
 import {
   CheckoutSecurityTrust,
+  ClientReviewStep,
   DeliveryOptionCard,
   PickupStoreCard,
   DeliveryAddressLookupCard,
@@ -127,6 +128,7 @@ import {
   PixCopyCodeCard,
   PixInstructionsCard
 } from '../components/checkout';
+import { CheckoutContext } from '../context/CheckoutContext';
 import InternalTopBar from '../components/navigation/InternalTopBar';
 
 const CHECKOUT_ENDERECO_CACHE_KEY = 'bf_checkout_endereco_preferido';
@@ -134,7 +136,7 @@ const CHECKOUT_CPF_NOTA_CACHE_KEY = 'bf_checkout_cpf_nota';
 const STATUS_REVISAO_ATIVOS = new Set(['aguardando_revisao', 'pendente', 'pagamento_recusado']);
 const STATUS_TERMINAIS_PIX_POLLING = new Set(['pago', 'entregue', 'pagamento_recusado', 'cancelado', 'expirado', 'retirado']);
 const PIX_POLLING_DURACAO_MAXIMA_MS = 4 * 60 * 1000;
-const PIX_POLLING_MAX_TENTATIVAS = 80;
+const PIX_POLLING_MAX_TENTATIVAS = 50;
 const LIMITE_SUGESTOES_CHECKOUT = 8;
 const MINIMO_PRIORIDADE_IMPULSO = 6;
 const TERMOS_PRIORIDADE_IMPULSO = [
@@ -645,6 +647,7 @@ export default function PagamentoPage() {
   const veiculoSelecionadoResumo = retiradaSelecionada
     ? null
     : (VEICULOS_ENTREGA[resultadoPedido?.veiculo_entrega] || VEICULOS_ENTREGA[simulacaoFrete?.veiculo] || VEICULOS_ENTREGA.moto);
+  // TODO: substituir 'Uber Direct' pela label da nova empresa de entrega quando migrar.
   const atendimentoSelecionadoLabel = retiradaSelecionada
     ? formatarTipoEntrega('retirada')
     : 'Uber Direct';
@@ -2260,7 +2263,7 @@ export default function PagamentoPage() {
     }
   }
 
-  async function handleContinuarPagamento() {
+  function handleContinuarPagamento() {
     setDocumentoTocado(true);
 
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
@@ -2270,7 +2273,7 @@ export default function PagamentoPage() {
     }
 
     setErro('');
-    await handleIrParaPagamento();
+    setEtapaAtual(ETAPAS.REVISAO_CLIENTE);
   }
 
   // Polling de revis?o: verifica a cada 10s se o pedido foi aprovado.
@@ -2973,6 +2976,7 @@ export default function PagamentoPage() {
     if (etapa === ETAPAS.CARRINHO) return 0;
     if (etapa === ETAPAS.ENTREGA) return 1;
     if (etapa === ETAPAS.PAGAMENTO) return 2;
+    if (etapa === ETAPAS.REVISAO_CLIENTE) return 3;
     if (etapa === ETAPAS.REVISAO) return 3;
     if (etapa === ETAPAS.PIX) return 3;
     return 4;
@@ -2983,6 +2987,7 @@ export default function PagamentoPage() {
     if (etapaAtual === ETAPAS.CARRINHO) return 'Carrinho';
     if (etapaAtual === ETAPAS.ENTREGA) return 'Entrega';
     if (etapaAtual === ETAPAS.PAGAMENTO) return 'Pagamento';
+    if (etapaAtual === ETAPAS.REVISAO_CLIENTE) return 'Confirmar pedido';
     if (etapaAtual === ETAPAS.REVISAO) return 'Revisão';
     if (etapaAtual === ETAPAS.PIX) return formaPagamento === 'pix' ? 'Pagamento' : `Pagamento com ${tituloFormaPagamento}`;
     return 'Confirmação';
@@ -2990,7 +2995,9 @@ export default function PagamentoPage() {
   const subtituloEtapaAtual = `Etapa ${etapaIndex + 1} de 5`;
   const subtituloEtapaAtualTexto = etapaAtual === ETAPAS.PAGAMENTO
     ? 'Escolha como pagar e confirme seu pedido em segundos.'
-    : subtituloEtapaAtual;
+    : etapaAtual === ETAPAS.REVISAO_CLIENTE
+      ? 'Revise seu pedido antes de confirmar.'
+      : subtituloEtapaAtual;
   const labelStatus = formatarStatusPedido(statusPedidoAtual || resultadoPedido?.status || 'pendente');
   const statusRevisaoAtual = String(statusPedidoAtual || resultadoPedido?.status || '').toLowerCase();
   const podeCancelarRevisaoPedido = ['aguardando_revisao', 'pendente', 'pagamento_recusado'].includes(statusRevisaoAtual)
@@ -3186,6 +3193,11 @@ export default function PagamentoPage() {
       return;
     }
 
+    if (etapaAtual === ETAPAS.REVISAO_CLIENTE) {
+      setEtapaAtual(ETAPAS.PAGAMENTO);
+      return;
+    }
+
     if (etapaAtual === ETAPAS.REVISAO) {
       setEtapaAtual(ETAPAS.PAGAMENTO);
       return;
@@ -3248,6 +3260,19 @@ export default function PagamentoPage() {
         primaryDisabled: bloqueioPagamento,
         secondaryLabel: 'Voltar para entrega',
         onSecondaryClick: () => setEtapaAtual(ETAPAS.ENTREGA)
+      };
+    }
+
+    if (etapaAtual === ETAPAS.REVISAO_CLIENTE) {
+      return {
+        stepLabel: 'Etapa 3 de 5',
+        totalLabel: `Total do pedido: ${formatarMoeda(resumoTotalPagamento)}`,
+        caption: 'Revise seu pedido antes de confirmar.',
+        primaryLabel: carregando ? 'Confirmando...' : `Confirmar pedido · ${formatarMoeda(resumoTotalPagamento)}`,
+        onPrimaryClick: () => { void handleIrParaPagamento(); },
+        primaryDisabled: carregando,
+        secondaryLabel: 'Voltar para pagamento',
+        onSecondaryClick: () => setEtapaAtual(ETAPAS.PAGAMENTO)
       };
     }
 
@@ -3632,6 +3657,8 @@ export default function PagamentoPage() {
           return cacheSugestoesRef.current.get(cacheKey);
         }
 
+        // TODO: substituir por endpoint dedicado GET /api/produtos/checkout-sugestoes?termos=...
+        // que retorna produtos cross-sell pré-filtrados em único request (sem múltiplas chamadas).
         try {
           const data = await getProdutos({
             busca: termoBusca || undefined,
@@ -3802,7 +3829,27 @@ export default function PagamentoPage() {
     return <Navigate to="/produtos" replace />;
   }
 
+  const checkoutContextValue = {
+    etapaAtual,
+    setEtapaAtual,
+    resultadoPedido,
+    formaPagamento,
+    statusPedidoAtual,
+    carregando,
+    tipoEntrega,
+    retiradaSelecionada,
+    itensPedido,
+    resumo,
+    simulacaoFrete,
+    taxaServicoAtual,
+    resumoTotalPagamento,
+    tituloFormaPagamento,
+    handleCriarPedido,
+    handleIrParaPagamento,
+  };
+
   return (
+    <CheckoutContext.Provider value={checkoutContextValue}>
     <section className={`page checkout-page ${etapaAtual !== ETAPAS.STATUS ? 'has-mobile-action-bar' : ''}`.trim()}>
       <InternalTopBar
         className={`checkout-stage-header ${etapaAtual === ETAPAS.ENTREGA ? 'is-delivery-stage' : ''}`.trim()}
@@ -4506,7 +4553,25 @@ export default function PagamentoPage() {
         </div>
       ) : null}
 
-      {/* ETAPA REVIS?O: aguardando equipe confirmar disponibilidade */}
+      {/* ETAPA REVISÃO DO CLIENTE: confirmação antes de criar o pedido */}
+      {etapaAtual === ETAPAS.REVISAO_CLIENTE ? (
+        <ClientReviewStep
+          itensPedido={itensPedido}
+          retiradaSelecionada={retiradaSelecionada}
+          enderecoResumo={enderecoEntregaResumo}
+          veiculoEntrega={veiculoEntrega}
+          tituloFormaPagamento={tituloFormaPagamento}
+          subtotal={resumo.total}
+          frete={retiradaSelecionada ? 0 : (simulacaoFrete?.frete ?? null)}
+          taxaServico={taxaServicoAtual}
+          total={resumoTotalPagamento}
+          carregando={carregando}
+          onConfirmar={() => { void handleIrParaPagamento(); }}
+          onEditar={(etapa) => setEtapaAtual(etapa)}
+        />
+      ) : null}
+
+      {/* ETAPA REVISÃO: aguardando equipe confirmar disponibilidade */}
       {etapaAtual === ETAPAS.REVISAO ? (
         <div className="checkout-revisao-layout">
           <div className="card-box checkout-revisao-main">
@@ -4827,5 +4892,6 @@ export default function PagamentoPage() {
       ) : null}
 
     </section>
+    </CheckoutContext.Provider>
   );
 }

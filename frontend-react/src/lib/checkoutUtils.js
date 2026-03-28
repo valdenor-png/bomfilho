@@ -11,6 +11,7 @@ export const ETAPAS = Object.freeze({
   CARRINHO: 'carrinho',
   ENTREGA: 'entrega',
   PAGAMENTO: 'pagamento',
+  REVISAO_CLIENTE: 'revisao_cliente',
   REVISAO: 'revisao',
   PIX: 'pix',
   STATUS: 'status'

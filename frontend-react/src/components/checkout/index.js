@@ -7,3 +7,4 @@ export { DeliveryOptionCard, DeliverySummaryCard, DeliveryModeSelector, PickupSt
 export { CartItemRow, CheckoutSummaryCard, CheckoutCrossSellRail, OrderSummaryCard } from './CheckoutCart';
 export { PaymentMethodCard, PaymentSelectionSummary, PaymentOrderSummary, TaxIdInput } from './CheckoutPayment';
 export { PixStatusCard, PixQrCodeCard, PixCopyCodeCard, PixInstructionsCard } from './CheckoutPix';
+export { default as ClientReviewStep } from './ClientReviewStep';
