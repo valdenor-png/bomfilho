@@ -3,6 +3,7 @@
  */
 import React, { useState } from 'react';
 import { AlertTriangle, Package } from '../../icons';
+import formatProductName from '../../lib/formatProductName';
 import SmartImage from '../ui/SmartImage';
 import { formatarMoeda } from '../../lib/checkoutUtils';
 import {
@@ -62,7 +63,7 @@ export function CartItemRow({
       </div>
 
       <div className="cart-item-main">
-        <p className="cart-item-name">{item.nome}</p>
+        <p className="cart-item-name">{formatProductName(item.nome)}</p>
         {warningMessage ? (
           <div className="cart-item-warning-wrap">
             <button

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, BadgeX, CircleCheck, ClipboardList } from '../../icons';
 import { formatarMoeda } from '../../lib/checkoutUtils';
 import { calcularSubtotalPeso, isItemPeso } from '../../lib/produtoCatalogoRules';
+import formatProductName from '../../lib/formatProductName';
 
 function calcularSubtotalLinhaRevisao(item = {}) {
   const subtotalInformado = Number(item?.subtotal);
@@ -124,7 +125,7 @@ export default function MerchantReviewStep({
             <ul className="checkout-revisao-itens">
               {itensPedidoSnapshot.map((item) => (
                 <li key={item.produto_id}>
-                  <span>{item.quantidade}x {item.nome}</span>
+                  <span>{item.quantidade}x {formatProductName(item.nome)}</span>
                   <span>{formatarMoeda(calcularSubtotalLinhaRevisao(item))}</span>
                 </li>
               ))}

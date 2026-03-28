@@ -22,6 +22,7 @@
  */
 import React from 'react';
 import { formatarMoeda } from '../../lib/checkoutUtils';
+import formatProductName from '../../lib/formatProductName';
 
 const VEICULOS_LABEL = Object.freeze({
   bike: 'Bike (entrega ecológica)',
@@ -80,7 +81,7 @@ export default function ClientReviewStep({
             {itensPedido.map((item) => (
               <li key={item.produto_id} className="checkout-client-review-item">
                 <span className="checkout-client-review-item-qty">{item.quantidade}×</span>
-                <span className="checkout-client-review-item-name">{item.nome}</span>
+                <span className="checkout-client-review-item-name">{formatProductName(item.nome)}</span>
                 <span className="checkout-client-review-item-price">
                   {formatarMoeda(item.subtotal)}
                 </span>

@@ -26155,3 +26155,304 @@ hr, .home-section-divider {
   width: 0 !important;
   height: 0 !important;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   DARK FIXES v4 — Correções finais completas
+   ══════════════════════════════════════════════════════════════ */
+
+/* G1: Fundo roxo lateral — FORÇAR verde em TUDO */
+html, body {
+  background: #174A40 !important;
+  background-image: none !important;
+}
+
+body {
+  background: linear-gradient(180deg, #1F5C50 0%, #174A40 100%) !important;
+}
+
+/* C2: Cart items — glass */
+.checkout-cart-items-list .cart-item,
+.checkout-cart-items-list > div,
+[class*="cart-item"],
+[class*="carrinho-item"] {
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 14px !important;
+  color: #FFFFFF !important;
+}
+
+/* C3: Botão Remover — discreto */
+[class*="remover"],
+[class*="remove-btn"],
+button[class*="danger"],
+.checkout-cart-items-list button[class*="secondary"] {
+  color: rgba(255,255,255,0.40) !important;
+  background: transparent !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+/* C4: Warning icon no carrinho — esconder */
+.checkout-cart-items-list [class*="warning"],
+.checkout-cart-items-list [class*="alert"],
+[class*="restricao"] {
+  color: rgba(255,255,255,0.35) !important;
+}
+
+/* C5: Preços no carrinho — dourado Sora */
+[class*="cart-item"] [class*="price"],
+[class*="cart-item"] [class*="preco"],
+[class*="cart-item"] [class*="total"],
+[class*="carrinho"] [class*="price"],
+[class*="carrinho"] [class*="preco"],
+.checkout-summary-card [class*="total"] strong,
+.checkout-summary-card [class*="value"] {
+  color: #E2B84A !important;
+  font-family: 'Sora', sans-serif !important;
+}
+
+/* C6: Cross-sell section quebrada — esconder */
+.checkout-cross-sell-rail,
+[class*="cross-sell"],
+[class*="sugestoes"],
+[class*="voce-pode-gostar"] {
+  display: none !important;
+}
+
+/* C7: Resumo do checkout */
+.checkout-summary-card {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 16px !important;
+}
+
+.checkout-summary-card label,
+.checkout-summary-card dt,
+.checkout-summary-card [class*="label"] {
+  color: rgba(255,255,255,0.50) !important;
+}
+
+.checkout-summary-card dd,
+.checkout-summary-card [class*="value"] {
+  color: rgba(255,255,255,0.70) !important;
+  font-family: 'Sora', sans-serif !important;
+}
+
+/* P2: Category section cards — bordas mais sutis */
+.products-subcategory-section,
+[class*="subcategory-section"],
+[class*="vitrine-section"],
+[class*="categoria-section"] {
+  background: rgba(255,255,255,0.03) !important;
+  border: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+/* P3: Bolinha verde solta (range input / scroll indicator) */
+.categoria-horizontal-range,
+input[type="range"] {
+  accent-color: #E2B84A !important;
+  opacity: 0.5;
+  height: 3px !important;
+}
+
+/* PE1: Order cards — reforçar glass */
+.order-card,
+[class*="order-card"],
+[class*="pedido-card"],
+.orders-card {
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  color: #FFFFFF !important;
+}
+
+/* PE2-3: Botões de pedido */
+.order-card .btn-primary,
+[class*="order"] .btn-primary,
+[class*="pedido"] .btn-primary,
+[class*="acompanhar"] {
+  background: #E2B84A !important;
+  color: #133D35 !important;
+  border: none !important;
+}
+
+[class*="ver-detalhes"],
+[class*="order"] [class*="outline"],
+[class*="order"] .btn-secondary {
+  background: transparent !important;
+  border: 1px solid #E2B84A !important;
+  color: #E2B84A !important;
+}
+
+[class*="pedir-novamente"],
+[class*="reorder"] {
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  color: #FFFFFF !important;
+}
+
+/* PE5: Filtros de pedidos container */
+.orders-toolbar-wrap,
+[class*="orders-toolbar-wrap"],
+[class*="orders-filter-wrap"],
+.orders-toolbar-container {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 14px !important;
+}
+
+/* PE6: Badge cancelado — vermelho */
+[class*="cancelado"],
+[class*="cancelled"],
+[class*="canceled"] {
+  background: rgba(239,83,80,0.12) !important;
+  border-color: rgba(239,83,80,0.25) !important;
+  color: #EF5350 !important;
+}
+
+/* CO1-4: Conta — perfil card glass, avatar dourado, botões */
+.account-mobile-hero,
+[class*="profile-card"],
+[class*="hero-card"] {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+.account-mobile-avatar,
+[class*="avatar"] {
+  background: rgba(226,184,74,0.20) !important;
+  border: 2px solid rgba(226,184,74,0.40) !important;
+  color: #E2B84A !important;
+}
+
+/* Botões de ação nos pedidos — forçar tema */
+.order-card button,
+[class*="order-action"] button {
+  font-family: 'Plus Jakarta Sans', sans-serif !important;
+  border-radius: 12px !important;
+}
+
+/* H2: Cupom codes em Sora */
+.v2-home-banner-code,
+[class*="coupon"],
+[class*="cupom"] {
+  font-family: 'Sora', sans-serif !important;
+}
+
+/* Checkout specific overrides */
+.checkout-page .card-box,
+.checkout-cart-main,
+.checkout-cart-side {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+/* Checkout inline feedback */
+.checkout-inline-feedback {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  color: #FFFFFF !important;
+}
+
+.checkout-inline-feedback.is-error {
+  border-color: rgba(239,83,80,0.30) !important;
+}
+
+.checkout-inline-feedback.is-loading {
+  border-color: rgba(226,184,74,0.30) !important;
+}
+
+/* InternalTopBar for checkout */
+.checkout-stage-header {
+  background: transparent !important;
+}
+
+.checkout-stage-header h1 {
+  color: #FFFFFF !important;
+}
+
+/* Delivery section */
+.checkout-delivery-section,
+.delivery-mode-toggle-btn,
+[class*="delivery-option"],
+[class*="pickup-store"] {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  color: #FFFFFF !important;
+}
+
+.delivery-mode-toggle-btn.is-active {
+  background: #E2B84A !important;
+  color: #133D35 !important;
+  border-color: #E2B84A !important;
+}
+
+/* Payment method cards */
+[class*="payment-method"],
+[class*="metodo-pagamento"] {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  color: #FFFFFF !important;
+}
+
+[class*="payment-method"].selected,
+[class*="payment-method"][class*="active"] {
+  border-color: #E2B84A !important;
+  background: rgba(226,184,74,0.10) !important;
+}
+
+/* Revisao step */
+.checkout-revisao-status {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 16px !important;
+  color: #FFFFFF !important;
+}
+
+.checkout-revisao-icon {
+  color: #E2B84A !important;
+}
+
+/* PIX step */
+.checkout-pix-main,
+.checkout-pix-side,
+[class*="pix-card"],
+[class*="qr-code"] {
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  color: #FFFFFF !important;
+}
+
+/* Status step */
+.pedido-status-badge {
+  font-family: 'Sora', sans-serif !important;
+  font-weight: 700 !important;
+}
+
+/* Force all remaining text to be visible */
+.page p,
+.page span,
+.page label,
+.page small,
+.page li,
+.page td,
+.page th {
+  color: inherit;
+}
+
+/* Form labels in checkout */
+.checkout-page label,
+.checkout-page .field-label {
+  color: rgba(255,255,255,0.70) !important;
+}
+
+/* Select dropdowns */
+select {
+  background: rgba(255,255,255,0.07) !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+select option {
+  background: #174A40 !important;
+  color: #FFFFFF !important;
+}
