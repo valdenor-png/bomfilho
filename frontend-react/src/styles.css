@@ -25481,3 +25481,408 @@ a {
   background: rgba(239,68,68,0.08);
   color: #DC2626;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   DARK PREMIUM FORCE — Override final que garante dark theme
+   em TODOS os elementos, independente de especificidade.
+   Colocar no FINAL do styles.css.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Fundo global */
+html, body, #root, .app-shell {
+  background: linear-gradient(180deg, #1F5C50 0%, #174A40 100%) !important;
+  color: #FFFFFF !important;
+}
+
+/* Todas as páginas e wrappers: transparente */
+.page,
+.content,
+.home-page,
+.home-page-clean,
+.page-produtos,
+.conta-page,
+.orders-page,
+.checkout-page {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Cards — glassmorphism */
+.card-box,
+.form-box,
+.account-mobile-hero,
+.account-mobile-shell,
+.auth-section-card,
+.order-card,
+.orders-state-card,
+.route-loading-card,
+.home-opportunity-card,
+.products-hero,
+.products-hero-clean {
+  background: rgba(255,255,255,0.07) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  color: #FFFFFF !important;
+}
+
+/* Inputs */
+input, select, textarea,
+.field-input {
+  background: transparent !important;
+  color: #FFFFFF !important;
+  border-color: rgba(255,255,255,0.10) !important;
+}
+
+input::placeholder,
+textarea::placeholder,
+.field-input::placeholder {
+  color: rgba(255,255,255,0.45) !important;
+}
+
+input:focus, select:focus, textarea:focus,
+.field-input:focus {
+  border-color: #E2B84A !important;
+  box-shadow: 0 0 0 3px rgba(226,184,74,0.15) !important;
+  outline: none !important;
+}
+
+/* Botões primários — dourado */
+.btn-primary {
+  background: #E2B84A !important;
+  color: #133D35 !important;
+  border: none !important;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #F0CC6B !important;
+}
+
+/* Botões secundários — glass */
+.btn-secondary {
+  background: rgba(255,255,255,0.07) !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(255,255,255,0.12) !important;
+  border-color: rgba(226,184,74,0.30) !important;
+  color: #E2B84A !important;
+}
+
+/* Links */
+a {
+  color: #E2B84A;
+}
+
+/* Textos globais */
+h1, h2, h3, h4, h5, h6,
+strong, b,
+.page h1,
+.page h2 {
+  color: #FFFFFF !important;
+}
+
+p, span, label, small, li, td, th, dt, dd {
+  color: inherit;
+}
+
+.muted-text,
+.text-muted {
+  color: rgba(255,255,255,0.45) !important;
+}
+
+.error-text {
+  color: #FCA5A5 !important;
+}
+
+/* Produtos page */
+.products-search-wrap,
+.products-search-input-wrap {
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 14px;
+}
+
+.products-search-input {
+  background: transparent !important;
+  color: #FFFFFF !important;
+}
+
+.products-search-clear {
+  color: rgba(255,255,255,0.45) !important;
+}
+
+.products-search-clear:hover {
+  color: #E2B84A !important;
+}
+
+/* Category pills */
+.category-nav-pill,
+.orders-filter-pill,
+.products-active-filter-chip {
+  background: rgba(255,255,255,0.07) !important;
+  color: rgba(255,255,255,0.70) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+.category-nav-pill.is-active,
+.category-nav-pill.active,
+.orders-filter-pill.is-active,
+.orders-filter-pill.active {
+  background: #E2B84A !important;
+  color: #133D35 !important;
+  border-color: #E2B84A !important;
+}
+
+/* Produto card */
+.produto-card {
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  color: #FFFFFF !important;
+}
+
+.produto-card:hover {
+  background: rgba(255,255,255,0.12) !important;
+}
+
+.produto-card-media {
+  background: rgba(255,255,255,0.04) !important;
+}
+
+.produto-title {
+  color: #FFFFFF !important;
+}
+
+.produto-details {
+  color: rgba(255,255,255,0.45) !important;
+}
+
+.produto-price,
+.v2-product-card-price {
+  color: #E2B84A !important;
+  font-family: 'Sora', sans-serif !important;
+}
+
+.produto-price-old,
+.v2-product-card-old-price {
+  color: rgba(255,255,255,0.45) !important;
+}
+
+.produto-quick-add {
+  background: #E2B84A !important;
+  color: #133D35 !important;
+}
+
+.produto-qty-overlay {
+  background: #E2B84A !important;
+}
+
+.produto-qty-overlay-btn,
+.produto-qty-overlay-value {
+  color: #133D35 !important;
+}
+
+/* Badges */
+.produto-badge.is-promo,
+.produto-badge.is-desconto,
+.v2-product-card-tag {
+  background: #E2B84A !important;
+  color: #133D35 !important;
+}
+
+.v2-product-card-discount {
+  background: rgba(226,184,74,0.20) !important;
+  color: #E2B84A !important;
+  border: 1px solid rgba(226,184,74,0.30) !important;
+}
+
+/* Estoque badges */
+.estoque-badge {
+  color: rgba(255,255,255,0.60) !important;
+}
+
+/* Conta page */
+.account-mobile-avatar {
+  background: rgba(226,184,74,0.15) !important;
+  color: #E2B84A !important;
+  border: 2px solid rgba(226,184,74,0.30) !important;
+}
+
+.account-menu-item {
+  color: #FFFFFF !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+
+.account-menu-item:hover {
+  background: rgba(255,255,255,0.07) !important;
+}
+
+/* Pedidos page */
+.order-card {
+  background: rgba(255,255,255,0.07) !important;
+  color: #FFFFFF !important;
+}
+
+.orders-header,
+.orders-subtitle {
+  color: rgba(255,255,255,0.70) !important;
+}
+
+/* Internal top bar (checkout, pedidos, conta) */
+.internal-topbar {
+  color: #FFFFFF !important;
+}
+
+.internal-topbar-back {
+  background: rgba(255,255,255,0.07) !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+.internal-topbar-back:hover {
+  background: rgba(255,255,255,0.12) !important;
+  border-color: rgba(226,184,74,0.30) !important;
+}
+
+/* Global cart bar */
+.global-cart-bar {
+  background: #E2B84A !important;
+  color: #133D35 !important;
+}
+
+.global-cart-bar-total {
+  color: #133D35 !important;
+}
+
+.global-cart-bar-kicker {
+  color: rgba(19,61,53,0.70) !important;
+}
+
+.global-cart-bar-caption {
+  color: rgba(19,61,53,0.65) !important;
+}
+
+.global-cart-bar-cta {
+  background: rgba(0,0,0,0.10) !important;
+  color: #133D35 !important;
+  border: 1px solid rgba(0,0,0,0.15) !important;
+}
+
+.global-cart-bar-secondary {
+  background: transparent !important;
+  color: rgba(19,61,53,0.80) !important;
+  border: 1px solid rgba(0,0,0,0.15) !important;
+}
+
+/* Accessibility section */
+.accessibility-section,
+.account-extra-light,
+.account-danger-zone {
+  color: rgba(255,255,255,0.50) !important;
+}
+
+/* Subcategory nav */
+.products-subcategory-sticky-shell {
+  background: rgba(31,92,80,0.95) !important;
+  backdrop-filter: blur(16px);
+}
+
+/* Results bar */
+.products-results-bar p {
+  color: rgba(255,255,255,0.50) !important;
+}
+
+.products-results-pill {
+  background: rgba(226,184,74,0.15) !important;
+  color: #E2B84A !important;
+}
+
+/* Empty states */
+.products-empty-state,
+.categoria-horizontal-empty {
+  color: rgba(255,255,255,0.50) !important;
+}
+
+/* Site trust bar */
+.site-trust-bar {
+  background: rgba(255,255,255,0.04) !important;
+  color: rgba(255,255,255,0.50) !important;
+  border-color: rgba(255,255,255,0.06) !important;
+}
+
+/* Footer */
+.home-footer,
+.footer-info-simple,
+.footer-link {
+  color: rgba(255,255,255,0.60) !important;
+}
+
+/* Checkout specific */
+.checkout-page .card-box {
+  background: rgba(255,255,255,0.07) !important;
+}
+
+/* Home sections with potential white bg */
+.home-hero,
+.home-hero-clean,
+.home-opportunities,
+.home-recorrencia,
+.home-section-clean {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* Floating cart icon wrapper */
+.floating-cart-icon,
+.floating-cart-cta {
+  color: #133D35 !important;
+}
+
+.floating-cart-items {
+  color: rgba(19,61,53,0.70) !important;
+}
+
+.floating-cart-total {
+  color: #133D35 !important;
+}
+
+/* Tabs, chips */
+.home-recorrencia-chip {
+  background: rgba(255,255,255,0.07) !important;
+  color: rgba(255,255,255,0.70) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+/* Vitrine category headers */
+.vitrine-ver-mais {
+  color: #E2B84A !important;
+}
+
+/* Product detail drawer */
+.product-detail-drawer,
+.product-detail-overlay aside {
+  background: #174A40 !important;
+  color: #FFFFFF !important;
+}
+
+/* Skeleton loading */
+.produto-skeleton-card,
+.home-shelf-skeleton-card,
+.v2-home-skeleton-card {
+  background: rgba(255,255,255,0.07) !important;
+  border-color: rgba(255,255,255,0.10) !important;
+}
+
+.produto-skeleton-media,
+.home-shelf-skeleton-media,
+.v2-home-skeleton-img {
+  background: rgba(255,255,255,0.04) !important;
+}
+
+.produto-skeleton-line,
+.home-shelf-skeleton-line,
+.v2-home-skeleton-line {
+  background: rgba(255,255,255,0.06) !important;
+}
