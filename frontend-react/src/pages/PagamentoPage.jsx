@@ -1,16 +1,12 @@
 import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { AlertTriangle, BadgeX, CircleCheck, ClipboardList, MapPin, ShoppingCart } from '../icons';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { tryGetRecaptchaToken } from '../lib/recaptchaEnterprise';
 import {
   buscarEnderecoViaCep,
   criarPedido,
-  criarSessao3DSGateway,
-  gerarPix,
   getPedidoById,
   getEndereco,
-  getProdutos,
   getMe,
   getPedidoStatus,
   cancelarPedidoRevisao,
@@ -18,18 +14,11 @@ import {
   mpGerarPix,
   mpGetPublicKey,
   mpPagarCartao,
-  pagarCartao,
   getUberDeliveryQuote,
   simularFretePorCep
 } from '../lib/api';
 import {
-  authenticate3DS,
-  configure3DSSession,
-  tokenizeCard
-} from '../lib/paymentTokenization';
-import {
   CHECKOUT_RECAPTCHA_ENABLED,
-  IS_DEVELOPMENT,
   RECAPTCHA_SITE_KEY
 } from '../config/api';
 import {
@@ -51,84 +40,44 @@ import {
   PARCELAMENTO_MAXIMO_CREDITO,
   TAXA_SERVICO_PERCENTUAL,
   SESSAO_3DS_TTL_MS,
-  HOMOLOGACAO_3DS_MAX_EVENTOS,
   CEP_MERCADO,
   NUMERO_MERCADO,
   LIMITE_BIKE_KM,
-  RETIRADA_LOJA_INFO,
   STATUS_3DS_LABELS,
   VEICULOS_ENTREGA,
   FORMAS_PAGAMENTO_OPCOES,
-  PIX_QR_RENDER_OPTIONS,
-  STATUS_PEDIDO_LABELS,
-  STATUS_PAGAMENTO_LABELS,
-  PIX_STATUS_META,
   gerarQrCodeDataUrl,
   formatarMoeda,
-  formatarQuantidadeItens,
   formatarTipoEntrega,
   erroEntregaEhCobertura,
   normalizarCep,
   formatarCep,
   normalizarDocumentoFiscal,
-  possuiDigitosRepetidos,
   validarCpf,
-  validarCnpj,
   validarDocumentoFiscal3DS,
   formatarDocumentoFiscal,
-  normalizarNumeroCartao,
-  formatarNumeroCartao,
-  formatarMesCartao,
-  formatarAnoCartao,
-  normalizarAnoCartaoParaComparacao,
-  normalizarAnoCartaoParaTokenizacao,
-  formatarCvvCartao,
-  normalizarNomeCompletoPara3DS,
-  normalizarTelefonePara3DS,
-  normalizarNumeroEnderecoPara3DS,
-  construirEndereco3DS,
-  mascararValorHomologacao,
-  mascararDocumentoHomologacao,
-  mascararTraceHomologacao,
-  sanitizarErrorMessages3DS,
-  sanitizarRequestPagamentoCartaoHomologacao,
-  extrairStatusThreeDSChargeHomologacao,
   montarResumoRespostaGatewayHomologacao,
   resolverModalEntregaUber,
   estimarPesoCarrinhoKg,
-  resolverStatusPix,
   obterStatusPixVisual,
-  formatarStatusPedido,
-  formatarStatusPagamento
+  formatarStatusPedido
 } from '../lib/checkoutUtils';
 import {
   calcularSubtotalPeso,
   isItemPeso,
-  isProdutoAlcoolico,
-  isProdutoTabaco,
-  isProdutoVisivelNoCatalogo
 } from '../lib/produtoCatalogoRules';
 
 // Sub-componentes do checkout.
 import {
-  CheckoutSecurityTrust,
   ClientReviewStep,
-  DeliveryOptionCard,
-  PickupStoreCard,
-  DeliveryAddressLookupCard,
-  CartItemRow,
-  CheckoutSummaryCard,
-  CheckoutCrossSellRail,
-  PaymentMethodCard,
-  PaymentSelectionSummary,
-  PaymentOrderSummary,
-  TaxIdInput,
-  PixStatusCard,
-  PixQrCodeCard,
-  PixCopyCodeCard,
-  PixInstructionsCard
 } from '../components/checkout';
-import { CheckoutContext } from '../context/CheckoutContext';
+import { CheckoutContext, CHECKOUT_ACTIONS } from '../context/CheckoutContext';
+import CartStep from '../components/checkout/CartStep';
+import DeliveryStep from '../components/checkout/DeliveryStep';
+import PaymentStep from '../components/checkout/PaymentStep';
+import MerchantReviewStep from '../components/checkout/MerchantReviewStep';
+import PixPaymentStep from '../components/checkout/PixPaymentStep';
+import OrderStatusStep from '../components/checkout/OrderStatusStep';
 import InternalTopBar from '../components/navigation/InternalTopBar';
 
 const CHECKOUT_ENDERECO_CACHE_KEY = 'bf_checkout_endereco_preferido';
@@ -137,81 +86,6 @@ const STATUS_REVISAO_ATIVOS = new Set(['aguardando_revisao', 'pendente', 'pagame
 const STATUS_TERMINAIS_PIX_POLLING = new Set(['pago', 'entregue', 'pagamento_recusado', 'cancelado', 'expirado', 'retirado']);
 const PIX_POLLING_DURACAO_MAXIMA_MS = 4 * 60 * 1000;
 const PIX_POLLING_MAX_TENTATIVAS = 50;
-const LIMITE_SUGESTOES_CHECKOUT = 8;
-const MINIMO_PRIORIDADE_IMPULSO = 6;
-const TERMOS_PRIORIDADE_IMPULSO = [
-  'biscoito',
-  'biscoitos',
-  'bolacha',
-  'bolachas',
-  'chocolate',
-  'chocolates',
-  'bombom',
-  'bombons',
-  'bala',
-  'balas',
-  'salgadinho',
-  'salgadinhos',
-  'refrigerante',
-  'refri',
-  'suco',
-  'sucos',
-  'sobremesa',
-  'conveniencia'
-];
-const TERMOS_FALLBACK_GERAL = [
-  'conveniencia',
-  'snack',
-  'sobremesa',
-  'suco',
-  'refrigerante'
-];
-const TOKENS_MEDICAMENTOS_BLOQUEADOS = [
-  'medicamento',
-  'medicamentos',
-  'remedio',
-  'remedios',
-  'farmacia',
-  'tarja',
-  'analgesico',
-  'antibiotico'
-];
-const TOKENS_ALCOOL_BLOQUEADOS = [
-  'bebida alcoolica',
-  'bebidas alcoolicas',
-  'cerveja',
-  'vinho',
-  'whisky',
-  'vodka',
-  'gin',
-  'rum',
-  'tequila',
-  'licor',
-  'aperitivo',
-  'cachaca'
-];
-const TOKENS_TABACO_BLOQUEADOS = [
-  'tabaco',
-  'cigarro',
-  'cigarros',
-  'fumo',
-  'narguile',
-  'vape'
-];
-const RELACOES_CATEGORIA_SUGESTAO = [
-  {
-    match: ['mercearia', 'biscoito', 'bolacha', 'doce', 'conveniencia', 'snack'],
-    termos: ['biscoito', 'chocolate', 'salgadinho', 'bombom', 'sobremesa']
-  },
-  {
-    match: ['bebida', 'refrigerante', 'refri', 'suco', 'agua'],
-    termos: ['refrigerante', 'refri', 'suco', 'biscoito', 'salgadinho']
-  },
-  {
-    match: ['laticinio', 'frios', 'padaria', 'cafe', 'pao'],
-    termos: ['chocolate', 'biscoito', 'sobremesa', 'suco']
-  }
-];
 
 function statusEhElegivelParaFluxoRevisao(statusRaw) {
   const status = String(statusRaw || '').trim().toLowerCase();
@@ -300,22 +174,18 @@ function lerCpfNotaDoCache() {
 export default function PagamentoPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { itens, resumo, addItem, updateItemQuantity, removeItem, clearCart } = useCart();
+  const { itens, resumo, clearCart } = useCart();
   const { tracker: reviewTrackerGlobal, trackOrder, clearTracking } = useReviewTracker();
   const [resultadoPedido, setResultadoPedido] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const [cancelandoRevisao, setCancelandoRevisao] = useState(false);
   const [erro, setErro] = useState('');
-  const [feedbackCarrinho, setFeedbackCarrinho] = useState('');
   const [retomandoPedidoExistente, setRetomandoPedidoExistente] = useState(false);
   const [ultimaAtualizacaoRevisao, setUltimaAtualizacaoRevisao] = useState('');
-  const [dadosUsuarioCheckout, setDadosUsuarioCheckout] = useState(null);
+  const [, setDadosUsuarioCheckout] = useState(null);
   const [resultadoPix, setResultadoPix] = useState(null);
   const [qrCodePixDataUrl, setQrCodePixDataUrl] = useState('');
   const [feedbackCopiaPix, setFeedbackCopiaPix] = useState('');
-  const [sugestoesCheckout, setSugestoesCheckout] = useState([]);
-  const [modoSugestoesCheckout, setModoSugestoesCheckout] = useState('impulso');
-  const [carregandoSugestoesCheckout, setCarregandoSugestoesCheckout] = useState(false);
   const [verificandoStatusPix, setVerificandoStatusPix] = useState(false);
   const [resumoPedidoSnapshot, setResumoPedidoSnapshot] = useState(null);
   const [itensPedidoSnapshot, setItensPedidoSnapshot] = useState([]);
@@ -336,30 +206,18 @@ export default function PagamentoPage() {
   const [simulandoFrete, setSimulandoFrete] = useState(false);
   const [erroEntrega, setErroEntrega] = useState('');
   const [enderecoCepEntrega, setEnderecoCepEntrega] = useState(null);
-  const [buscandoEnderecoCepEntrega, setBuscandoEnderecoCepEntrega] = useState(false);
-  const [erroEnderecoCepEntrega, setErroEnderecoCepEntrega] = useState('');
   const [cepEnderecoConsultado, setCepEnderecoConsultado] = useState('');
   const [documentoPagador, setDocumentoPagador] = useState('');
-  const [documentoTocado, setDocumentoTocado] = useState(false);
   const [cpfNotaFiscal, setCpfNotaFiscal] = useState('');
-  const [cpfNotaFiscalAtivo, setCpfNotaFiscalAtivo] = useState(false);
-  const [cpfNotaFiscalTocado, setCpfNotaFiscalTocado] = useState(false);
   const [formaPagamento, setFormaPagamento] = useState('pix');
   const [gatewayPublicKey, setGatewayPublicKey] = useState('');
   const [buscandoChavePublica, setBuscandoChavePublica] = useState(false);
   const [tokenCartao, setTokenCartao] = useState('');
-  const [cartaoPaymentMethodId, setCartaoPaymentMethodId] = useState('');
-  const [cartaoIssuerId, setCartaoIssuerId] = useState(null);
-  const [criptografandoCartao, setCriptografandoCartao] = useState(false);
-  const [nomeTitularCartao, setNomeTitularCartao] = useState('');
-  const [numeroCartao, setNumeroCartao] = useState('');
-  const [mesExpiracaoCartao, setMesExpiracaoCartao] = useState('');
-  const [anoExpiracaoCartao, setAnoExpiracaoCartao] = useState('');
-  const [cvvCartao, setCvvCartao] = useState('');
   const [parcelasCartao, setParcelasCartao] = useState('1');
   const [resultadoCartao, setResultadoCartao] = useState(null);
+  const [dadosCartaoCompletos, setDadosCartaoCompletos] = useState(false);
   const [sessao3DS, setSessao3DS] = useState('');
-  const [sessao3DSEnv, setSessao3DSEnv] = useState('SANDBOX');
+  const [, setSessao3DSEnv] = useState('SANDBOX');
   const [sessao3DSGeradaEm, setSessao3DSGeradaEm] = useState(0);
   const [sessao3DSExpirando, setSessao3DSExpirando] = useState(false);
   const [status3DS, setStatus3DS] = useState('idle');
@@ -368,14 +226,13 @@ export default function PagamentoPage() {
   const [eventosHomologacao3DS, setEventosHomologacao3DS] = useState([]);
   const [feedbackEvidencia3DS, setFeedbackEvidencia3DS] = useState('');
   const [growthVersion, setGrowthVersion] = useState(0);
+  const paymentStepRef = useRef();
   const cartaoPaymentMethodIdRef = useRef('');
   const cartaoIssuerIdRef = useRef(null);
   const pagandoCartaoRef = useRef(false);
   const buscaEnderecoRef = useRef(0);
   const startCheckoutTrackedRef = useRef(false);
   const purchaseTrackedOrdersRef = useRef(new Set());
-  const cacheSugestoesRef = useRef(new Map());
-  const ultimaSugestaoCheckoutValidaRef = useRef([]);
   const growthInsights = useMemo(() => getGrowthInsights({ windowDays: 7 }), [growthVersion]);
   const growthCheckoutPaymentConfig = growthInsights?.experiment?.ui?.checkoutPayment || {
     enabled: false,
@@ -404,57 +261,6 @@ export default function PagamentoPage() {
     .toLowerCase()
     .trim(), []);
 
-  const termosSugestaoImpulso = useMemo(
-    () => TERMOS_PRIORIDADE_IMPULSO.map((termo) => normalizarTextoSugestao(termo)).filter(Boolean),
-    [normalizarTextoSugestao]
-  );
-
-  const termosSugestaoCategoriaRelacionada = useMemo(() => {
-    const termos = [];
-    const vistos = new Set(termosSugestaoImpulso);
-
-    const adicionarTermo = (valor) => {
-      const termo = normalizarTextoSugestao(valor);
-      if (!termo || vistos.has(termo) || termo.length < 3) {
-        return;
-      }
-      vistos.add(termo);
-      termos.push(termo);
-    };
-
-    itens.forEach((item) => {
-      const textoFonte = [
-        item?.categoria,
-        item?.categoria_nome,
-        item?.departamento,
-        item?.secao,
-        item?.nome_base,
-        item?.nome
-      ]
-        .map((parte) => normalizarTextoSugestao(parte))
-        .filter(Boolean)
-        .join(' ');
-
-      if (!textoFonte) {
-        return;
-      }
-
-      textoFonte.split(/\s+/)
-        .filter((token) => token.length >= 4)
-        .slice(0, 6)
-        .forEach(adicionarTermo);
-
-      RELACOES_CATEGORIA_SUGESTAO.forEach((regra) => {
-        if (!regra.match.some((token) => textoFonte.includes(token))) {
-          return;
-        }
-        regra.termos.forEach(adicionarTermo);
-      });
-    });
-
-    return termos.slice(0, 18);
-  }, [itens, normalizarTextoSugestao, termosSugestaoImpulso]);
-
   const sairDoFluxoRevisaoEncerrado = useCallback((mensagem = '') => {
     clearTracking();
     setResultadoPedido(null);
@@ -466,10 +272,6 @@ export default function PagamentoPage() {
     setPagamentoConfirmado(false);
     setRetomandoPedidoExistente(false);
     setErro('');
-
-    if (mensagem) {
-      setFeedbackCarrinho(mensagem);
-    }
 
     if (itens.length > 0) {
       setEtapaAtual(ETAPAS.CARRINHO);
@@ -526,52 +328,7 @@ export default function PagamentoPage() {
     [itens]
   );
 
-  const handleAtualizarQuantidadeCarrinho = useCallback((id, quantidade) => {
-    const itemAtual = itens.find((item) => item.id === Number(id));
-    const quantidadeAnterior = Math.max(1, Number(itemAtual?.quantidade || 1));
-    const proximaQuantidade = Math.max(1, Number(quantidade || 1));
-
-    updateItemQuantity(id, proximaQuantidade);
-
-    if (!itemAtual || proximaQuantidade === quantidadeAnterior) {
-      return;
-    }
-
-    const variacao = proximaQuantidade > quantidadeAnterior ? 'aumentada' : 'reduzida';
-    setFeedbackCarrinho(`${itemAtual.nome}: quantidade ${variacao} para ${proximaQuantidade}.`);
-  }, [itens, updateItemQuantity]);
-
-  const handleRemoverItemCarrinho = useCallback((id) => {
-    const itemAtual = itens.find((item) => item.id === Number(id));
-    removeItem(id);
-
-    if (itemAtual) {
-      setFeedbackCarrinho(`${itemAtual.nome} foi removido do carrinho.`);
-    }
-  }, [itens, removeItem]);
-
   const retiradaSelecionada = tipoEntrega === 'retirada';
-  const formaRecebimentoSelecionada = retiradaSelecionada
-    ? 'retirada'
-    : (veiculoEntrega === 'bike' ? 'bike' : 'uber');
-  const selecionarFormaRecebimento = useCallback((forma) => {
-    const modo = String(forma || '').trim().toLowerCase();
-
-    if (modo === 'retirada') {
-      setTipoEntrega('retirada');
-      setErroEntrega('');
-      return;
-    }
-
-    if (modo === 'uber' && !uberQuoteDisponivel) {
-      setErroEntrega('Entrega Uber indisponível no momento. Escolha Bike ou Retirada na loja.');
-      return;
-    }
-
-    setTipoEntrega('entrega');
-    setVeiculoEntrega(modo === 'bike' ? 'bike' : 'uber');
-    setErroEntrega('');
-  }, [uberQuoteDisponivel]);
   const itensRestritosEntrega = useMemo(() => {
     return itens.some((item) => {
       const nome = normalizarTextoSugestao(item?.nome || '');
@@ -644,16 +401,9 @@ export default function PagamentoPage() {
 
     return avisos;
   }, [distanciaSelecionada, itens, limiteBikeTexto, normalizarTextoSugestao, tipoEntrega, veiculoEntrega]);
-  const veiculoSelecionadoResumo = retiradaSelecionada
-    ? null
-    : (VEICULOS_ENTREGA[resultadoPedido?.veiculo_entrega] || VEICULOS_ENTREGA[simulacaoFrete?.veiculo] || VEICULOS_ENTREGA.moto);
-  // TODO: substituir 'Uber Direct' pela label da nova empresa de entrega quando migrar.
   const atendimentoSelecionadoLabel = retiradaSelecionada
     ? formatarTipoEntrega('retirada')
     : 'Uber Direct';
-  const cepDestinoSelecionado = String(resultadoPedido?.cep_destino_entrega || simulacaoFrete?.cep_destino || formatarCep(cepEntrega) || '-');
-  const cepOrigemSelecionado = String(resultadoPedido?.cep_origem_entrega || simulacaoFrete?.cep_origem || CEP_MERCADO);
-  const numeroOrigemSelecionado = String(resultadoPedido?.numero_origem_entrega || simulacaoFrete?.numero_origem || NUMERO_MERCADO);
   const totalProdutosPedido = Number(resultadoPedido?.total_produtos ?? resumo.total ?? 0);
   const taxaServicoPedido = Number(resultadoPedido?.taxa_servico ?? taxaServicoAtual ?? 0);
   const totalComEntregaPedido = Number(resultadoPedido?.total ?? Number((totalProdutosPedido + freteSelecionado + taxaServicoPedido).toFixed(2)));
@@ -693,9 +443,6 @@ export default function PagamentoPage() {
     : formaPagamento === 'debito'
       ? 'Cartão de Débito'
       : 'Cartão de Crédito';
-  const sessao3DSValida = Boolean(sessao3DS)
-    && Number(sessao3DSGeradaEm) > 0
-    && (Date.now() - Number(sessao3DSGeradaEm)) < SESSAO_3DS_TTL_MS;
   const status3DSLabel = STATUS_3DS_LABELS[status3DS] || STATUS_3DS_LABELS.idle;
   const status3DSTone = ['concluida', 'pagamento_aprovado'].includes(status3DS)
     ? 'is-success'
@@ -705,8 +452,6 @@ export default function PagamentoPage() {
         ? 'is-loading'
         : '';
   const cepEntregaNormalizado = normalizarCep(cepEntrega);
-  const cepEntregaValido = cepEntregaNormalizado.length === 8;
-  const cepEntregaIncompleto = cepEntregaNormalizado.length > 0 && cepEntregaNormalizado.length < 8;
   const enderecoEntregaResumo = useMemo(() => {
     const rua = String(enderecoCepEntrega?.logradouro || '').trim();
     const bairro = String(enderecoCepEntrega?.bairro || '').trim();
@@ -811,7 +556,6 @@ export default function PagamentoPage() {
     ? (itens.length > 0 && !simulandoFrete)
     : (itens.length > 0 && freteCalculado && !simulandoFrete && !semOpcaoEntregaDisponivel && !bloqueioAgua20LAtivo && String(numeroEntrega || '').trim().length > 0);
   const simulacaoBike = simulacoesFretePorVeiculo.bike || null;
-  const simulacaoUber = simulacoesFretePorVeiculo.uber || null;
   const distanciaBikeKm = Number(simulacaoBike?.distancia_km || 0);
   const bikeDisponivel = !simulacaoBike
     ? true
@@ -829,47 +573,6 @@ export default function PagamentoPage() {
       setEtapaAtual(ETAPAS.ENTREGA);
     }
   }, [bloqueioAgua20LAtivo, etapaAtual]);
-
-  const aplicarEnderecoSalvoNoCheckout = useCallback(() => {
-    if (!temEnderecoContaSalvo) {
-      return;
-    }
-
-    const cepNormalizado = normalizarCep(enderecoContaSalvo?.cep || '');
-    const numeroNormalizado = String(enderecoContaSalvo?.numero || '').replace(/\D/g, '').slice(0, 10);
-    if (cepNormalizado.length !== 8) {
-      return;
-    }
-
-    const enderecoMapeado = {
-      cep: formatarCep(cepNormalizado),
-      logradouro: String(enderecoContaSalvo?.logradouro || '').trim(),
-      bairro: String(enderecoContaSalvo?.bairro || '').trim(),
-      cidade: String(enderecoContaSalvo?.cidade || '').trim(),
-      estado: String(enderecoContaSalvo?.estado || '').trim().toUpperCase(),
-      complemento: String(enderecoContaSalvo?.complemento || '').trim()
-    };
-
-    setCepEntrega(formatarCep(cepNormalizado));
-    if (numeroNormalizado) {
-      setNumeroEntrega(numeroNormalizado);
-    }
-    setEnderecoCepEntrega(enderecoMapeado);
-    setCepEnderecoConsultado(cepNormalizado);
-    setErroEnderecoCepEntrega('');
-    setErroEntrega('');
-
-    if (numeroNormalizado) {
-      salvarEnderecoCheckoutNoCache({
-        cep: formatarCep(cepNormalizado),
-        numero: numeroNormalizado,
-        logradouro: enderecoMapeado.logradouro,
-        bairro: enderecoMapeado.bairro,
-        cidade: enderecoMapeado.cidade,
-        estado: enderecoMapeado.estado
-      });
-    }
-  }, [enderecoContaSalvo, temEnderecoContaSalvo]);
 
   // Consolida feedback da simulação para manter mensagens consistentes na UX da entrega.
   const mensagemFrete = useMemo(() => {
@@ -1037,13 +740,10 @@ export default function PagamentoPage() {
     const cepNormalizado = normalizarCep(cep);
 
     if (cepNormalizado.length !== 8) {
-      setBuscandoEnderecoCepEntrega(false);
       setEnderecoCepEntrega(null);
       setCepEnderecoConsultado('');
       if (mostrarErro && cepNormalizado.length > 0) {
-        setErroEnderecoCepEntrega('Informe um CEP válido com 8 dígitos.');
       } else {
-        setErroEnderecoCepEntrega('');
       }
       return null;
     }
@@ -1054,8 +754,6 @@ export default function PagamentoPage() {
 
     // Evita que uma resposta antiga sobrescreva o endereço de um CEP mais novo.
     const requestId = ++buscaEnderecoRef.current;
-    setBuscandoEnderecoCepEntrega(true);
-    setErroEnderecoCepEntrega('');
 
     try {
       const endereco = await buscarEnderecoViaCep(cepNormalizado);
@@ -1078,18 +776,14 @@ export default function PagamentoPage() {
       if (mostrarErro) {
         const mensagem = String(error?.message || '').trim();
         if (mensagem === 'CEP não encontrado') {
-          setErroEnderecoCepEntrega('Não encontramos endereço para este CEP.');
         } else if (mensagem === 'CEP inválido') {
-          setErroEnderecoCepEntrega('Informe um CEP válido com 8 dígitos.');
         } else {
-          setErroEnderecoCepEntrega(mensagem || 'Não foi possível consultar o endereço deste CEP.');
         }
       }
 
       return null;
     } finally {
       if (requestId === buscaEnderecoRef.current) {
-        setBuscandoEnderecoCepEntrega(false);
       }
     }
   }, [cepEnderecoConsultado, enderecoCepEntrega]);
@@ -1097,18 +791,8 @@ export default function PagamentoPage() {
   useEffect(() => {
     const cepNormalizado = cepEntregaNormalizado;
 
-    if (!cepNormalizado) {
+    if (!cepNormalizado || cepNormalizado.length !== 8) {
       setEnderecoCepEntrega(null);
-      setErroEnderecoCepEntrega('');
-      setBuscandoEnderecoCepEntrega(false);
-      setCepEnderecoConsultado('');
-      return;
-    }
-
-    if (cepNormalizado.length !== 8) {
-      setEnderecoCepEntrega(null);
-      setErroEnderecoCepEntrega('');
-      setBuscandoEnderecoCepEntrega(false);
       setCepEnderecoConsultado('');
       return;
     }
@@ -1141,19 +825,12 @@ export default function PagamentoPage() {
     const cpfCache = lerCpfNotaDoCache();
     if (cpfCache.length === 11) {
       setCpfNotaFiscal(formatarDocumentoFiscal(cpfCache));
-      setCpfNotaFiscalAtivo(true);
-      setCpfNotaFiscalTocado(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!cpfNotaFiscalAtivo) {
-      salvarCpfNotaNoCache('');
-      return;
-    }
-
     salvarCpfNotaNoCache(cpfNotaFiscal);
-  }, [cpfNotaFiscal, cpfNotaFiscalAtivo]);
+  }, [cpfNotaFiscal]);
 
   useEffect(() => {
     const cache = lerEnderecoCheckoutDoCache();
@@ -1218,14 +895,6 @@ export default function PagamentoPage() {
           setAutenticado(true);
           const usuario = data?.usuario || null;
           setDadosUsuarioCheckout(usuario);
-
-          const nomeUsuario = String(usuario?.nome || '').trim();
-          if (nomeUsuario) {
-            setNomeTitularCartao((atual) => {
-              const atualNormalizado = String(atual || '').trim();
-              return atualNormalizado || nomeUsuario;
-            });
-          }
 
           try {
             const dataEndereco = await getEndereco();
@@ -1624,40 +1293,18 @@ export default function PagamentoPage() {
     setStatus3DS('idle');
     setResultado3DS(null);
     setIdAutenticacao3DS('');
+    setSessao3DS('');
+    setSessao3DSEnv('SANDBOX');
+    setSessao3DSGeradaEm(0);
   }
 
   function limparTokenCartaoGerado() {
     setTokenCartao('');
     cartaoPaymentMethodIdRef.current = '';
     cartaoIssuerIdRef.current = null;
-    setCartaoPaymentMethodId('');
-    setCartaoIssuerId(null);
     setResultadoCartao(null);
     limparResultadoAutenticacao3DS();
   }
-
-  const registrarEventoHomologacao3DS = useCallback((evento, detalhes = {}) => {
-    const registro = {
-      timestamp: new Date().toISOString(),
-      evento: String(evento || '').trim() || 'evento_desconhecido',
-      detalhes: (detalhes && typeof detalhes === 'object' && !Array.isArray(detalhes))
-        ? detalhes
-        : {}
-    };
-
-    setEventosHomologacao3DS((atual) => {
-      const proximo = [...atual, registro];
-      if (proximo.length <= HOMOLOGACAO_3DS_MAX_EVENTOS) {
-        return proximo;
-      }
-
-      return proximo.slice(proximo.length - HOMOLOGACAO_3DS_MAX_EVENTOS);
-    });
-
-    if (IS_DEVELOPMENT) {
-      console.info('[debit_3ds_auth.homologacao]', registro);
-    }
-  }, []);
 
   function montarPacoteEvidenciaHomologacao3DS() {
     return {
@@ -1676,294 +1323,6 @@ export default function PagamentoPage() {
         : null,
       events: eventosHomologacao3DS
     };
-  }
-
-  function erroIndicaSessao3DSExpirada(error) {
-    const detail = error?.detail || {};
-    const statusCode = Number(detail?.httpStatus || error?.status || 0);
-    const mensagem = String(detail?.message || error?.message || '').toLowerCase();
-
-    if (statusCode === 401 || statusCode === 403) {
-      return true;
-    }
-
-    return mensagem.includes('session')
-      && (mensagem.includes('expir') || mensagem.includes('invalid') || mensagem.includes('unauthorized'));
-  }
-
-  async function obterSessao3DSComRenovacao({ forceRefresh = false, pedidoId } = {}) {
-    if (!forceRefresh && sessao3DSValida) {
-      registrarEventoHomologacao3DS('sessao_3ds_cache', {
-        endpoint: '/api/checkout/3ds/session',
-        reference_id: pedidoId ? `pedido_${pedidoId}` : null,
-        env: sessao3DSEnv,
-        session_masked: mascararValorHomologacao(sessao3DS, { prefixo: 8, sufixo: 4 }),
-        reused: true
-      });
-
-      return {
-        session: sessao3DS,
-        env: sessao3DSEnv
-      };
-    }
-
-    const referencia = pedidoId ? `pedido_${pedidoId}` : '';
-    const data = await criarSessao3DSGateway({ referenceId: referencia });
-    const session = String(data?.session || '').trim();
-    const env = String(data?.env || 'SANDBOX').trim().toUpperCase() || 'SANDBOX';
-
-    if (!session) {
-      throw new Error('Nao foi possivel iniciar a sessao de autenticacao 3DS.');
-    }
-
-    setSessao3DS(session);
-    setSessao3DSEnv(env);
-    setSessao3DSGeradaEm(Date.now());
-
-    registrarEventoHomologacao3DS('geracao_sessao_3ds', {
-      endpoint: '/api/checkout/3ds/session',
-      reference_id: referencia || null,
-      force_refresh: Boolean(forceRefresh),
-      env,
-      session_masked: mascararValorHomologacao(session, { prefixo: 8, sufixo: 4 }),
-      expires_in_seconds: Number.parseInt(String(data?.expires_in_seconds || ''), 10) || null,
-      trace_id_masked: mascararTraceHomologacao(data?.trace_id || data?.traceId) || null
-    });
-
-    return {
-      session,
-      env
-    };
-  }
-
-  function montarRequestAutenticacao3DS({ documentoDigits } = {}) {
-    const numeroCartaoLimpo = normalizarNumeroCartao(numeroCartao);
-    const mes = formatarMesCartao(mesExpiracaoCartao).padStart(2, '0');
-    const ano = formatarAnoCartao(anoExpiracaoCartao);
-    const documentoFiscal3DS = normalizarDocumentoFiscal(documentoDigits);
-    const nomeHolder = normalizarNomeCompletoPara3DS(
-      nomeTitularCartao || dadosUsuarioCheckout?.nome,
-      'Cliente Teste'
-    );
-    const nomeCliente = normalizarNomeCompletoPara3DS(
-      dadosUsuarioCheckout?.nome || nomeHolder,
-      'Cliente Teste'
-    );
-    const emailCliente = String(dadosUsuarioCheckout?.email || 'cliente@example.com').trim() || 'cliente@example.com';
-    const telefoneCliente = normalizarTelefonePara3DS(dadosUsuarioCheckout?.telefone) || {
-      country: '55',
-      area: '11',
-      number: '999999999',
-      type: 'MOBILE'
-    };
-    const valorCentavos = Math.max(1, Math.round(Number(resultadoPedido?.total || totalComEntregaPedido || 0) * 100));
-    const endereco3DS = construirEndereco3DS({
-      endereco: enderecoCepEntrega,
-      cepFallback: cepEntrega
-    });
-    const customerPayload = {
-      name: nomeCliente,
-      email: emailCliente,
-      phones: [telefoneCliente]
-    };
-
-    if (validarDocumentoFiscal3DS(documentoFiscal3DS)) {
-      customerPayload.taxId = documentoFiscal3DS;
-    }
-
-    return {
-      data: {
-        customer: customerPayload,
-        paymentMethod: {
-          type: 'DEBIT_CARD',
-          installments: 1,
-          card: {
-            number: numeroCartaoLimpo,
-            expMonth: mes,
-            expYear: ano,
-            holder: {
-              name: nomeHolder
-            }
-          }
-        },
-        amount: {
-          value: valorCentavos,
-          currency: 'BRL'
-        },
-        billingAddress: endereco3DS,
-        shippingAddress: endereco3DS,
-        dataOnly: false
-      },
-      beforeChallenge: ({ open, brand, issuer } = {}) => {
-        setStatus3DS('desafio');
-
-        if (IS_DEVELOPMENT) {
-          console.info('[debit_3ds_auth.before_challenge]', {
-            brand,
-            issuer
-          });
-        }
-
-        if (typeof open === 'function') {
-          open();
-        }
-      }
-    };
-  }
-
-  async function executarAutenticacao3DSDebito({ pedidoId, documentoDigits } = {}) {
-    for (let tentativa = 0; tentativa < 2; tentativa += 1) {
-      const forceRefresh = tentativa > 0;
-
-      try {
-        setStatus3DS('iniciando');
-        const sessaoAtual = await obterSessao3DSComRenovacao({
-          forceRefresh,
-          pedidoId
-        });
-
-        await configure3DSSession({
-          session: sessaoAtual.session,
-          env: sessaoAtual.env
-        });
-
-        setStatus3DS('aguardando_validacao');
-        const request3DS = montarRequestAutenticacao3DS({ documentoDigits });
-        registrarEventoHomologacao3DS('request_authenticate3ds', {
-          endpoint: 'https://sandbox.sdk.pagseguro.com/checkout-sdk/3ds/authentications',
-          amount: {
-            value: Number(request3DS?.data?.amount?.value) || null,
-            currency: String(request3DS?.data?.amount?.currency || '').trim() || null
-          },
-          customer: {
-            email_masked: mascararValorHomologacao(request3DS?.data?.customer?.email, { prefixo: 3, sufixo: 8 }) || null,
-            tax_id_masked: mascararDocumentoHomologacao(request3DS?.data?.customer?.taxId) || null,
-            phone_present: Array.isArray(request3DS?.data?.customer?.phones) && request3DS.data.customer.phones.length > 0
-          },
-          card: {
-            number_masked: mascararValorHomologacao(request3DS?.data?.paymentMethod?.card?.number, { prefixo: 6, sufixo: 4 }) || null,
-            exp_month: String(request3DS?.data?.paymentMethod?.card?.expMonth || '').trim() || null,
-            exp_year: String(request3DS?.data?.paymentMethod?.card?.expYear || '').trim() || null,
-            holder_present: Boolean(String(request3DS?.data?.paymentMethod?.card?.holder?.name || '').trim())
-          },
-          shipping_address_present: Boolean(request3DS?.data?.shippingAddress),
-          billing_address_present: Boolean(request3DS?.data?.billingAddress)
-        });
-        const resultado = await authenticate3DS(request3DS);
-        const status = String(resultado?.status || '').trim().toUpperCase();
-        const authId = String(resultado?.id || '').trim();
-        const traceId = String(
-          resultado?.traceId
-            || resultado?.trace_id
-            || resultado?.detail?.traceId
-            || resultado?.detail?.trace_id
-            || ''
-        ).trim() || null;
-
-        if (IS_DEVELOPMENT) {
-          console.info('[debit_3ds_auth.result]', {
-            status,
-            authId: authId || null,
-            traceId
-          });
-        }
-
-        setResultado3DS({
-          status,
-          id: authId || null,
-          trace_id: traceId
-        });
-
-        registrarEventoHomologacao3DS('resultado_authenticate3ds', {
-          status,
-          authentication_id_masked: authId
-            ? mascararValorHomologacao(authId, { prefixo: 6, sufixo: 4 })
-            : null,
-          trace_id_masked: traceId ? mascararTraceHomologacao(traceId) : null
-        });
-
-        if (status === 'AUTH_FLOW_COMPLETED') {
-          if (!authId) {
-            setStatus3DS('erro');
-            throw new Error('A autenticacao 3DS foi concluida sem id valido. Tente novamente.');
-          }
-
-          setIdAutenticacao3DS(authId);
-          setStatus3DS('concluida');
-
-          return {
-            status,
-            authenticationMethod: {
-              type: 'THREEDS',
-              id: authId
-            },
-            traceId
-          };
-        }
-
-        if (status === 'AUTH_NOT_SUPPORTED') {
-          setStatus3DS('nao_suportado');
-          throw new Error('Seu cartão de débito não é elegível para autenticação 3DS. Escolha outro meio de pagamento.');
-        }
-
-        if (status === 'CHANGE_PAYMENT_METHOD') {
-          setStatus3DS('trocar_metodo');
-          throw new Error('A autenticacao 3DS foi negada. Escolha outro meio de pagamento.');
-        }
-
-        if (status === 'REQUIRE_CHALLENGE') {
-          setStatus3DS('desafio');
-          throw new Error('Conclua o desafio 3DS para continuar o pagamento no debito.');
-        }
-
-        setStatus3DS('erro');
-        throw new Error('Nao foi possivel concluir a autenticacao 3DS. Tente novamente.');
-      } catch (error) {
-        const detail = (error?.detail && typeof error.detail === 'object' && !Array.isArray(error.detail))
-          ? error.detail
-          : {};
-        const erroDetalhado = String(detail?.message || detail?.error_description || detail?.error || '').trim();
-        const erroCodigo = String(detail?.code || detail?.error_code || '').trim();
-        const erroHttpStatus = Number(detail?.httpStatus || detail?.status || error?.status || 0) || null;
-        const erroMensagens = sanitizarErrorMessages3DS(detail?.errorMessages);
-
-        registrarEventoHomologacao3DS('erro_authenticate3ds', {
-          message: String(error?.message || 'Falha ao autenticar 3DS').trim(),
-          sdk_http_status: erroHttpStatus,
-          sdk_code: erroCodigo || null,
-          sdk_message: erroDetalhado || null,
-          sdk_error_messages: erroMensagens.length ? erroMensagens : null,
-          trace_id_masked: mascararTraceHomologacao(
-            error?.traceId
-              || error?.trace_id
-              || error?.detail?.traceId
-              || error?.detail?.trace_id
-          ) || null
-        });
-
-        if (IS_DEVELOPMENT) {
-          console.error('[debit_3ds_auth.error]', {
-            message: error?.message,
-            httpStatus: erroHttpStatus,
-            code: erroCodigo || null,
-            detailMessage: erroDetalhado || null,
-            errorMessages: erroMensagens,
-            detail: error?.detail || null
-          });
-        }
-
-        if (tentativa === 0 && erroIndicaSessao3DSExpirada(error)) {
-          setSessao3DS('');
-          setSessao3DSGeradaEm(0);
-          continue;
-        }
-
-        throw error;
-      }
-    }
-
-    setStatus3DS('erro');
-    throw new Error('Sessao 3DS expirada. Gere uma nova autenticacao e tente novamente.');
   }
 
   async function carregarChavePublicaGateway() {
@@ -1993,72 +1352,26 @@ export default function PagamentoPage() {
       return '';
     }
 
-    const holder = String(nomeTitularCartao || '').trim();
-    const number = normalizarNumeroCartao(numeroCartao);
-    const expMonth = formatarMesCartao(mesExpiracaoCartao);
-    const expYear = normalizarAnoCartaoParaTokenizacao(anoExpiracaoCartao);
-    const securityCode = formatarCvvCartao(cvvCartao);
-
-    if (holder.length < 3) {
-      throw new Error('Informe o nome completo do titular do cartão.');
+    if (!paymentStepRef.current?.criptografarCartao) {
+      setEtapaAtual(ETAPAS.PAGAMENTO);
+      throw new Error('Sessão do cartão expirou. Preencha os dados novamente.');
     }
 
-    if (number.length < 13) {
-      throw new Error('Número do cartão inválido.');
-    }
+    const publicKey = await carregarChavePublicaGateway();
+    const result = await paymentStepRef.current.criptografarCartao(publicKey);
 
-    const mes = Number.parseInt(expMonth, 10);
-    if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
-      throw new Error('Mês de expiração inválido.');
-    }
-
-    if (expYear.length !== 2) {
-      throw new Error('Ano de expiração inválido.');
-    }
-
-    if (![3, 4].includes(securityCode.length)) {
-      throw new Error('CVV inválido.');
-    }
-
-    setCriptografandoCartao(true);
-    try {
-      const publicKey = await carregarChavePublicaGateway();
-      const tokenizacao = await tokenizeCard({
-        publicKey,
-        holder,
-        number,
-        expMonth,
-        expYear,
-        securityCode,
-        identificationNumber: normalizarDocumentoFiscal(documentoPagador)
-      });
-
-      const token = String(tokenizacao?.token || '').trim();
-      if (!token) {
-        throw new Error('Não foi possível tokenizar o cartão no Mercado Pago.');
-      }
-
-      const paymentMethodId = String(tokenizacao?.paymentMethodId || '').trim();
-      const issuerId = Number.isFinite(Number(tokenizacao?.issuerId)) ? Number(tokenizacao.issuerId) : null;
-
-      setTokenCartao(token);
-      cartaoPaymentMethodIdRef.current = paymentMethodId;
-      cartaoIssuerIdRef.current = issuerId;
-      setCartaoPaymentMethodId(paymentMethodId);
-      setCartaoIssuerId(issuerId);
-      return token;
-    } finally {
-      setCriptografandoCartao(false);
-    }
+    setTokenCartao(result.token);
+    cartaoPaymentMethodIdRef.current = result.paymentMethodId;
+    cartaoIssuerIdRef.current = result.issuerId;
+    return result.token;
   }
 
   async function handleCriarPedido() {
+    if (carregando) return;
+
     setResultadoPix(null);
     setResultadoCartao(null);
     limparResultadoAutenticacao3DS();
-    setSessao3DS('');
-    setSessao3DSEnv('SANDBOX');
-    setSessao3DSGeradaEm(0);
     setResultadoPedido(null);
     setResumoPedidoSnapshot(null);
     setItensPedidoSnapshot([]);
@@ -2264,8 +1577,6 @@ export default function PagamentoPage() {
   }
 
   function handleContinuarPagamento() {
-    setDocumentoTocado(true);
-
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     if (!(documentoDigits.length === 11 || documentoDigits.length === 14)) {
       setErro(`Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento via ${formaPagamento === 'pix' ? 'PIX' : 'cartão'}.`);
@@ -2535,10 +1846,11 @@ export default function PagamentoPage() {
 
   // Gerar PIX via Mercado Pago.
   async function handleGerarPixMercadoPago(pedidoId) {
+    if (!pedidoId || carregando) return;
+
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
-      setDocumentoTocado(true);
       setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para gerar o PIX.');
       return;
     }
@@ -2579,6 +1891,8 @@ export default function PagamentoPage() {
 
   // Pagar com cart?o via Mercado Pago.
   async function handlePagarCartaoMercadoPago(pedidoId) {
+    if (carregando) return;
+
     const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
     const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
     if (!documentoValido) {
@@ -2649,46 +1963,6 @@ export default function PagamentoPage() {
       }
     } catch (error) {
       setErro(error.message || 'Não foi possível processar o pagamento.');
-    } finally {
-      setCarregando(false);
-    }
-  }
-
-  async function handleGerarPix(pedidoId) {
-    setResultadoPix(null);
-    setFeedbackCopiaPix('');
-    setErro('');
-
-    let recaptchaTokenAcao = '';
-    try {
-      recaptchaTokenAcao = await tryGetRecaptchaToken('checkout_pix', RECAPTCHA_SITE_KEY, recaptchaCheckoutEnabled);
-    } catch {
-      setErro('Proteção de segurança indisponível. Tente novamente em instantes.');
-      return;
-    }
-
-    const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
-    const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
-    if (!documentoValido) {
-      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para gerar o PIX.');
-      return;
-    }
-
-    setCarregando(true);
-    try {
-      const data = await gerarPix(pedidoId, documentoDigits, recaptchaTokenAcao);
-      setResultadoPix({
-        ...data,
-        status: String(data?.status || 'WAITING').toUpperCase(),
-        qr_data: String(data?.qr_data || data?.pix_codigo || '').trim(),
-        pix_codigo: String(data?.pix_codigo || data?.qr_data || '').trim(),
-        pix_qrcode: String(data?.pix_qrcode || '').trim()
-      });
-    } catch (error) {
-      if (isAuthErrorMessage(error.message)) {
-        setAutenticado(false);
-      }
-      setErro(error.message);
     } finally {
       setCarregando(false);
     }
@@ -2824,153 +2098,6 @@ export default function PagamentoPage() {
     setFeedbackEvidencia3DS(`Arquivo de homologacao gerado: ${nomeArquivo}`);
   }
 
-  async function handlePagarCartao(pedidoId) {
-    if (pagandoCartaoRef.current || carregando || criptografandoCartao) {
-      return;
-    }
-
-    setResultadoCartao(null);
-    setErro('');
-
-    if (debitoSelecionado) {
-      setEventosHomologacao3DS([]);
-      setFeedbackEvidencia3DS('');
-    }
-
-    const documentoDigits = normalizarDocumentoFiscal(documentoPagador);
-    const documentoValido = documentoDigits.length === 11 || documentoDigits.length === 14;
-    if (!documentoValido) {
-      setErro('Informe CPF (11 dígitos) ou CNPJ (14 dígitos) para pagamento com cartão.');
-      return;
-    }
-
-    if (debitoSelecionado && !validarDocumentoFiscal3DS(documentoDigits)) {
-      setErro('Para débito com autenticação 3DS, informe um CPF ou CNPJ válido.');
-      return;
-    }
-
-    let recaptchaTokenAcao = '';
-    try {
-      recaptchaTokenAcao = await tryGetRecaptchaToken('checkout_cartao', RECAPTCHA_SITE_KEY, recaptchaCheckoutEnabled);
-    } catch {
-      setErro('Proteção de segurança indisponível. Tente novamente em instantes.');
-      return;
-    }
-
-    pagandoCartaoRef.current = true;
-
-    let tokenNormalizado = String(tokenCartao || '').trim();
-    if (!tokenNormalizado) {
-      try {
-        tokenNormalizado = await handleCriptografarCartao();
-      } catch (error) {
-        setErro(error.message || 'Não foi possível validar os dados do cartão.');
-        pagandoCartaoRef.current = false;
-        return;
-      }
-    }
-
-    setCarregando(true);
-    try {
-      let authenticationMethod = null;
-      let threeDSResultPayload = null;
-
-      if (debitoSelecionado) {
-        const resultadoAutenticacao = await executarAutenticacao3DSDebito({
-          pedidoId,
-          documentoDigits
-        });
-
-        authenticationMethod = resultadoAutenticacao?.authenticationMethod || null;
-        threeDSResultPayload = {
-          flow: 'debit_3ds_auth',
-          status: resultadoAutenticacao?.status || null,
-          id: authenticationMethod?.id || null,
-          trace_id: resultadoAutenticacao?.traceId || null
-        };
-        setStatus3DS('processando_pagamento');
-      }
-
-      const payloadPagamentoCartao = {
-        pedido_id: pedidoId,
-        tax_id: documentoDigits,
-        token_cartao: tokenNormalizado,
-        parcelas: parcelasCartaoEfetivas,
-        tipo_cartao: formaPagamento,
-        authentication_method: authenticationMethod,
-        three_ds_result: threeDSResultPayload,
-        recaptcha_token: recaptchaTokenAcao
-      };
-
-      if (debitoSelecionado) {
-        registrarEventoHomologacao3DS(
-          'request_final_pedido',
-          sanitizarRequestPagamentoCartaoHomologacao({ payloadRequest: payloadPagamentoCartao })
-        );
-      }
-
-      const data = await pagarCartao(pedidoId, {
-        taxId: documentoDigits,
-        tokenCartao: tokenNormalizado,
-        parcelas: parcelasCartaoEfetivas,
-        tipoCartao: formaPagamento,
-        authenticationMethod,
-        threeDSResult: threeDSResultPayload,
-        recaptchaToken: recaptchaTokenAcao
-      });
-
-      setResultadoCartao(data);
-
-      if (debitoSelecionado) {
-        registrarEventoHomologacao3DS(
-          'response_final_gateway',
-          montarResumoRespostaGatewayHomologacao({
-            responsePayload: data,
-            pedidoId
-          })
-        );
-      }
-
-      const statusGateway = String(data?.status || '').toUpperCase();
-      const statusInterno = String(data?.status_interno || '').toLowerCase();
-      if (statusGateway === 'PAID' || statusInterno === 'pago' || statusInterno === 'entregue') {
-        setStatusPedidoAtual(statusInterno || 'pago');
-        setPagamentoConfirmado(true);
-
-        if (debitoSelecionado) {
-          setStatus3DS('pagamento_aprovado');
-        }
-      }
-    } catch (error) {
-      if (isAuthErrorMessage(error.message)) {
-        setAutenticado(false);
-      }
-
-      if (debitoSelecionado) {
-        registrarEventoHomologacao3DS('erro_pagamento_backend', {
-          endpoint: '/api/pagamentos/cartao',
-          message: String(error?.message || 'Falha no processamento do pagamento com cartão.').trim(),
-          trace_id_masked: mascararTraceHomologacao(
-            error?.traceId
-              || error?.trace_id
-              || error?.detail?.traceId
-              || error?.detail?.trace_id
-          ) || null
-        });
-
-        setStatus3DS((atual) => (
-          ['nao_suportado', 'trocar_metodo', 'pagamento_aprovado'].includes(atual)
-            ? atual
-            : 'erro'
-        ));
-      }
-
-      setErro(error.message);
-    } finally {
-      setCarregando(false);
-      pagandoCartaoRef.current = false;
-    }
-  }
 
   function getIndiceEtapa(etapa) {
     if (etapa === ETAPAS.CARRINHO) return 0;
@@ -3035,48 +2162,9 @@ export default function PagamentoPage() {
       ? 'is-warning'
       : 'is-success')
     : '';
-  const documentoObrigatorioNaoPreenchido = documentoTocado && documentoDigits.length === 0;
-  const documentoInvalidoPagamento = documentoTocado && documentoDigits.length > 0 && !documentoValidoPagamento;
-  const documentoValidoFeedback = documentoTocado && documentoValidoPagamento;
-  const cpfPagadorSugestao = documentoDigits.length === 11 && validarCpf(documentoDigits)
-    ? formatarDocumentoFiscal(documentoDigits)
-    : '';
   const cpfNotaDigits = normalizarDocumentoFiscal(cpfNotaFiscal).slice(0, 11);
   const cpfNotaValido = cpfNotaDigits.length === 11 && validarCpf(cpfNotaDigits);
-  const cpfNotaInvalido = cpfNotaFiscalTocado && cpfNotaDigits.length > 0 && !cpfNotaValido;
-  const cpfNotaFeedbackValido = cpfNotaFiscalTocado && cpfNotaValido;
-  const nomeTitularCartaoValido = String(nomeTitularCartao || '').trim().length >= 3;
-  const numeroCartaoValido = normalizarNumeroCartao(numeroCartao).length >= 13;
-  const mesCartaoNumero = Number.parseInt(formatarMesCartao(mesExpiracaoCartao), 10);
-  const mesCartaoValido = Number.isInteger(mesCartaoNumero) && mesCartaoNumero >= 1 && mesCartaoNumero <= 12;
-  const anoCartaoNormalizado = normalizarAnoCartaoParaComparacao(anoExpiracaoCartao);
-  const anoCartaoNumero = Number.parseInt(anoCartaoNormalizado, 10);
-  const anoAtual = new Date().getFullYear();
-  const mesAtual = new Date().getMonth() + 1;
-  const anoCartaoValido = anoCartaoNormalizado.length === 4
-    && Number.isInteger(anoCartaoNumero)
-    && (anoCartaoNumero > anoAtual || (anoCartaoNumero === anoAtual && mesCartaoValido && mesCartaoNumero >= mesAtual));
-  const cvvCartaoValido = [3, 4].includes(formatarCvvCartao(cvvCartao).length);
-  const dadosCartaoCompletos = nomeTitularCartaoValido && numeroCartaoValido && mesCartaoValido && anoCartaoValido && cvvCartaoValido;
   const cartaoProntoParaContinuar = !pagamentoCartaoSelecionado || Boolean(tokenCartao) || dadosCartaoCompletos;
-  const metodosPagamentoDisponiveis = useMemo(() => {
-    const candidatos = [
-      { id: 'pix', ...(FORMAS_PAGAMENTO_OPCOES?.pix || {}), disabled: false },
-      { id: 'credito', ...(FORMAS_PAGAMENTO_OPCOES?.credito || {}), disabled: buscandoChavePublica },
-      { id: 'debito', ...(FORMAS_PAGAMENTO_OPCOES?.debito || {}), disabled: buscandoChavePublica }
-    ];
-
-    return candidatos
-      .filter(Boolean)
-      .map((metodo) => ({
-        id: String(metodo?.id || '').trim().toLowerCase(),
-        icon: String(metodo?.icon || '').trim(),
-        title: String(metodo?.title || '').trim(),
-        headline: String(metodo?.headline || '').trim(),
-        disabled: Boolean(metodo?.disabled)
-      }))
-      .filter((metodo) => Boolean(metodo.id) && Boolean(metodo.title));
-  }, [buscandoChavePublica]);
   const formaPagamentoAtual = FORMAS_PAGAMENTO_OPCOES[formaPagamento]
     || FORMAS_PAGAMENTO_OPCOES.pix
     || {
@@ -3153,30 +2241,12 @@ export default function PagamentoPage() {
     || !documentoValidoPagamento;
   const bloqueioVerificacaoPix = verificandoStatusPix || carregando || !resultadoPedido?.pedido_id;
   const pixDisponivelParaPagar = Boolean(codigoPixAtual || qrCodePixSrc);
-  const itensDistintosCarrinho = itens.length;
-  const resumoItensCarrinho = formatarQuantidadeItens(resumo.itens);
   const mensagemProcessamentoCheckout = etapaAtual === ETAPAS.PIX
     ? (formaPagamento === 'pix'
       ? 'Processando informações do PIX. Aguarde para evitar pagamentos duplicados.'
       : `Processando ${tituloFormaPagamento.toLowerCase()}. Aguarde a confirmação do gateway.`)
     : 'Processando as informações do seu pedido com segurança.';
   const pagamentoAprovadoCheckout = pagamentoConfirmado || pixPagamentoAprovado || cartaoAprovado;
-  const sugestoesPorImpulsoAtivas = modoSugestoesCheckout === 'impulso';
-  const sugestoesPorCategoriaAtivas = modoSugestoesCheckout === 'categoria';
-  const sugestoesPorFallbackAtivas = modoSugestoesCheckout === 'fallback';
-  const tituloSugestoesCheckout = sugestoesPorImpulsoAtivas
-    ? 'Aproveite tambem'
-    : sugestoesPorCategoriaAtivas
-      ? 'Leve junto'
-      : 'Mais para o seu pedido';
-  const subtituloSugestoesCheckout = sugestoesPorImpulsoAtivas
-    ? 'Itens de impulso para aumentar praticidade sem sair do carrinho.'
-    : sugestoesPorCategoriaAtivas
-      ? 'Produtos da mesma categoria ou relacionados ao que voce escolheu.'
-      : sugestoesPorFallbackAtivas
-        ? 'Selecionamos opcoes atrativas em estoque para nao perder o ritmo da compra.'
-        : 'Sugestoes para completar o pedido.';
-
   const handleVoltarEtapaAtual = useCallback(() => {
     if (etapaAtual === ETAPAS.CARRINHO) {
       navigate('/produtos');
@@ -3213,8 +2283,6 @@ export default function PagamentoPage() {
 
   const handleLimparCarrinhoCheckout = useCallback(() => {
     clearCart();
-    setFeedbackCarrinho('Carrinho limpo.');
-    setSugestoesCheckout([]);
   }, [clearCart]);
 
   const exibirAcaoLimparNoTopo = etapaAtual === ETAPAS.CARRINHO && itens.length > 0;
@@ -3469,18 +2537,6 @@ export default function PagamentoPage() {
   ]);
 
   useEffect(() => {
-    if (!feedbackCarrinho) {
-      return undefined;
-    }
-
-    const timeout = setTimeout(() => {
-      setFeedbackCarrinho('');
-    }, 2200);
-
-    return () => clearTimeout(timeout);
-  }, [feedbackCarrinho]);
-
-  useEffect(() => {
     if (!feedbackCopiaPix) {
       return undefined;
     }
@@ -3491,291 +2547,6 @@ export default function PagamentoPage() {
 
     return () => clearTimeout(timeout);
   }, [feedbackCopiaPix]);
-
-  useEffect(() => {
-    let ativo = true;
-
-    if (etapaAtual !== ETAPAS.CARRINHO || !itens.length) {
-      setSugestoesCheckout([]);
-      setModoSugestoesCheckout('impulso');
-      setCarregandoSugestoesCheckout(false);
-      return () => {
-        ativo = false;
-      };
-    }
-
-    const idsCarrinho = new Set(itens.map((item) => Number(item.id)));
-    const textosCarrinho = itens
-      .map((item) =>
-        normalizarTextoSugestao([
-          item?.nome_base,
-          item?.nome,
-          item?.categoria,
-          item?.categoria_nome
-        ].join(' '))
-      )
-      .filter(Boolean);
-
-    async function carregarSugestoes() {
-      setCarregandoSugestoesCheckout(true);
-      const vistos = new Set();
-      const agregados = [];
-      let modoSugestaoAtivo = 'impulso';
-
-      const includesAny = (texto, termos = []) => termos.some((termo) => texto.includes(termo));
-
-      const extrairTextoProduto = (produto) => normalizarTextoSugestao([
-        produto?.nome_externo,
-        produto?.nome,
-        produto?.categoria,
-        produto?.categoria_nome,
-        produto?.departamento,
-        produto?.descricao,
-        produto?.marca,
-        produto?.produto_controlado
-      ].join(' '));
-
-      const produtoEhProibido = (produto, textoProduto) => {
-        if (!isProdutoVisivelNoCatalogo(produto)) {
-          return true;
-        }
-
-        if (isProdutoTabaco(produto) || isProdutoAlcoolico(produto)) {
-          return true;
-        }
-
-        if (includesAny(textoProduto, TOKENS_TABACO_BLOQUEADOS)) {
-          return true;
-        }
-
-        if (includesAny(textoProduto, TOKENS_ALCOOL_BLOQUEADOS)) {
-          return true;
-        }
-
-        if (includesAny(textoProduto, TOKENS_MEDICAMENTOS_BLOQUEADOS)) {
-          return true;
-        }
-
-        if (textoProduto.includes('+18') || textoProduto.includes('18 anos')) {
-          return true;
-        }
-
-        return false;
-      };
-
-      const pontuarProduto = ({ textoProduto, estoque, preco, origem }) => {
-        let pontuacao = 0;
-        const impulso = includesAny(textoProduto, termosSugestaoImpulso);
-        const relacionado = includesAny(textoProduto, termosSugestaoCategoriaRelacionada)
-          || textosCarrinho.some((textoCarrinho) => textoCarrinho && textoProduto.includes(textoCarrinho.slice(0, 10)));
-
-        if (impulso) {
-          pontuacao += 320;
-        }
-
-        if (relacionado) {
-          pontuacao += 180;
-        }
-
-        if (origem === 'impulso') {
-          pontuacao += 140;
-        } else if (origem === 'categoria') {
-          pontuacao += 90;
-        } else {
-          pontuacao += 40;
-        }
-
-        if (Number.isFinite(preco) && preco > 0 && preco <= 25) {
-          pontuacao += 35;
-        }
-
-        if (Number.isFinite(estoque) && estoque > 0) {
-          pontuacao += Math.min(30, Math.floor(estoque / 4));
-        }
-
-        return pontuacao;
-      };
-
-      const adicionarSugestao = (produto, origem = 'fallback') => {
-        const id = Number(produto?.id || 0);
-        const nome = String(produto?.nome_externo || produto?.nome || '').trim();
-        const ativoProduto = !Object.prototype.hasOwnProperty.call(produto || {}, 'ativo') || Number(produto?.ativo) !== 0;
-        const estoqueRaw = produto?.estoque ?? produto?.quantidade_estoque ?? produto?.stock;
-        const estoqueNumerico = Number(estoqueRaw);
-        const possuiEstoque = Number.isFinite(estoqueNumerico) && estoqueNumerico > 0;
-        const textoProduto = extrairTextoProduto(produto);
-        const preco = Number(produto?.preco_promocional ?? produto?.preco ?? produto?.preco_venda ?? 0);
-
-        if (!id || !nome || vistos.has(id) || idsCarrinho.has(id) || !ativoProduto || !possuiEstoque) {
-          return false;
-        }
-
-        if (!textoProduto || produtoEhProibido(produto, textoProduto)) {
-          return false;
-        }
-
-        if (!Number.isFinite(preco) || preco <= 0) {
-          return false;
-        }
-
-        vistos.add(id);
-        agregados.push({
-          id,
-          nome,
-          preco,
-          imagem: String(produto?.imagem || produto?.imagem_url || '').trim(),
-          categoria: String(
-            produto?.categoria
-            || produto?.categoria_nome
-            || produto?.departamento
-            || ''
-          ).trim(),
-          unidade: String(produto?.unidade || '').trim(),
-          estoque: estoqueNumerico,
-          score: pontuarProduto({
-            textoProduto,
-            estoque: estoqueNumerico,
-            preco,
-            origem
-          })
-        });
-
-        return true;
-      };
-
-      const buscarProdutos = async ({
-        busca = '',
-        categoria = '',
-        limit = 24,
-        page = 1,
-        sort = 'estoque'
-      } = {}) => {
-        const termoBusca = normalizarTextoSugestao(busca);
-        const termoCategoria = normalizarTextoSugestao(categoria);
-        const cacheKey = `checkout_sugestoes:${termoBusca || '-'}:${termoCategoria || '-'}:${limit}:${page}:${sort}`;
-        if (cacheSugestoesRef.current.has(cacheKey)) {
-          return cacheSugestoesRef.current.get(cacheKey);
-        }
-
-        // TODO: substituir por endpoint dedicado GET /api/produtos/checkout-sugestoes?termos=...
-        // que retorna produtos cross-sell pré-filtrados em único request (sem múltiplas chamadas).
-        try {
-          const data = await getProdutos({
-            busca: termoBusca || undefined,
-            categoria: termoCategoria || undefined,
-            page,
-            limit,
-            sort
-          });
-          const lista = Array.isArray(data?.produtos) ? data.produtos : [];
-          cacheSugestoesRef.current.set(cacheKey, lista);
-          return lista;
-        } catch {
-          cacheSugestoesRef.current.set(cacheKey, []);
-          return [];
-        }
-      };
-
-      const preencherPorTermos = async (termos, origem, maxTermos = 12) => {
-        for (const termo of termos.slice(0, maxTermos)) {
-          if (!ativo || agregados.length >= LIMITE_SUGESTOES_CHECKOUT) {
-            return;
-          }
-          const lista = await buscarProdutos({ busca: termo, limit: 18, page: 1, sort: 'estoque' });
-          if (!ativo) {
-            return;
-          }
-          lista.forEach((produto) => {
-            adicionarSugestao(produto, origem);
-          });
-        }
-      };
-
-      await preencherPorTermos(termosSugestaoImpulso, 'impulso', 14);
-      if (!ativo) {
-        return;
-      }
-
-      if (agregados.length < MINIMO_PRIORIDADE_IMPULSO && termosSugestaoCategoriaRelacionada.length) {
-        modoSugestaoAtivo = 'categoria';
-        await preencherPorTermos(termosSugestaoCategoriaRelacionada, 'categoria', 14);
-      }
-
-      if (!ativo) {
-        return;
-      }
-
-      if (agregados.length < MINIMO_PRIORIDADE_IMPULSO) {
-        modoSugestaoAtivo = 'fallback';
-        await preencherPorTermos(TERMOS_FALLBACK_GERAL, 'fallback', TERMOS_FALLBACK_GERAL.length);
-      }
-
-      if (!ativo) {
-        return;
-      }
-
-      if (agregados.length < MINIMO_PRIORIDADE_IMPULSO) {
-        const fallbackGeral = await buscarProdutos({ limit: 120, page: 1, sort: 'estoque' });
-        if (!ativo) {
-          return;
-        }
-        fallbackGeral.forEach((produto) => {
-          adicionarSugestao(produto, 'fallback');
-        });
-      }
-
-      let sugestoesOrdenadas = agregados
-        .sort((a, b) => {
-          const scoreA = Number(a?.score || 0);
-          const scoreB = Number(b?.score || 0);
-          if (scoreA !== scoreB) {
-            return scoreB - scoreA;
-          }
-          const estoqueA = Number(a?.estoque || 0);
-          const estoqueB = Number(b?.estoque || 0);
-          if (estoqueA !== estoqueB) {
-            return estoqueB - estoqueA;
-          }
-          return Number(a?.preco || 0) - Number(b?.preco || 0);
-        })
-        .slice(0, LIMITE_SUGESTOES_CHECKOUT)
-        .map((produto) => ({
-          id: produto.id,
-          nome: produto.nome,
-          preco: produto.preco,
-          imagem: produto.imagem,
-          categoria: produto.categoria,
-          unidade: produto.unidade,
-          estoque: produto.estoque
-        }));
-
-      if (!sugestoesOrdenadas.length && ultimaSugestaoCheckoutValidaRef.current.length) {
-        sugestoesOrdenadas = ultimaSugestaoCheckoutValidaRef.current
-          .filter((produto) => !idsCarrinho.has(Number(produto?.id || 0)))
-          .slice(0, LIMITE_SUGESTOES_CHECKOUT);
-      }
-
-      if (sugestoesOrdenadas.length) {
-        ultimaSugestaoCheckoutValidaRef.current = sugestoesOrdenadas;
-      }
-
-      setModoSugestoesCheckout(modoSugestaoAtivo);
-      setSugestoesCheckout(sugestoesOrdenadas);
-      setCarregandoSugestoesCheckout(false);
-    }
-
-    void carregarSugestoes();
-
-    return () => {
-      ativo = false;
-    };
-  }, [
-    etapaAtual,
-    itens,
-    normalizarTextoSugestao,
-    termosSugestaoImpulso,
-    termosSugestaoCategoriaRelacionada
-  ]);
 
   useEffect(() => {
     let ativo = true;
@@ -3829,18 +2600,51 @@ export default function PagamentoPage() {
     return <Navigate to="/produtos" replace />;
   }
 
+  const dispatch = (action) => {
+    switch (action.type) {
+      case CHECKOUT_ACTIONS.SET_ETAPA:
+        setEtapaAtual(action.payload);
+        break;
+      case CHECKOUT_ACTIONS.SET_FORMA_PAGAMENTO:
+        setFormaPagamento(action.payload);
+        break;
+      case CHECKOUT_ACTIONS.SET_ERRO:
+        setErro(action.payload);
+        break;
+      case CHECKOUT_ACTIONS.SET_ENTREGA_DATA: {
+        const p = action.payload || {};
+        if ('tipoEntrega' in p) setTipoEntrega(p.tipoEntrega);
+        if ('veiculoEntrega' in p) setVeiculoEntrega(p.veiculoEntrega);
+        if ('simulacaoFrete' in p) setSimulacaoFrete(p.simulacaoFrete);
+        if ('cepEntrega' in p) setCepEntrega(p.cepEntrega);
+        if ('numeroEntrega' in p) setNumeroEntrega(p.numeroEntrega);
+        if ('enderecoCepEntrega' in p) setEnderecoCepEntrega(p.enderecoCepEntrega);
+        break;
+      }
+      default:
+        break;
+    }
+  };
+
   const checkoutContextValue = {
+    dispatch,
     etapaAtual,
     setEtapaAtual,
     resultadoPedido,
     formaPagamento,
     statusPedidoAtual,
     carregando,
+    erro,
+    autenticado,
     tipoEntrega,
+    veiculoEntrega,
+    cepEntrega,
+    numeroEntrega,
+    enderecoCepEntrega,
+    simulacaoFrete,
     retiradaSelecionada,
     itensPedido,
     resumo,
-    simulacaoFrete,
     taxaServicoAtual,
     resumoTotalPagamento,
     tituloFormaPagamento,
@@ -3885,672 +2689,83 @@ export default function PagamentoPage() {
 
 
       {etapaAtual === ETAPAS.CARRINHO ? (
-        <div className="checkout-cart-layout">
-          <div className="card-box checkout-cart-main">
-            <div className="checkout-cart-header">
-              <p className="checkout-cart-live-feedback" role="status" aria-live="polite">
-                {feedbackCarrinho || (carrinhoVazio
-                  ? 'Nenhum item no carrinho por enquanto.'
-                  : `${itensDistintosCarrinho} produtos diferentes · ${resumoItensCarrinho}.`)}
-              </p>
-            </div>
-
-            {carrinhoVazio ? (
-              <div className="checkout-cart-empty-state" role="status">
-                <span className="checkout-cart-empty-icon" aria-hidden="true">
-                  <ShoppingCart size={22} strokeWidth={2} />
-                </span>
-                <div>
-                  <strong>Seu carrinho está vazio.</strong>
-                  <p>Adicione produtos para continuar com a finalização do pedido.</p>
-                  <Link className="btn-primary checkout-cart-empty-cta" to="/produtos">
-                    Ir para produtos
-                  </Link>
-                </div>
-              </div>
-            ) : (
-              <div className="checkout-cart-items-list">
-                {itens.map((item) => (
-                  <CartItemRow
-                    key={item.id}
-                    item={item}
-                    warningMessage={avisosRestricaoEntregaPorItem.get(Number(item.id)) || ''}
-                    onUpdateQuantity={handleAtualizarQuantidadeCarrinho}
-                    onRemove={handleRemoverItemCarrinho}
-                  />
-                ))}
-              </div>
-            )}
-
-            <CheckoutCrossSellRail
-              title={tituloSugestoesCheckout}
-              subtitle={subtituloSugestoesCheckout}
-              produtos={sugestoesCheckout}
-              carregando={carregandoSugestoesCheckout}
-              alwaysVisible={Boolean(itens.length)}
-              onAdd={(produto) => addItem(produto, 1, { source: 'checkout_cross_sell' })}
-            />
-          </div>
-
-          <aside className="checkout-cart-side">
-            <CheckoutSummaryCard
-              subtotal={resumo.total}
-              taxaServico={taxaServicoAtual}
-              tipoEntrega={tipoEntrega}
-              economiaFrete={economiaFreteRetirada}
-              onContinue={() => setEtapaAtual(ETAPAS.ENTREGA)}
-              disabled={carrinhoVazio}
-              showContinueButton={false}
-            />
-          </aside>
-        </div>
+        <CartStep
+          taxaServicoAtual={taxaServicoAtual}
+          avisosRestricaoEntregaPorItem={avisosRestricaoEntregaPorItem}
+        />
       ) : null}
 
       {etapaAtual === ETAPAS.ENTREGA ? (
-        <div className="checkout-delivery-layout">
-          <div className="card-box checkout-delivery-main">
-            <section className="checkout-delivery-section" aria-label="Forma de recebimento">
-              <div className="checkout-delivery-section-head">
-                <h3>Formas de recebimento</h3>
-              </div>
-              <div className="delivery-mode-toggle" role="radiogroup" aria-label="Forma de recebimento">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={formaRecebimentoSelecionada === 'retirada'}
-                  className={`delivery-mode-toggle-btn ${formaRecebimentoSelecionada === 'retirada' ? 'is-active' : ''}`.trim()}
-                  onClick={() => selecionarFormaRecebimento('retirada')}
-                >
-                  Retirada na loja
-                </button>
-
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={formaRecebimentoSelecionada === 'bike'}
-                  className={`delivery-mode-toggle-btn ${formaRecebimentoSelecionada === 'bike' ? 'is-active' : ''}`.trim()}
-                  onClick={() => selecionarFormaRecebimento('bike')}
-                >
-                  Bike
-                </button>
-
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={formaRecebimentoSelecionada === 'uber'}
-                  className={`delivery-mode-toggle-btn ${formaRecebimentoSelecionada === 'uber' ? 'is-active' : ''}`.trim()}
-                  onClick={() => selecionarFormaRecebimento('uber')}
-                  disabled={!uberQuoteDisponivel}
-                  title={!uberQuoteDisponivel ? 'Uber indisponível no momento' : ''}
-                >
-                  Uber
-                </button>
-              </div>
-            </section>
-
-            {formaRecebimentoSelecionada === 'uber' ? (
-              <article className="delivery-uber-info" role="status" aria-live="polite" aria-label="Informações da entrega via Uber">
-                <div className="delivery-uber-info-head">
-                  <span className="delivery-uber-info-icon" aria-hidden="true">
-                    <AlertTriangle size={16} strokeWidth={2} />
-                  </span>
-                  <p className="delivery-uber-info-title">Entrega realizada pela Uber</p>
-                </div>
-                <p className="delivery-uber-info-text">
-                  Sua entrega será feita por um parceiro logístico da Uber. Você poderá acompanhar o andamento da entrega e terá mais segurança no processo. Quando disponível, a localização e as atualizações do entregador aparecerão para você durante a rota.
-                </p>
-              </article>
-            ) : null}
-
-            {!retiradaSelecionada ? (
-              <div className="checkout-delivery-compact-head">
-                <span aria-hidden="true">
-                  <MapPin size={16} strokeWidth={2} />
-                </span>
-                <div>
-                  <p className="checkout-delivery-compact-label">Entregar em:</p>
-                  <strong>{enderecoEntregaResumo}</strong>
-                  {enderecoEntregaComplemento ? (
-                    <p className="checkout-delivery-compact-subline">{enderecoEntregaComplemento}</p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  className="checkout-delivery-compact-switch"
-                  onClick={() => {
-                    const campoCep = document.getElementById('cep-entrega');
-                    if (campoCep) {
-                      campoCep.focus();
-                    }
-                  }}
-                >
-                  Trocar
-                </button>
-              </div>
-            ) : null}
-
-            {retiradaSelecionada ? (
-              <>
-                <PickupStoreCard economiaFrete={economiaFreteRetirada} />
-
-                <p
-                  className={`delivery-feedback is-${mensagemFrete.tone}`}
-                  role={mensagemFrete.tone === 'error' || mensagemFrete.tone === 'warning' ? 'alert' : 'status'}
-                  aria-live="polite"
-                >
-                  {mensagemFrete.text}
-                </p>
-              </>
-            ) : (
-              <>
-                <section className="checkout-delivery-section checkout-delivery-compact checkout-delivery-minimal" aria-label="Entrega">
-                  {temEnderecoContaSalvo ? (
-                    <div className="checkout-saved-address-option" role="status" aria-live="polite">
-                      <p className="checkout-saved-address-label">Endereço salvo na conta</p>
-                      <p className="checkout-saved-address-text">{enderecoContaSalvoResumo}</p>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={aplicarEnderecoSalvoNoCheckout}
-                        disabled={enderecoSalvoJaSelecionado}
-                      >
-                        {enderecoSalvoJaSelecionado ? 'Endereço salvo em uso' : 'Usar endereço salvo'}
-                      </button>
-                    </div>
-                  ) : null}
-
-                  <div className="delivery-input-labels" aria-hidden="true">
-                    <span>CEP</span>
-                    <span>Número</span>
-                  </div>
-
-                  <div className="delivery-cep-row">
-                    <div className="delivery-cep-input-wrap">
-                      <input
-                        id="cep-entrega"
-                        className="field-input entrega-cep-input"
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="postal-code"
-                        maxLength={9}
-                        placeholder="00000-000"
-                        value={cepEntrega}
-                        onChange={(event) => {
-                          const cepFormatado = formatarCep(event.target.value);
-                          const cepNormalizado = normalizarCep(cepFormatado);
-
-                          setCepEntrega(cepFormatado);
-                          setErroEntrega('');
-
-                          if (cepNormalizado !== cepEnderecoConsultado) {
-                            setEnderecoCepEntrega(null);
-                            setErroEnderecoCepEntrega('');
-                            setCepEnderecoConsultado('');
-                          }
-                        }}
-                      />
-                    </div>
-                    <input
-                      id="numero-entrega"
-                      className="field-input entrega-numero-input"
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={10}
-                      placeholder="Número"
-                      value={numeroEntrega}
-                      onChange={(event) => setNumeroEntrega(String(event.target.value || '').replace(/\D/g, '').slice(0, 10))}
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    className="btn-secondary entrega-calcular-btn"
-                    onClick={() => {
-                      void executarSimulacaoFrete({ mostrarErro: true });
-                    }}
-                    disabled={!cepEntregaValido || !String(numeroEntrega || '').trim() || simulandoFrete}
-                  >
-                    {simulandoFrete ? 'Calculando...' : 'Calcular entrega'}
-                  </button>
-
-                  {cepEntregaNormalizado ? (
-                    <DeliveryAddressLookupCard
-                      cep={formatarCep(cepEntregaNormalizado)}
-                      endereco={enderecoCepEntrega}
-                      carregando={buscandoEnderecoCepEntrega}
-                      erro={erroEnderecoCepEntrega}
-                      cepIncompleto={cepEntregaIncompleto}
-                    />
-                  ) : null}
-
-                  <p
-                    className={`delivery-feedback is-${mensagemFrete.tone}`}
-                    role={mensagemFrete.tone === 'error' || mensagemFrete.tone === 'warning' ? 'alert' : 'status'}
-                    aria-live="polite"
-                  >
-                    {mensagemFrete.text}
-                  </p>
-
-                  {avisoRestricaoVeiculo ? (
-                    <p className="delivery-feedback is-warning" role="status">{avisoRestricaoVeiculo}</p>
-                  ) : null}
-
-                  {bloqueioAgua20LAtivo ? (
-                    <p className="delivery-feedback is-warning" role="alert">{bloqueioAgua20LMotivo}</p>
-                  ) : null}
-
-                  {veiculoEntrega === 'uber' && simulacaoUber ? (
-                    <p className="delivery-feedback is-neutral" role="status">Modal definido automaticamente para seu pedido</p>
-                  ) : null}
-
-                  <div className="delivery-options-grid" role="radiogroup" aria-label="Escolha como receber">
-                    {opcoesEntregaCompactas.map((key) => {
-                      const veiculo = key === 'bike'
-                        ? VEICULOS_ENTREGA.bike
-                        : { ...VEICULOS_ENTREGA.moto, label: 'Entrega Uber' };
-                      const sim = simulacoesFretePorVeiculo[key];
-                      const disabledBike = key === 'bike' && !bikeDisponivel;
-                      const titulo = key === 'bike' ? 'Bike' : 'Entrega Uber';
-                      const descricao = key === 'bike'
-                        ? `Entrega local até ${LIMITE_BIKE_KM.toFixed(1)} km`
-                        : 'Entrega para fora do raio da bike ou pedidos maiores';
-
-                      return (
-                      <DeliveryOptionCard
-                        key={key}
-                        veiculo={{ ...veiculo, label: titulo, descricao }}
-                        selecionado={veiculoEntrega === key}
-                        precoLabel={sim ? formatarMoeda(Number(sim.frete || 0)) : 'A calcular'}
-                        disabled={disabledBike}
-                        disabledReason={disabledBike ? `Disponível apenas até ${LIMITE_BIKE_KM.toFixed(1)} km` : ''}
-                        onSelect={() => {
-                          setTipoEntrega('entrega');
-                          setVeiculoEntrega(key);
-                          setSimulacaoFrete(sim || null);
-                          setErroEntrega('');
-                        }}
-                      />
-                    );})}
-                  </div>
-                </section>
-
-                {semOpcaoEntregaDisponivel ? (
-                  <div className="delivery-empty-state" role="alert">
-                    <span aria-hidden="true">
-                      <AlertTriangle size={18} strokeWidth={2} />
-                    </span>
-                    <div>
-                      <strong>Sem opção de entrega disponível para este CEP.</strong>
-                      <p>Verifique o CEP informado ou tente outro endereço para continuar.</p>
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            )}
-
-          </div>
-        </div>
+        <DeliveryStep
+          modalUberInterno={modalUberInterno}
+          mensagemFrete={mensagemFrete}
+          bloqueioAgua20LAtivo={bloqueioAgua20LAtivo}
+          bloqueioAgua20LMotivo={bloqueioAgua20LMotivo}
+          avisoRestricaoVeiculo={avisoRestricaoVeiculo}
+          semOpcaoEntregaDisponivel={semOpcaoEntregaDisponivel}
+          bikeDisponivel={bikeDisponivel}
+          opcoesEntregaCompactas={opcoesEntregaCompactas}
+          economiaFreteRetirada={economiaFreteRetirada}
+          enderecoEntregaResumo={enderecoEntregaResumo}
+          enderecoEntregaComplemento={enderecoEntregaComplemento}
+          enderecoContaSalvo={enderecoContaSalvo}
+          temEnderecoContaSalvo={temEnderecoContaSalvo}
+          enderecoContaSalvoResumo={enderecoContaSalvoResumo}
+          enderecoSalvoJaSelecionado={enderecoSalvoJaSelecionado}
+          uberQuoteDisponivel={uberQuoteDisponivel}
+          setUberQuoteDisponivel={setUberQuoteDisponivel}
+          itens={itens}
+          resumoTotal={resumo.total}
+        />
       ) : null}
 
       {etapaAtual === ETAPAS.PAGAMENTO ? (
-        <div className="checkout-payment-layout">
-          <div className="card-box checkout-payment-main">
-            <div className="checkout-payment-header">
-              <h2>Pagamento</h2>
-              <p className="muted-text">Escolha o método e revise seus dados de forma rápida.</p>
-            </div>
-
-            <p className={`payment-frete-info ${(retiradaSelecionada || simulacaoFrete || resultadoPedido?.pedido_id) ? 'is-ready' : 'is-warning'}`}>
-              {retiradaSelecionada
-                ? `Retirada na loja selecionada. Sem frete${Number(economiaFreteRetirada || 0) > 0 ? ` · Economia ${formatarMoeda(economiaFreteRetirada)}` : ''}.`
-                : (simulacaoFrete || resultadoPedido?.pedido_id)
-                  ? `Frete ${atendimentoSelecionadoLabel}: ${formatarMoeda(resumoFretePagamento)} · Distância ${distanciaSelecionadaTexto}`
-                  : 'Frete não calculado. Volte para entrega e simule o CEP antes de continuar.'}
-            </p>
-
-            {autenticado === true ? (
-              <>
-                {/* Cards de método com destaque explícito para a opção ativa. */}
-                <section className="checkout-payment-section" aria-label="Métodos de pagamento disponíveis">
-                  <div className="checkout-payment-section-head">
-                    <h3>Forma de pagamento</h3>
-                    <p>Selecione uma opção para continuar.</p>
-                  </div>
-
-                  <div className="payment-methods-grid" role="radiogroup" aria-label="Seleção da forma de pagamento">
-                    {metodosPagamentoDisponiveis.map((metodoPagamento) => (
-                      <PaymentMethodCard
-                        key={metodoPagamento.id}
-                        method={metodoPagamento}
-                        selected={formaPagamento === metodoPagamento.id}
-                        disabled={metodoPagamento.disabled}
-                        onSelect={(selectedId) => {
-                          const formaSelecionada = String(selectedId || metodoPagamento.id || '').trim().toLowerCase();
-                          if (!['pix', 'credito', 'debito'].includes(formaSelecionada)) {
-                            return;
-                          }
-
-                          setFormaPagamento(formaSelecionada);
-                          if (formaSelecionada === 'debito') {
-                            setParcelasCartao('1');
-                          }
-                          setErro('');
-                          limparTokenCartaoGerado();
-                        }}
-                      />
-                    ))}
-                  </div>
-
-                  {buscandoChavePublica ? (
-                    <p className="payment-method-unavailable" role="status">
-                      Métodos no cartão temporariamente indisponíveis enquanto preparamos a conexão segura com o gateway.
-                    </p>
-                  ) : null}
-                </section>
-
-                <PaymentSelectionSummary
-                  title={formaPagamentoAtual.summaryTitle}
-                  description={formaPagamentoAtual.summaryDescription}
-                />
-
-                <TaxIdInput
-                  value={documentoPagador}
-                  id="documento-pagador"
-                  label="CPF/CNPJ do pagador"
-                  helperText="Necessário para processar PIX e cartão com segurança."
-                  onChange={(event) => {
-                    setDocumentoPagador(formatarDocumentoFiscal(event.target.value));
-                    if (erro) {
-                      setErro('');
-                    }
-                  }}
-                  onBlur={() => setDocumentoTocado(true)}
-                  requiredError={documentoObrigatorioNaoPreenchido}
-                  invalidError={documentoInvalidoPagamento}
-                  validFeedback={documentoValidoFeedback}
-                />
-
-                <section className="checkout-payment-section checkout-payment-fiscal" aria-label="CPF na nota fiscal">
-                  <div className="checkout-payment-section-head">
-                    <h3>CPF na nota</h3>
-                    <p>Opcional. Use apenas para emissão fiscal.</p>
-                  </div>
-
-                  {!cpfNotaFiscalAtivo ? (
-                    <div className="payment-fiscal-actions">
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        onClick={() => {
-                          setCpfNotaFiscalAtivo(true);
-                          setCpfNotaFiscalTocado(false);
-                        }}
-                      >
-                        Adicionar CPF na nota
-                      </button>
-
-                      {cpfPagadorSugestao ? (
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() => {
-                            setCpfNotaFiscal(cpfPagadorSugestao);
-                            setCpfNotaFiscalAtivo(true);
-                            setCpfNotaFiscalTocado(true);
-                          }}
-                        >
-                          Usar CPF do pagador ({cpfPagadorSugestao})
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="payment-fiscal-editor">
-                      <TaxIdInput
-                        value={cpfNotaFiscal}
-                        id="cpf-nota-fiscal"
-                        label="CPF na nota (opcional)"
-                        placeholder="000.000.000-00"
-                        helperText="Se informado, será usado apenas para emissão da nota fiscal."
-                        invalidMessage="CPF inválido. Confira os 11 dígitos."
-                        validMessage="CPF fiscal válido."
-                        onChange={(event) => {
-                          const documentoFormatado = formatarDocumentoFiscal(event.target.value);
-                          setCpfNotaFiscal(documentoFormatado);
-                          if (erro) {
-                            setErro('');
-                          }
-                        }}
-                        onBlur={() => setCpfNotaFiscalTocado(true)}
-                        requiredError={false}
-                        invalidError={cpfNotaInvalido}
-                        validFeedback={cpfNotaFeedbackValido}
-                      />
-
-                      <div className="payment-fiscal-actions">
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={() => {
-                            setCpfNotaFiscal('');
-                            setCpfNotaFiscalAtivo(false);
-                            setCpfNotaFiscalTocado(false);
-                          }}
-                        >
-                          Remover CPF da nota
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </section>
-
-                {pagamentoCartaoSelecionado ? (
-                  <section className="payment-card-panel" aria-label="Dados do cartão">
-                    <div className="payment-card-panel-head">
-                      <h3>{formaPagamento === 'credito' ? 'Dados do cartão de crédito' : 'Dados do cartão de débito'}</h3>
-                      <p>Preencha os dados exatamente como no cartão para reduzir chance de recusa.</p>
-                    </div>
-
-                    <div className="payment-card-grid">
-                      <div className="payment-card-field payment-card-field-span-2">
-                        <label htmlFor="nome-titular-cartao">Nome impresso no cartão</label>
-                        <input
-                          id="nome-titular-cartao"
-                          className="field-input"
-                          type="text"
-                          autoComplete="off"
-                          placeholder="Nome igual ao cartão"
-                          value={nomeTitularCartao}
-                          onChange={(event) => {
-                            setNomeTitularCartao(event.target.value);
-                            limparTokenCartaoGerado();
-                          }}
-                        />
-                      </div>
-
-                      <div className="payment-card-field payment-card-field-span-2">
-                        <label htmlFor="numero-cartao">Número do cartão</label>
-                        <input
-                          id="numero-cartao"
-                          className="field-input"
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="cc-number"
-                          placeholder="0000 0000 0000 0000"
-                          value={numeroCartao}
-                          onChange={(event) => {
-                            setNumeroCartao(formatarNumeroCartao(event.target.value));
-                            limparTokenCartaoGerado();
-                          }}
-                        />
-                      </div>
-
-                      <div className="payment-card-field">
-                        <label htmlFor="mes-expiracao-cartao">Mês</label>
-                        <input
-                          id="mes-expiracao-cartao"
-                          className="field-input"
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="cc-exp-month"
-                          placeholder="MM"
-                          maxLength={2}
-                          value={mesExpiracaoCartao}
-                          onChange={(event) => {
-                            setMesExpiracaoCartao(formatarMesCartao(event.target.value));
-                            limparTokenCartaoGerado();
-                          }}
-                        />
-                      </div>
-
-                      <div className="payment-card-field">
-                        <label htmlFor="ano-expiracao-cartao">Ano</label>
-                        <input
-                          id="ano-expiracao-cartao"
-                          className="field-input"
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="cc-exp-year"
-                          placeholder="AA ou AAAA"
-                          maxLength={4}
-                          value={anoExpiracaoCartao}
-                          onChange={(event) => {
-                            setAnoExpiracaoCartao(formatarAnoCartao(event.target.value));
-                            limparTokenCartaoGerado();
-                          }}
-                        />
-                      </div>
-
-                      <div className="payment-card-field">
-                        <label htmlFor="cvv-cartao">CVV</label>
-                        <input
-                          id="cvv-cartao"
-                          className="field-input"
-                          type="password"
-                          inputMode="numeric"
-                          autoComplete="cc-csc"
-                          placeholder="CVV"
-                          maxLength={4}
-                          value={cvvCartao}
-                          onChange={(event) => {
-                            setCvvCartao(formatarCvvCartao(event.target.value));
-                            limparTokenCartaoGerado();
-                          }}
-                        />
-                      </div>
-
-                      {formaPagamento === 'credito' ? (
-                        <div className="payment-card-field payment-card-field-span-2">
-                          <label htmlFor="parcelas-cartao">Parcelas</label>
-                          <select
-                            id="parcelas-cartao"
-                            className="field-input"
-                            value={parcelasCartao}
-                            onChange={(event) => setParcelasCartao(event.target.value)}
-                          >
-                            {Array.from({ length: parcelamentoCreditoDisponivel ? PARCELAMENTO_MAXIMO_CREDITO : 1 }, (_, idx) => idx + 1).map((parcela) => (
-                              <option key={parcela} value={String(parcela)}>
-                                {parcela}x
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {formaPagamento === 'credito' ? (
-                      <p className="payment-card-note">
-                        {parcelamentoCreditoDisponivel
-                          ? `Parcelamento liberado para este pedido (até ${PARCELAMENTO_MAXIMO_CREDITO}x).`
-                          : `Parcelamento disponível apenas para pedidos a partir de R$ ${valorMinimoParcelamentoTexto}.`}
-                      </p>
-                    ) : (
-                      <p className="payment-card-note">No débito, o pagamento é sempre à vista (1x).</p>
-                    )}
-
-                    <div className="payment-card-actions">
-                      <button
-                        className="btn-secondary payment-validate-card-btn"
-                        type="button"
-                        disabled={criptografandoCartao || buscandoChavePublica}
-                        onClick={() => {
-                          void handleCriptografarCartao().catch((error) => {
-                            setErro(error.message || 'Não foi possível validar os dados do cartão.');
-                          });
-                        }}
-                      >
-                        {criptografandoCartao ? 'Validando dados do cartão...' : 'Validar cartão com segurança'}
-                      </button>
-
-                      <p className={`payment-card-token-feedback ${tokenCartao ? 'is-success' : ''}`.trim()}>
-                        {tokenCartao
-                          ? 'Dados do cartão validados com sucesso.'
-                          : 'Os dados do cartão são protegidos antes do envio para pagamento.'}
-                      </p>
-
-                      {debitoSelecionado ? (
-                        <>
-                          <p className={`payment-action-feedback ${status3DSTone}`.trim()} role="status">
-                            {status3DSLabel}
-                            {idAutenticacao3DS ? ` ID: ${idAutenticacao3DS}` : ''}
-                          </p>
-
-                          {sessao3DSExpirando && sessao3DS ? (
-                            <p className="payment-action-feedback is-warning" role="alert">
-                              Sua sessão de autenticação 3DS está expirando. Finalize o pagamento em breve ou ela será renovada automaticamente.
-                            </p>
-                          ) : null}
-
-                          {IS_DEVELOPMENT && resultado3DS?.trace_id ? (
-                            <p className="muted-text">Trace 3DS: {resultado3DS.trace_id}</p>
-                          ) : null}
-                        </>
-                      ) : null}
-                    </div>
-                  </section>
-                ) : null}
-              </>
-            ) : (
-              <div className="payment-login-state">
-                <p className="muted-text">Faça login para continuar com o pagamento e acompanhar seu pedido.</p>
-                <div className="checkout-payment-actions">
-                  <Link to="/conta" className="btn-primary entrega-ir-pagamento-btn checkout-payment-primary-btn">
-                    Ir para Conta
-                  </Link>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <aside className="checkout-payment-side">
-            {/* Resumo financeiro com maior visibilidade antes da confirmação. */}
-            <PaymentOrderSummary
-              itens={resumoItensPagamento}
-              subtotal={totalProdutosPedido}
-              frete={resumoFretePagamento}
-              taxaServico={resumoTaxaServicoPagamento}
-              total={resumoTotalPagamento}
-              metodo={formaPagamentoAtual.title}
-              tipoEntrega={tipoEntrega}
-              economiaFrete={economiaFreteRetirada}
-              className={growthCheckoutPaymentPriceClass}
-            />
-
-            {autenticado === true ? (
-              <div className="card-box checkout-payment-actions-card">
-                <article className="payment-readiness-card" aria-label="Estado da etapa de pagamento">
-                  <p className="payment-readiness-title">Pronto para revisar</p>
-                  <p className="payment-readiness-description">
-                    {mensagemBloqueioPagamento || `Método selecionado: ${formaPagamentoAtual.title}.`}
-                  </p>
-                </article>
-
-                {buscandoChavePublica ? (
-                  <p className="payment-action-feedback is-loading" role="status">Preparando conexão segura com o gateway de cartão...</p>
-                ) : null}
-              </div>
-            ) : null}
-          </aside>
-        </div>
+        <PaymentStep
+          ref={paymentStepRef}
+          formaPagamento={formaPagamento}
+          onFormaPagamentoChange={(forma) => { setFormaPagamento(forma); limparTokenCartaoGerado(); }}
+          documentoPagador={documentoPagador}
+          onDocumentoPagadorChange={setDocumentoPagador}
+          cpfNotaFiscal={cpfNotaFiscal}
+          onCpfNotaFiscalChange={setCpfNotaFiscal}
+          parcelasCartao={parcelasCartao}
+          onParcelasCartaoChange={setParcelasCartao}
+          tokenCartao={tokenCartao}
+          onLimparTokenCartao={limparTokenCartaoGerado}
+          buscandoChavePublica={buscandoChavePublica}
+          autenticado={autenticado}
+          erro={erro}
+          onErroChange={setErro}
+          carregando={carregando}
+          retiradaSelecionada={retiradaSelecionada}
+          simulacaoFrete={simulacaoFrete}
+          resultadoPedido={resultadoPedido}
+          economiaFreteRetirada={economiaFreteRetirada}
+          atendimentoSelecionadoLabel={atendimentoSelecionadoLabel}
+          distanciaSelecionadaTexto={distanciaSelecionadaTexto}
+          tipoEntrega={tipoEntrega}
+          resumoFretePagamento={resumoFretePagamento}
+          resumoTaxaServicoPagamento={resumoTaxaServicoPagamento}
+          resumoTotalPagamento={resumoTotalPagamento}
+          resumoItensPagamento={resumoItensPagamento}
+          totalProdutosPedido={totalProdutosPedido}
+          parcelamentoCreditoDisponivel={parcelamentoCreditoDisponivel}
+          valorMinimoParcelamentoTexto={valorMinimoParcelamentoTexto}
+          debitoSelecionado={debitoSelecionado}
+          status3DSTone={status3DSTone}
+          status3DSLabel={status3DSLabel}
+          idAutenticacao3DS={idAutenticacao3DS}
+          sessao3DSExpirando={sessao3DSExpirando}
+          sessao3DS={sessao3DS}
+          resultado3DS={resultado3DS}
+          bloqueioPagamento={bloqueioPagamento}
+          mensagemBloqueioPagamento={mensagemBloqueioPagamento}
+          growthCheckoutPaymentPriceClass={growthCheckoutPaymentPriceClass}
+          onDadosCartaoCompletosChange={setDadosCartaoCompletos}
+          onValidarCartao={handleCriptografarCartao}
+          pagamentoCartaoSelecionado={pagamentoCartaoSelecionado}
+          formaPagamentoAtual={formaPagamentoAtual}
+        />
       ) : null}
 
       {/* ETAPA REVISÃO DO CLIENTE: confirmação antes de criar o pedido */}
@@ -4571,324 +2786,73 @@ export default function PagamentoPage() {
         />
       ) : null}
 
-      {/* ETAPA REVISÃO: aguardando equipe confirmar disponibilidade */}
       {etapaAtual === ETAPAS.REVISAO ? (
-        <div className="checkout-revisao-layout">
-          <div className="card-box checkout-revisao-main">
-            <div className="checkout-revisao-header">
-              <p className="checkout-pix-kicker">Etapa 4</p>
-              <h2>Pedido em revisão</h2>
-              <p className="muted-text">
-                Seu pedido #{resultadoPedido?.pedido_id} foi recebido e está sendo verificado pela nossa equipe.
-                Vamos confirmar se todos os itens estão disponíveis.
-              </p>
-            </div>
-
-            {statusRevisaoAtual === 'aguardando_revisao' ? (
-              <div className="checkout-revisao-status">
-                <div className="checkout-revisao-icon" aria-hidden="true">
-                  <ClipboardList size={18} strokeWidth={2} />
-                </div>
-                <h3>Aguardando revisão da equipe</h3>
-                <p className="muted-text">
-                  A equipe do mercado está verificando a disponibilidade dos seus itens.
-                  Esta p?gina atualiza automaticamente ? voc? ser? direcionado para o pagamento assim que o pedido for aprovado.
-                </p>
-                <div className="checkout-revisao-loading">
-                  <div className="checkout-revisao-spinner"></div>
-                  <span>Verificando a cada 10 segundos...</span>
-                </div>
-                <p className="muted-text" style={{ marginTop: '0.6rem' }}>{textoUltimaAtualizacaoRevisao}</p>
-                {podeCancelarRevisaoPedido ? (
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => {
-                      void handleCancelarPedidoEmRevisao();
-                    }}
-                    disabled={cancelandoRevisao}
-                    style={{ marginTop: '0.8rem' }}
-                  >
-                    {cancelandoRevisao ? 'Cancelando pedido...' : 'Cancelar pedido'}
-                  </button>
-                ) : null}
-              </div>
-            ) : statusRevisaoAtual === 'pendente' || statusRevisaoAtual === 'pagamento_recusado' ? (
-              <div className={`checkout-revisao-status ${statusRevisaoAtual === 'pagamento_recusado' ? 'is-rejected' : ''}`.trim()}>
-                <div className="checkout-revisao-icon" aria-hidden="true">
-                  {statusRevisaoAtual === 'pagamento_recusado' ? (
-                    <AlertTriangle size={18} strokeWidth={2} />
-                  ) : (
-                    <CircleCheck size={18} strokeWidth={2} />
-                  )}
-                </div>
-                <h3>{statusRevisaoAtual === 'pagamento_recusado' ? 'Pagamento recusado' : 'Pedido aprovado para pagamento'}</h3>
-                <p className={statusRevisaoAtual === 'pagamento_recusado' ? 'error-text' : 'muted-text'}>
-                  {statusRevisaoAtual === 'pagamento_recusado'
-                    ? 'Seu pedido está aprovado, mas o pagamento foi recusado. Revise os dados e tente novamente.'
-                    : 'A revisão terminou. Você já pode seguir para o pagamento.'}
-                </p>
-                <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-                  <button className="btn-primary" type="button" onClick={() => setEtapaAtual(ETAPAS.PIX)}>
-                    Ir para pagamento
-                  </button>
-                  {podeCancelarRevisaoPedido ? (
-                    <button
-                      className="btn-secondary"
-                      type="button"
-                      onClick={() => {
-                        void handleCancelarPedidoEmRevisao();
-                      }}
-                      disabled={cancelandoRevisao}
-                    >
-                      {cancelandoRevisao ? 'Cancelando pedido...' : 'Cancelar pedido'}
-                    </button>
-                  ) : null}
-                  <Link to="/pedidos" className="btn-secondary">
-                    Ir para meus pedidos
-                  </Link>
-                </div>
-              </div>
-            ) : statusRevisaoAtual === 'cancelado' || statusRevisaoAtual === 'expirado' ? (
-              <div className="checkout-revisao-status is-rejected">
-                <div className="checkout-revisao-icon" aria-hidden="true">
-                  <BadgeX size={18} strokeWidth={2} />
-                </div>
-                <h3>Pedido encerrado</h3>
-                <p className="error-text">
-                  {erro || 'Esse pedido em revisão foi encerrado. Você pode iniciar um novo carrinho normalmente.'}
-                </p>
-                <Link to="/produtos" className="btn-primary" style={{ marginTop: '1rem' }}>
-                  Voltar às compras
-                </Link>
-              </div>
-            ) : null}
-
-            {/* Resumo do pedido */}
-            {resumoPedidoSnapshot ? (
-              <div className="checkout-revisao-resumo">
-                <h4>Resumo do pedido</h4>
-                <ul className="checkout-revisao-itens">
-                  {itensPedidoSnapshot.map((item) => (
-                    <li key={item.produto_id}>
-                      <span>{item.quantidade}x {item.nome}</span>
-                      <span>{formatarMoeda(calcularSubtotalLinhaRevisao(item))}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="checkout-revisao-total">
-                  <strong>Total</strong>
-                  <strong>{formatarMoeda(totalRevisaoSnapshot)}</strong>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <MerchantReviewStep
+          resultadoPedido={resultadoPedido}
+          statusRevisaoAtual={statusRevisaoAtual}
+          textoUltimaAtualizacaoRevisao={textoUltimaAtualizacaoRevisao}
+          podeCancelarRevisaoPedido={podeCancelarRevisaoPedido}
+          cancelandoRevisao={cancelandoRevisao}
+          onCancelarPedido={handleCancelarPedidoEmRevisao}
+          onIrParaPagamento={() => setEtapaAtual(ETAPAS.PIX)}
+          erro={erro}
+          resumoPedidoSnapshot={resumoPedidoSnapshot}
+          itensPedidoSnapshot={itensPedidoSnapshot}
+          totalRevisaoSnapshot={totalRevisaoSnapshot}
+        />
       ) : null}
 
       {etapaAtual === ETAPAS.PIX ? (
-        <div className="checkout-pix-layout">
-          <div className="card-box checkout-pix-main">
-            <div className="checkout-pix-header">
-              <p className="muted-text">
-                {formaPagamento === 'pix'
-                  ? 'Escaneie o QR Code ou copie o código para pagar.'
-                  : `Finalize com ${tituloFormaPagamento.toLowerCase()} para continuar.`}
-              </p>
-            </div>
-
-            <CheckoutSecurityTrust
-              formaPagamento={formaPagamento}
-              total={totalComEntregaPedido}
-              frete={freteSelecionado}
-              retiradaSelecionada={retiradaSelecionada}
-              recaptchaEnabled={recaptchaCheckoutEnabled}
-              compact
-            />
-
-            {formaPagamento === 'pix' ? (
-              <>
-                {/* Estrutura principal do PIX com QR em destaque e código copia e cola. */}
-                <section className="checkout-pix-payment-panel" aria-label="Pagamento PIX">
-                  <div className="checkout-pix-payment-grid">
-                    <PixQrCodeCard qrCodeSrc={qrCodePixSrc} carregando={carregando} />
-
-                    <PixCopyCodeCard
-                      codigoPix={codigoPixAtual}
-                      onCopy={() => {
-                        void handleCopiarCodigoPix();
-                      }}
-                      feedbackCopia={feedbackCopiaPix}
-                      disabled={carregando}
-                    />
-                  </div>
-
-                  <PixInstructionsCard />
-                </section>
-
-                <PixStatusCard statusVisual={statusPixVisual} />
-              </>
-            ) : (
-              <section className="checkout-pix-payment-panel" aria-label="Pagamento com cartão">
-                {debitoSelecionado ? (
-                  <>
-                    <p className={`payment-action-feedback ${status3DSTone}`.trim()} role="status">
-                      {status3DSLabel}
-                    </p>
-                    {sessao3DSExpirando && sessao3DS ? (
-                      <p className="payment-action-feedback is-warning" role="alert">
-                        Sua sessão de autenticação 3DS está expirando. Finalize o pagamento em breve ou ela será renovada automaticamente.
-                      </p>
-                    ) : null}
-                  </>
-                ) : null}
-
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={carregando || criptografandoCartao || !resultadoPedido?.pedido_id || !documentoValidoPagamento}
-                  onClick={() => handlePagarCartaoMercadoPago(resultadoPedido.pedido_id)}
-                >
-                  {carregando
-                    ? debitoSelecionado
-                      ? status3DSLabel
-                      : `Processando ${tituloFormaPagamento.toLowerCase()}...`
-                    : `Pagar com ${tituloFormaPagamento}`}
-                </button>
-
-                {resultadoCartao ? (
-                  <>
-                    <p>Status do pagamento: {formatarStatusPagamento(resultadoCartao.status)}</p>
-                    <p>Status do pedido: {formatarStatusPedido(resultadoCartao.status_interno || 'pendente')}</p>
-                    <p>Referência do gateway: {resultadoCartao.payment_id || resultadoCartao.gateway_order_id || '-'}</p>
-                    <p>Referência lógica: {resultadoCartao.reference_id || '-'}</p>
-                    <p>Referência da transação: {resultadoCartao.payment_id || '-'}</p>
-                    <p>Método: {resultadoCartao.tipo_cartao === 'debito' ? 'Cartão de Débito' : 'Cartão de Crédito'}</p>
-                    <p>Parcelas: {resultadoCartao.tipo_cartao === 'debito' ? '1x' : `${resultadoCartao.parcelas || parcelasCartaoEfetivas}x`}</p>
-                    {debitoSelecionado ? (
-                      <>
-                        <p>Charge status: {String(resultadoCartao.status_charge || '-').toUpperCase()}</p>
-                        <p>Charge 3DS status: {String(resultadoCartao.status_charge_threeds || '-').toUpperCase()}</p>
-                        <p>Payment response code: {resultadoCartao.payment_response?.code || resultadoCartao.authorization_code || '-'}</p>
-                        <p>Payment response message: {resultadoCartao.payment_response?.message || resultadoCartao.message || '-'}</p>
-                      </>
-                    ) : null}
-                    {cartaoRecusado ? (
-                      <p className="error-text">Pagamento não aprovado. Revise os dados do cartão e tente novamente.</p>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="muted-text">Revise os dados e conclua o pagamento para liberar a confirmação do pedido.</p>
-                )}
-
-                {debitoSelecionado && eventosHomologacao3DS.length > 0 ? (
-                  <div className="payment-homologacao-logs" aria-label="Evidencia sanitizada de homologacao 3DS">
-                    <p className="payment-homologacao-logs-title">Evidência de homologação 3DS (dados mascarados)</p>
-
-                    <div className="payment-homologacao-logs-actions">
-                      <button
-                        className="btn-secondary"
-                        type="button"
-                        onClick={() => {
-                          void handleCopiarEvidenciaHomologacao3DS();
-                        }}
-                      >
-                        Copiar log sanitizado
-                      </button>
-
-                      <button
-                        className="btn-secondary"
-                        type="button"
-                        onClick={handleBaixarEvidenciaHomologacao3DS}
-                      >
-                        Baixar JSON sanitizado
-                      </button>
-                    </div>
-
-                    {feedbackEvidencia3DS ? (
-                      <p className={`payment-action-feedback ${feedbackEvidencia3DSTone}`.trim()} role="status">
-                        {feedbackEvidencia3DS}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-              </section>
-            )}
-          </div>
-
-          <aside className="checkout-pix-side">
-            <PaymentOrderSummary
-              itens={itensResumoPixExibicao}
-              subtotal={Number(resultadoPedido?.total_produtos ?? resumoPedidoSnapshot?.subtotal ?? totalProdutosPedido)}
-              frete={freteSelecionado}
-              taxaServico={taxaServicoPedido}
-              total={totalComEntregaPedido}
-              metodo={formaPagamento === 'pix' ? 'PIX' : tituloFormaPagamento}
-              className={growthCheckoutPaymentPriceClass}
-            />
-
-            {formaPagamento === 'pix' ? (
-              <div className="card-box checkout-pix-actions-card">
-                <p className="pix-order-meta">Pedido #{resultadoPedido?.pedido_id || '-'}</p>
-
-                <button
-                  className={`${pixDisponivelParaPagar ? 'btn-secondary' : 'btn-primary'} checkout-pix-generate-btn`.trim()}
-                  type="button"
-                  disabled={bloqueioGeracaoPix}
-                  onClick={() => handleGerarPixMercadoPago(resultadoPedido.pedido_id)}
-                >
-                  {textoBotaoGerarPix}
-                </button>
-
-                {!podeContinuarConfirmacaoPix ? (
-                  <p className="pix-action-helper">A confirmação só é liberada após aprovação do pagamento PIX.</p>
-                ) : null}
-              </div>
-            ) : null}
-          </aside>
-        </div>
+        <PixPaymentStep
+          formaPagamento={formaPagamento}
+          tituloFormaPagamento={tituloFormaPagamento}
+          qrCodePixSrc={qrCodePixSrc}
+          codigoPixAtual={codigoPixAtual}
+          statusPixVisual={statusPixVisual}
+          feedbackCopiaPix={feedbackCopiaPix}
+          onCopiarCodigoPix={handleCopiarCodigoPix}
+          textoBotaoGerarPix={textoBotaoGerarPix}
+          bloqueioGeracaoPix={bloqueioGeracaoPix}
+          pixDisponivelParaPagar={pixDisponivelParaPagar}
+          podeContinuarConfirmacaoPix={podeContinuarConfirmacaoPix}
+          onGerarPix={() => handleGerarPixMercadoPago(resultadoPedido.pedido_id)}
+          debitoSelecionado={debitoSelecionado}
+          status3DSTone={status3DSTone}
+          status3DSLabel={status3DSLabel}
+          sessao3DSExpirando={sessao3DSExpirando}
+          sessao3DS={sessao3DS}
+          resultadoCartao={resultadoCartao}
+          cartaoRecusado={cartaoRecusado}
+          parcelasCartaoEfetivas={parcelasCartaoEfetivas}
+          onPagarCartao={() => handlePagarCartaoMercadoPago(resultadoPedido.pedido_id)}
+          documentoValidoPagamento={documentoValidoPagamento}
+          eventosHomologacao3DS={eventosHomologacao3DS}
+          feedbackEvidencia3DS={feedbackEvidencia3DS}
+          feedbackEvidencia3DSTone={feedbackEvidencia3DSTone}
+          onCopiarEvidencia3DS={handleCopiarEvidenciaHomologacao3DS}
+          onBaixarEvidencia3DS={handleBaixarEvidenciaHomologacao3DS}
+          carregando={carregando}
+          resultadoPedido={resultadoPedido}
+          totalComEntregaPedido={totalComEntregaPedido}
+          freteSelecionado={freteSelecionado}
+          retiradaSelecionada={retiradaSelecionada}
+          recaptchaCheckoutEnabled={recaptchaCheckoutEnabled}
+          itensResumoPixExibicao={itensResumoPixExibicao}
+          resumoPedidoSnapshot={resumoPedidoSnapshot}
+          totalProdutosPedido={totalProdutosPedido}
+          taxaServicoPedido={taxaServicoPedido}
+          growthCheckoutPaymentPriceClass={growthCheckoutPaymentPriceClass}
+        />
       ) : null}
 
       {etapaAtual === ETAPAS.STATUS ? (
-        <div className="card-box">
-          <p><strong>Etapa 4: Confirmação e acompanhamento</strong></p>
-          {resultadoPedido ? (
-            <>
-              <p>Pedido: #{resultadoPedido.pedido_id}</p>
-              <p>Total com entrega estimado: {formatarMoeda(totalComEntregaPedido)}</p>
-              <p>
-                Situação atual: <span className="pedido-status-badge">{labelStatus}</span>
-              </p>
-              {pagamentoConfirmado ? (
-                <div className="pagamento-ok" aria-label="Pagamento confirmado com sucesso">
-                  <span className="pagamento-ok-icon"><CircleCheck size={16} aria-hidden="true" /></span>
-                  <span>Pagamento confirmado com sucesso.</span>
-                </div>
-              ) : (
-                <p className="checkout-status-pending" role="status">
-                  Ainda estamos aguardando a confirmação final do pagamento. Mantenha esta tela aberta para acompanhar.
-                </p>
-              )}
-              <p className="muted-text">Atualização automática a cada 15 segundos.</p>
-            </>
-          ) : (
-            <p className="muted-text">Finalize um pedido para acompanhar o status.</p>
-          )}
-
-          <div className="card-box" style={{ marginTop: '0.4rem' }}>
-            <p><strong>Precisa de ajuda?</strong></p>
-            <p>
-              {formaPagamento === 'pix'
-                ? 'Se o QR Code não abrir no seu banco, copie o código PIX e cole manualmente no aplicativo.'
-                : 'Se o pagamento não for aprovado, revise os dados do cartão e tente novamente.'}
-            </p>
-            <p>Após a confirmação do pagamento, iniciamos a preparação e o envio do pedido.</p>
-          </div>
-
-          <Link className="btn-secondary" to="/pedidos" style={{ display: 'inline-flex', width: 'fit-content' }}>
-            Ir para meus pedidos
-          </Link>
-        </div>
+        <OrderStatusStep
+          resultadoPedido={resultadoPedido}
+          totalComEntregaPedido={totalComEntregaPedido}
+          labelStatus={labelStatus}
+          pagamentoConfirmado={pagamentoConfirmado}
+          formaPagamento={formaPagamento}
+        />
       ) : null}
 
     </section>

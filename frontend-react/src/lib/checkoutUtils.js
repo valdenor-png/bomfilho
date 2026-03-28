@@ -197,6 +197,14 @@ export function formatarQuantidadeItens(valor) {
   return `${quantidade} ${quantidade === 1 ? 'item' : 'itens'}`;
 }
 
+export function normalizarTextoSugestao(valor) {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
 export function formatarTipoEntrega(tipoEntrega) {
   return String(tipoEntrega || '').trim().toLowerCase() === 'retirada' ? 'Retirada na loja' : 'Entrega';
 }

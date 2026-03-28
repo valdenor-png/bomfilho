@@ -111,16 +111,17 @@ export function checkoutReducer(state, action) {
         resumoPedidoSnapshot: action.payload.resumo,
       };
 
-    case CHECKOUT_ACTIONS.SET_ENTREGA_DATA:
-      return {
-        ...state,
-        tipoEntrega:        action.payload.tipoEntrega,
-        veiculoEntrega:     action.payload.veiculoEntrega,
-        simulacaoFrete:     action.payload.simulacaoFrete,
-        cepEntrega:         action.payload.cepEntrega,
-        numeroEntrega:      action.payload.numeroEntrega,
-        enderecoCepEntrega: action.payload.enderecoCepEntrega,
-      };
+    case CHECKOUT_ACTIONS.SET_ENTREGA_DATA: {
+      const p = action.payload || {};
+      const updates = {};
+      if ('tipoEntrega' in p) updates.tipoEntrega = p.tipoEntrega;
+      if ('veiculoEntrega' in p) updates.veiculoEntrega = p.veiculoEntrega;
+      if ('simulacaoFrete' in p) updates.simulacaoFrete = p.simulacaoFrete;
+      if ('cepEntrega' in p) updates.cepEntrega = p.cepEntrega;
+      if ('numeroEntrega' in p) updates.numeroEntrega = p.numeroEntrega;
+      if ('enderecoCepEntrega' in p) updates.enderecoCepEntrega = p.enderecoCepEntrega;
+      return { ...state, ...updates };
+    }
 
     case CHECKOUT_ACTIONS.SET_ULTIMA_ATUALIZACAO:
       return { ...state, ultimaAtualizacaoRevisao: action.payload };
