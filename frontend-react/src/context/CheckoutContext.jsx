@@ -21,23 +21,52 @@ import { ETAPAS } from '../lib/checkoutUtils';
 // ── Actions ────────────────────────────────────────────────────────────
 
 export const CHECKOUT_ACTIONS = Object.freeze({
-  SET_ETAPA:           'SET_ETAPA',
-  SET_RESULTADO_PEDIDO:'SET_RESULTADO_PEDIDO',
-  SET_FORMA_PAGAMENTO: 'SET_FORMA_PAGAMENTO',
-  SET_STATUS_PEDIDO:   'SET_STATUS_PEDIDO',
-  SET_CARREGANDO:      'SET_CARREGANDO',
-  SET_ERRO:            'SET_ERRO',
+  SET_ETAPA:                'SET_ETAPA',
+  SET_RESULTADO_PEDIDO:     'SET_RESULTADO_PEDIDO',
+  SET_FORMA_PAGAMENTO:      'SET_FORMA_PAGAMENTO',
+  SET_STATUS_PEDIDO:        'SET_STATUS_PEDIDO',
+  SET_CARREGANDO:           'SET_CARREGANDO',
+  SET_ERRO:                 'SET_ERRO',
+  SET_AUTH:                 'SET_AUTH',
+  SET_PAGAMENTO_CONFIRMADO: 'SET_PAGAMENTO_CONFIRMADO',
+  SET_RESULTADO_PIX:        'SET_RESULTADO_PIX',
+  SET_SNAPSHOT:             'SET_SNAPSHOT',
+  SET_ENTREGA_DATA:         'SET_ENTREGA_DATA',
+  SET_ULTIMA_ATUALIZACAO:   'SET_ULTIMA_ATUALIZACAO',
+  RESET_CHECKOUT:           'RESET_CHECKOUT',
 });
 
 // ── Estado inicial ─────────────────────────────────────────────────────
 
 export const CHECKOUT_INITIAL_STATE = Object.freeze({
-  etapaAtual:        ETAPAS.CARRINHO,
-  resultadoPedido:   null,
-  formaPagamento:    'pix',
-  statusPedidoAtual: '',
-  carregando:        false,
-  erro:              '',
+  // Navegação
+  etapaAtual:               ETAPAS.CARRINHO,
+  // Resultado do pedido criado
+  resultadoPedido:          null,
+  // Pagamento
+  formaPagamento:           'pix',
+  statusPedidoAtual:        '',
+  carregando:               false,
+  erro:                     '',
+  // Autenticação
+  autenticado:              null,
+  dadosUsuarioCheckout:     null,
+  // Confirmação de pagamento (cartão)
+  pagamentoConfirmado:      false,
+  // PIX
+  resultadoPix:             null,
+  // Snapshot do pedido no momento da confirmação
+  itensPedidoSnapshot:      [],
+  resumoPedidoSnapshot:     null,
+  // Entrega
+  tipoEntrega:              'entrega',
+  veiculoEntrega:           'uber',
+  simulacaoFrete:           null,
+  cepEntrega:               '',
+  numeroEntrega:            '',
+  enderecoCepEntrega:       null,
+  // Revisão
+  ultimaAtualizacaoRevisao: '',
 });
 
 // ── Reducer ────────────────────────────────────────────────────────────
@@ -46,16 +75,59 @@ export function checkoutReducer(state, action) {
   switch (action.type) {
     case CHECKOUT_ACTIONS.SET_ETAPA:
       return { ...state, etapaAtual: action.payload };
+
     case CHECKOUT_ACTIONS.SET_RESULTADO_PEDIDO:
       return { ...state, resultadoPedido: action.payload };
+
     case CHECKOUT_ACTIONS.SET_FORMA_PAGAMENTO:
       return { ...state, formaPagamento: action.payload };
+
     case CHECKOUT_ACTIONS.SET_STATUS_PEDIDO:
       return { ...state, statusPedidoAtual: action.payload };
+
     case CHECKOUT_ACTIONS.SET_CARREGANDO:
       return { ...state, carregando: action.payload };
+
     case CHECKOUT_ACTIONS.SET_ERRO:
       return { ...state, erro: action.payload };
+
+    case CHECKOUT_ACTIONS.SET_AUTH:
+      return {
+        ...state,
+        autenticado:          action.payload.autenticado,
+        dadosUsuarioCheckout: action.payload.dadosUsuarioCheckout,
+      };
+
+    case CHECKOUT_ACTIONS.SET_PAGAMENTO_CONFIRMADO:
+      return { ...state, pagamentoConfirmado: action.payload };
+
+    case CHECKOUT_ACTIONS.SET_RESULTADO_PIX:
+      return { ...state, resultadoPix: action.payload };
+
+    case CHECKOUT_ACTIONS.SET_SNAPSHOT:
+      return {
+        ...state,
+        itensPedidoSnapshot:  action.payload.itens,
+        resumoPedidoSnapshot: action.payload.resumo,
+      };
+
+    case CHECKOUT_ACTIONS.SET_ENTREGA_DATA:
+      return {
+        ...state,
+        tipoEntrega:        action.payload.tipoEntrega,
+        veiculoEntrega:     action.payload.veiculoEntrega,
+        simulacaoFrete:     action.payload.simulacaoFrete,
+        cepEntrega:         action.payload.cepEntrega,
+        numeroEntrega:      action.payload.numeroEntrega,
+        enderecoCepEntrega: action.payload.enderecoCepEntrega,
+      };
+
+    case CHECKOUT_ACTIONS.SET_ULTIMA_ATUALIZACAO:
+      return { ...state, ultimaAtualizacaoRevisao: action.payload };
+
+    case CHECKOUT_ACTIONS.RESET_CHECKOUT:
+      return { ...CHECKOUT_INITIAL_STATE };
+
     default:
       return state;
   }
