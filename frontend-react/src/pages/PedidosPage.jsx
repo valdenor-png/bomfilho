@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AlertTriangle, BadgeX, CircleCheck, Clock3, Lock, Package, Receipt, ShoppingCart, Store, Wallet } from '../icons';
 import useDocumentHead from '../hooks/useDocumentHead';
+import formatProductName from '../lib/formatProductName';
 import { useCart } from '../context/CartContext';
 import { useRecorrencia } from '../context/RecorrenciaContext';
 import { getPedidoById, getPedidos, getPedidoStatus, confirmarRecebimentoPedido, isAuthErrorMessage } from '../lib/api';
@@ -163,7 +164,7 @@ function montarResumoItens(itens) {
   }, 0);
 
   const nomes = itensLista
-    .map((item) => String(item?.nome_produto || item?.nome || '').trim())
+    .map((item) => formatProductName(String(item?.nome_produto || item?.nome || '').trim()))
     .filter(Boolean);
 
   const nomesUnicos = [...new Set(nomes)];
@@ -1007,7 +1008,7 @@ export default function PedidosPage() {
                           <div className="orders-item-row" key={item.id || `${pedido.id}-${item.produto_id}-${item.nome_produto}`}>
                             <div className="orders-item-main">
                               <p className="orders-item-name">
-                                <Package size={14} aria-hidden="true" /> {item.nome_produto || item.nome || 'Item'}
+                                <Package size={14} aria-hidden="true" /> {formatProductName(item.nome_produto || item.nome || 'Item')}
                               </p>
                               <p className="orders-item-meta">
                                 {Number(item.quantidade || 0)}x · R$ {Number(item.preco || 0).toFixed(2)}

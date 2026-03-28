@@ -2128,7 +2128,7 @@ body {
 
 .products-growth-volume-note {
   margin: 0;
-  border: 1px dashed #cbd5e1;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
   background: var(--bf-bg-card);
   color: rgba(255,255,255,0.70);
@@ -2534,7 +2534,7 @@ body {
 }
 
 .products-recorrencia-empty {
-  border: 1px dashed #c5dbce;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
   background: var(--bf-bg-card);
   padding: 0.62rem 0.68rem;
@@ -2818,7 +2818,7 @@ body {
 
 .products-results-bar {
   margin-top: 0.75rem;
-  border-top: 1px dashed #c9ddd2;
+  border: 1px solid rgba(255,255,255,0.08);
   padding-top: 0.68rem;
   display: flex;
   align-items: center;
@@ -3880,7 +3880,7 @@ body {
   margin: 0 0.75rem;
   padding: 0.8rem 0.95rem;
   border-radius: 12px;
-  border: 1px dashed #cfd8e3;
+  border: 1px solid rgba(255,255,255,0.08);
   background: var(--bf-bg-card);
   color: rgba(255,255,255,0.50);
   font-size: 0.82rem;
@@ -5265,7 +5265,7 @@ body {
 }
 
 .pedido-resumo {
-  border: 1px dashed #cbd5e0;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
   padding: 0.7rem;
   background: var(--bf-bg-card);
@@ -6799,7 +6799,7 @@ body {
 
 .payment-order-summary-clarity {
   margin: 0;
-  border: 1px dashed #cbd5e1;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
   background: var(--bf-bg-card);
   color: rgba(255,255,255,0.70);
@@ -9273,7 +9273,7 @@ body {
 }
 
 .admin-order-details {
-  border-top: 1px dashed #d7e5dc;
+  border: 1px solid rgba(255,255,255,0.08);
   padding-top: 0.62rem;
   display: grid;
   gap: 0.62rem;
@@ -10572,7 +10572,7 @@ body {
 
 
 .importacao-dropzone {
-  border: 2px dashed #9acfb2;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px;
   background: transparent;
   padding: 1rem;
@@ -15819,7 +15819,7 @@ body {
 
 .conta-security-danger {
   margin-top: 0.3rem;
-  border: 1px dashed #d9e0dc;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
   background: var(--bf-bg-card);
   padding: 0.34rem 0.46rem;
@@ -16749,7 +16749,7 @@ body {
 .fila-revisao-detalhes-erro { margin: 0; font-size: 0.75rem; color: rgba(255,255,255,0.50); }
 .fila-revisao-detalhes-erro { color: #FCA5A5; }
 .fila-revisao-itens-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.28rem; }
-.fila-revisao-item-row { display: grid; grid-template-columns: auto 1fr auto; gap: 0.4rem; align-items: center; font-size: 0.76rem; border-bottom: 1px dashed #dbe4ee; padding-bottom: 0.24rem; }
+.fila-revisao-item-row { display: grid; grid-template-columns: auto 1fr auto; gap: 0.4rem; align-items: center; font-size: 0.76rem; border: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.24rem; }
 .fila-revisao-item-row:last-child { border-bottom: none; padding-bottom: 0; }
 .fila-revisao-item-qtd { font-weight: 700; color: #FFFFFF; }
 .fila-revisao-item-nome { color: rgba(255,255,255,0.70); }
@@ -16775,7 +16775,7 @@ body {
 .fila-drawer-actions { display: flex; gap: 0.42rem; flex-wrap: wrap; margin-top: 0.46rem; }
 .fila-drawer-actions .btn-primary, .fila-drawer-actions .btn-secondary { min-height: 38px; }
 .fila-drawer-itens { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.22rem; }
-.fila-drawer-itens li { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; border-bottom: 1px dashed #d5deea; padding-bottom: 0.22rem; }
+.fila-drawer-itens li { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; border: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.22rem; }
 .fila-drawer-itens li:last-child { border-bottom: none; }
 .fila-drawer-empty { color: #64748b !important; }
 .fila-drawer-total { margin-top: 0.45rem; display: grid; gap: 0.12rem; font-size: 0.82rem; color: rgba(255,255,255,0.70); }
@@ -21452,7 +21452,7 @@ a {
 .products-error-state {
   max-width: 620px;
   margin-top: 1rem;
-  border: 1px dashed #d7dfe6;
+  border: 1px solid rgba(255,255,255,0.08);
   box-shadow: none;
   padding: 0.86rem;
 }
@@ -22423,7 +22423,7 @@ a {
 
 .conta-security-danger {
   margin-top: 0.34rem;
-  border: 1px dashed #d8dfdb;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 11px;
   background: var(--bf-bg-card);
   padding: 0.42rem 0.52rem;
@@ -22747,7 +22747,7 @@ a {
 
 .delivery-pin-box {
   margin-top: 0.45rem;
-  border: 1px dashed #d6e2db;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 12px;
   padding: 0.46rem;
   background: var(--bf-bg-card);
@@ -25885,4 +25885,273 @@ p, span, label, small, li, td, th, dt, dd {
 .home-shelf-skeleton-line,
 .v2-home-skeleton-line {
   background: rgba(255,255,255,0.06) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DARK FIXES v3 — Correções finais baseadas nos prints
+   ══════════════════════════════════════════════════════════════ */
+
+/* Fix 1: Fundo roxo lateral — html precisa do verde-teal */
+html {
+  background: #174A40 !important;
+}
+
+/* Fix 2: Cards de pedido — glass em vez de branco */
+.order-card,
+.orders-card,
+.pedido-card,
+[class*="order-card"],
+[class*="pedido-card"] {
+  background: rgba(255,255,255,0.07) !important;
+  backdrop-filter: blur(10px) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 16px !important;
+  color: #FFFFFF !important;
+}
+
+/* Fix 2b: Textos dentro dos cards de pedido */
+.order-card h3,
+.order-card h4,
+.order-card strong,
+.pedido-card h3,
+.pedido-card strong,
+[class*="order"] h3,
+[class*="order"] h4,
+[class*="order"] strong,
+[class*="pedido"] strong {
+  color: #FFFFFF !important;
+}
+
+.order-card p,
+.order-card span,
+.order-card small,
+.order-card time,
+.pedido-card p,
+.pedido-card span,
+[class*="order-date"],
+[class*="order-info"],
+[class*="order-meta"] {
+  color: rgba(255,255,255,0.55) !important;
+}
+
+/* Valor do pedido — dourado Sora */
+[class*="order-total"] [class*="value"],
+[class*="order-price"],
+[class*="pedido-total"],
+.order-card .price,
+.order-card [class*="total"] strong {
+  color: #E2B84A !important;
+  font-family: 'Sora', sans-serif !important;
+}
+
+/* Fix 2c: Badges de status dos pedidos */
+[class*="badge"][class*="pending"],
+[class*="badge"][class*="aguardando"],
+[class*="badge"][class*="revisao"],
+[class*="status"][class*="pending"],
+[class*="status"][class*="aguardando"] {
+  background: rgba(226,184,74,0.15) !important;
+  border: 1px solid rgba(226,184,74,0.30) !important;
+  color: #E2B84A !important;
+}
+
+[class*="badge"][class*="cancel"],
+[class*="status"][class*="cancel"] {
+  background: rgba(239,83,80,0.12) !important;
+  border: 1px solid rgba(239,83,80,0.25) !important;
+  color: #EF5350 !important;
+}
+
+[class*="badge"][class*="entreg"],
+[class*="badge"][class*="pago"],
+[class*="badge"][class*="deliver"],
+[class*="status"][class*="entreg"],
+[class*="status"][class*="pago"] {
+  background: rgba(90,228,167,0.12) !important;
+  border: 1px solid rgba(90,228,167,0.25) !important;
+  color: #5AE4A7 !important;
+}
+
+[class*="badge"][class*="recente"],
+[class*="badge"][class*="recent"] {
+  background: rgba(226,184,74,0.15) !important;
+  border: 1px solid rgba(226,184,74,0.30) !important;
+  color: #E2B84A !important;
+}
+
+/* Fix 2d: Botões do pedido */
+.order-card .btn-primary,
+[class*="order"] .btn-primary {
+  background: #E2B84A !important;
+  color: #133D35 !important;
+}
+
+.order-card .btn-secondary,
+[class*="order"] .btn-secondary {
+  background: transparent !important;
+  color: #FFFFFF !important;
+  border: 1px solid rgba(255,255,255,0.20) !important;
+}
+
+/* Fix 3: Menu da conta — remover fundo branco */
+.account-menu-list,
+.account-menu,
+[class*="account-menu"],
+[class*="account-panel"],
+[class*="conta-panel"] {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 16px !important;
+}
+
+.account-menu-item,
+[class*="account-menu-item"],
+[class*="menu-item"] {
+  background: transparent !important;
+  color: #FFFFFF !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+.account-menu-item:hover,
+[class*="account-menu-item"]:hover {
+  background: rgba(255,255,255,0.05) !important;
+}
+
+[class*="menu-item"] p,
+[class*="menu-item"] small,
+[class*="menu-item"] span:not(:first-child) {
+  color: rgba(255,255,255,0.50) !important;
+}
+
+/* Fix 4: "Sem foto" — esconder texto */
+[class*="no-image-text"],
+[class*="sem-foto"],
+.produto-image-fallback-text {
+  display: none !important;
+}
+
+/* Fix 5: Bordas tracejadas → sólidas */
+[style*="dashed"],
+.categoria-horizontal-empty {
+  border-style: solid !important;
+  border-color: rgba(255,255,255,0.08) !important;
+  border-width: 1px !important;
+  background: rgba(255,255,255,0.03) !important;
+  color: rgba(255,255,255,0.35) !important;
+}
+
+/* Fix para section cards de categoria (Bebidas, Mercearia, etc) */
+.products-subcategory-section,
+.products-category-detail,
+[class*="subcategory-section"] {
+  background: rgba(255,255,255,0.04) !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 16px !important;
+  padding: 14px !important;
+  margin-bottom: 12px !important;
+}
+
+[class*="subcategory-section"] h2,
+[class*="subcategory-section"] h3 {
+  color: #FFFFFF !important;
+}
+
+/* Botão "Ver categoria" */
+[class*="ver-mais"],
+[class*="ver-categoria"],
+.vitrine-ver-mais {
+  background: rgba(226,184,74,0.15) !important;
+  border: 1px solid rgba(226,184,74,0.30) !important;
+  color: #E2B84A !important;
+  border-radius: 20px !important;
+  font-weight: 700 !important;
+}
+
+/* Fix 7: Badge "Em estoque" dark */
+.estoque-badge,
+.produto-stock-badge,
+[class*="stock-badge"],
+[class*="estoque"] {
+  background: rgba(90,228,167,0.12) !important;
+  color: #5AE4A7 !important;
+  border: none !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+}
+
+/* Fix 8: Toolbar de pedidos (filtros) */
+.orders-toolbar,
+.orders-toolbar-wrap,
+[class*="orders-toolbar"] {
+  background: transparent !important;
+}
+
+/* Busca de pedidos */
+.orders-search-wrap input,
+[class*="orders-search"] input {
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  color: #FFFFFF !important;
+}
+
+/* Fix: Product detail drawer */
+.product-detail-drawer {
+  background: #174A40 !important;
+}
+
+.product-detail-header {
+  color: #FFFFFF !important;
+}
+
+/* Fix: Loading states dark */
+[class*="loading"],
+[class*="carregando"] {
+  color: rgba(255,255,255,0.40) !important;
+}
+
+/* Fix: Seção hero na home - garantir transparência */
+.brand-section,
+.brand-logo,
+.home-hero-panel,
+.home-hero,
+.home-hero-clean,
+.home-hero-main {
+  background: transparent !important;
+}
+
+/* Fix: Separator lines */
+hr, .home-section-divider {
+  background: rgba(255,255,255,0.08) !important;
+  border: none !important;
+  height: 1px !important;
+}
+
+/* Fix: Checkout cards */
+.checkout-cart-layout,
+.checkout-delivery-layout,
+.checkout-payment-layout,
+.checkout-pix-layout,
+.checkout-revisao-layout {
+  background: transparent !important;
+}
+
+.checkout-cart-main,
+.checkout-delivery-main,
+.checkout-payment-main,
+.checkout-pix-main,
+.checkout-revisao-main {
+  background: rgba(255,255,255,0.07) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  backdrop-filter: blur(10px) !important;
+}
+
+/* Fix: Accessible focus rings */
+*:focus-visible {
+  outline-color: #E2B84A !important;
+}
+
+/* Fix: Scrollbar invisible */
+::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
 }

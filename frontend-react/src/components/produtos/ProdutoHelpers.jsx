@@ -22,9 +22,8 @@ export const ProdutoImageFallback = React.memo(function ProdutoImageFallback({ p
   return (
     <div className="produto-image-fallback" role="img" aria-label="Foto do produto">
       <span className="produto-image-fallback-icon" aria-hidden="true">
-        <Icon size={18} />
+        <Icon size={40} color="rgba(255,255,255,0.18)" />
       </span>
-      <span className="produto-image-fallback-text">Sem foto</span>
     </div>
   );
 });
