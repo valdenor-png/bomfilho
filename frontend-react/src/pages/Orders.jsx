@@ -1,3 +1,4 @@
+import React from 'react';
 // pages/Orders.jsx — Tela de pedidos
 // Props: orders (array da API), onViewDetails(orderId)
 // orders: [{id, date, status, total, items, payment_method}]

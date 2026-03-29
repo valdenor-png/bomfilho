@@ -1,3 +1,4 @@
+import React from 'react';
 // pages/Products.jsx — Catálogo de produtos
 // Props: cart, onAdd, onRemove, products (array da API), initialCategory
 

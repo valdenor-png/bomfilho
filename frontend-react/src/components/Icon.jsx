@@ -1,3 +1,4 @@
+import React from 'react';
 // components/Icon.jsx — Ícones SVG do BomFilho
 // Uso: <Icon name="cart" size={18} color="#E2B84A" />
 // Uso com fill: <Icon name="flame" size={14} color="#E2B84A" fill="#E2B84A" />

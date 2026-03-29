@@ -1,3 +1,4 @@
+import React from 'react';
 // components/FloatingCart.jsx — Barra flutuante dourada do carrinho
 // Props: itemCount, total, onClick
 

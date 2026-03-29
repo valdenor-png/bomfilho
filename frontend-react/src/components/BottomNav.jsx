@@ -1,3 +1,4 @@
+import React from 'react';
 // components/BottomNav.jsx — Navegação inferior
 // Props: active ("home"|"produtos"|"pedidos"|"conta"), onNavigate(screen)
 

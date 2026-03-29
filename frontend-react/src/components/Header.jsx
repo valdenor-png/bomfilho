@@ -1,3 +1,4 @@
+import React from 'react';
 // components/Header.jsx — Header do BomFilho
 // Props: cartCount, onCartClick, scrolled
 // O scrolled deve ser controlado pelo pai com useEffect no scroll

@@ -1,3 +1,4 @@
+import React from 'react';
 // pages/Home.jsx — Tela inicial do BomFilho
 // Props: cart (objeto {id:qty}), onAdd(id), onRemove(id), onGoProducts(), onGoCategory(catId), products (array)
 // products vem da API: [{id, name, description, price, oldPrice?, category, tag?, image_url?}]

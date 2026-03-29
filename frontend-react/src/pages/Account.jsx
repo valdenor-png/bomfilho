@@ -1,3 +1,4 @@
+import React from 'react';
 // pages/Account.jsx — Tela Minha Conta
 // Props: user (null ou {name, initials}), onLogin, onLogout
 

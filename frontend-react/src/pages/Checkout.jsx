@@ -1,3 +1,4 @@
+import React from 'react';
 // pages/Checkout.jsx — Checkout completo (4 etapas + confirmação)
 // Fluxo: Carrinho → Entrega → Verificação (espera admin) → Pagamento → Confirmado
 // Props: cart, products, updateQty(id, qty), removeItem(id), onGoHome

@@ -1,3 +1,4 @@
+import React from 'react';
 // components/ProductCard.jsx — Card de produto
 // Props: product, qty, onAdd(id), onRemove(id), compact
 // product: { id, name, description, price, oldPrice?, category, tag?, image_url? }
