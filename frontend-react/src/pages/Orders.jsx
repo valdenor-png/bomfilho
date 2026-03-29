@@ -1,104 +1,224 @@
 import React from 'react';
-// pages/Orders.jsx — Tela de pedidos
-// Props: orders (array da API), onViewDetails(orderId)
-// orders: [{id, date, status, total, items, payment_method}]
-
-import { colors, fonts, formatPrice } from '../theme';
+import { useState, useEffect } from 'react';
+import { colors, fonts, formatPrice, formatProductName } from '../theme';
 import Icon from '../components/Icon';
+import { getPedidos, getPedidoById, getMe } from '../lib/api';
 
-const statusStyles = {
-  pending: { bg: 'rgba(226,184,74,0.12)', color: '#E2B84A', border: 'rgba(226,184,74,0.25)', label: 'Pendente' },
-  accepted: { bg: 'rgba(226,184,74,0.12)', color: '#E2B84A', border: 'rgba(226,184,74,0.25)', label: 'Aceito' },
-  preparing: { bg: 'rgba(226,184,74,0.12)', color: '#E2B84A', border: 'rgba(226,184,74,0.25)', label: 'Preparando' },
-  delivered: { bg: 'rgba(90,228,167,0.10)', color: '#5AE4A7', border: 'rgba(90,228,167,0.25)', label: 'Entregue' },
-  cancelled: { bg: 'rgba(239,83,80,0.10)', color: '#EF5350', border: 'rgba(239,83,80,0.20)', label: 'Cancelado' },
+const statusMap = {
+  aguardando_revisao: { bg: 'rgba(226,184,74,0.12)', color: '#E2B84A', border: 'rgba(226,184,74,0.25)', label: 'Aguardando' },
+  pendente: { bg: 'rgba(226,184,74,0.12)', color: '#E2B84A', border: 'rgba(226,184,74,0.25)', label: 'Pendente' },
+  pagamento_recusado: { bg: 'rgba(239,83,80,0.12)', color: '#EF5350', border: 'rgba(239,83,80,0.25)', label: 'Pagamento recusado' },
+  pago: { bg: 'rgba(90,228,167,0.12)', color: '#5AE4A7', border: 'rgba(90,228,167,0.25)', label: 'Pago' },
+  preparando: { bg: 'rgba(90,228,167,0.12)', color: '#5AE4A7', border: 'rgba(90,228,167,0.25)', label: 'Preparando' },
+  enviado: { bg: 'rgba(59,130,246,0.12)', color: '#60A5FA', border: 'rgba(59,130,246,0.25)', label: 'Enviado' },
+  entregue: { bg: 'rgba(90,228,167,0.12)', color: '#5AE4A7', border: 'rgba(90,228,167,0.25)', label: 'Entregue' },
+  retirado: { bg: 'rgba(90,228,167,0.12)', color: '#5AE4A7', border: 'rgba(90,228,167,0.25)', label: 'Retirado' },
+  cancelado: { bg: 'rgba(239,83,80,0.12)', color: '#EF5350', border: 'rgba(239,83,80,0.25)', label: 'Cancelado' },
+  expirado: { bg: 'rgba(239,83,80,0.12)', color: '#EF5350', border: 'rgba(239,83,80,0.25)', label: 'Expirado' },
 };
 
-export default function Orders({ orders = [], onViewDetails }) {
-  if (orders.length === 0) {
-    return (
-      <div style={{ padding: '20px 16px' }}>
-        <h1 style={{ fontSize: 17, fontWeight: 800, color: colors.white, margin: '0 0 4px', fontFamily: fonts.text }}>
-          Pedidos
-        </h1>
-        <p style={{ fontSize: 11, color: colors.textMuted, marginBottom: 20, fontFamily: fonts.text }}>
-          Acompanhe o andamento de cada compra
-        </p>
-        <div style={{
-          background: colors.card, border: `1px solid ${colors.border}`,
-          borderRadius: 14, padding: 24, textAlign: 'center',
-        }}>
-          <Icon name="clipboard" size={36} color={colors.textMuted} />
-          <p style={{ fontSize: 14, fontWeight: 700, color: colors.white, marginTop: 10, fontFamily: fonts.text }}>
-            Nenhum pedido ainda
-          </p>
-          <p style={{ fontSize: 11, color: colors.textMuted, marginTop: 4, fontFamily: fonts.text }}>
-            Faca sua primeira compra!
-          </p>
-        </div>
-      </div>
-    );
-  }
+function getStatus(status) {
+  const s = String(status || '').toLowerCase();
+  return statusMap[s] || { bg: colors.card, color: colors.textMuted, border: colors.border, label: status || 'Desconhecido' };
+}
+
+function formatDate(date) {
+  if (!date) return '';
+  const d = new Date(date);
+  return d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+export default function Orders() {
+  const [pedidos, setPedidos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loggedIn, setLoggedIn] = useState(null);
+  const [expanded, setExpanded] = useState(null);
+  const [detalhes, setDetalhes] = useState({});
+  const [filter, setFilter] = useState('todos');
+
+  useEffect(() => {
+    getMe()
+      .then(() => {
+        setLoggedIn(true);
+        return getPedidos({ page: 1, limit: 20 });
+      })
+      .then((data) => setPedidos(data.pedidos || []))
+      .catch(() => setLoggedIn(false))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleExpand = async (id) => {
+    if (expanded === id) { setExpanded(null); return; }
+    setExpanded(id);
+    if (!detalhes[id]) {
+      try {
+        const data = await getPedidoById(id);
+        setDetalhes(prev => ({ ...prev, [id]: data }));
+      } catch {}
+    }
+  };
+
+  const filters = [
+    { id: 'todos', label: 'Todos' },
+    { id: 'andamento', label: 'Em andamento' },
+    { id: 'entregues', label: 'Entregues' },
+    { id: 'cancelados', label: 'Cancelados' },
+  ];
+
+  const filtered = pedidos.filter(p => {
+    const s = String(p.status || '').toLowerCase();
+    if (filter === 'todos') return true;
+    if (filter === 'andamento') return ['aguardando_revisao', 'pendente', 'pago', 'preparando', 'enviado'].includes(s);
+    if (filter === 'entregues') return ['entregue', 'retirado'].includes(s);
+    if (filter === 'cancelados') return ['cancelado', 'expirado', 'pagamento_recusado'].includes(s);
+    return true;
+  });
+
+  if (loading) return (
+    <div style={{ padding: '40px 16px', textAlign: 'center' }}>
+      <p style={{ color: colors.textMuted }}>Carregando...</p>
+    </div>
+  );
+
+  if (!loggedIn) return (
+    <div style={{ padding: '40px 16px', textAlign: 'center' }}>
+      <Icon name="clipboard" size={36} color={colors.textMuted} />
+      <p style={{ fontSize: 15, fontWeight: 800, color: colors.white, margin: '12px 0 4px', fontFamily: fonts.text }}>
+        Seus pedidos
+      </p>
+      <p style={{ fontSize: 12, color: colors.textMuted, fontFamily: fonts.text }}>
+        Faça login para ver seus pedidos
+      </p>
+    </div>
+  );
 
   return (
     <div style={{ padding: '16px' }}>
       <h1 style={{ fontSize: 17, fontWeight: 800, color: colors.white, margin: '0 0 4px', fontFamily: fonts.text }}>
         Pedidos
       </h1>
-      <p style={{ fontSize: 11, color: colors.textMuted, marginBottom: 14, fontFamily: fonts.text }}>
-        Acompanhe o andamento de cada compra
+      <p style={{ fontSize: 11, color: colors.textMuted, marginBottom: 12, fontFamily: fonts.text }}>
+        {pedidos.length} pedido{pedidos.length !== 1 ? 's' : ''} no total
       </p>
 
-      {orders.map(order => {
-        const st = statusStyles[order.status] || statusStyles.pending;
-        return (
-          <div key={order.id} style={{
-            background: colors.card, border: `1px solid ${colors.border}`,
-            borderRadius: 14, padding: 14, marginBottom: 10,
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <span style={{ fontSize: 14, fontWeight: 800, color: colors.white, fontFamily: fonts.text }}>
-                Pedido <span style={{ fontFamily: fonts.number }}>#{order.id}</span>
-              </span>
-              <span style={{
-                fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 5,
-                background: st.bg, color: st.color, border: `1px solid ${st.border}`,
+      {/* Filtros */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto' }}>
+        {filters.map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)} style={{
+            padding: '7px 14px', borderRadius: 20, whiteSpace: 'nowrap',
+            background: filter === f.id ? colors.gold : colors.card,
+            border: filter === f.id ? 'none' : `1px solid ${colors.border}`,
+            color: filter === f.id ? colors.bgDeep : colors.textSecondary,
+            fontWeight: 700, fontSize: 11, cursor: 'pointer', fontFamily: fonts.text,
+            flexShrink: 0,
+          }}>{f.label}</button>
+        ))}
+      </div>
+
+      {/* Lista */}
+      {filtered.length === 0 ? (
+        <div style={{
+          background: colors.card, border: `1px solid ${colors.border}`,
+          borderRadius: 14, padding: 24, textAlign: 'center',
+        }}>
+          <Icon name="clipboard" size={28} color={colors.textMuted} />
+          <p style={{ fontSize: 13, fontWeight: 700, color: colors.white, margin: '8px 0 4px', fontFamily: fonts.text }}>
+            Nenhum pedido
+          </p>
+          <p style={{ fontSize: 11, color: colors.textMuted }}>
+            {filter === 'todos' ? 'Faça sua primeira compra!' : 'Nenhum pedido nesta categoria'}
+          </p>
+        </div>
+      ) : (
+        filtered.map((pedido) => {
+          const st = getStatus(pedido.status);
+          const isExpanded = expanded === pedido.id;
+          const det = detalhes[pedido.id];
+          const itens = det?.itens || det?.pedido_itens || [];
+
+          return (
+            <div key={pedido.id} style={{
+              background: colors.card, border: `1px solid ${colors.border}`,
+              borderRadius: 14, marginBottom: 8, overflow: 'hidden',
+            }}>
+              {/* Header do pedido */}
+              <button onClick={() => handleExpand(pedido.id)} style={{
+                width: '100%', padding: '12px 14px', border: 'none',
+                background: 'transparent', cursor: 'pointer', textAlign: 'left',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
               }}>
-                {st.label}
-              </span>
-            </div>
-            <p style={{ fontSize: 10, color: colors.textMuted, marginBottom: 8, fontFamily: fonts.text }}>
-              {order.date}
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: fonts.text }}>
-                {order.payment_method} · {order.items?.length || 0} itens
-              </span>
-              <span style={{ fontFamily: fonts.number, fontWeight: 800, fontSize: 14, color: colors.gold }}>
-                {formatPrice(order.total)}
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-              <button onClick={() => onViewDetails?.(order.id)} style={{
-                flex: 1, padding: 9, background: 'transparent',
-                border: `1px solid ${colors.goldBorder}`, borderRadius: 10,
-                color: colors.gold, fontWeight: 700, fontSize: 11,
-                cursor: 'pointer', fontFamily: fonts.text,
-              }}>
-                Ver detalhes
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: colors.white, fontFamily: fonts.text }}>
+                      Pedido <span style={{ fontFamily: fonts.number }}>#{pedido.id}</span>
+                    </span>
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                      background: st.bg, color: st.color, border: `1px solid ${st.border}`,
+                    }}>{st.label}</span>
+                  </div>
+                  <p style={{ fontSize: 10, color: colors.textMuted, margin: 0, fontFamily: fonts.text }}>
+                    {formatDate(pedido.criado_em)}
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontFamily: fonts.number, fontWeight: 900, fontSize: 15, color: colors.gold }}>
+                    {formatPrice(Number(pedido.total || 0))}
+                  </span>
+                  <p style={{ fontSize: 9, color: colors.textMuted, margin: '2px 0 0', fontFamily: fonts.text }}>
+                    {pedido.forma_pagamento === 'pix' ? 'PIX' : pedido.forma_pagamento === 'credito' ? 'Crédito' : pedido.forma_pagamento === 'debito' ? 'Débito' : pedido.forma_pagamento || ''}
+                    {pedido.tipo_entrega === 'retirada' ? ' · Retirada' : ' · Entrega'}
+                  </p>
+                </div>
               </button>
-              <button style={{
-                flex: 1, padding: 9, background: colors.card,
-                border: `1px solid ${colors.border}`, borderRadius: 10,
-                color: colors.white, fontWeight: 700, fontSize: 11,
-                cursor: 'pointer', fontFamily: fonts.text,
-              }}>
-                Pedir novamente
-              </button>
+
+              {/* Detalhes expandidos */}
+              {isExpanded && (
+                <div style={{ padding: '0 14px 14px', borderTop: `1px solid ${colors.border}` }}>
+                  {itens.length > 0 ? (
+                    <div style={{ marginTop: 10 }}>
+                      {itens.map((item, i) => (
+                        <div key={i} style={{
+                          display: 'flex', justifyContent: 'space-between',
+                          padding: '5px 0', borderBottom: i < itens.length - 1 ? `1px solid ${colors.border}` : 'none',
+                        }}>
+                          <span style={{ fontSize: 11, color: colors.textSecondary, fontFamily: fonts.text }}>
+                            <span style={{ fontFamily: fonts.number }}>{item.quantidade}x</span>{' '}
+                            {formatProductName(item.nome_produto || item.nome || 'Item')}
+                          </span>
+                          <span style={{ fontSize: 11, fontFamily: fonts.number, color: colors.gold, fontWeight: 700 }}>
+                            {formatPrice(Number(item.subtotal || item.preco || 0))}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: 11, color: colors.textMuted, margin: '8px 0 0', fontStyle: 'italic' }}>
+                      Carregando itens...
+                    </p>
+                  )}
+
+                  {/* Botões */}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                    <button onClick={() => window.open(`https://wa.me/5591999652790?text=Olá, sobre meu pedido %23${pedido.id}`, '_blank')} style={{
+                      flex: 1, padding: 10, borderRadius: 10,
+                      background: 'transparent', border: `1px solid ${colors.gold}`,
+                      color: colors.gold, fontWeight: 700, fontSize: 11,
+                      cursor: 'pointer', fontFamily: fonts.text,
+                    }}>Ajuda</button>
+                    <button onClick={() => handleExpand(null)} style={{
+                      flex: 1, padding: 10, borderRadius: 10,
+                      background: colors.card, border: `1px solid ${colors.border}`,
+                      color: colors.white, fontWeight: 700, fontSize: 11,
+                      cursor: 'pointer', fontFamily: fonts.text,
+                    }}>Fechar</button>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </div>
   );
 }
