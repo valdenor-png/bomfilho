@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { IconPrev as ChevronLeft } from '../../icons';
 
 function podeVoltarHistorico() {
   if (typeof window === 'undefined') {
@@ -57,7 +58,7 @@ export default function InternalTopBar({
           onClick={handleBack}
           aria-label={backLabel}
         >
-          <span aria-hidden="true">←</span>
+          <ChevronLeft size={20} strokeWidth={2.5} aria-hidden="true" />
           {!backIconOnly ? <span>Voltar</span> : null}
         </button>
       ) : null}
