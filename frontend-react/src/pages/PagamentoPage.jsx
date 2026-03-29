@@ -79,6 +79,7 @@ import PaymentStep from '../components/checkout/PaymentStep';
 import MerchantReviewStep from '../components/checkout/MerchantReviewStep';
 import PixPaymentStep from '../components/checkout/PixPaymentStep';
 import OrderStatusStep from '../components/checkout/OrderStatusStep';
+import CheckoutProgressBar from '../components/checkout/CheckoutProgressBar';
 import InternalTopBar from '../components/navigation/InternalTopBar';
 
 const CHECKOUT_ENDERECO_CACHE_KEY = 'bf_checkout_endereco_preferido';
@@ -2696,7 +2697,7 @@ export default function PagamentoPage() {
       <InternalTopBar
         className={`checkout-stage-header ${etapaAtual === ETAPAS.ENTREGA ? 'is-delivery-stage' : ''}`.trim()}
         title={tituloEtapaAtual}
-        subtitle={subtituloEtapaAtualTexto}
+        subtitle=""
         onBack={handleVoltarEtapaAtual}
         backIconOnly
         centerTitle
@@ -2706,6 +2707,10 @@ export default function PagamentoPage() {
         fallbackTo="/produtos"
         backLabel="Voltar para etapa anterior"
       />
+
+      {etapaAtual !== ETAPAS.STATUS ? (
+        <CheckoutProgressBar etapaAtual={etapaAtual} />
+      ) : null}
 
       {erro ? (
         <article className="checkout-inline-feedback is-error" role="alert">
