@@ -6,6 +6,8 @@ import React from 'react';
 import { colors, fonts, formatPrice } from '../theme';
 import Icon from '../components/Icon';
 import ProductCard from '../components/ProductCard';
+import KitCard from '../components/KitCard';
+import { kits } from '../data/kits';
 
 const promos = [
   { title: 'PRIMEIRA COMPRA', subtitle: '20% OFF com Pix', code: 'BOM20', dark: true },
@@ -133,6 +135,28 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
             <Icon name="grid" size={20} color={colors.gold} strokeWidth={1.5} />
             <span style={{ fontSize: 9, fontWeight: 700, color: colors.gold }}>Ver tudo</span>
           </button>
+        </div>
+      </div>
+
+      {/* Kits Prontos */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <h2 style={{
+            fontSize: 13, fontWeight: 800, color: colors.white,
+            display: 'flex', alignItems: 'center', gap: 4, fontFamily: fonts.text,
+          }}>
+            {'\u{1F381}'} Kits Prontos
+          </h2>
+          <span style={{ fontSize: 10, color: colors.gold, fontWeight: 700 }}>Economize</span>
+        </div>
+        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4 }}>
+          {kits.map(kit => (
+            <div key={kit.id} style={{ minWidth: 180, maxWidth: 180, flex: '0 0 auto' }}>
+              <KitCard kit={kit} compact onAdd={(k) => {
+                k.items.forEach(item => onAdd(item.productId));
+              }} />
+            </div>
+          ))}
         </div>
       </div>
 

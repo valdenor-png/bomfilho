@@ -10,6 +10,7 @@ import Icon, { categoryIcons } from '../components/Icon';
 import SaveCartCTA from '../components/cart/SaveCartCTA';
 import SaveCartModal from '../components/cart/SaveCartModal';
 import { useSavedLists } from '../hooks/useSavedLists';
+import DeliverySlots, { DayPicker } from '../components/DeliverySlots';
 
 const stepLabels = ['Carrinho', 'Entrega', 'Verificar', 'Pagar'];
 
@@ -150,9 +151,12 @@ function CartStep({ cart, products, updateQty, onNext }) {
 
 /* ===== STEP 2: ENTREGA ===== */
 function DeliveryStep({ delivery, setDelivery, onNext, onBack }) {
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedSlot, setSelectedSlot] = useState('');
+
   const options = [
-    { id: 'loja', label: 'Retirada na loja', desc: 'Gratis | 20-40min', icon: 'store' },
-    { id: 'bike', label: 'Entrega bike', desc: 'R$ 5 | 30-60min', icon: 'truck' },
+    { id: 'loja', label: 'Retirada na loja', desc: 'Gratis', icon: 'store' },
+    { id: 'bike', label: 'Entrega bike', desc: 'R$ 5,00', icon: 'truck' },
   ];
 
   return (
@@ -192,17 +196,28 @@ function DeliveryStep({ delivery, setDelivery, onNext, onBack }) {
           </button>
         );
       })}
-      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+
+      {/* Horário de entrega/retirada */}
+      <p style={{ fontSize: 13, fontWeight: 700, color: colors.white, margin: '14px 0 8px', fontFamily: fonts.text }}>
+        Quando quer {delivery === 'loja' ? 'retirar' : 'receber'}?
+      </p>
+      <DayPicker selected={selectedDate} onSelect={setSelectedDate} />
+      <DeliverySlots selected={selectedSlot} onSelect={setSelectedSlot} />
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
         <button onClick={onBack} style={{
           flex: 1, padding: 12, background: colors.card,
           border: `1px solid ${colors.border}`, borderRadius: 12,
           color: colors.white, fontWeight: 700, fontSize: 12,
           cursor: 'pointer', fontFamily: fonts.text,
         }}>Voltar</button>
-        <button onClick={onNext} style={{
-          flex: 2, padding: 12, background: colors.gold, border: 'none',
-          borderRadius: 12, color: colors.bgDeep, fontWeight: 800, fontSize: 12,
-          cursor: 'pointer', fontFamily: fonts.text,
+        <button onClick={onNext} disabled={!selectedSlot} style={{
+          flex: 2, padding: 12,
+          background: selectedSlot ? colors.gold : 'rgba(226,184,74,0.3)',
+          border: 'none', borderRadius: 12, color: colors.bgDeep,
+          fontWeight: 800, fontSize: 12,
+          cursor: selectedSlot ? 'pointer' : 'default',
+          fontFamily: fonts.text, opacity: selectedSlot ? 1 : 0.5,
         }}>Enviar pedido</button>
       </div>
     </div>
