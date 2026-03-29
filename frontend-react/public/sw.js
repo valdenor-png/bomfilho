@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bomfilho-v1';
+const CACHE_NAME = 'bomfilho-v2';
 const STATIC_ASSETS = ['/', '/produtos', '/img/icone_oficial.png'];
 
 self.addEventListener('install', (event) => {
@@ -19,7 +19,14 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-  if (event.request.url.includes('/api/')) return;
+
+  const url = event.request.url;
+
+  // Skip external URLs — let the browser handle them directly
+  if (!url.startsWith(self.location.origin)) return;
+
+  // Skip API calls
+  if (url.includes('/api/')) return;
 
   event.respondWith(
     fetch(event.request)
