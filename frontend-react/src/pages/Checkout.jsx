@@ -500,19 +500,29 @@ export default function Checkout({ cart, products, updateQty, removeItem, onGoHo
     <div>
       {/* Header do checkout */}
       <div style={{ padding: '10px 16px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        {step > 0 && step < 4 ? (
-          <button onClick={back} style={{
-            width: 30, height: 30, borderRadius: 8,
+        {step === 0 ? (
+          <button onClick={onGoHome} style={{
+            width: 34, height: 34, borderRadius: 10,
             background: colors.card, border: `1px solid ${colors.border}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-          }}>
-            <Icon name="back" size={13} color={colors.textSecondary} />
+          }} aria-label="Fechar carrinho">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textSecondary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
           </button>
-        ) : <div style={{ width: 30 }} />}
+        ) : step < 4 ? (
+          <button onClick={back} style={{
+            width: 34, height: 34, borderRadius: 10,
+            background: colors.card, border: `1px solid ${colors.border}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }} aria-label="Voltar">
+            <Icon name="back" size={14} color={colors.textSecondary} />
+          </button>
+        ) : <div style={{ width: 34 }} />}
         <h1 style={{ fontSize: 15, fontWeight: 800, color: colors.white, margin: 0, fontFamily: fonts.text }}>
           {titles[step]}
         </h1>
-        <div style={{ width: 30 }} />
+        <div style={{ width: 34 }} />
       </div>
 
       {/* Progress bar */}

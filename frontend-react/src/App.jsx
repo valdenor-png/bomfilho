@@ -8,7 +8,7 @@ import { colors } from './theme';
 // New design components
 import Header from './components/Header';
 import BottomNav from './components/BottomNav';
-import FloatingCart from './components/FloatingCart';
+// FloatingCart removed — using header cart icon instead
 import Home from './pages/Home';
 import Products from './pages/Products';
 import Orders from './pages/Orders';
@@ -171,7 +171,7 @@ export default function App() {
       ) : null}
 
       {/* Main content */}
-      <main style={{ paddingBottom: cartCount > 0 && !isPagamentoRoute ? 140 : 72 }}>
+      <main style={{ paddingBottom: 72 }}>
         <ErrorBoundary resetKeys={[location.pathname]}>
           <Suspense fallback={<LoadingFallback />}>
             <Routes>
@@ -223,15 +223,6 @@ export default function App() {
           </Suspense>
         </ErrorBoundary>
       </main>
-
-      {/* Floating cart bar — only when cart has items and not on checkout */}
-      {cartCount > 0 && !isPagamentoRoute ? (
-        <FloatingCart
-          itemCount={cartCount}
-          total={cartTotal}
-          onClick={handleCartClick}
-        />
-      ) : null}
 
       {/* Bottom nav — hide on checkout */}
       {!isPagamentoRoute ? (
