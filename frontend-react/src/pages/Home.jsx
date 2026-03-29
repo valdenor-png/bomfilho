@@ -3,12 +3,16 @@ import React from 'react';
 // Props: cart (objeto {id:qty}), onAdd(id), onRemove(id), onGoProducts(), onGoCategory(catId), products (array)
 // products vem da API: [{id, name, description, price, oldPrice?, category, tag?, image_url?}]
 
+import { useState, useEffect, useRef } from 'react';
 import { colors, fonts, formatPrice } from '../theme';
 import Icon from '../components/Icon';
 import ProductCard from '../components/ProductCard';
 import KitCard from '../components/KitCard';
 import { kits } from '../data/kits';
 import { recipes } from '../data/recipes';
+import { useSmartSearch } from '../hooks/useSmartSearch';
+import SearchDropdown from '../components/search/SearchDropdown';
+import { sanitizeInput } from '../lib/sanitize';
 
 const promos = [
   { title: 'PRIMEIRA COMPRA', subtitle: '20% OFF com Pix', code: 'BOM20', dark: true },
@@ -26,7 +30,18 @@ const categoryList = [
 
 export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCategory, products = [] }) {
   const ofertas = products.filter(p => p.tag === 'Oferta' || p.oldPrice).slice(0, 8);
-  const recentes = products.slice(0, 4); // TODO: substituir por produtos recentes do localStorage
+  const recentes = products.slice(0, 4);
+  const searchBoxRef = useRef(null);
+  const { query, setQuery, suggestions, isOpen, setIsOpen, saveToHistory, removeFromHistory, clearSearch } = useSmartSearch(products);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
+  }, [setIsOpen]);
 
   return (
     <div style={{ padding: '0 16px' }}>
@@ -44,29 +59,63 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
       </div>
 
       {/* Busca */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 6, marginTop: 12,
-        background: colors.card, borderRadius: 11,
-        padding: '2px 3px 2px 11px', border: `1px solid ${colors.border}`,
-      }}>
-        <Icon name="search" size={14} color={colors.textMuted} />
-        <input
-          placeholder="Buscar: arroz, cafe, leite..."
-          style={{
-            flex: 1, border: 'none', outline: 'none', background: 'transparent',
-            fontSize: 12, color: colors.white, padding: '8px 0', fontFamily: fonts.text,
-          }}
-        />
-        <button
-          onClick={onGoProducts}
-          style={{
-            background: colors.gold, border: 'none', borderRadius: 8,
-            color: colors.bgDeep, padding: '8px 13px', cursor: 'pointer',
-            fontWeight: 800, fontSize: 11, fontFamily: fonts.text,
-          }}
-        >
-          Buscar
-        </button>
+      <div ref={searchBoxRef} style={{ position: 'relative', marginTop: 12 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'rgba(255,255,255,0.08)',
+          border: `1.5px solid ${isOpen ? 'rgba(226,184,74,0.4)' : 'rgba(255,255,255,0.1)'}`,
+          borderRadius: 14, padding: '0 14px', height: 46,
+          boxShadow: isOpen ? '0 0 0 3px rgba(226,184,74,0.08)' : 'none',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
+        }}>
+          <Icon name="search" size={16} color={isOpen ? colors.gold : 'rgba(255,255,255,0.4)'} />
+          <input
+            value={query}
+            onChange={e => { setQuery(sanitizeInput(e.target.value)); setIsOpen(true); }}
+            onFocus={() => setIsOpen(true)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && query.trim()) {
+                saveToHistory(query.trim());
+                setIsOpen(false);
+                onGoProducts();
+              }
+            }}
+            placeholder="O que voce procura?"
+            autoComplete="off"
+            style={{
+              flex: 1, border: 'none', outline: 'none', background: 'transparent',
+              fontSize: 14, color: colors.white, fontFamily: fonts.text, fontWeight: 500, minWidth: 0,
+            }}
+          />
+          {query ? (
+            <button onClick={() => { clearSearch(); }} style={{
+              width: 28, height: 28, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.1)', border: 'none',
+              color: 'rgba(255,255,255,0.5)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <Icon name="close" size={12} color="rgba(255,255,255,0.5)" />
+            </button>
+          ) : (
+            <button onClick={onGoProducts} style={{
+              background: colors.gold, border: 'none', borderRadius: 8,
+              color: colors.bgDeep, padding: '8px 13px', cursor: 'pointer',
+              fontWeight: 800, fontSize: 11, fontFamily: fonts.text, flexShrink: 0,
+            }}>
+              Buscar
+            </button>
+          )}
+        </div>
+        {isOpen && (
+          <SearchDropdown
+            sections={suggestions}
+            query={query}
+            onSelectProduct={(p) => { saveToHistory(p._dn || p.name || ''); setIsOpen(false); onAdd(p.id); }}
+            onSelectCategory={(cat) => { setIsOpen(false); onGoCategory(cat.toLowerCase()); }}
+            onSelectHistory={(term) => { setQuery(term); saveToHistory(term); setIsOpen(false); }}
+            onRemoveHistory={removeFromHistory}
+          />
+        )}
       </div>
 
       {/* Banners de promoção */}
