@@ -6,7 +6,7 @@ const { pool } = require('../lib/db');
 const logger = require('../lib/logger');
 
 function generateId() {
-  return crypto.randomBytes(4).toString('hex'); // 8 chars
+  return crypto.randomBytes(4).toString('hex');
 }
 
 module.exports = function createSharedCartsRoutes({ autenticarToken }) {
@@ -26,7 +26,7 @@ module.exports = function createSharedCartsRoutes({ autenticarToken }) {
 
       await pool.query(
         `INSERT INTO shared_carts (id, items, total, item_count, created_by)
-         VALUES ($1, $2, $3, $4, $5)`,
+         VALUES (?, ?, ?, ?, ?)`,
         [id, JSON.stringify(items), total || 0, item_count || items.length, userId]
       );
 
@@ -38,17 +38,16 @@ module.exports = function createSharedCartsRoutes({ autenticarToken }) {
     }
   });
 
-  // GET /api/shared-cart/:id — buscar carrinho compartilhado
+  // GET /api/shared-cart/:id
   router.get('/api/shared-cart/:id', async (req, res) => {
     try {
       const { id } = req.params;
-
       if (!id || id.length !== 8) {
         return res.status(400).json({ erro: 'ID invalido.' });
       }
 
       const [rows] = await pool.query(
-        `SELECT * FROM shared_carts WHERE id = $1 AND expires_at > NOW()`,
+        `SELECT * FROM shared_carts WHERE id = ? AND expires_at > NOW()`,
         [id]
       );
 
@@ -56,11 +55,7 @@ module.exports = function createSharedCartsRoutes({ autenticarToken }) {
         return res.status(404).json({ erro: 'Carrinho expirado ou nao encontrado.' });
       }
 
-      // Increment views
-      await pool.query(
-        `UPDATE shared_carts SET views = views + 1 WHERE id = $1`,
-        [id]
-      );
+      await pool.query(`UPDATE shared_carts SET views = views + 1 WHERE id = ?`, [id]);
 
       const cart = rows[0];
       res.json({
@@ -76,13 +71,10 @@ module.exports = function createSharedCartsRoutes({ autenticarToken }) {
     }
   });
 
-  // POST /api/shared-cart/:id/load — registrar que alguem carregou
+  // POST /api/shared-cart/:id/load
   router.post('/api/shared-cart/:id/load', async (req, res) => {
     try {
-      await pool.query(
-        `UPDATE shared_carts SET loads = loads + 1 WHERE id = $1`,
-        [req.params.id]
-      );
+      await pool.query(`UPDATE shared_carts SET loads = loads + 1 WHERE id = ?`, [req.params.id]);
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ erro: 'Erro.' });
