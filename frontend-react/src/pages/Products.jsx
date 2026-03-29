@@ -6,6 +6,7 @@ import ProductCard from '../components/ProductCard';
 import { sanitizeInput } from '../lib/sanitize';
 import { useSmartSearch } from '../hooks/useSmartSearch';
 import { SkeletonProductCard } from '../components/ui/Skeleton';
+import SearchDropdown from '../components/search/SearchDropdown';
 
 const MAX_PER_CATEGORY = 10;
 
@@ -74,7 +75,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
   const debounceRef = useRef(null);
   const searchBoxRef = useRef(null);
 
-  const { query, setQuery, suggestions, showSuggestions, setShowSuggestions, saveToHistory } = useSmartSearch(products);
+  const { query, setQuery, suggestions, isOpen, setIsOpen, saveToHistory, removeFromHistory, clearSearch } = useSmartSearch(products);
 
   useEffect(() => {
     if (initialCategory) setCategory(initialCategory);
@@ -97,11 +98,11 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query, onSearch]);
 
-  // Close suggestions on outside click
+  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e) => {
       if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) {
-        setShowSuggestions(false);
+        setIsOpen(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -110,23 +111,26 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
       document.removeEventListener('mousedown', handler);
       document.removeEventListener('touchstart', handler);
     };
-  }, [setShowSuggestions]);
+  }, [setIsOpen]);
 
-  const handleSuggestionClick = (s) => {
-    setQuery(s.text);
-    saveToHistory(s.text);
-    setShowSuggestions(false);
-    if (s.type === 'category') {
-      const cat = categories.find(c => c.name.toLowerCase() === s.text.toLowerCase());
-      if (cat) { setCategory(cat.id); setQuery(''); setSearchResults(null); }
-    }
+  const handleSelectProduct = (p) => {
+    const name = p._dn || p.name || p.nome || '';
+    saveToHistory(name);
+    setIsOpen(false);
+    // Scroll to product or add to cart
+    if (onAdd) onAdd(p.id);
   };
 
-  const handleSearchSubmit = () => {
-    if (query.trim()) {
-      saveToHistory(query.trim());
-      setShowSuggestions(false);
-    }
+  const handleSelectCategory = (catName) => {
+    const cat = categories.find(c => c.name.toLowerCase() === catName.toLowerCase());
+    if (cat) { setCategory(cat.id); setQuery(''); setSearchResults(null); }
+    setIsOpen(false);
+  };
+
+  const handleHistoryClick = (term) => {
+    setQuery(term);
+    saveToHistory(term);
+    setIsOpen(false);
   };
 
   const displayProducts = searchResults || products;
@@ -161,77 +165,47 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
       {/* Busca com autocomplete */}
       <div ref={searchBoxRef} style={{ position: 'relative', marginTop: 8 }}>
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          background: colors.card,
-          borderRadius: showSuggestions && suggestions.length > 0 && query ? '11px 11px 0 0' : 11,
-          padding: '2px 3px 2px 10px', border: `1px solid ${colors.border}`,
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'rgba(255,255,255,0.08)',
+          border: `1.5px solid ${isOpen ? 'rgba(226,184,74,0.4)' : 'rgba(255,255,255,0.1)'}`,
+          borderRadius: 14, padding: '0 14px', height: 46,
+          boxShadow: isOpen ? '0 0 0 3px rgba(226,184,74,0.08)' : 'none',
+          transition: 'border-color 0.15s, box-shadow 0.15s',
         }}>
-          <Icon name="search" size={13} color={colors.textMuted} />
+          <Icon name="search" size={16} color={isOpen ? colors.gold : 'rgba(255,255,255,0.4)'} />
           <input
             value={query}
-            onChange={e => { setQuery(sanitizeInput(e.target.value)); setShowSuggestions(true); }}
-            onFocus={() => setShowSuggestions(true)}
-            onKeyDown={e => { if (e.key === 'Enter') handleSearchSubmit(); }}
-            placeholder="Buscar produtos..."
+            onChange={e => { setQuery(sanitizeInput(e.target.value)); setIsOpen(true); }}
+            onFocus={() => setIsOpen(true)}
+            onKeyDown={e => { if (e.key === 'Enter' && query.trim()) { saveToHistory(query.trim()); setIsOpen(false); } }}
+            placeholder="O que voce procura?"
+            autoComplete="off"
             style={{
               flex: 1, border: 'none', outline: 'none', background: 'transparent',
-              fontSize: 12, color: colors.white, padding: '7px 0', fontFamily: fonts.text,
+              fontSize: 14, color: colors.white, fontFamily: fonts.text, fontWeight: 500, minWidth: 0,
             }}
           />
           {query && (
-            <button onClick={() => { setQuery(''); setSearchResults(null); setShowSuggestions(false); }} style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: colors.textMuted, fontSize: 15, padding: '2px 6px',
-            }}>x</button>
+            <button onClick={() => { clearSearch(); setSearchResults(null); }} style={{
+              width: 28, height: 28, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.1)', border: 'none',
+              color: 'rgba(255,255,255,0.5)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              <Icon name="close" size={12} color="rgba(255,255,255,0.5)" />
+            </button>
           )}
         </div>
 
-        {/* Suggestions dropdown */}
-        {showSuggestions && suggestions.length > 0 && query && (
-          <div style={{
-            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
-            background: colors.bgDark || '#132E27',
-            border: `1px solid ${colors.border}`, borderTop: 'none',
-            borderRadius: '0 0 14px 14px',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-            maxHeight: 260, overflowY: 'auto',
-          }}>
-            {suggestions.map((s, i) => (
-              <button
-                key={i}
-                onClick={() => handleSuggestionClick(s)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '10px 14px', cursor: 'pointer',
-                  fontSize: 12, color: colors.white, width: '100%',
-                  background: 'transparent', border: 'none', textAlign: 'left',
-                  fontFamily: fonts.text,
-                  borderBottom: i < suggestions.length - 1 ? `1px solid rgba(255,255,255,0.05)` : 'none',
-                }}
-              >
-                <span style={{ fontSize: 13, width: 20, textAlign: 'center', flexShrink: 0 }}>
-                  {s.type === 'history' ? '\u{1F552}' : s.type === 'category' ? '\u{1F4C2}' : '\u{1F6D2}'}
-                </span>
-                <span style={{
-                  flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  color: s.type === 'history' ? 'rgba(255,255,255,0.6)' : colors.white,
-                }}>
-                  {s.text}
-                </span>
-                {s.type === 'product' && s.price != null && (
-                  <span style={{
-                    fontFamily: fonts.number, fontWeight: 700,
-                    color: colors.gold, fontSize: 12, flexShrink: 0,
-                  }}>
-                    {formatPrice(s.price)}
-                  </span>
-                )}
-                {s.type === 'category' && (
-                  <span style={{ fontSize: 10, color: colors.textMuted, flexShrink: 0 }}>categoria</span>
-                )}
-              </button>
-            ))}
-          </div>
+        {isOpen && (
+          <SearchDropdown
+            sections={suggestions}
+            query={query}
+            onSelectProduct={handleSelectProduct}
+            onSelectCategory={handleSelectCategory}
+            onSelectHistory={handleHistoryClick}
+            onRemoveHistory={removeFromHistory}
+          />
         )}
       </div>
 
