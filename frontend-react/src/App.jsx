@@ -14,8 +14,10 @@ import Products from './pages/Products';
 import Orders from './pages/Orders';
 import Account from './pages/Account';
 
-// Legacy components (checkout + admin — keep working)
-const PagamentoPage = lazy(() => import('./pages/PagamentoPage'));
+// New checkout from prototype
+import Checkout from './pages/Checkout';
+// Legacy checkout kept as backup
+const PagamentoPageLegacy = lazy(() => import('./pages/PagamentoPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const AdminGerenciaPage = lazy(() => import('./pages/AdminGerenciaPage'));
 const PedidosPage = lazy(() => import('./pages/PedidosPage'));
@@ -38,7 +40,7 @@ function LoadingFallback() {
 }
 
 export default function App() {
-  const { itens, resumo, addItem, removeItem } = useCart();
+  const { itens, resumo, addItem, updateItemQuantity, removeItem } = useCart();
   const location = useLocation();
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
@@ -196,8 +198,22 @@ export default function App() {
               <Route path="/pedidos" element={<Orders />} />
               <Route path="/conta" element={<Account />} />
 
-              {/* Legacy pages — keep working */}
-              <Route path="/pagamento" element={<PagamentoPage />} />
+              {/* New checkout from prototype */}
+              <Route path="/pagamento" element={
+                <Checkout
+                  cart={cart}
+                  products={products}
+                  updateQty={(id, qty) => {
+                    if (qty <= 0) {
+                      removeItem(Number(id));
+                    } else {
+                      updateItemQuantity(Number(id), qty);
+                    }
+                  }}
+                  removeItem={handleRemove}
+                  onGoHome={() => { navigate('/'); window.scrollTo(0, 0); }}
+                />
+              } />
               <Route path="/sobre" element={<SobrePage />} />
               <Route path="/politica-de-privacidade" element={<PoliticaPrivacidadePage />} />
               <Route path="/termos-de-uso" element={<TermosUsoPage />} />
