@@ -5,6 +5,7 @@ import Icon, { categoryIcons } from '../components/Icon';
 import ProductCard from '../components/ProductCard';
 import { sanitizeInput } from '../lib/sanitize';
 import { useSmartSearch } from '../hooks/useSmartSearch';
+import { SkeletonProductCard } from '../components/ui/Skeleton';
 
 const MAX_PER_CATEGORY = 10;
 
@@ -281,8 +282,19 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
         {searching ? 'Buscando...' : `${totalFiltered} produtos`}
       </p>
 
+      {/* Skeleton loading */}
+      {searching && (
+        <div style={{ display: 'flex', gap: 8, overflowX: 'hidden' }}>
+          {[1,2,3].map(i => (
+            <div key={i} style={{ minWidth: 140, maxWidth: 140, flexShrink: 0 }}>
+              <SkeletonProductCard />
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Listagem */}
-      {totalFiltered === 0 ? (
+      {totalFiltered === 0 && !searching ? (
         <div style={{ textAlign: 'center', padding: '30px 0' }}>
           <Icon name="search" size={36} color={colors.textMuted} />
           <p style={{ fontSize: 13, fontWeight: 700, color: colors.white, marginTop: 8 }}>

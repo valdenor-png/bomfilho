@@ -10,6 +10,10 @@ import Header from './components/Header';
 import BottomNav from './components/BottomNav';
 import Toast from './components/Toast';
 import LGPDBanner from './components/ui/LGPDBanner';
+import StoreClosedBanner from './components/ui/StoreClosedBanner';
+import OfflineBanner from './components/ui/OfflineBanner';
+import { SkeletonStyles } from './components/ui/Skeleton';
+import NotFoundPage from './pages/NotFoundPage';
 import { getMainCategory } from './lib/formatProductName';
 import Home from './pages/Home';
 import Products from './pages/Products';
@@ -205,6 +209,11 @@ export default function App() {
       WebkitOverflowScrolling: 'touch',
       margin: '0 auto',
     }}>
+      {/* Offline + Store closed banners */}
+      <OfflineBanner />
+      <StoreClosedBanner />
+      <SkeletonStyles />
+
       {/* Header — hide on checkout */}
       {!isPagamentoRoute ? (
         <Header cartCount={cartCount} onCartClick={handleCartClick} scrolled={scrolled} />
@@ -261,6 +270,7 @@ export default function App() {
               <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
               <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
               <Route path="/c/:shareId" element={<SharedCartPage onAdd={handleAdd} products={products} />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>

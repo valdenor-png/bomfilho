@@ -12,6 +12,9 @@ import { createSharedCart, validarCupom } from '../lib/api';
 import SaveCartModal from '../components/cart/SaveCartModal';
 import { useSavedLists } from '../hooks/useSavedLists';
 import DeliverySlots, { DayPicker } from '../components/DeliverySlots';
+import { validateCartMinimum, ORDER_RULES } from '../lib/orderRules';
+import { getDeliveryEstimate } from '../lib/deliveryEstimate';
+import { getStoreStatus } from '../lib/storeHours';
 
 const stepLabels = ['Carrinho', 'Entrega', 'Verificar', 'Pagar'];
 
@@ -249,12 +252,61 @@ function CartStep({ cart, products, updateQty, onNext }) {
         </div>
       </div>
 
-      <button onClick={onNext} style={{
-        width: '100%', marginTop: 12, padding: 13,
-        background: colors.gold, border: 'none', borderRadius: 12,
-        color: colors.bgDeep, fontWeight: 800, fontSize: 13,
-        cursor: 'pointer', fontFamily: fonts.text,
-      }}>
+      {/* Pedido minimo + frete gratis */}
+      {(() => {
+        const validation = validateCartMinimum(total, 'retirada');
+        const freeShipMissing = ORDER_RULES.freeShippingThreshold - total;
+        return (
+          <>
+            {!validation.canProceed && (
+              <div style={{
+                padding: 12, borderRadius: 12, marginTop: 10,
+                background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)',
+              }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#FBBF24', margin: '0 0 6px', fontFamily: fonts.text }}>
+                  {validation.message}
+                </p>
+                <div style={{ height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)' }}>
+                  <div style={{
+                    height: '100%', borderRadius: 3,
+                    background: 'linear-gradient(90deg, #FBBF24, #E2B84A)',
+                    width: `${Math.min((total / validation.minValue) * 100, 100)}%`,
+                    transition: 'width 0.3s ease',
+                  }} />
+                </div>
+              </div>
+            )}
+            {freeShipMissing > 0 && validation.canProceed && (
+              <div style={{
+                padding: '8px 12px', borderRadius: 10, marginTop: 8,
+                background: 'rgba(226,184,74,0.08)', border: `1px solid rgba(226,184,74,0.15)`,
+                color: colors.gold, fontSize: 11, fontWeight: 600, textAlign: 'center',
+                fontFamily: fonts.text,
+              }}>
+                Faltam {formatPrice(freeShipMissing)} para frete gratis!
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      <button
+        onClick={() => {
+          const store = getStoreStatus();
+          if (!store.isOpen) return;
+          const validation = validateCartMinimum(total, 'retirada');
+          if (!validation.canProceed) return;
+          onNext();
+        }}
+        disabled={!validateCartMinimum(total, 'retirada').canProceed}
+        style={{
+          width: '100%', marginTop: 12, padding: 13,
+          background: colors.gold, border: 'none', borderRadius: 12,
+          color: colors.bgDeep, fontWeight: 800, fontSize: 13,
+          cursor: 'pointer', fontFamily: fonts.text,
+          opacity: validateCartMinimum(total, 'retirada').canProceed ? 1 : 0.5,
+        }}
+      >
         Ir para entrega
       </button>
 
@@ -351,6 +403,19 @@ function DeliveryStep({ delivery, setDelivery, onNext, onBack }) {
           </button>
         );
       })}
+
+      {/* Tempo estimado */}
+      {delivery && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '9px 12px', borderRadius: 10, margin: '8px 0',
+          background: 'rgba(90,228,167,0.1)', border: '1px solid rgba(90,228,167,0.2)',
+          color: '#5AE4A7', fontSize: 12, fontWeight: 700, fontFamily: fonts.text,
+        }}>
+          <Icon name="clock" size={14} color="#5AE4A7" />
+          {getDeliveryEstimate(delivery === 'loja' ? 'retirada' : 'entrega', 5).label}
+        </div>
+      )}
 
       {/* Horário de entrega/retirada */}
       <p style={{ fontSize: 13, fontWeight: 700, color: colors.white, margin: '14px 0 8px', fontFamily: fonts.text }}>

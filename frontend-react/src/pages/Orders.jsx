@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { colors, fonts, formatPrice, formatProductName } from '../theme';
 import Icon from '../components/Icon';
 import { getPedidos, getPedidoById, getMe } from '../lib/api';
+import { SkeletonOrderCard } from '../components/ui/Skeleton';
 
 const statusMap = {
   aguardando_revisao: { bg: 'rgba(226,184,74,0.12)', color: '#E2B84A', border: 'rgba(226,184,74,0.25)', label: 'Aguardando' },
@@ -110,8 +111,8 @@ export default function Orders({ onAdd, products = [] }) {
   });
 
   if (loading) return (
-    <div style={{ padding: '40px 16px', textAlign: 'center' }}>
-      <p style={{ color: colors.textMuted }}>Carregando...</p>
+    <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {[1,2,3].map(i => <SkeletonOrderCard key={i} />)}
     </div>
   );
 

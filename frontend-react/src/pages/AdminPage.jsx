@@ -1097,6 +1097,12 @@ export default function AdminPage() {
         if (data?.admin?.usuario) {
           setAdminUsuario(String(data.admin.usuario));
         }
+        // Request browser notification permission
+        try {
+          if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+            Notification.requestPermission();
+          }
+        } catch {}
       } catch (error) {
         if (!ativo) {
           return;
@@ -1199,6 +1205,14 @@ export default function AdminPage() {
         setNovosPedidosDetectados(idsNovos.length);
         if (idsNovos.length > 0) {
           tocarSomNovoPedido();
+          try {
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              new Notification('Novo pedido!', {
+                body: `${idsNovos.length} pedido(s) novo(s) recebido(s)`,
+                icon: '/img/icone_oficial.png',
+              });
+            }
+          } catch {}
         }
       } else {
         setNovosPedidosDetectados(0);
