@@ -1,31 +1,82 @@
 /**
- * Normaliza nomes de produtos de CAIXA ALTA para Title Case legível.
- * Ex: "AGUA MIN INDAIA 20L ENTREGAR" → "Água Mineral Indaiá 20L Entregar"
+ * Normaliza nomes de produtos de CAIXA ALTA/abreviados para legível.
  */
+
+const removeWords = [
+  'entrega', 'levar', 'entregar', 'retornavel', 'top util',
+  'zein', 'bomba', 'n ', 'faor',
+];
+
+const expansions = {
+  'garr': 'Garrafão', 'garraf': 'Garrafão', 'garrafao': 'Garrafão', 'garrafaor': 'Garrafão',
+  'refrig': 'Refrigerante', 'min': 'Mineral', 'antart': 'Antarctica',
+  'abs': 'Absorvente', 'achoc': 'Achocolatado', 'liq': 'Líquido',
+  'lt': 'Lata', 'pc': 'Pacote', 'cx': 'Caixa', 'pct': 'Pacote',
+  'bco': 'Branco', 'tp1': 'Tipo 1', 'tp2': 'Tipo 2',
+  'autom': 'Automática', 'recarg': 'Recarga', 'trasp': 'Transparente',
+  'c/ab': 'Com Abas', 'und': 'Unidade', 'un': 'Unidade',
+  'desc': 'Descartável', 'orig': 'Original', 'trad': 'Tradicional',
+  'integ': 'Integral', 'desnat': 'Desnatado', 'semides': 'Semidesnatado',
+  'inst': 'Instantâneo', 'conc': 'Concentrado',
+  'plast': 'Plástico', 'ct': 'Cotton',
+  'not': 'Noturno', 'c/ab': 'Com Abas',
+};
+
 export default function formatProductName(name) {
   if (!name) return '';
-  return name
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-    // Unidades de medida em uppercase
-    .replace(/\b(Kg|Ml|Lt|Un|Und|20l|500ml|350ml|200ml|1l|5kg|800g|900ml|1kg|2kg|10kg)\b/gi, (m) => m.toUpperCase())
-    // Abreviações comuns
-    .replace(/\bRefrig\b/gi, 'Refrigerante')
-    .replace(/\bAntart\b/gi, 'Antarctica')
-    .replace(/\bMin\b/gi, 'Mineral')
-    .replace(/\bGarraf\b/gi, 'Garrafão')
-    .replace(/\bAchoc\b/gi, 'Achocolatado')
-    .replace(/\bLiq\b/gi, 'Líquido')
-    .replace(/\bAbs\b/gi, 'Absorvente')
-    .replace(/\bC\/ab\b/gi, 'Com Abas')
-    .replace(/\bBco\b/gi, 'Branco')
-    .replace(/\bTp1\b/gi, 'Tipo 1')
-    .replace(/\bCx\b/gi, 'Caixa')
-    .replace(/\bPct\b/gi, 'Pacote')
-    .replace(/\bGarrafao\b/gi, 'Garrafão')
-    .replace(/\bEntrega Levar\b/gi, 'Entrega')
-    .replace(/\bGarrafaor\b/gi, 'Garrafão')
-    .replace(/\bFaor\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+
+  let clean = name.toLowerCase();
+
+  // Remove palavras inúteis
+  removeWords.forEach(w => {
+    clean = clean.replace(new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), '');
+  });
+
+  // Expansões
+  Object.entries(expansions).forEach(([abbr, full]) => {
+    clean = clean.replace(new RegExp('\\b' + abbr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), full);
+  });
+
+  // Title Case
+  clean = clean.replace(/\b\w/g, c => c.toUpperCase());
+
+  // Unidades em uppercase
+  clean = clean.replace(
+    /\b(Kg|Ml|Lt|Un|Und|20l|25l|500ml|350ml|200ml|1l|5kg|1kg|2kg|10kg|800g|900ml|16un|8un)\b/gi,
+    m => m.toUpperCase()
+  );
+
+  // Limpar espaços
+  clean = clean.replace(/\s+/g, ' ').trim();
+
+  return clean;
+}
+
+/**
+ * Mapeia subcategorias do banco para categorias principais.
+ */
+export const categoryMap = {
+  'agua': 'bebidas', 'agua 20l': 'bebidas', 'agua mineral': 'bebidas',
+  'refrigerante': 'bebidas', 'refrigerantes': 'bebidas', 'suco': 'bebidas',
+  'sucos': 'bebidas', 'cerveja': 'bebidas', 'cervejas': 'bebidas',
+  'leite': 'bebidas', 'leites': 'bebidas', 'bebida': 'bebidas',
+  'bebidas': 'bebidas', 'bebidas alcoolicas': 'bebidas',
+  'arroz e feijao': 'mercearia', 'arroz': 'mercearia', 'feijao': 'mercearia',
+  'massa': 'mercearia', 'massas': 'mercearia', 'oleo': 'mercearia',
+  'cafe': 'mercearia', 'acucar': 'mercearia', 'mercearia': 'mercearia',
+  'biscoito': 'mercearia', 'biscoitos': 'mercearia', 'doces': 'mercearia',
+  'salgadinhos': 'mercearia', 'tempero': 'mercearia', 'molho': 'mercearia',
+  'fruta': 'hortifruti', 'verdura': 'hortifruti', 'legume': 'hortifruti',
+  'hortifruti': 'hortifruti', 'hortifrutigranjeiros': 'hortifruti',
+  'bebe': 'higiene', 'fralda': 'higiene', 'absorvente': 'higiene',
+  'sabonete': 'higiene', 'higiene': 'higiene', 'higiene pessoal': 'higiene',
+  'detergente': 'limpeza', 'sabao': 'limpeza', 'desinfetante': 'limpeza',
+  'limpeza': 'limpeza', 'produtos de limpeza': 'limpeza',
+  'frios': 'frios', 'frios e laticinios': 'frios', 'laticínios': 'frios',
+  'derivados lacteos': 'frios', 'leites fermentados': 'frios',
+};
+
+export function getMainCategory(subcat) {
+  if (!subcat) return 'outros';
+  return categoryMap[subcat.toLowerCase().trim()] || 'outros';
 }
