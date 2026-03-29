@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /pagamento
+Disallow: /api/
+Disallow: /c/
+
+Sitemap: https://bomfilho-delivery.vercel.app/sitemap.xml

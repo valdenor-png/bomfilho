@@ -14,6 +14,7 @@ import StoreClosedBanner from './components/ui/StoreClosedBanner';
 import OfflineBanner from './components/ui/OfflineBanner';
 import { SkeletonStyles } from './components/ui/Skeleton';
 import NotFoundPage from './pages/NotFoundPage';
+import InstallPWABanner from './components/ui/InstallPWABanner';
 import { getMainCategory } from './lib/formatProductName';
 import Home from './pages/Home';
 import Products from './pages/Products';
@@ -303,6 +304,9 @@ export default function App() {
 
       {/* LGPD consent banner */}
       <LGPDBanner />
+
+      {/* PWA install banner */}
+      <InstallPWABanner />
 
       {/* Bottom nav — hide on checkout */}
       {!isPagamentoRoute ? (

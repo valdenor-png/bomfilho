@@ -2,12 +2,111 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
+
+    <!-- SEO -->
+    <title>BomFilho Supermercado | Delivery em Castanhal - PA</title>
+    <meta name="description" content="Supermercado online em Castanhal-PA. Compre bebidas, mercearia, hortifruti, frios, higiene e limpeza com entrega rapida ou retire na loja. Pague com PIX." />
+    <meta name="keywords" content="supermercado, delivery, Castanhal, Para, compras online, entrega, hortifruti, mercearia, bebidas, BomFilho" />
+    <meta name="author" content="BomFilho Supermercado" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://bomfilho-delivery.vercel.app/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:site_name" content="BomFilho Supermercado" />
+    <meta property="og:title" content="BomFilho Supermercado | Delivery em Castanhal" />
+    <meta property="og:description" content="Seu supermercado de bairro agora online. Entrega rapida ou retire na loja. Pague com PIX e ganhe desconto!" />
+    <meta property="og:url" content="https://bomfilho-delivery.vercel.app/" />
+    <meta property="og:image" content="https://bomfilho-delivery.vercel.app/img/og-image.svg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="BomFilho Supermercado — Delivery em Castanhal" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="BomFilho Supermercado | Delivery em Castanhal" />
+    <meta name="twitter:description" content="Compre online com entrega rapida ou retire na loja. PIX com desconto!" />
+    <meta name="twitter:image" content="https://bomfilho-delivery.vercel.app/img/og-image.svg" />
+
+    <!-- PWA -->
+    <meta name="theme-color" content="#1F5C50" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="BomFilho" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Icons -->
     <link rel="icon" type="image/png" href="/img/icone_oficial.png" />
+    <link rel="apple-touch-icon" href="/img/icone_oficial.png" />
+
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <title>Bom Filho</title>
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "GroceryStore",
+      "name": "BomFilho Supermercado",
+      "alternateName": "BomFilho Delivery",
+      "description": "Supermercado de bairro com atendimento proximo e entrega agil em Castanhal-PA.",
+      "url": "https://bomfilho-delivery.vercel.app",
+      "telephone": ["+559137219780", "+5591999652790"],
+      "image": "https://bomfilho-delivery.vercel.app/img/og-image.svg",
+      "logo": "https://bomfilho-delivery.vercel.app/img/icone_oficial.png",
+      "priceRange": "$$",
+      "currenciesAccepted": "BRL",
+      "paymentAccepted": "PIX",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Travessa 07 de Setembro, n 70",
+        "addressLocality": "Castanhal",
+        "addressRegion": "PA",
+        "postalCode": "68740-180",
+        "addressCountry": "BR"
+      },
+      "geo": {
+        "@type": "GeoCoordinates",
+        "latitude": -1.2938,
+        "longitude": -47.9267
+      },
+      "openingHoursSpecification": [
+        {
+          "@type": "OpeningHoursSpecification",
+          "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
+          "opens": "07:30",
+          "closes": "13:00"
+        },
+        {
+          "@type": "OpeningHoursSpecification",
+          "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
+          "opens": "15:00",
+          "closes": "19:30"
+        },
+        {
+          "@type": "OpeningHoursSpecification",
+          "dayOfWeek": "Sunday",
+          "opens": "08:00",
+          "closes": "12:30"
+        }
+      ],
+      "hasOfferCatalog": {
+        "@type": "OfferCatalog",
+        "name": "Produtos BomFilho",
+        "itemListElement": [
+          {"@type": "OfferCatalog", "name": "Bebidas"},
+          {"@type": "OfferCatalog", "name": "Mercearia"},
+          {"@type": "OfferCatalog", "name": "Hortifruti"},
+          {"@type": "OfferCatalog", "name": "Higiene"},
+          {"@type": "OfferCatalog", "name": "Limpeza"}
+        ]
+      }
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>

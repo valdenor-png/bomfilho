@@ -1,0 +1,36 @@
+{
+  "name": "BomFilho Supermercado",
+  "short_name": "BomFilho",
+  "description": "Supermercado online em Castanhal-PA. Entrega rapida ou retire na loja.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#174A40",
+  "theme_color": "#1F5C50",
+  "scope": "/",
+  "lang": "pt-BR",
+  "categories": ["shopping", "food"],
+  "icons": [
+    {
+      "src": "/img/icone_oficial.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Ver Produtos",
+      "short_name": "Produtos",
+      "url": "/produtos",
+      "icons": [{ "src": "/img/icone_oficial.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Meus Pedidos",
+      "short_name": "Pedidos",
+      "url": "/pedidos",
+      "icons": [{ "src": "/img/icone_oficial.png", "sizes": "96x96" }]
+    }
+  ],
+  "prefer_related_applications": false
+}
