@@ -1,11 +1,10 @@
 import React from 'react';
-// pages/Products.jsx — Catálogo de produtos
-// Props: cart, onAdd, onRemove, products, initialCategory, onSearch
-
 import { useState, useEffect, useRef } from 'react';
 import { colors, fonts } from '../theme';
 import Icon, { categoryIcons } from '../components/Icon';
 import ProductCard from '../components/ProductCard';
+
+const MAX_PER_CATEGORY = 10;
 
 const categories = [
   { id: 'all', name: 'Todos' },
@@ -16,6 +15,38 @@ const categories = [
   { id: 'higiene', name: 'Higiene' },
   { id: 'limpeza', name: 'Limpeza' },
 ];
+
+const scrollRowStyle = {
+  display: 'flex',
+  gap: 8,
+  overflowX: 'auto',
+  overflowY: 'hidden',
+  WebkitOverflowScrolling: 'touch',
+  scrollSnapType: 'x proximity',
+  scrollbarWidth: 'none',
+  paddingBottom: 4,
+  margin: '0 -16px',
+  padding: '0 16px 4px',
+};
+
+const scrollCardStyle = {
+  minWidth: 140,
+  maxWidth: 140,
+  flexShrink: 0,
+  scrollSnapAlign: 'start',
+};
+
+function HorizontalRow({ products, cart, onAdd, onRemove }) {
+  return (
+    <div style={scrollRowStyle} className="hide-scrollbar">
+      {products.map(p => (
+        <div key={p.id} style={scrollCardStyle}>
+          <ProductCard product={p} qty={cart[p.id] || 0} onAdd={onAdd} onRemove={onRemove} compact />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function Products({ cart = {}, onAdd, onRemove, products = [], initialCategory, onSearch }) {
   const [category, setCategory] = useState(initialCategory || 'all');
@@ -28,44 +59,51 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
     if (initialCategory) setCategory(initialCategory);
   }, [initialCategory]);
 
-  // Busca na API quando digita (debounce 400ms)
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-
     if (!search || search.length < 2 || !onSearch) {
       setSearchResults(null);
       setSearching(false);
       return;
     }
-
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
       const results = await onSearch(search);
       setSearchResults(results);
       setSearching(false);
     }, 400);
-
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [search, onSearch]);
 
-  // Se tem busca, usa resultados da API. Senão, filtra local.
   const displayProducts = searchResults || products;
   const filtered = displayProducts.filter(p => {
-    if (searchResults) return true; // API já filtrou
+    if (searchResults) return true;
     const matchCat = category === 'all'
       || (category === 'ofertas' ? (p.tag === 'Oferta' || p.oldPrice) : p.category === category);
     return matchCat;
   });
 
-  // Agrupar por categoria quando em "Todos" sem busca
+  // Agrupar por categoria, max 10 por categoria
   const grouped = {};
-  if (category === 'all' && !search) {
+  if (category === 'all' && !search && !searchResults) {
     filtered.forEach(p => {
-      if (!grouped[p.category]) grouped[p.category] = [];
-      grouped[p.category].push(p);
+      const cat = p.category || 'outros';
+      if (!grouped[cat]) grouped[cat] = [];
+      if (grouped[cat].length < MAX_PER_CATEGORY) grouped[cat].push(p);
     });
+  } else if (!searchResults) {
+    // Categoria específica selecionada — ainda agrupar como seção única
+    grouped[category] = filtered.slice(0, MAX_PER_CATEGORY);
   }
-  const showGrouped = category === 'all' && !search && !searchResults;
+
+  // Busca mostra tudo horizontal numa seção só
+  if (searchResults) {
+    grouped['resultados'] = filtered.slice(0, 30);
+  }
+
+  const showGrouped = Object.keys(grouped).length > 0;
+
+  const totalFiltered = filtered.length;
 
   return (
     <div style={{ padding: '0 16px' }}>
@@ -89,18 +127,16 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
           <button onClick={() => setSearch('')} style={{
             background: 'none', border: 'none', cursor: 'pointer',
             color: colors.textMuted, fontSize: 15, padding: '2px 6px',
-          }}>
-            x
-          </button>
+          }}>x</button>
         )}
       </div>
 
       {/* Pills de categoria */}
-      <div style={{ display: 'flex', gap: 5, marginTop: 8, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: 5, marginTop: 8, overflowX: 'auto', scrollbarWidth: 'none' }}>
         {categories.map(cat => {
           const active = category === cat.id;
           return (
-            <button key={cat.id} onClick={() => setCategory(cat.id)} style={{
+            <button key={cat.id} onClick={() => { setCategory(cat.id); setSearch(''); setSearchResults(null); }} style={{
               padding: '6px 11px', borderRadius: 9,
               background: active ? colors.gold : colors.card,
               border: active ? 'none' : `1px solid ${colors.border}`,
@@ -109,9 +145,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
               <span style={{
                 fontSize: 10, fontWeight: 700,
                 color: active ? colors.bgDeep : colors.textSecondary,
-              }}>
-                {cat.name}
-              </span>
+              }}>{cat.name}</span>
             </button>
           );
         })}
@@ -122,11 +156,11 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
         fontSize: 10, color: colors.textMuted,
         margin: '8px 0 5px', fontFamily: fonts.number,
       }}>
-        {searching ? 'Buscando...' : `${filtered.length} produtos`}
+        {searching ? 'Buscando...' : `${totalFiltered} produtos`}
       </p>
 
       {/* Listagem */}
-      {filtered.length === 0 ? (
+      {totalFiltered === 0 ? (
         <div style={{ textAlign: 'center', padding: '30px 0' }}>
           <Icon name="search" size={36} color={colors.textMuted} />
           <p style={{ fontSize: 13, fontWeight: 700, color: colors.white, marginTop: 8 }}>
@@ -137,45 +171,38 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
           </p>
         </div>
       ) : showGrouped ? (
-        // Agrupado por categoria
         Object.entries(grouped).map(([catKey, prods]) => {
+          if (!prods || prods.length === 0) return null;
           const catInfo = categories.find(c => c.id === catKey);
+          const label = catKey === 'resultados' ? `Resultados para "${search}"` : (catInfo?.name || catKey);
           return (
-            <div key={catKey} style={{ marginBottom: 14, overflow: 'hidden' }}>
+            <div key={catKey} style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8 }}>
                 <h3 style={{
                   fontSize: 13, fontWeight: 800, color: colors.white,
                   display: 'flex', alignItems: 'center', gap: 4, fontFamily: fonts.text,
                 }}>
-                  <Icon name={categoryIcons[catKey] || 'package'} size={14} color={colors.textSecondary} strokeWidth={1.5} />
-                  {catInfo?.name || catKey}
+                  {catKey !== 'resultados' && (
+                    <Icon name={categoryIcons[catKey] || 'package'} size={14} color={colors.textSecondary} strokeWidth={1.5} />
+                  )}
+                  {label}
                 </h3>
-                <button onClick={() => setCategory(catKey)} style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: colors.gold, fontWeight: 700, fontSize: 11, fontFamily: fonts.text,
-                  whiteSpace: 'nowrap', flexShrink: 0, paddingRight: 2,
-                }}>
-                  Ver →
-                </button>
+                {category === 'all' && catKey !== 'resultados' && (
+                  <button onClick={() => setCategory(catKey)} style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: colors.gold, fontWeight: 700, fontSize: 11, fontFamily: fonts.text,
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}>Ver →</button>
+                )}
               </div>
-              <div style={{ display: 'flex', gap: 7, overflowX: 'auto' }}>
-                {prods.map(p => (
-                  <div key={p.id} style={{ minWidth: 135, maxWidth: 135, flex: '0 0 auto' }}>
-                    <ProductCard product={p} qty={cart[p.id] || 0} onAdd={onAdd} onRemove={onRemove} compact />
-                  </div>
-                ))}
-              </div>
+              <HorizontalRow products={prods} cart={cart} onAdd={onAdd} onRemove={onRemove} />
             </div>
           );
         })
-      ) : (
-        // Grid filtrado
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 7 }}>
-          {filtered.map(p => (
-            <ProductCard key={p.id} product={p} qty={cart[p.id] || 0} onAdd={onAdd} onRemove={onRemove} />
-          ))}
-        </div>
-      )}
+      ) : null}
+
+      {/* CSS para esconder scrollbar */}
+      <style>{`.hide-scrollbar::-webkit-scrollbar { display: none; }`}</style>
     </div>
   );
 }

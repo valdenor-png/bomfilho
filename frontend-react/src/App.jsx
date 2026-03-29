@@ -194,11 +194,13 @@ export default function App() {
     <div style={{
       fontFamily: "'Plus Jakarta Sans', sans-serif",
       background: `linear-gradient(180deg, ${colors.bg} 0%, ${colors.bgDark} 100%)`,
-      minHeight: '100vh',
+      height: '100dvh',
       color: colors.white,
       position: 'relative',
       maxWidth: 480,
       overflowX: 'hidden',
+      overflowY: 'auto',
+      WebkitOverflowScrolling: 'touch',
       margin: '0 auto',
     }}>
       {/* Header — hide on checkout */}

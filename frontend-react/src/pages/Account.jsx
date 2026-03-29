@@ -3,11 +3,13 @@ import { useState, useEffect } from 'react';
 import { colors, fonts } from '../theme';
 import Icon from '../components/Icon';
 import { login as apiLogin, cadastrar, logout as apiLogout, getMe, getEndereco, salvarEndereco, buscarEnderecoViaCep, atualizarPerfil, alterarSenha } from '../lib/api';
+import SavedListsPage from '../components/cart/SavedListsPage';
 
 const menuItems = [
   { icon: 'pin', label: 'Meus enderecos', action: 'enderecos' },
   { icon: 'creditCard', label: 'Pagamentos', action: 'pagamentos' },
   { icon: 'ticket', label: 'Cupons', action: 'cupons' },
+  { icon: 'package', label: 'Minhas Listas', action: 'listas' },
   { icon: 'user', label: 'Meu perfil', action: 'perfil' },
   { icon: 'info', label: 'Seguranca', action: 'seguranca' },
   { icon: 'message', label: 'Atendimento', action: 'whatsapp' },
@@ -560,7 +562,7 @@ export default function Account() {
 
   useEffect(() => {
     getMe()
-      .then((data) => setUser(data))
+      .then((data) => setUser(data?.usuario || null))
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
@@ -570,7 +572,7 @@ export default function Account() {
     setSubmitting(true);
     try {
       const data = await apiLogin(form.email, form.senha);
-      setUser(data);
+      setUser(data?.usuario || null);
     } catch (err) {
       setError(err?.message || 'Email ou senha incorretos');
     } finally {
@@ -590,7 +592,7 @@ export default function Account() {
         nome: form.nome, email: form.email, senha: form.senha,
         telefone: form.telefone, whatsappOptIn: true,
       });
-      setUser(data);
+      setUser(data?.usuario || null);
     } catch (err) {
       setError(err?.message || 'Erro ao criar conta');
     } finally {
@@ -607,6 +609,7 @@ export default function Account() {
     else if (action === 'enderecos') setScreen('enderecos');
     else if (action === 'pagamentos') setScreen('pagamentos');
     else if (action === 'cupons') setScreen('cupons');
+    else if (action === 'listas') setScreen('listas');
     else if (action === 'perfil') setScreen('perfil');
     else if (action === 'seguranca') setScreen('seguranca');
     else if (action === 'soon') alert('Em breve!');
@@ -619,6 +622,7 @@ export default function Account() {
   );
 
   // Sub-telas
+  if (screen === 'listas') return <SavedListsPage onBack={() => setScreen('main')} />;
   if (screen === 'enderecos' && user) return <AddressScreen onBack={() => setScreen('main')} />;
   if (screen === 'pagamentos' && user) return <PaymentsScreen onBack={() => setScreen('main')} />;
   if (screen === 'cupons') return <CouponsScreen onBack={() => setScreen('main')} />;

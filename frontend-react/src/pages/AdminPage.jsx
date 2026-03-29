@@ -27,6 +27,7 @@ import RelatoriosAdmin from '../components/admin/RelatoriosAdmin';
 import AdminShell from '../components/admin/AdminShell';
 import CommandCenter from '../components/admin/CommandCenter';
 import CatalogoSaude from '../components/admin/CatalogoSaude';
+import '../admin-dark-override.css';
 
 const STATUS_OPTIONS = ['pendente', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
 const STATUS_LABELS = {

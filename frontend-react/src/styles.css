@@ -16844,8 +16844,8 @@ body {
 
 .cli-tabela-wrap { overflow-x: auto; }
 .cli-tabela { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-.cli-tabela th { background: var(--bf-bg-card); padding: 0.5rem 0.6rem; text-align: left; font-weight: 600; color: rgba(255,255,255,0.60); border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
-.cli-tabela td { padding: 0.5rem 0.6rem; border-bottom: 1px solid #f1f5f9; }
+.cli-tabela th { background: var(--bf-bg-card); padding: 0.5rem 0.6rem; text-align: left; font-weight: 600; color: rgba(255,255,255,0.60); border-bottom: 2px solid var(--ck-border); white-space: nowrap; }
+.cli-tabela td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--ck-border); }
 .cli-row { cursor: pointer; transition: background 0.1s; }
 .cli-row:hover { background: var(--bf-bg-card); }
 .cli-nome { font-weight: 600; line-height: 1.2; }
@@ -16881,7 +16881,7 @@ body {
 .cli-endereco { font-size: 0.82rem; color: rgba(255,255,255,0.60); padding: 0.25rem 0; }
 
 .cli-pedidos-lista { display: flex; flex-direction: column; gap: 0.25rem; }
-.cli-pedido-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.35rem 0; border-bottom: 1px solid #f1f5f9; font-size: 0.8rem; }
+.cli-pedido-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.35rem 0; border-bottom: 1px solid var(--ck-border); font-size: 0.8rem; }
 .cli-ped-id { font-weight: 600; min-width: 40px; }
 .cli-ped-data { color: rgba(255,255,255,0.50); min-width: 70px; }
 .cli-ped-status { padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; background: var(--bf-bg-card); }
@@ -16940,8 +16940,8 @@ body {
 .fin-detalhe-conciliacao { margin-top: 0.5rem; }
 .fin-detalhe-conciliacao h4 { margin-bottom: 0.4rem; }
 .fin-tabela { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-.fin-tabela th { background: var(--bf-bg-card); padding: 0.4rem 0.5rem; text-align: left; font-weight: 600; border-bottom: 2px solid #e2e8f0; }
-.fin-tabela td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #f1f5f9; }
+.fin-tabela th { background: var(--bf-bg-card); padding: 0.4rem 0.5rem; text-align: left; font-weight: 600; border-bottom: 2px solid var(--ck-border); }
+.fin-tabela td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--ck-border); }
 
 /* ============================================
    ADMIN FASE 2 — Auditoria
@@ -16959,8 +16959,8 @@ body {
 
 .aud-tabela-wrap { overflow-x: auto; }
 .aud-tabela { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-.aud-tabela th { background: var(--bf-bg-card); padding: 0.45rem 0.5rem; text-align: left; font-weight: 600; color: rgba(255,255,255,0.60); border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
-.aud-tabela td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #f1f5f9; }
+.aud-tabela th { background: var(--bf-bg-card); padding: 0.45rem 0.5rem; text-align: left; font-weight: 600; color: rgba(255,255,255,0.60); border-bottom: 2px solid var(--ck-border); white-space: nowrap; }
+.aud-tabela td { padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--ck-border); }
 .aud-row { cursor: pointer; transition: background 0.1s; }
 .aud-row:hover { background: var(--bf-bg-card); }
 .aud-data { white-space: nowrap; color: rgba(255,255,255,0.50); font-size: 0.75rem; }
@@ -17015,8 +17015,8 @@ body {
 
 .rel-tabela-wrap { overflow-x: auto; margin-top: 1rem; }
 .rel-tabela { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-.rel-tabela th { background: var(--bf-bg-card); padding: 0.45rem 0.5rem; text-align: left; font-weight: 600; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
-.rel-tabela td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #f1f5f9; }
+.rel-tabela th { background: var(--bf-bg-card); padding: 0.45rem 0.5rem; text-align: left; font-weight: 600; border-bottom: 2px solid var(--ck-border); white-space: nowrap; }
+.rel-tabela td { padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--ck-border); }
 .rel-status { padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; background: var(--bf-bg-card); }
 .rel-status.is-entregue, .rel-status.is-retirado { background: rgba(255,255,255,0.04); color: var(--bf-gold); }
 .rel-status.is-cancelado { background: var(--bf-bg-card); color: #FCA5A5; }
@@ -17100,7 +17100,7 @@ body {
 /* ---- Sidebar Header ---- */
 .sb-header {
   padding: 1.1rem 1.15rem 0.85rem;
-  border-bottom: 1px solid var(--ck-border);
+  border-bottom: 1px solid #f1f5f9;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -17492,7 +17492,7 @@ body {
   align-items: center;
   padding: 0 1.25rem;
   background: var(--ck-surface);
-  border-bottom: 1px solid var(--ck-border);
+  border-bottom: 1px solid #f1f5f9;
   gap: 1rem;
   z-index: 30;
 }
@@ -18296,8 +18296,8 @@ body {
   .ck-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(2px);
+    background: rgba(0, 0, 0, 0.60);
+    backdrop-filter: blur(4px);
     z-index: 90;
     opacity: 0;
     pointer-events: none;
@@ -18326,73 +18326,7 @@ body {
   }
 }
 
-/* ============================================
-   Tema Unificado (site inteiro)
-   Fundo branco + texto preto + botao verde
-   ============================================ */
-:root {
-  --bf-bg: #ffffff;
-  --bf-bg-soft: #ffffff;
-  --bf-ink-900: #111111;
-  --bf-ink-700: #111111;
-  --bf-border: #d9d9d9;
-  --bf-green-800: #16a34a;
-  --bf-green-700: #22c55e;
-  --bf-green-600: #4ade80;
-  --section-warm-bg: #ffffff;
-  --section-cool-bg: #ffffff;
-  --section-neutral-bg: #ffffff;
-  --section-accent-bg: #ffffff;
-  --ck-bg: #ffffff;
-  --ck-surface: #ffffff;
-  --ck-surface-2: #ffffff;
-  --ck-text: #111111;
-  --ck-text-muted: #111111;
-  --ck-text-dim: #111111;
-  --ck-border: #d9d9d9;
-  --ck-border-light: #e5e5e5;
-  --ck-accent: #22c55e;
-  --ck-accent-glow: rgba(34, 197, 94, 0.16);
-}
-
-#root,
-.app-shell,
-.content,
-.page {
-  background: transparent;
-}
-
-body,
-h1,
-h2,
-h3,
-h4,
-h5,
-h6,
-p,
-span,
-label,
-li,
-td,
-th,
-small,
-.muted-text,
-.page h1,
-.section-kicker,
-.route-loading-copy,
-.legal-meta,
-.store-brand p,
-.ck-card-subtitle,
-.ck-kpi-label,
-.fila-card-cliente,
-.fila-card-meta,
-.fila-card-tempo {
-  color: #111111 !important;
-}
-
-a {
-  color: #111111 !important;
-}
+/* Tema Unificado removido — site usa dark theme nativo do theme.js */
 
 /* Verde claro apenas em botoes pequenos de acao */
 .entrega-calcular-btn,
@@ -19257,7 +19191,7 @@ a {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 0.7rem 0.8rem;
-  border-bottom: 1px solid var(--ck-border);
+  border-bottom: 1px solid #f1f5f9;
   white-space: nowrap;
 }
 
@@ -20549,7 +20483,7 @@ a {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 0.65rem 0.8rem;
-  border-bottom: 1px solid var(--ck-border);
+  border-bottom: 1px solid #f1f5f9;
   text-align: left;
   white-space: nowrap;
 }
@@ -24182,7 +24116,7 @@ a {
   align-items: center;
   gap: 0.6rem;
   padding: 0.65rem 1rem;
-  border-bottom: 1px solid var(--ck-border);
+  border-bottom: 1px solid #f1f5f9;
   transition: background 0.1s;
 }
 
@@ -24207,7 +24141,7 @@ a {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 0.55rem 1rem;
-  border-bottom: 2px solid var(--ck-border);
+  border-bottom: 2px solid #e2e8f0;
 }
 
 /* Colunas */

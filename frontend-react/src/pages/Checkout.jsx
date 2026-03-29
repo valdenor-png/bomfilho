@@ -7,6 +7,9 @@ import React from 'react';
 import { useState, useEffect } from 'react';
 import { colors, fonts, formatPrice, formatProductName } from '../theme';
 import Icon, { categoryIcons } from '../components/Icon';
+import SaveCartCTA from '../components/cart/SaveCartCTA';
+import SaveCartModal from '../components/cart/SaveCartModal';
+import { useSavedLists } from '../hooks/useSavedLists';
 
 const stepLabels = ['Carrinho', 'Entrega', 'Verificar', 'Pagar'];
 
@@ -331,9 +334,9 @@ function WaitingStep({ status, issues = [], cart, products, removeItem, onNext }
 /* ===== STEP 4: PAGAMENTO ===== */
 function PaymentStep({ payment, setPayment, total, onNext, onBack }) {
   const methods = [
-    { id: 'pix', label: 'PIX', desc: 'Instantaneo', icon: 'zap', badge: 'Recomendado' },
-    { id: 'credit', label: 'Cartao credito', desc: 'Parcelamento', icon: 'creditCard' },
-    { id: 'debit', label: 'Cartao debito', desc: 'Na hora', icon: 'creditCard' },
+    { id: 'pix', label: 'PIX', icon: 'zap', badge: 'Recomendado' },
+    { id: 'credit', label: 'Cartao credito', icon: 'creditCard' },
+    { id: 'debit', label: 'Cartao debito', icon: 'creditCard' },
   ];
 
   return (
@@ -367,7 +370,6 @@ function PaymentStep({ payment, setPayment, total, onNext, onBack }) {
                   background: colors.successBg, color: colors.success,
                 }}>{m.badge}</span>}
               </div>
-              <p style={{ fontSize: 9, color: colors.textMuted, margin: '1px 0 0' }}>{m.desc}</p>
             </div>
             <div style={{
               width: 15, height: 15, borderRadius: '50%',
@@ -409,36 +411,127 @@ function PaymentStep({ payment, setPayment, total, onNext, onBack }) {
 }
 
 /* ===== STEP 5: CONFIRMADO ===== */
-function ConfirmedStep({ orderId, onGoHome }) {
+function ConfirmedStep({ orderId, onGoHome, cart = {}, products = [], total = 0, payment = 'pix', delivery = 'loja' }) {
+  const { saveList, count: savedCount } = useSavedLists();
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [listSaved, setListSaved] = useState(false);
+
+  const orderItems = Object.entries(cart).map(([id, qty]) => {
+    const p = products.find(x => x.id === Number(id));
+    return p ? { id: p.id, name: p.name, quantity: qty, price: p.price, image_url: p.image_url } : null;
+  }).filter(Boolean);
+
+  const labelPagamento = payment === 'pix' ? 'PIX' : payment === 'credit' ? 'Crédito' : 'Débito';
+  const labelEntrega = delivery === 'loja' ? 'Retirada' : 'Entrega';
+
   return (
-    <div style={{ textAlign: 'center', padding: '28px 0' }}>
-      <div style={{
-        width: 52, height: 52, borderRadius: '50%',
-        background: colors.successBg, border: '2px solid rgba(90,228,167,0.25)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        margin: '0 auto 12px',
-      }}>
-        <Icon name="check" size={24} color={colors.success} />
-      </div>
-      <h2 style={{ fontSize: 17, fontWeight: 900, color: colors.white, margin: 0, fontFamily: fonts.text }}>
-        Pedido confirmado!
-      </h2>
-      <p style={{ fontSize: 12, color: colors.textSecondary, margin: '4px 0 0' }}>
-        Pedido <span style={{ fontFamily: fonts.number, fontWeight: 700, color: colors.gold }}>#{orderId}</span>
-      </p>
-      <div style={{
-        background: colors.goldBg, border: `1px solid ${colors.goldBorder}`,
-        borderRadius: 9, padding: '9px 13px', margin: '14px 0',
-      }}>
-        <p style={{ fontSize: 10, color: colors.gold, fontWeight: 600, margin: 0, fontFamily: fonts.text }}>
-          Apresente o numero do pedido no balcao.
+    <div style={{ padding: '28px 0' }}>
+      {/* Header sucesso */}
+      <div style={{ textAlign: 'center' }}>
+        <div style={{
+          width: 52, height: 52, borderRadius: '50%',
+          background: colors.successBg, border: '2px solid rgba(90,228,167,0.25)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          margin: '0 auto 12px',
+        }}>
+          <Icon name="check" size={24} color={colors.success} />
+        </div>
+        <h2 style={{ fontSize: 17, fontWeight: 900, color: colors.white, margin: 0, fontFamily: fonts.text }}>
+          Pedido confirmado!
+        </h2>
+        <p style={{ fontSize: 12, color: colors.textSecondary, margin: '4px 0 0' }}>
+          Pedido <span style={{ fontFamily: fonts.number, fontWeight: 700, color: colors.gold }}>#{orderId}</span> · {labelPagamento} · {labelEntrega}
+        </p>
+        <p style={{ fontFamily: fonts.number, fontWeight: 900, fontSize: 20, color: colors.gold, margin: '8px 0 16px' }}>
+          {formatPrice(total)}
         </p>
       </div>
+
+      {/* Itens do pedido */}
+      {orderItems.length > 0 && (
+        <div style={{
+          background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 14, padding: 14, marginBottom: 14,
+        }}>
+          <p style={{
+            fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.45)',
+            textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10,
+          }}>
+            {orderItems.length} ite{orderItems.length === 1 ? 'm' : 'ns'} no pedido
+          </p>
+          {orderItems.map(item => (
+            <div key={item.id} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,0.06)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                {item.image_url ? (
+                  <img src={item.image_url} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
+                ) : (
+                  <span style={{ fontSize: 16, width: 28, textAlign: 'center' }}>{'\u{1F4E6}'}</span>
+                )}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#fff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {formatProductName(item.name)}
+                  </p>
+                  <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', margin: 0 }}>
+                    {item.quantity}x · {formatPrice(item.price)}
+                  </p>
+                </div>
+              </div>
+              <span style={{ fontFamily: fonts.number, fontWeight: 700, fontSize: 13, color: colors.gold, flexShrink: 0 }}>
+                {formatPrice(item.price * item.quantity)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* CTA Salvar lista */}
+      {!listSaved ? (
+        <SaveCartCTA onSave={() => setShowSaveModal(true)} savedCount={savedCount} />
+      ) : (
+        <div style={{
+          textAlign: 'center', padding: 12, borderRadius: 12,
+          background: 'rgba(90,228,167,0.12)', border: '1px solid rgba(90,228,167,0.2)',
+          color: '#5AE4A7', fontWeight: 700, fontSize: '0.84rem', marginBottom: 12,
+        }}>
+          {'\u2713'} Lista salva com sucesso
+        </div>
+      )}
+
+      {/* Ver listas salvas */}
+      {savedCount > 0 && (
+        <button onClick={() => {}} style={{
+          width: '100%', padding: 12, borderRadius: 12,
+          background: 'transparent', border: '1px solid rgba(255,255,255,0.1)',
+          color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+          fontFamily: fonts.text, marginBottom: 12,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        }}>
+          {'\u2630'} Ver listas salvas ({savedCount})
+        </button>
+      )}
+
+      {/* Voltar */}
       <button onClick={onGoHome} style={{
-        width: '100%', padding: 13, background: colors.gold, border: 'none',
-        borderRadius: 12, color: colors.bgDeep, fontWeight: 800, fontSize: 13,
+        width: '100%', padding: 13, background: 'transparent',
+        border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12,
+        color: colors.white, fontWeight: 700, fontSize: 13,
         cursor: 'pointer', fontFamily: fonts.text,
-      }}>Voltar as compras</button>
+      }}>Voltar ao início</button>
+
+      {/* Modal salvar */}
+      <SaveCartModal
+        isOpen={showSaveModal}
+        onClose={() => setShowSaveModal(false)}
+        cartItems={orderItems}
+        onSave={(name) => {
+          saveList(name, orderItems);
+          setShowSaveModal(false);
+          setListSaved(true);
+        }}
+      />
     </div>
   );
 }
@@ -534,7 +627,7 @@ export default function Checkout({ cart, products, updateQty, removeItem, onGoHo
         {step === 1 && <DeliveryStep delivery={delivery} setDelivery={setDelivery} onNext={next} onBack={back} />}
         {step === 2 && <WaitingStep status={orderStatus} issues={stockIssues} cart={cart} products={products} removeItem={removeItem} onNext={next} />}
         {step === 3 && <PaymentStep payment={payment} setPayment={setPayment} total={total} onNext={next} onBack={back} />}
-        {step === 4 && <ConfirmedStep orderId={19} onGoHome={onGoHome} />}
+        {step === 4 && <ConfirmedStep orderId={19} onGoHome={onGoHome} cart={cart} products={products} total={total} payment={payment} delivery={delivery} />}
       </div>
     </div>
   );
