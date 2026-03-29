@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { colors, fonts, formatPrice } from '../theme';
 import Icon, { categoryIcons } from '../components/Icon';
 import ProductCard from '../components/ProductCard';
+import ProductDetailModal from '../components/produtos/ProductDetailModal';
 import { sanitizeInput } from '../lib/sanitize';
 import { useSmartSearch } from '../hooks/useSmartSearch';
 import { SkeletonProductCard } from '../components/ui/Skeleton';
@@ -40,11 +41,11 @@ const scrollCardStyle = {
   scrollSnapAlign: 'start',
 };
 
-function HorizontalRow({ products, cart, onAdd, onRemove }) {
+function HorizontalRow({ products, cart, onAdd, onRemove, onProductClick }) {
   return (
     <div style={scrollRowStyle} className="hide-scrollbar">
       {products.map(p => (
-        <div key={p.id} style={scrollCardStyle}>
+        <div key={p.id} style={scrollCardStyle} onClick={() => onProductClick && onProductClick(p)}>
           <ProductCard product={p} qty={cart[p.id] || 0} onAdd={onAdd} onRemove={onRemove} compact />
         </div>
       ))}
@@ -72,6 +73,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
   const [dietaryFilter, setDietaryFilter] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const debounceRef = useRef(null);
   const searchBoxRef = useRef(null);
 
@@ -310,7 +312,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
                   }}>Ver →</button>
                 )}
               </div>
-              <HorizontalRow products={prods} cart={cart} onAdd={onAdd} onRemove={onRemove} />
+              <HorizontalRow products={prods} cart={cart} onAdd={onAdd} onRemove={onRemove} onProductClick={setSelectedProduct} />
             </div>
           );
         })
@@ -318,6 +320,14 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
 
       {/* CSS para esconder scrollbar */}
       <style>{`.hide-scrollbar::-webkit-scrollbar { display: none; }`}</style>
+
+      {/* Product detail modal */}
+      <ProductDetailModal
+        product={selectedProduct}
+        isOpen={!!selectedProduct}
+        onClose={() => setSelectedProduct(null)}
+        onAddToCart={(item) => { onAdd(item.id); setSelectedProduct(null); }}
+      />
     </div>
   );
 }
