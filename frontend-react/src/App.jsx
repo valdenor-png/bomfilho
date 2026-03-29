@@ -99,23 +99,6 @@ export default function App() {
     });
   }, []);
 
-  // Push notifications — request permission after first use, handle foreground messages
-  useEffect(() => {
-    if (!localStorage.getItem('bomfilho_push_asked')) return;
-    try { onForegroundMessage((payload) => showToast(payload?.notification?.body || 'Nova notificacao')); } catch {}
-  }, [showToast]);
-
-  useEffect(() => {
-    const cartHasItems = Object.keys(cart).length > 0;
-    if (cartHasItems && !localStorage.getItem('bomfilho_push_asked')) {
-      const timer = setTimeout(() => {
-        requestPushPermission().catch(() => {});
-        localStorage.setItem('bomfilho_push_asked', 'true');
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [cart]);
-
   // Search function — queries API directly for full catalog
   const searchProducts = useCallback(async (term) => {
     if (!term || term.length < 2) return [];
@@ -154,6 +137,23 @@ export default function App() {
     setToastMsg(msg);
     setToastVisible(true);
   }, []);
+
+  // Push notifications — after showToast is defined
+  useEffect(() => {
+    if (!localStorage.getItem('bomfilho_push_asked')) return;
+    try { onForegroundMessage((payload) => showToast(payload?.notification?.body || 'Nova notificacao')); } catch {}
+  }, [showToast]);
+
+  useEffect(() => {
+    const cartHasItems = Object.keys(cart).length > 0;
+    if (cartHasItems && !localStorage.getItem('bomfilho_push_asked')) {
+      const timer = setTimeout(() => {
+        requestPushPermission().catch(() => {});
+        localStorage.setItem('bomfilho_push_asked', 'true');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [cart]);
 
   const handleAdd = useCallback((id) => {
     const product = products.find((p) => p.id === Number(id));
