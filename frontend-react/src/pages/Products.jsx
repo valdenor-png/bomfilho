@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { colors, fonts } from '../theme';
 import Icon, { categoryIcons } from '../components/Icon';
 import ProductCard from '../components/ProductCard';
+import { sanitizeInput } from '../lib/sanitize';
 
 const MAX_PER_CATEGORY = 10;
 
@@ -116,7 +117,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
         <Icon name="search" size={13} color={colors.textMuted} />
         <input
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => setSearch(sanitizeInput(e.target.value))}
           placeholder="Buscar produtos..."
           style={{
             flex: 1, border: 'none', outline: 'none', background: 'transparent',

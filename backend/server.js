@@ -2237,6 +2237,32 @@ const server = app.listen(PORT, () => {
 server.keepAliveTimeout = 65000;
 server.headersTimeout = 70000;
 
+// ============================================
+// AUTO-EXPIRAR PEDIDOS PENDENTES (a cada 15 min)
+// ============================================
+const ORDER_EXPIRE_HOURS = 2;
+const ORDER_EXPIRE_INTERVAL_MS = 15 * 60 * 1000;
+
+async function expirePendingOrders() {
+  try {
+    const query = DB_DIALECT === 'postgres'
+      ? `UPDATE pedidos SET status = 'expirado', atualizado_em = NOW()
+         WHERE status = 'pendente' AND criado_em < NOW() - INTERVAL '${ORDER_EXPIRE_HOURS} hours'`
+      : `UPDATE pedidos SET status = 'expirado', atualizado_em = NOW()
+         WHERE status = 'pendente' AND criado_em < DATE_SUB(NOW(), INTERVAL ${ORDER_EXPIRE_HOURS} HOUR)`;
+    const [result] = await pool.query(query);
+    const affected = result?.affectedRows || result?.rowCount || 0;
+    if (affected > 0) {
+      logger.info(`🕐 Auto-expirou ${affected} pedido(s) pendente(s) com mais de ${ORDER_EXPIRE_HOURS}h`);
+    }
+  } catch (err) {
+    logger.error('Erro ao expirar pedidos pendentes:', err);
+  }
+}
+
+setInterval(expirePendingOrders, ORDER_EXPIRE_INTERVAL_MS);
+setTimeout(expirePendingOrders, 10000); // run once shortly after startup
+
 // Tratamento de erros não capturados com graceful shutdown
 let shuttingDown = false;
 function gracefulShutdown(reason, err) {

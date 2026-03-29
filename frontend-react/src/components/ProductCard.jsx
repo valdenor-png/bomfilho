@@ -9,6 +9,7 @@ import Icon, { ProductPlaceholder } from './Icon';
 
 export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
   const [hovered, setHovered] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const discount = product.oldPrice
     ? Math.round((1 - product.price / product.oldPrice) * 100)
     : 0;
@@ -64,10 +65,12 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
         )}
 
         {/* Imagem ou placeholder */}
-        {product.image_url ? (
+        {product.image_url && !imgError ? (
           <img
             src={product.image_url}
             alt={product.name}
+            onError={() => setImgError(true)}
+            loading="lazy"
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         ) : (

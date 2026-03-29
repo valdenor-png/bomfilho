@@ -9,6 +9,7 @@ import { colors } from './theme';
 import Header from './components/Header';
 import BottomNav from './components/BottomNav';
 import Toast from './components/Toast';
+import LGPDBanner from './components/ui/LGPDBanner';
 import { getMainCategory } from './lib/formatProductName';
 import Home from './pages/Home';
 import Products from './pages/Products';
@@ -198,7 +199,7 @@ export default function App() {
       color: colors.white,
       position: 'relative',
       maxWidth: 480,
-      overflowX: 'hidden',
+      overflowX: 'clip',
       overflowY: 'auto',
       WebkitOverflowScrolling: 'touch',
       margin: '0 auto',
@@ -287,6 +288,9 @@ export default function App() {
           </a>
         </div>
       ) : null}
+
+      {/* LGPD consent banner */}
+      <LGPDBanner />
 
       {/* Bottom nav — hide on checkout */}
       {!isPagamentoRoute ? (

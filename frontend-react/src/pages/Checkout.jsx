@@ -65,6 +65,20 @@ function CartStep({ cart, products, updateQty, onNext }) {
   const total = items.reduce((s, i) => s + i.product.price * i.qty, 0);
   const count = items.reduce((s, i) => s + i.qty, 0);
 
+  if (items.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 16px' }}>
+        <Icon name="cart" size={48} color={colors.textMuted} strokeWidth={1} />
+        <h3 style={{ color: colors.white, fontSize: 16, fontWeight: 800, margin: '16px 0 6px', fontFamily: fonts.text }}>
+          Seu carrinho esta vazio
+        </h3>
+        <p style={{ color: colors.textMuted, fontSize: 12, margin: 0, fontFamily: fonts.text }}>
+          Adicione produtos para continuar
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div>
       <p style={{ fontSize: 10, color: colors.textMuted, marginBottom: 8 }}>
