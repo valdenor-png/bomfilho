@@ -6,8 +6,8 @@ import { login as apiLogin, cadastrar, logout as apiLogout, getMe, getEndereco, 
 
 const menuItems = [
   { icon: 'pin', label: 'Meus enderecos', action: 'enderecos' },
-  { icon: 'creditCard', label: 'Pagamentos', action: 'soon' },
-  { icon: 'ticket', label: 'Cupons', action: 'soon' },
+  { icon: 'creditCard', label: 'Pagamentos', action: 'pagamentos' },
+  { icon: 'ticket', label: 'Cupons', action: 'cupons' },
   { icon: 'message', label: 'Atendimento', action: 'whatsapp' },
   { icon: 'info', label: 'Sobre', action: 'whatsapp' },
 ];
@@ -248,6 +248,177 @@ function AddressScreen({ onBack }) {
   );
 }
 
+/* ===== SUB-TELA: PAGAMENTOS ===== */
+function PaymentsScreen({ onBack }) {
+  const methods = [
+    { id: 'pix', name: 'PIX', desc: 'Pagamento instantâneo', icon: 'zap', badge: 'Recomendado', badgeColor: colors.success },
+    { id: 'credit', name: 'Cartão de crédito', desc: 'Parcelamento disponível', icon: 'creditCard', badge: null },
+    { id: 'debit', name: 'Cartão de débito', desc: 'Débito à vista', icon: 'creditCard', badge: null },
+  ];
+
+  return (
+    <div style={{ padding: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <button onClick={onBack} style={{
+          width: 34, height: 34, borderRadius: 10,
+          background: colors.card, border: `1px solid ${colors.border}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}>
+          <Icon name="back" size={14} color={colors.textSecondary} />
+        </button>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: colors.white, margin: 0, fontFamily: fonts.text }}>
+          Pagamentos
+        </h2>
+      </div>
+
+      <p style={{ fontSize: 11, color: colors.textMuted, marginBottom: 14, fontFamily: fonts.text }}>
+        Métodos aceitos no BomFilho
+      </p>
+
+      {methods.map((m) => (
+        <div key={m.id} style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: 13,
+          background: colors.card, border: `1px solid ${colors.border}`,
+          borderRadius: 12, marginBottom: 8,
+        }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 10,
+            background: colors.goldBg, border: `1px solid ${colors.goldBorder}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Icon name={m.icon} size={16} color={colors.gold} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: colors.white, margin: 0, fontFamily: fonts.text }}>
+                {m.name}
+              </p>
+              {m.badge && (
+                <span style={{
+                  fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                  background: 'rgba(90,228,167,0.12)', color: m.badgeColor,
+                  fontFamily: fonts.text,
+                }}>{m.badge}</span>
+              )}
+            </div>
+            <p style={{ fontSize: 10, color: colors.textMuted, margin: '2px 0 0', fontFamily: fonts.text }}>
+              {m.desc}
+            </p>
+          </div>
+        </div>
+      ))}
+
+      <div style={{
+        background: colors.goldBg, border: `1px solid ${colors.goldBorder}`,
+        borderRadius: 10, padding: '10px 14px', marginTop: 12,
+      }}>
+        <p style={{ fontSize: 11, color: colors.gold, fontWeight: 600, margin: 0, fontFamily: fonts.text }}>
+          O pagamento é feito na etapa final do checkout. Seus dados são protegidos pelo Mercado Pago.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ===== SUB-TELA: CUPONS ===== */
+function CouponsScreen({ onBack }) {
+  const [cupons, setCupons] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/cupons/disponiveis')
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => setCupons(data.cupons || []))
+      .catch(() => setCupons([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div style={{ padding: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <button onClick={onBack} style={{
+          width: 34, height: 34, borderRadius: 10,
+          background: colors.card, border: `1px solid ${colors.border}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}>
+          <Icon name="back" size={14} color={colors.textSecondary} />
+        </button>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: colors.white, margin: 0, fontFamily: fonts.text }}>
+          Cupons
+        </h2>
+      </div>
+
+      {loading ? (
+        <p style={{ color: colors.textMuted, fontSize: 12, textAlign: 'center', padding: 20 }}>Carregando...</p>
+      ) : cupons.length === 0 ? (
+        <div style={{
+          background: colors.card, border: `1px solid ${colors.border}`,
+          borderRadius: 14, padding: 24, textAlign: 'center',
+        }}>
+          <Icon name="ticket" size={28} color={colors.textMuted} />
+          <p style={{ fontSize: 13, fontWeight: 700, color: colors.white, margin: '8px 0 4px', fontFamily: fonts.text }}>
+            Nenhum cupom disponível
+          </p>
+          <p style={{ fontSize: 11, color: colors.textMuted, margin: 0 }}>
+            Fique de olho! Novos cupons aparecem aqui.
+          </p>
+        </div>
+      ) : (
+        cupons.map((c, i) => {
+          const valor = c.tipo === 'percentual'
+            ? `${Number(c.valor)}% OFF`
+            : `R$ ${Number(c.valor).toFixed(2).replace('.', ',')}`;
+          const validade = c.validade
+            ? new Date(c.validade).toLocaleDateString('pt-BR')
+            : 'Sem validade';
+
+          return (
+            <div key={i} style={{
+              background: colors.card, border: `1px solid ${colors.goldBorder}`,
+              borderRadius: 12, padding: 14, marginBottom: 8,
+              display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 10,
+                background: colors.goldBg,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <span style={{ fontFamily: fonts.number, fontWeight: 800, fontSize: 12, color: colors.gold }}>
+                  {valor}
+                </span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{
+                    fontFamily: fonts.number, fontWeight: 800, fontSize: 13,
+                    color: colors.gold, letterSpacing: '0.04em',
+                  }}>{c.codigo}</span>
+                </div>
+                <p style={{ fontSize: 11, color: colors.textSecondary, margin: '2px 0 0', fontFamily: fonts.text }}>
+                  {c.descricao || 'Desconto especial'}
+                </p>
+                <p style={{ fontSize: 9, color: colors.textMuted, margin: '2px 0 0', fontFamily: fonts.text }}>
+                  {c.valor_minimo > 0 ? `Pedido min. R$ ${Number(c.valor_minimo).toFixed(0)} · ` : ''}
+                  Validade: {validade}
+                </p>
+              </div>
+              <button onClick={() => {
+                navigator.clipboard?.writeText(c.codigo).then(() => alert('Cupom copiado!')).catch(() => {});
+              }} style={{
+                padding: '6px 10px', borderRadius: 8,
+                background: colors.goldBg, border: `1px solid ${colors.goldBorder}`,
+                color: colors.gold, fontSize: 10, fontWeight: 700,
+                cursor: 'pointer', fontFamily: fonts.text, whiteSpace: 'nowrap',
+              }}>Copiar</button>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 /* ===== ACCOUNT PRINCIPAL ===== */
 export default function Account() {
   const [user, setUser] = useState(null);
@@ -256,7 +427,7 @@ export default function Account() {
   const [form, setForm] = useState({ nome: '', telefone: '', email: '', senha: '' });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [screen, setScreen] = useState('main'); // 'main' | 'enderecos'
+  const [screen, setScreen] = useState('main'); // 'main' | 'enderecos' | 'pagamentos' | 'cupons'
 
   useEffect(() => {
     getMe()
@@ -305,6 +476,8 @@ export default function Account() {
   const handleMenuClick = (action) => {
     if (action === 'whatsapp') handleWhatsApp();
     else if (action === 'enderecos') setScreen('enderecos');
+    else if (action === 'pagamentos') setScreen('pagamentos');
+    else if (action === 'cupons') setScreen('cupons');
     else if (action === 'soon') alert('Em breve!');
   };
 
@@ -314,10 +487,10 @@ export default function Account() {
     </div>
   );
 
-  // Sub-tela endereços
-  if (screen === 'enderecos' && user) {
-    return <AddressScreen onBack={() => setScreen('main')} />;
-  }
+  // Sub-telas
+  if (screen === 'enderecos' && user) return <AddressScreen onBack={() => setScreen('main')} />;
+  if (screen === 'pagamentos' && user) return <PaymentsScreen onBack={() => setScreen('main')} />;
+  if (screen === 'cupons') return <CouponsScreen onBack={() => setScreen('main')} />;
 
   // ===== LOGADO =====
   if (user) {
