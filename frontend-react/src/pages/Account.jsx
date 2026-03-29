@@ -2,14 +2,15 @@ import React from 'react';
 import { useState, useEffect } from 'react';
 import { colors, fonts } from '../theme';
 import Icon from '../components/Icon';
-import { login as apiLogin, cadastrar, logout as apiLogout, getMe, getEndereco, salvarEndereco, buscarEnderecoViaCep } from '../lib/api';
+import { login as apiLogin, cadastrar, logout as apiLogout, getMe, getEndereco, salvarEndereco, buscarEnderecoViaCep, atualizarPerfil, alterarSenha } from '../lib/api';
 
 const menuItems = [
   { icon: 'pin', label: 'Meus enderecos', action: 'enderecos' },
   { icon: 'creditCard', label: 'Pagamentos', action: 'pagamentos' },
   { icon: 'ticket', label: 'Cupons', action: 'cupons' },
+  { icon: 'user', label: 'Meu perfil', action: 'perfil' },
+  { icon: 'info', label: 'Seguranca', action: 'seguranca' },
   { icon: 'message', label: 'Atendimento', action: 'whatsapp' },
-  { icon: 'info', label: 'Sobre', action: 'whatsapp' },
 ];
 
 const inputStyle = {
@@ -248,6 +249,135 @@ function AddressScreen({ onBack }) {
   );
 }
 
+/* ===== SUB-TELA: MEU PERFIL ===== */
+function ProfileScreen({ user, onBack, onUserUpdate }) {
+  const [form, setForm] = useState({
+    nome: user?.nome || '', email: user?.email || '',
+    telefone: user?.telefone || '', cpf: user?.cpf || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const initials = (form.nome || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+
+  const handleSave = async () => {
+    setSaving(true); setMsg('');
+    try {
+      const updated = await atualizarPerfil(form);
+      if (onUserUpdate) onUserUpdate(updated);
+      setMsg('Perfil atualizado!');
+      setTimeout(() => setMsg(''), 3000);
+    } catch (err) { setMsg(err?.message || 'Erro ao salvar'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <button onClick={onBack} style={{ width: 34, height: 34, borderRadius: 10, background: colors.card, border: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+          <Icon name="back" size={14} color={colors.textSecondary} />
+        </button>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: colors.white, margin: 0, fontFamily: fonts.text }}>Meu perfil</h2>
+      </div>
+      <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 14, padding: 18, textAlign: 'center', marginBottom: 16 }}>
+        <div style={{ width: 56, height: 56, borderRadius: '50%', background: colors.goldBg, border: `2px solid ${colors.goldBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 8px' }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: colors.gold, fontFamily: fonts.text }}>{initials}</span>
+        </div>
+        <p style={{ fontSize: 15, fontWeight: 800, color: colors.white, margin: 0, fontFamily: fonts.text }}>{form.nome || 'Seu nome'}</p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {[
+          { label: 'Nome completo', key: 'nome', placeholder: 'Seu nome' },
+          { label: 'E-mail', key: 'email', placeholder: 'seu@email.com', type: 'email' },
+          { label: 'Telefone (WhatsApp)', key: 'telefone', placeholder: '(91) 99999-9999' },
+          { label: 'CPF (opcional)', key: 'cpf', placeholder: '000.000.000-00' },
+        ].map(f => (
+          <div key={f.key}>
+            <label style={labelStyle}>{f.label}</label>
+            <input type={f.type || 'text'} value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} style={inputStyle} />
+          </div>
+        ))}
+      </div>
+      {msg && <p style={{ fontSize: 11, fontWeight: 600, margin: '10px 0 0', textAlign: 'center', color: msg.includes('Erro') ? '#EF5350' : colors.success, fontFamily: fonts.text }}>{msg}</p>}
+      <button onClick={handleSave} disabled={saving} style={{ width: '100%', marginTop: 14, padding: 14, background: saving ? 'rgba(226,184,74,0.5)' : colors.gold, border: 'none', borderRadius: 12, color: colors.bgDeep, fontWeight: 800, fontSize: 14, cursor: saving ? 'default' : 'pointer', fontFamily: fonts.text }}>
+        {saving ? 'Salvando...' : 'Salvar alterações'}
+      </button>
+    </div>
+  );
+}
+
+/* ===== SUB-TELA: SEGURANÇA ===== */
+function SecurityScreen({ onBack, onLogout }) {
+  const [form, setForm] = useState({ atual: '', nova: '', confirmar: '' });
+  const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const minLen = form.nova.length >= 6;
+  const hasNum = /\d/.test(form.nova);
+  const match = form.nova === form.confirmar && form.confirmar.length > 0;
+  const canSubmit = form.atual && minLen && hasNum && match;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSaving(true); setMsg('');
+    try {
+      await alterarSenha(form.atual, form.nova);
+      setMsg('Senha alterada!');
+      setForm({ atual: '', nova: '', confirmar: '' });
+      setTimeout(() => setMsg(''), 3000);
+    } catch (err) { setMsg(err?.message || 'Senha atual incorreta'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <button onClick={onBack} style={{ width: 34, height: 34, borderRadius: 10, background: colors.card, border: `1px solid ${colors.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+          <Icon name="back" size={14} color={colors.textSecondary} />
+        </button>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: colors.white, margin: 0, fontFamily: fonts.text }}>Segurança</h2>
+      </div>
+      <p style={{ fontSize: 14, fontWeight: 700, color: colors.white, margin: '0 0 12px', fontFamily: fonts.text }}>Alterar senha</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div>
+          <label style={labelStyle}>Senha atual</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input type={show ? 'text' : 'password'} value={form.atual} onChange={e => setForm({ ...form, atual: e.target.value })} placeholder="Senha atual" style={{ ...inputStyle, flex: 1 }} />
+            <button onClick={() => setShow(!show)} style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '8px 12px', color: colors.textMuted, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: fonts.text }}>{show ? 'Ocultar' : 'Mostrar'}</button>
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Nova senha</label>
+          <input type="password" value={form.nova} onChange={e => setForm({ ...form, nova: e.target.value })} placeholder="Mínimo 6 caracteres" style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>Confirmar nova senha</label>
+          <input type="password" value={form.confirmar} onChange={e => setForm({ ...form, confirmar: e.target.value })} placeholder="Repita a nova senha" style={inputStyle} />
+        </div>
+      </div>
+      {form.nova.length > 0 && (
+        <div style={{ marginTop: 10, padding: '10px 12px', background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 10 }}>
+          <p style={{ fontSize: 10, color: colors.textMuted, margin: '0 0 6px', fontWeight: 600 }}>Requisitos:</p>
+          {[{ ok: minLen, t: 'Mínimo 6 caracteres' }, { ok: hasNum, t: '1 número' }, { ok: match, t: 'Senhas coincidem' }].map((r, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+              <span style={{ fontSize: 11, color: r.ok ? colors.success : colors.textMuted }}>{r.ok ? '✓' : '✗'} {r.t}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {msg && <p style={{ fontSize: 11, fontWeight: 600, margin: '10px 0 0', textAlign: 'center', color: msg.includes('incorreta') || msg.includes('Erro') ? '#EF5350' : colors.success, fontFamily: fonts.text }}>{msg}</p>}
+      <button onClick={handleSubmit} disabled={!canSubmit || saving} style={{ width: '100%', marginTop: 14, padding: 14, background: canSubmit && !saving ? colors.gold : 'rgba(226,184,74,0.3)', border: 'none', borderRadius: 12, color: colors.bgDeep, fontWeight: 800, fontSize: 14, cursor: canSubmit && !saving ? 'pointer' : 'default', fontFamily: fonts.text, opacity: canSubmit && !saving ? 1 : 0.5 }}>
+        {saving ? 'Alterando...' : 'Alterar senha'}
+      </button>
+      <div style={{ height: 1, background: colors.border, margin: '24px 0' }} />
+      <button onClick={onLogout} style={{ width: '100%', padding: 13, background: 'rgba(239,83,80,0.08)', border: '1px solid rgba(239,83,80,0.15)', borderRadius: 12, color: '#EF5350', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: fonts.text }}>
+        Sair de todos os dispositivos
+      </button>
+    </div>
+  );
+}
+
 /* ===== SUB-TELA: PAGAMENTOS ===== */
 function PaymentsScreen({ onBack }) {
   const methods = [
@@ -478,6 +608,8 @@ export default function Account() {
     else if (action === 'enderecos') setScreen('enderecos');
     else if (action === 'pagamentos') setScreen('pagamentos');
     else if (action === 'cupons') setScreen('cupons');
+    else if (action === 'perfil') setScreen('perfil');
+    else if (action === 'seguranca') setScreen('seguranca');
     else if (action === 'soon') alert('Em breve!');
   };
 
@@ -491,6 +623,8 @@ export default function Account() {
   if (screen === 'enderecos' && user) return <AddressScreen onBack={() => setScreen('main')} />;
   if (screen === 'pagamentos' && user) return <PaymentsScreen onBack={() => setScreen('main')} />;
   if (screen === 'cupons') return <CouponsScreen onBack={() => setScreen('main')} />;
+  if (screen === 'perfil' && user) return <ProfileScreen user={user} onBack={() => setScreen('main')} onUserUpdate={setUser} />;
+  if (screen === 'seguranca' && user) return <SecurityScreen onBack={() => setScreen('main')} onLogout={handleLogout} />;
 
   // ===== LOGADO =====
   if (user) {

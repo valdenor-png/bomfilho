@@ -300,5 +300,65 @@ module.exports = function createAuthRoutes(deps) {
     }
   });
 
+  // Atualizar perfil do usuário
+  router.put('/api/auth/profile', autenticarToken, async (req, res) => {
+    try {
+      const { nome, email, telefone, cpf } = req.body;
+      const updates = [];
+      const values = [];
+
+      if (nome !== undefined) { updates.push('nome = ?'); values.push(String(nome).trim()); }
+      if (email !== undefined) { updates.push('email = ?'); values.push(String(email).trim().toLowerCase()); }
+      if (telefone !== undefined) { updates.push('telefone = ?'); values.push(String(telefone).trim()); }
+      if (cpf !== undefined) { updates.push('cpf = ?'); values.push(String(cpf).replace(/\D/g, '').slice(0, 11)); }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ erro: 'Nenhum campo para atualizar.' });
+      }
+
+      values.push(req.usuario.id);
+      await pool.query(`UPDATE usuarios SET ${updates.join(', ')} WHERE id = ?`, values);
+
+      const [rows] = await pool.query('SELECT id, nome, email, telefone, cpf FROM usuarios WHERE id = ?', [req.usuario.id]);
+      res.json(rows[0] || {});
+    } catch (erro) {
+      logger.error('Erro ao atualizar perfil:', erro);
+      res.status(500).json({ erro: 'Não foi possível atualizar o perfil.' });
+    }
+  });
+
+  // Alterar senha
+  router.put('/api/auth/password', autenticarToken, async (req, res) => {
+    try {
+      const { senhaAtual, novaSenha } = req.body;
+
+      if (!senhaAtual || !novaSenha) {
+        return res.status(400).json({ erro: 'Informe a senha atual e a nova senha.' });
+      }
+
+      if (String(novaSenha).length < 6) {
+        return res.status(400).json({ erro: 'A nova senha deve ter no mínimo 6 caracteres.' });
+      }
+
+      const [rows] = await pool.query('SELECT senha FROM usuarios WHERE id = ?', [req.usuario.id]);
+      if (!rows.length) {
+        return res.status(404).json({ erro: 'Usuário não encontrado.' });
+      }
+
+      const senhaCorreta = await bcrypt.compare(senhaAtual, rows[0].senha);
+      if (!senhaCorreta) {
+        return res.status(401).json({ erro: 'Senha atual incorreta.' });
+      }
+
+      const hash = await bcrypt.hash(novaSenha, 12);
+      await pool.query('UPDATE usuarios SET senha = ? WHERE id = ?', [hash, req.usuario.id]);
+
+      res.json({ ok: true, mensagem: 'Senha alterada com sucesso.' });
+    } catch (erro) {
+      logger.error('Erro ao alterar senha:', erro);
+      res.status(500).json({ erro: 'Não foi possível alterar a senha.' });
+    }
+  });
+
   return router;
 };

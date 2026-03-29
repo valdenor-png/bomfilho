@@ -546,6 +546,20 @@ export function getMe() {
   return request('/api/auth/me');
 }
 
+export function atualizarPerfil({ nome, email, telefone, cpf } = {}) {
+  return request('/api/auth/profile', {
+    method: 'PUT',
+    body: { nome, email, telefone, cpf },
+  });
+}
+
+export function alterarSenha(senhaAtual, novaSenha) {
+  return request('/api/auth/password', {
+    method: 'PUT',
+    body: { senhaAtual, novaSenha },
+  });
+}
+
 export function getEndereco() {
   return request('/api/endereco');
 }
