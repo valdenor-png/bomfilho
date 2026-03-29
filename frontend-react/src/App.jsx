@@ -1,155 +1,149 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
-import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
-import { IconAccount, IconHome, IconOrders, IconProducts } from './icons';
-import HomePage from './pages/HomePage';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useCart } from './context/CartContext';
 import ErrorBoundary from './components/ErrorBoundary';
-import GlobalCartBar from './components/GlobalCartBar';
-import AppHeader from './components/AppHeader';
-import ReviewTrackerWidget from './components/review/ReviewTrackerWidget';
-import AlcoholAgeGateModal from './components/AlcoholAgeGateModal';
-import {
-  STORE_NAME,
-  STORE_CNPJ,
-  STORE_CEP,
-  STORE_ENDERECO,
-  STORE_HORARIO,
-  STORE_WHATSAPP_DISPLAY,
-  STORE_WHATSAPP_URL,
-  STORE_TELEFONE_DISPLAY,
-  STORE_TELEFONE_URL
-} from './config/store';
+import { getProdutos } from './lib/api';
+import { colors } from './theme';
 
-const loadProdutosPage = () => import('./pages/ProdutosPage');
-const loadPagamentoPage = () => import('./pages/PagamentoPage');
-const loadPedidosPage = () => import('./pages/PedidosPage');
-const loadSobrePage = () => import('./pages/SobrePage');
-const loadContaPage = () => import('./pages/ContaPage');
-const loadAdminPage = () => import('./pages/AdminPage');
-const loadAdminGerenciaPage = () => import('./pages/AdminGerenciaPage');
-const loadPoliticaPrivacidadePage = () => import('./pages/PoliticaPrivacidadePage');
-const loadTermosUsoPage = () => import('./pages/TermosUsoPage');
-const loadPoliticaTrocaDevolucaoPage = () => import('./pages/PoliticaTrocaDevolucaoPage');
-const loadPoliticaEntregaPage = () => import('./pages/PoliticaEntregaPage');
-const loadIconGalleryPage = () => import('./pages/IconGalleryPage');
+// New design components
+import Header from './components/Header';
+import BottomNav from './components/BottomNav';
+import FloatingCart from './components/FloatingCart';
+import Home from './pages/Home';
+import Products from './pages/Products';
+import Orders from './pages/Orders';
+import Account from './pages/Account';
 
-const ProdutosPage = lazy(loadProdutosPage);
-const PagamentoPage = lazy(loadPagamentoPage);
-const PedidosPage = lazy(loadPedidosPage);
-const SobrePage = lazy(loadSobrePage);
-const ContaPage = lazy(loadContaPage);
-const AdminPage = lazy(loadAdminPage);
-const AdminGerenciaPage = lazy(loadAdminGerenciaPage);
-const PoliticaPrivacidadePage = lazy(loadPoliticaPrivacidadePage);
-const TermosUsoPage = lazy(loadTermosUsoPage);
-const PoliticaTrocaDevolucaoPage = lazy(loadPoliticaTrocaDevolucaoPage);
-const PoliticaEntregaPage = lazy(loadPoliticaEntregaPage);
-const IconGalleryPage = lazy(loadIconGalleryPage);
+// Legacy components (checkout + admin — keep working)
+const PagamentoPage = lazy(() => import('./pages/PagamentoPage'));
+const AdminPage = lazy(() => import('./pages/AdminPage'));
+const AdminGerenciaPage = lazy(() => import('./pages/AdminGerenciaPage'));
+const PedidosPage = lazy(() => import('./pages/PedidosPage'));
+const ContaPage = lazy(() => import('./pages/ContaPage'));
+const SobrePage = lazy(() => import('./pages/SobrePage'));
+const PoliticaPrivacidadePage = lazy(() => import('./pages/PoliticaPrivacidadePage'));
+const TermosUsoPage = lazy(() => import('./pages/TermosUsoPage'));
+const PoliticaTrocaDevolucaoPage = lazy(() => import('./pages/PoliticaTrocaDevolucaoPage'));
+const PoliticaEntregaPage = lazy(() => import('./pages/PoliticaEntregaPage'));
 
-function podePrefetchNavegacao() {
-  if (typeof navigator === 'undefined') {
-    return true;
-  }
-
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  if (!connection) {
-    return true;
-  }
-
-  if (connection.saveData) {
-    return false;
-  }
-
-  const effectiveType = String(connection.effectiveType || '').toLowerCase();
-  return !effectiveType.includes('2g');
-}
-
-function agendarEmIdle(callback, timeout = 1200) {
-  if (typeof window === 'undefined') {
-    callback();
-    return () => {};
-  }
-
-  if (typeof window.requestIdleCallback === 'function') {
-    const id = window.requestIdleCallback(callback, { timeout });
-    return () => window.cancelIdleCallback(id);
-  }
-
-  const timer = window.setTimeout(callback, 280);
-  return () => window.clearTimeout(timer);
-}
-
-function RouteLoadingFallback({ message = 'Carregando pagina...' }) {
+function LoadingFallback() {
   return (
-    <section className="route-loading-fallback" role="status" aria-live="polite">
-      <div className="route-loading-card">
-        <p className="route-loading-title">Aguarde um instante</p>
-        <p className="route-loading-copy">{message}</p>
-      </div>
-    </section>
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      minHeight: '60vh', color: colors.textMuted, fontSize: 14,
+    }}>
+      Carregando...
+    </div>
   );
 }
 
-const links = [
-  { to: '/', Icon: IconHome, label: 'Inicio' },
-  { to: '/produtos', Icon: IconProducts, label: 'Produtos' },
-  { to: '/pedidos', Icon: IconOrders, label: 'Pedidos' },
-  { to: '/conta', Icon: IconAccount, label: 'Conta' }
-];
-
 export default function App() {
-  const { resumo, alcoholAgeGate } = useCart();
+  const { itens, resumo, addItem, removeItem } = useCart();
   const location = useLocation();
-  const [checkoutContext, setCheckoutContext] = useState(null);
-  const hostname = window.location.hostname;
-  const isLocalHost = hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
+  const navigate = useNavigate();
+  const [products, setProducts] = useState([]);
+  const [scrolled, setScrolled] = useState(false);
+  const [initialCategory, setInitialCategory] = useState(null);
+
   const isAdminRoute = location.pathname.startsWith('/admin');
-  const isProdutosRoute = location.pathname.startsWith('/produtos');
   const isPagamentoRoute = location.pathname.startsWith('/pagamento');
-  const mostrarBottomNavCliente = !isAdminRoute;
-  const podeMostrarBarraGlobalCarrinho = Number(resumo?.itens || 0) > 0 || (isPagamentoRoute && checkoutContext);
+  const isPedidosRoute = location.pathname.startsWith('/pedidos');
+  const isContaRoute = location.pathname.startsWith('/conta');
+  const isLegacyRoute = isPagamentoRoute || isPedidosRoute || isContaRoute;
 
+  // Scroll detection for header
   useEffect(() => {
-    function handleCheckoutContextEvent(event) {
-      setCheckoutContext(event?.detail || null);
-    }
-
-    window.addEventListener('bomfilho:checkout-context', handleCheckoutContextEvent);
-    return () => window.removeEventListener('bomfilho:checkout-context', handleCheckoutContextEvent);
+    const handler = () => setScrolled(window.scrollY > 16);
+    window.addEventListener('scroll', handler, { passive: true });
+    return () => window.removeEventListener('scroll', handler);
   }, []);
 
+  // Load products from API
   useEffect(() => {
-    if (!isPagamentoRoute) {
-      setCheckoutContext(null);
-    }
-  }, [isPagamentoRoute]);
-
-  useEffect(() => {
-    if (!podePrefetchNavegacao()) {
-      return undefined;
-    }
-
-    return agendarEmIdle(() => {
-      void loadProdutosPage();
-    }, 1700);
+    getProdutos({ page: 1, limit: 80 })
+      .then((data) => {
+        const prods = (data.produtos || []).map((p) => ({
+          id: Number(p.id),
+          name: p.nome || p.name || '',
+          description: p.descricao || p.description || '',
+          price: Number(p.preco || p.price || 0),
+          oldPrice: Number(p.preco_anterior || p.oldPrice || 0) || null,
+          category: (p.categoria || p.category || '').toLowerCase(),
+          tag: p.promocao || Number(p.desconto || 0) > 0 ? 'Oferta' : null,
+          image_url: p.imagem || p.image_url || '',
+        }));
+        setProducts(prods);
+      })
+      .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    if (resumo.itens <= 0 || !podePrefetchNavegacao()) {
-      return undefined;
+  // Convert CartContext items to simple cart object {id: qty}
+  const cart = useMemo(() => {
+    const obj = {};
+    (itens || []).forEach((item) => {
+      obj[item.id] = Number(item.quantidade || 1);
+    });
+    return obj;
+  }, [itens]);
+
+  const cartCount = Object.values(cart).reduce((a, b) => a + b, 0);
+  const cartTotal = Object.entries(cart).reduce((sum, [id, qty]) => {
+    const p = products.find((x) => x.id === Number(id));
+    return sum + (p ? p.price * qty : 0);
+  }, 0);
+
+  // Handlers
+  const handleAdd = useCallback((id) => {
+    const product = products.find((p) => p.id === Number(id));
+    if (product) {
+      addItem({
+        id: product.id,
+        nome: product.name,
+        preco: product.price,
+        imagem: product.image_url,
+        categoria: product.category,
+      });
     }
+  }, [products, addItem]);
 
-    return agendarEmIdle(() => {
-      void loadPagamentoPage();
-    }, 1200);
-  }, [resumo.itens]);
+  const handleRemove = useCallback((id) => {
+    removeItem(Number(id));
+  }, [removeItem]);
 
+  const handleGoProducts = useCallback((cat) => {
+    setInitialCategory(cat || null);
+    navigate('/produtos');
+    window.scrollTo(0, 0);
+  }, [navigate]);
+
+  const handleGoCategory = useCallback((catId) => {
+    handleGoProducts(catId);
+  }, [handleGoProducts]);
+
+  const handleCartClick = useCallback(() => {
+    navigate('/pagamento');
+  }, [navigate]);
+
+  // Current active tab for BottomNav
+  const activeTab = location.pathname === '/' ? 'home'
+    : location.pathname.startsWith('/produtos') ? 'produtos'
+    : location.pathname.startsWith('/pedidos') ? 'pedidos'
+    : location.pathname.startsWith('/conta') ? 'conta'
+    : 'home';
+
+  const handleTabChange = useCallback((tab) => {
+    const routes = { home: '/', produtos: '/produtos', pedidos: '/pedidos', conta: '/conta' };
+    navigate(routes[tab] || '/');
+    window.scrollTo(0, 0);
+  }, [navigate]);
+
+  // Admin routes — keep legacy
   if (isAdminRoute) {
     return (
       <ErrorBoundary resetKeys={[location.pathname]}>
-        <Suspense fallback={<RouteLoadingFallback message="Carregando area administrativa..." />}>
+        <Suspense fallback={<LoadingFallback />}>
           <Routes>
-            <Route path="/admin" element={isLocalHost ? <AdminPage /> : <Navigate to="/admin/gerencia" replace />} />
+            <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
             <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
           </Routes>
@@ -158,103 +152,75 @@ export default function App() {
     );
   }
 
+  // Main app shell
   return (
-    <div className="app-shell">
-      <a href="#main-content" className="skip-to-content">Pular para o conteúdo</a>
-      {mostrarBottomNavCliente && !isPagamentoRoute ? <AppHeader /> : null}
-      <main className={`content${isProdutosRoute ? ' content-produtos' : ''}${podeMostrarBarraGlobalCarrinho ? ' has-global-cart-bar' : ''}${mostrarBottomNavCliente ? ' has-bottom-nav' : ''}`} id="main-content">
+    <div style={{
+      fontFamily: "'Plus Jakarta Sans', sans-serif",
+      background: `linear-gradient(180deg, ${colors.bg} 0%, ${colors.bgDark} 100%)`,
+      minHeight: '100vh',
+      color: colors.white,
+      position: 'relative',
+      maxWidth: 480,
+      margin: '0 auto',
+    }}>
+      {/* Header — hide on checkout */}
+      {!isPagamentoRoute ? (
+        <Header cartCount={cartCount} onCartClick={handleCartClick} scrolled={scrolled} />
+      ) : null}
+
+      {/* Main content */}
+      <main style={{ paddingBottom: cartCount > 0 && !isPagamentoRoute ? 140 : 72 }}>
         <ErrorBoundary resetKeys={[location.pathname]}>
-        <Suspense fallback={<RouteLoadingFallback />}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/produtos" element={<ProdutosPage />} />
-            <Route path="/pagamento" element={<PagamentoPage />} />
-            <Route path="/pedidos" element={<PedidosPage />} />
-            <Route path="/admin" element={<Navigate to="/admin/gerencia" replace />} />
-            <Route path="/sobre" element={<SobrePage />} />
-            <Route path="/conta" element={<ContaPage />} />
-            <Route path="/icons" element={<IconGalleryPage />} />
-            <Route path="/politica-de-privacidade" element={<PoliticaPrivacidadePage />} />
-            <Route path="/termos-de-uso" element={<TermosUsoPage />} />
-            <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
-            <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
-          </Routes>
-        </Suspense>
+          <Suspense fallback={<LoadingFallback />}>
+            <Routes>
+              {/* New design pages */}
+              <Route path="/" element={
+                <Home
+                  cart={cart}
+                  onAdd={handleAdd}
+                  onRemove={handleRemove}
+                  onGoProducts={handleGoProducts}
+                  onGoCategory={handleGoCategory}
+                  products={products}
+                />
+              } />
+              <Route path="/produtos" element={
+                <Products
+                  cart={cart}
+                  onAdd={handleAdd}
+                  onRemove={handleRemove}
+                  products={products}
+                  initialCategory={initialCategory}
+                />
+              } />
+              <Route path="/pedidos" element={<Orders />} />
+              <Route path="/conta" element={<Account />} />
+
+              {/* Legacy pages — keep working */}
+              <Route path="/pagamento" element={<PagamentoPage />} />
+              <Route path="/sobre" element={<SobrePage />} />
+              <Route path="/politica-de-privacidade" element={<PoliticaPrivacidadePage />} />
+              <Route path="/termos-de-uso" element={<TermosUsoPage />} />
+              <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
+              <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
+            </Routes>
+          </Suspense>
         </ErrorBoundary>
       </main>
 
-      <ErrorBoundary fallback={null} resetKeys={[location.pathname, Number(resumo?.itens || 0)]}>
-        <GlobalCartBar
-          visible={podeMostrarBarraGlobalCarrinho}
-          resumo={resumo}
-          isCheckoutRoute={isPagamentoRoute}
-          hasBottomNav={mostrarBottomNavCliente}
-          checkoutContext={checkoutContext}
-          onCheckoutPrimaryAction={() => {
-            window.dispatchEvent(new CustomEvent('bomfilho:checkout-primary-action'));
-          }}
-          onCheckoutSecondaryAction={() => {
-            window.dispatchEvent(new CustomEvent('bomfilho:checkout-secondary-action'));
-          }}
+      {/* Floating cart bar — only when cart has items and not on checkout */}
+      {cartCount > 0 && !isPagamentoRoute ? (
+        <FloatingCart
+          itemCount={cartCount}
+          total={cartTotal}
+          onClick={handleCartClick}
         />
-      </ErrorBoundary>
+      ) : null}
 
-      <ErrorBoundary fallback={null} resetKeys={[location.pathname]}>
-        <ReviewTrackerWidget
-          hasBottomNav={mostrarBottomNavCliente}
-          hasGlobalCartBar={podeMostrarBarraGlobalCarrinho}
-        />
-      </ErrorBoundary>
-
-      <section className="site-trust-bar" aria-label="Canais de atendimento e links legais">
-        <p className="site-trust-contact">
-          {STORE_NAME} | CNPJ {STORE_CNPJ} | Endereco: {STORE_ENDERECO}
-        </p>
-        <p className="site-trust-contact">
-          WhatsApp e telefone:{' '}
-          <a href={STORE_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
-            {STORE_WHATSAPP_DISPLAY}
-          </a>
-          {' '}| Telefone fixo: <a href={STORE_TELEFONE_URL}>{STORE_TELEFONE_DISPLAY}</a>
-          {' '}| {STORE_HORARIO}
-        </p>
-        <div className="site-legal-links">
-          <Link className="site-legal-link" to="/politica-de-privacidade">Politica de Privacidade</Link>
-          <Link className="site-legal-link" to="/termos-de-uso">Termos de Uso</Link>
-          <Link className="site-legal-link" to="/politica-de-troca-e-devolucao">Troca e Devolucao</Link>
-          <Link className="site-legal-link" to="/politica-de-entrega">Politica de Entrega</Link>
-        </div>
-      </section>
-
-      <ErrorBoundary fallback={null} resetKeys={[location.pathname]}>
-        {mostrarBottomNavCliente ? (
-          <nav className="bottom-nav" aria-label="Navegação principal">
-            {links.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/'}
-                className={({ isActive }) =>
-                  `bottom-nav-link ${isActive ? 'active' : ''}`
-                }
-              >
-                <span className="bottom-nav-icon">
-                  <item.Icon size={18} strokeWidth={2} aria-hidden="true" />
-                </span>
-                <span className="bottom-nav-label">{item.label}</span>
-              </NavLink>
-            ))}
-          </nav>
-        ) : null}
-      </ErrorBoundary>
-
-
-      <AlcoholAgeGateModal
-        open={Boolean(alcoholAgeGate?.open)}
-        produtoNome={alcoholAgeGate?.produtoNome}
-        onConfirm={alcoholAgeGate?.confirmar}
-        onCancel={alcoholAgeGate?.cancelar}
-      />
+      {/* Bottom nav — hide on checkout */}
+      {!isPagamentoRoute ? (
+        <BottomNav active={activeTab} onNavigate={handleTabChange} />
+      ) : null}
     </div>
   );
 }
