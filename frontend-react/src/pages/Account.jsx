@@ -5,6 +5,7 @@ import Icon from '../components/Icon';
 import { login as apiLogin, cadastrar, logout as apiLogout, getMe, getEndereco, salvarEndereco, buscarEnderecoViaCep, atualizarPerfil, alterarSenha, getPedidos } from '../lib/api';
 import SavedListsPage from '../components/cart/SavedListsPage';
 import MeuGasto from '../components/conta/MeuGasto';
+import RecurringPage from '../components/recurring/RecurringPage';
 
 const menuItems = [
   { icon: 'pin', label: 'Meus enderecos', action: 'enderecos' },
@@ -12,6 +13,7 @@ const menuItems = [
   { icon: 'ticket', label: 'Cupons', action: 'cupons' },
   { icon: 'chart', label: 'Meu Gasto', action: 'gasto' },
   { icon: 'package', label: 'Minhas Listas', action: 'listas' },
+  { icon: 'clock', label: 'Compras Recorrentes', action: 'recorrencias' },
   { icon: 'user', label: 'Meu perfil', action: 'perfil' },
   { icon: 'info', label: 'Seguranca', action: 'seguranca' },
   { icon: 'message', label: 'Atendimento', action: 'whatsapp' },
@@ -617,6 +619,7 @@ export default function Account() {
       setScreen('gasto');
     }
     else if (action === 'listas') setScreen('listas');
+    else if (action === 'recorrencias') setScreen('recorrencias');
     else if (action === 'perfil') setScreen('perfil');
     else if (action === 'seguranca') setScreen('seguranca');
     else if (action === 'soon') alert('Em breve!');
@@ -629,6 +632,7 @@ export default function Account() {
   );
 
   // Sub-telas
+  if (screen === 'recorrencias') return <RecurringPage onBack={() => setScreen('main')} />;
   if (screen === 'gasto') return <MeuGasto pedidos={pedidos} onBack={() => setScreen('main')} />;
   if (screen === 'listas') return <SavedListsPage onBack={() => setScreen('main')} />;
   if (screen === 'enderecos' && user) return <AddressScreen onBack={() => setScreen('main')} />;

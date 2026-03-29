@@ -15,6 +15,7 @@ import OfflineBanner from './components/ui/OfflineBanner';
 import { SkeletonStyles } from './components/ui/Skeleton';
 import NotFoundPage from './pages/NotFoundPage';
 import InstallPWABanner from './components/ui/InstallPWABanner';
+import { requestPushPermission, onForegroundMessage } from './lib/firebase';
 import { getMainCategory } from './lib/formatProductName';
 import Home from './pages/Home';
 import Products from './pages/Products';
@@ -35,6 +36,7 @@ const TermosUsoPage = lazy(() => import('./pages/TermosUsoPage'));
 const PoliticaTrocaDevolucaoPage = lazy(() => import('./pages/PoliticaTrocaDevolucaoPage'));
 const PoliticaEntregaPage = lazy(() => import('./pages/PoliticaEntregaPage'));
 const SharedCartPage = lazy(() => import('./pages/SharedCartPage'));
+const RecipesPage = lazy(() => import('./pages/RecipesPage'));
 
 function LoadingFallback() {
   return (
@@ -96,6 +98,23 @@ export default function App() {
       setProducts(deduped);
     });
   }, []);
+
+  // Push notifications — request permission after first use, handle foreground messages
+  useEffect(() => {
+    if (!localStorage.getItem('bomfilho_push_asked')) return;
+    try { onForegroundMessage((payload) => showToast(payload?.notification?.body || 'Nova notificacao')); } catch {}
+  }, [showToast]);
+
+  useEffect(() => {
+    const cartHasItems = Object.keys(cart).length > 0;
+    if (cartHasItems && !localStorage.getItem('bomfilho_push_asked')) {
+      const timer = setTimeout(() => {
+        requestPushPermission().catch(() => {});
+        localStorage.setItem('bomfilho_push_asked', 'true');
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [cart]);
 
   // Search function — queries API directly for full catalog
   const searchProducts = useCallback(async (term) => {
@@ -270,6 +289,7 @@ export default function App() {
               <Route path="/termos-de-uso" element={<TermosUsoPage />} />
               <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
               <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
+              <Route path="/receitas" element={<RecipesPage onAdd={handleAdd} products={products} />} />
               <Route path="/c/:shareId" element={<SharedCartPage onAdd={handleAdd} products={products} />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>

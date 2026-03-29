@@ -8,6 +8,7 @@ import Icon from '../components/Icon';
 import ProductCard from '../components/ProductCard';
 import KitCard from '../components/KitCard';
 import { kits } from '../data/kits';
+import { recipes } from '../data/recipes';
 
 const promos = [
   { title: 'PRIMEIRA COMPRA', subtitle: '20% OFF com Pix', code: 'BOM20', dark: true },
@@ -196,6 +197,33 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 7 }}>
           {recentes.map(p => (
             <ProductCard key={p.id} product={p} qty={cart[p.id] || 0} onAdd={onAdd} onRemove={onRemove} compact />
+          ))}
+        </div>
+      </div>
+
+      {/* Receitas */}
+      <div style={{ marginTop: 16, marginBottom: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <h2 style={{ fontSize: 13, fontWeight: 800, color: colors.white, display: 'flex', alignItems: 'center', gap: 4, fontFamily: fonts.text }}>
+            {'\u{1F957}'} Receitas
+          </h2>
+          <a href="/receitas" style={{ fontSize: 10, color: colors.gold, fontWeight: 700, textDecoration: 'none' }}>Ver todas</a>
+        </div>
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4 }}>
+          {recipes.slice(0, 3).map(r => (
+            <a key={r.id} href="/receitas" style={{
+              minWidth: 150, flex: '0 0 auto', textDecoration: 'none',
+              background: colors.card, border: `1px solid ${colors.border}`,
+              borderRadius: 14, padding: 12,
+            }}>
+              <span style={{ fontSize: 24, display: 'block', marginBottom: 4 }}>{r.emoji}</span>
+              <p style={{ fontSize: 12, fontWeight: 800, color: colors.white, margin: '0 0 2px', fontFamily: fonts.text }}>
+                {r.title}
+              </p>
+              <p style={{ fontSize: 9, color: colors.textMuted, margin: 0, fontFamily: fonts.text }}>
+                {r.prep_time + r.cook_time}min \u00B7 {r.ingredients.length} ingredientes
+              </p>
+            </a>
           ))}
         </div>
       </div>

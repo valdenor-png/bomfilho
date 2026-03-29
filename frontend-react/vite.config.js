@@ -11,6 +11,10 @@ function criarManualChunks(id) {
     return undefined;
   }
 
+  if (caminhoNormalizado.includes('firebase') || caminhoNormalizado.includes('@firebase')) {
+    return 'vendor-firebase';
+  }
+
   if (caminhoNormalizado.includes('xlsx')) {
     return 'vendor-xlsx';
   }
