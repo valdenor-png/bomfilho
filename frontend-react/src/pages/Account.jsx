@@ -288,13 +288,12 @@ function ProfileScreen({ user, onBack, onUserUpdate }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {[
           { label: 'Nome completo', key: 'nome', placeholder: 'Seu nome' },
-          { label: 'E-mail', key: 'email', placeholder: 'seu@email.com', type: 'email' },
+          { label: 'E-mail', key: 'email', placeholder: 'seu@email.com', type: 'email', disabled: true },
           { label: 'Telefone (WhatsApp)', key: 'telefone', placeholder: '(91) 99999-9999' },
-          { label: 'CPF (opcional)', key: 'cpf', placeholder: '000.000.000-00' },
         ].map(f => (
           <div key={f.key}>
             <label style={labelStyle}>{f.label}</label>
-            <input type={f.type || 'text'} value={form[f.key]} onChange={e => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} style={inputStyle} />
+            <input type={f.type || 'text'} value={form[f.key]} onChange={e => !f.disabled && setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} disabled={f.disabled} style={{ ...inputStyle, opacity: f.disabled ? 0.5 : 1, cursor: f.disabled ? 'not-allowed' : 'text' }} />
           </div>
         ))}
       </div>

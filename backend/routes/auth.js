@@ -308,9 +308,7 @@ module.exports = function createAuthRoutes(deps) {
       const values = [];
 
       if (nome !== undefined) { updates.push('nome = ?'); values.push(String(nome).trim()); }
-      if (email !== undefined) { updates.push('email = ?'); values.push(String(email).trim().toLowerCase()); }
       if (telefone !== undefined) { updates.push('telefone = ?'); values.push(String(telefone).trim()); }
-      if (cpf !== undefined) { updates.push('cpf = ?'); values.push(String(cpf).replace(/\D/g, '').slice(0, 11)); }
 
       if (updates.length === 0) {
         return res.status(400).json({ erro: 'Nenhum campo para atualizar.' });
