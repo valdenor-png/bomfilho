@@ -1,8 +1,8 @@
 import React from 'react';
 // pages/Products.jsx — Catálogo de produtos
-// Props: cart, onAdd, onRemove, products (array da API), initialCategory
+// Props: cart, onAdd, onRemove, products, initialCategory, onSearch
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { colors, fonts } from '../theme';
 import Icon, { categoryIcons } from '../components/Icon';
 import ProductCard from '../components/ProductCard';
@@ -17,19 +17,44 @@ const categories = [
   { id: 'limpeza', name: 'Limpeza' },
 ];
 
-export default function Products({ cart = {}, onAdd, onRemove, products = [], initialCategory }) {
+export default function Products({ cart = {}, onAdd, onRemove, products = [], initialCategory, onSearch }) {
   const [category, setCategory] = useState(initialCategory || 'all');
   const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef(null);
 
   useEffect(() => {
     if (initialCategory) setCategory(initialCategory);
   }, [initialCategory]);
 
-  const filtered = products.filter(p => {
+  // Busca na API quando digita (debounce 400ms)
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!search || search.length < 2 || !onSearch) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    debounceRef.current = setTimeout(async () => {
+      const results = await onSearch(search);
+      setSearchResults(results);
+      setSearching(false);
+    }, 400);
+
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [search, onSearch]);
+
+  // Se tem busca, usa resultados da API. Senão, filtra local.
+  const displayProducts = searchResults || products;
+  const filtered = displayProducts.filter(p => {
+    if (searchResults) return true; // API já filtrou
     const matchCat = category === 'all'
       || (category === 'ofertas' ? (p.tag === 'Oferta' || p.oldPrice) : p.category === category);
-    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
+    return matchCat;
   });
 
   // Agrupar por categoria quando em "Todos" sem busca
@@ -40,7 +65,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
       grouped[p.category].push(p);
     });
   }
-  const showGrouped = category === 'all' && !search;
+  const showGrouped = category === 'all' && !search && !searchResults;
 
   return (
     <div style={{ padding: '0 16px' }}>
@@ -97,7 +122,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
         fontSize: 10, color: colors.textMuted,
         margin: '8px 0 5px', fontFamily: fonts.number,
       }}>
-        {filtered.length} produtos
+        {searching ? 'Buscando...' : `${filtered.length} produtos`}
       </p>
 
       {/* Listagem */}

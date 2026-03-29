@@ -63,23 +63,49 @@ export default function App() {
     return () => window.removeEventListener('scroll', handler);
   }, []);
 
-  // Load products from API
+  // Load products — 10 per main category for fast vitrine
   useEffect(() => {
-    getProdutos({ page: 1, limit: 80 })
-      .then((data) => {
-        const prods = (data.produtos || []).map((p) => ({
-          id: Number(p.id),
-          name: p.nome || p.name || '',
-          description: p.descricao || p.description || '',
-          price: Number(p.preco || p.price || 0),
-          oldPrice: Number(p.preco_anterior || p.oldPrice || 0) || null,
-          category: getMainCategory(p.categoria || p.category || ''),
-          tag: p.promocao || Number(p.desconto || 0) > 0 ? 'Oferta' : null,
-          image_url: p.imagem || p.image_url || '',
-        }));
-        setProducts(prods);
-      })
-      .catch(() => {});
+    const cats = ['bebidas', 'mercearia', 'hortifruti', 'higiene', 'limpeza', 'frios'];
+    Promise.all(
+      cats.map(cat =>
+        getProdutos({ categoria: cat, limit: 10, page: 1 })
+          .then(data => (data.produtos || []))
+          .catch(() => [])
+      )
+    ).then(results => {
+      const all = results.flat().map(p => ({
+        id: Number(p.id),
+        name: p.nome || p.name || '',
+        description: p.descricao || p.description || '',
+        price: Number(p.preco || p.price || 0),
+        oldPrice: Number(p.preco_anterior || p.oldPrice || 0) || null,
+        category: getMainCategory(p.categoria || p.category || ''),
+        tag: p.promocao || Number(p.desconto || 0) > 0 ? 'Oferta' : null,
+        image_url: p.imagem || p.image_url || '',
+      }));
+      // Dedup by id
+      const seen = new Set();
+      const deduped = all.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+      setProducts(deduped);
+    });
+  }, []);
+
+  // Search function — queries API directly for full catalog
+  const searchProducts = useCallback(async (term) => {
+    if (!term || term.length < 2) return [];
+    try {
+      const data = await getProdutos({ busca: term, limit: 20 });
+      return (data.produtos || []).map(p => ({
+        id: Number(p.id),
+        name: p.nome || p.name || '',
+        description: p.descricao || p.description || '',
+        price: Number(p.preco || p.price || 0),
+        oldPrice: Number(p.preco_anterior || p.oldPrice || 0) || null,
+        category: getMainCategory(p.categoria || p.category || ''),
+        tag: p.promocao || Number(p.desconto || 0) > 0 ? 'Oferta' : null,
+        image_url: p.imagem || p.image_url || '',
+      }));
+    } catch { return []; }
   }, []);
 
   // Convert CartContext items to simple cart object {id: qty}
@@ -203,6 +229,7 @@ export default function App() {
                   onRemove={handleRemove}
                   products={products}
                   initialCategory={initialCategory}
+                  onSearch={searchProducts}
                 />
               } />
               <Route path="/pedidos" element={<Orders />} />
