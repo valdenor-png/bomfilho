@@ -5,11 +5,11 @@ import Icon from '../components/Icon';
 import { login as apiLogin, cadastrar, logout as apiLogout, getMe } from '../lib/api';
 
 const menuItems = [
-  { icon: 'pin', label: 'Meus enderecos' },
-  { icon: 'creditCard', label: 'Pagamentos' },
-  { icon: 'ticket', label: 'Cupons' },
+  { icon: 'pin', label: 'Meus enderecos', action: 'soon' },
+  { icon: 'creditCard', label: 'Pagamentos', action: 'soon' },
+  { icon: 'ticket', label: 'Cupons', action: 'soon' },
   { icon: 'message', label: 'Atendimento', action: 'whatsapp' },
-  { icon: 'info', label: 'Sobre o BomFilho' },
+  { icon: 'info', label: 'Sobre', action: 'whatsapp' },
 ];
 
 export default function Account() {
@@ -131,7 +131,10 @@ export default function Account() {
         </div>
 
         {menuItems.map((item, i) => (
-          <div key={i} onClick={() => item.action === 'whatsapp' ? handleWhatsApp() : null} style={{
+          <div key={i} onClick={() => {
+            if (item.action === 'whatsapp') handleWhatsApp();
+            else if (item.action === 'soon') alert('Em breve! Estamos preparando essa funcionalidade.');
+          }} style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '13px 0', borderBottom: `1px solid ${colors.border}`, cursor: 'pointer',
           }}>
