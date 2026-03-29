@@ -67,7 +67,7 @@ function matchesDietaryFilter(product, filterKey) {
   return filter.keywords.some(kw => name.includes(kw) || tags.includes(filterKey));
 }
 
-export default function Products({ cart = {}, onAdd, onRemove, products = [], initialCategory, onSearch }) {
+export default function Products({ cart = {}, onAdd, onRemove, products = [], initialCategory, initialSearch, onSearch }) {
   const [category, setCategory] = useState(initialCategory || 'all');
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
@@ -80,6 +80,13 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
   useEffect(() => {
     if (initialCategory) setCategory(initialCategory);
   }, [initialCategory]);
+
+  // Pre-fill search from Home
+  useEffect(() => {
+    if (initialSearch) {
+      setQuery(initialSearch);
+    }
+  }, [initialSearch, setQuery]);
 
   // Debounced API search
   useEffect(() => {

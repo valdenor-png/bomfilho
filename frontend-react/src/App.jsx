@@ -56,6 +56,7 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [scrolled, setScrolled] = useState(false);
   const [initialCategory, setInitialCategory] = useState(null);
+  const [initialSearch, setInitialSearch] = useState('');
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
 
@@ -173,8 +174,9 @@ export default function App() {
     removeItem(Number(id));
   }, [removeItem]);
 
-  const handleGoProducts = useCallback((cat) => {
+  const handleGoProducts = useCallback((cat, search) => {
     setInitialCategory(cat || null);
+    setInitialSearch(search || '');
     navigate('/produtos');
     window.scrollTo(0, 0);
   }, [navigate]);
@@ -262,6 +264,7 @@ export default function App() {
                   onRemove={handleRemove}
                   products={products}
                   initialCategory={initialCategory}
+                  initialSearch={initialSearch}
                   onSearch={searchProducts}
                 />
               } />

@@ -77,7 +77,7 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
               if (e.key === 'Enter' && query.trim()) {
                 saveToHistory(query.trim());
                 setIsOpen(false);
-                onGoProducts();
+                onGoProducts(null, query.trim());
               }
             }}
             placeholder="O que voce procura?"
