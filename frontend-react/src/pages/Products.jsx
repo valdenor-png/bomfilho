@@ -116,8 +116,8 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
         Object.entries(grouped).map(([catKey, prods]) => {
           const catInfo = categories.find(c => c.id === catKey);
           return (
-            <div key={catKey} style={{ marginBottom: 14 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div key={catKey} style={{ marginBottom: 14, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8 }}>
                 <h3 style={{
                   fontSize: 13, fontWeight: 800, color: colors.white,
                   display: 'flex', alignItems: 'center', gap: 4, fontFamily: fonts.text,
@@ -127,9 +127,10 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
                 </h3>
                 <button onClick={() => setCategory(catKey)} style={{
                   background: 'none', border: 'none', cursor: 'pointer',
-                  color: colors.gold, fontWeight: 700, fontSize: 10, fontFamily: fonts.text,
+                  color: colors.gold, fontWeight: 700, fontSize: 11, fontFamily: fonts.text,
+                  whiteSpace: 'nowrap', flexShrink: 0, paddingRight: 2,
                 }}>
-                  Ver
+                  Ver →
                 </button>
               </div>
               <div style={{ display: 'flex', gap: 7, overflowX: 'auto' }}>
