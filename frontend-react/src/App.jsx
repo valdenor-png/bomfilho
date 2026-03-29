@@ -29,6 +29,7 @@ const PoliticaPrivacidadePage = lazy(() => import('./pages/PoliticaPrivacidadePa
 const TermosUsoPage = lazy(() => import('./pages/TermosUsoPage'));
 const PoliticaTrocaDevolucaoPage = lazy(() => import('./pages/PoliticaTrocaDevolucaoPage'));
 const PoliticaEntregaPage = lazy(() => import('./pages/PoliticaEntregaPage'));
+const SharedCartPage = lazy(() => import('./pages/SharedCartPage'));
 
 function LoadingFallback() {
   return (
@@ -235,7 +236,7 @@ export default function App() {
                   onSearch={searchProducts}
                 />
               } />
-              <Route path="/pedidos" element={<Orders />} />
+              <Route path="/pedidos" element={<Orders onAdd={handleAdd} products={products} />} />
               <Route path="/conta" element={<Account />} />
 
               {/* New checkout from prototype */}
@@ -259,6 +260,7 @@ export default function App() {
               <Route path="/termos-de-uso" element={<TermosUsoPage />} />
               <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
               <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
+              <Route path="/c/:shareId" element={<SharedCartPage onAdd={handleAdd} products={products} />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>

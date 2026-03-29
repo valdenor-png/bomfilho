@@ -2,13 +2,15 @@ import React from 'react';
 import { useState, useEffect } from 'react';
 import { colors, fonts } from '../theme';
 import Icon from '../components/Icon';
-import { login as apiLogin, cadastrar, logout as apiLogout, getMe, getEndereco, salvarEndereco, buscarEnderecoViaCep, atualizarPerfil, alterarSenha } from '../lib/api';
+import { login as apiLogin, cadastrar, logout as apiLogout, getMe, getEndereco, salvarEndereco, buscarEnderecoViaCep, atualizarPerfil, alterarSenha, getPedidos } from '../lib/api';
 import SavedListsPage from '../components/cart/SavedListsPage';
+import MeuGasto from '../components/conta/MeuGasto';
 
 const menuItems = [
   { icon: 'pin', label: 'Meus enderecos', action: 'enderecos' },
   { icon: 'creditCard', label: 'Pagamentos', action: 'pagamentos' },
   { icon: 'ticket', label: 'Cupons', action: 'cupons' },
+  { icon: 'chart', label: 'Meu Gasto', action: 'gasto' },
   { icon: 'package', label: 'Minhas Listas', action: 'listas' },
   { icon: 'user', label: 'Meu perfil', action: 'perfil' },
   { icon: 'info', label: 'Seguranca', action: 'seguranca' },
@@ -558,7 +560,8 @@ export default function Account() {
   const [form, setForm] = useState({ nome: '', telefone: '', email: '', senha: '' });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [screen, setScreen] = useState('main'); // 'main' | 'enderecos' | 'pagamentos' | 'cupons'
+  const [screen, setScreen] = useState('main');
+  const [pedidos, setPedidos] = useState([]);
 
   useEffect(() => {
     getMe()
@@ -609,6 +612,10 @@ export default function Account() {
     else if (action === 'enderecos') setScreen('enderecos');
     else if (action === 'pagamentos') setScreen('pagamentos');
     else if (action === 'cupons') setScreen('cupons');
+    else if (action === 'gasto') {
+      getPedidos({ page: 1, limit: 100 }).then(d => setPedidos(d.pedidos || [])).catch(() => {});
+      setScreen('gasto');
+    }
     else if (action === 'listas') setScreen('listas');
     else if (action === 'perfil') setScreen('perfil');
     else if (action === 'seguranca') setScreen('seguranca');
@@ -622,6 +629,7 @@ export default function Account() {
   );
 
   // Sub-telas
+  if (screen === 'gasto') return <MeuGasto pedidos={pedidos} onBack={() => setScreen('main')} />;
   if (screen === 'listas') return <SavedListsPage onBack={() => setScreen('main')} />;
   if (screen === 'enderecos' && user) return <AddressScreen onBack={() => setScreen('main')} />;
   if (screen === 'pagamentos' && user) return <PaymentsScreen onBack={() => setScreen('main')} />;

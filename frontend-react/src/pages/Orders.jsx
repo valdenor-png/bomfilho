@@ -1,5 +1,6 @@
 import React from 'react';
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { colors, fonts, formatPrice, formatProductName } from '../theme';
 import Icon from '../components/Icon';
 import { getPedidos, getPedidoById, getMe } from '../lib/api';
@@ -25,16 +26,18 @@ function getStatus(status) {
 function formatDate(date) {
   if (!date) return '';
   const d = new Date(date);
-  return d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('pt-BR') + ' as ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function Orders() {
+export default function Orders({ onAdd, products = [] }) {
+  const navigate = useNavigate();
   const [pedidos, setPedidos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loggedIn, setLoggedIn] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const [detalhes, setDetalhes] = useState({});
   const [filter, setFilter] = useState('todos');
+  const [reordering, setReordering] = useState(null);
 
   useEffect(() => {
     getMe()
@@ -56,6 +59,38 @@ export default function Orders() {
         setDetalhes(prev => ({ ...prev, [id]: data }));
       } catch {}
     }
+  };
+
+  const handleReorder = (pedidoId) => {
+    const det = detalhes[pedidoId];
+    const itens = det?.itens || det?.pedido_itens || [];
+    if (!itens.length || !onAdd) return;
+
+    setReordering(pedidoId);
+    let added = 0;
+    let unavailable = 0;
+
+    for (const item of itens) {
+      const productId = item.produto_id || item.product_id;
+      const product = products.find(p => p.id === Number(productId));
+      if (product) {
+        const qty = item.quantidade || 1;
+        for (let i = 0; i < qty; i++) {
+          onAdd(product.id);
+        }
+        added++;
+      } else {
+        unavailable++;
+      }
+    }
+
+    setTimeout(() => {
+      setReordering(null);
+      if (unavailable > 0) {
+        // Still navigate even if some items are unavailable
+      }
+      navigate('/pagamento');
+    }, 300);
   };
 
   const filters = [
@@ -87,7 +122,7 @@ export default function Orders() {
         Seus pedidos
       </p>
       <p style={{ fontSize: 12, color: colors.textMuted, fontFamily: fonts.text }}>
-        Faça login para ver seus pedidos
+        Faca login para ver seus pedidos
       </p>
     </div>
   );
@@ -126,7 +161,7 @@ export default function Orders() {
             Nenhum pedido
           </p>
           <p style={{ fontSize: 11, color: colors.textMuted }}>
-            {filter === 'todos' ? 'Faça sua primeira compra!' : 'Nenhum pedido nesta categoria'}
+            {filter === 'todos' ? 'Faca sua primeira compra!' : 'Nenhum pedido nesta categoria'}
           </p>
         </div>
       ) : (
@@ -135,6 +170,9 @@ export default function Orders() {
           const isExpanded = expanded === pedido.id;
           const det = detalhes[pedido.id];
           const itens = det?.itens || det?.pedido_itens || [];
+          const canReorder = ['entregue', 'retirado', 'cancelado', 'expirado'].includes(
+            String(pedido.status || '').toLowerCase()
+          );
 
           return (
             <div key={pedido.id} style={{
@@ -166,7 +204,7 @@ export default function Orders() {
                     {formatPrice(Number(pedido.total || 0))}
                   </span>
                   <p style={{ fontSize: 9, color: colors.textMuted, margin: '2px 0 0', fontFamily: fonts.text }}>
-                    {pedido.forma_pagamento === 'pix' ? 'PIX' : pedido.forma_pagamento === 'credito' ? 'Crédito' : pedido.forma_pagamento === 'debito' ? 'Débito' : pedido.forma_pagamento || ''}
+                    {pedido.forma_pagamento === 'pix' ? 'PIX' : pedido.forma_pagamento === 'credito' ? 'Credito' : pedido.forma_pagamento === 'debito' ? 'Debito' : pedido.forma_pagamento || ''}
                     {pedido.tipo_entrega === 'retirada' ? ' · Retirada' : ' · Entrega'}
                   </p>
                 </div>
@@ -198,9 +236,25 @@ export default function Orders() {
                     </p>
                   )}
 
-                  {/* Botões */}
+                  {/* Botoes */}
                   <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                    <button onClick={() => window.open(`https://wa.me/5591999652790?text=Olá, sobre meu pedido %23${pedido.id}`, '_blank')} style={{
+                    {canReorder && itens.length > 0 && (
+                      <button
+                        onClick={() => handleReorder(pedido.id)}
+                        disabled={reordering === pedido.id}
+                        style={{
+                          flex: 1, padding: 10, borderRadius: 10,
+                          background: colors.gold, border: 'none',
+                          color: colors.bgDeep, fontWeight: 800, fontSize: 11,
+                          cursor: 'pointer', fontFamily: fonts.text,
+                          opacity: reordering === pedido.id ? 0.6 : 1,
+                          boxShadow: '0 2px 8px rgba(226,184,74,0.3)',
+                        }}
+                      >
+                        {reordering === pedido.id ? 'Adicionando...' : 'Pedir de novo'}
+                      </button>
+                    )}
+                    <button onClick={() => window.open(`https://wa.me/5591999652790?text=Ola, sobre meu pedido %23${pedido.id}`, '_blank')} style={{
                       flex: 1, padding: 10, borderRadius: 10,
                       background: 'transparent', border: `1px solid ${colors.gold}`,
                       color: colors.gold, fontWeight: 700, fontSize: 11,

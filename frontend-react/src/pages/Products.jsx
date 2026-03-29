@@ -1,9 +1,10 @@
 import React from 'react';
 import { useState, useEffect, useRef } from 'react';
-import { colors, fonts } from '../theme';
+import { colors, fonts, formatPrice } from '../theme';
 import Icon, { categoryIcons } from '../components/Icon';
 import ProductCard from '../components/ProductCard';
 import { sanitizeInput } from '../lib/sanitize';
+import { useSmartSearch } from '../hooks/useSmartSearch';
 
 const MAX_PER_CATEGORY = 10;
 
@@ -49,86 +50,187 @@ function HorizontalRow({ products, cart, onAdd, onRemove }) {
   );
 }
 
+const DIETARY_FILTERS = [
+  { key: 'sem_gluten', label: 'Sem Gluten', keywords: ['sem gluten', 'gluten free', 'tapioca'] },
+  { key: 'integral', label: 'Integral', keywords: ['integral', 'aveia', 'granola', 'fibra'] },
+  { key: 'zero', label: 'Zero/Diet', keywords: ['zero', 'diet', 'light', 'sem acucar'] },
+  { key: 'organico', label: 'Organico', keywords: ['organico', 'organic', 'natural'] },
+];
+
+function matchesDietaryFilter(product, filterKey) {
+  const filter = DIETARY_FILTERS.find(f => f.key === filterKey);
+  if (!filter) return false;
+  const name = (product.name || product.nome || '').toLowerCase();
+  const tags = (product.tags || []).map(t => t.toLowerCase());
+  return filter.keywords.some(kw => name.includes(kw) || tags.includes(filterKey));
+}
+
 export default function Products({ cart = {}, onAdd, onRemove, products = [], initialCategory, onSearch }) {
   const [category, setCategory] = useState(initialCategory || 'all');
-  const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
+  const [dietaryFilter, setDietaryFilter] = useState(null);
   const debounceRef = useRef(null);
+  const searchBoxRef = useRef(null);
+
+  const { query, setQuery, suggestions, showSuggestions, setShowSuggestions, saveToHistory } = useSmartSearch(products);
 
   useEffect(() => {
     if (initialCategory) setCategory(initialCategory);
   }, [initialCategory]);
 
+  // Debounced API search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!search || search.length < 2 || !onSearch) {
+    if (!query || query.length < 2 || !onSearch) {
       setSearchResults(null);
       setSearching(false);
       return;
     }
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
-      const results = await onSearch(search);
+      const results = await onSearch(query);
       setSearchResults(results);
       setSearching(false);
     }, 400);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search, onSearch]);
+  }, [query, onSearch]);
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
+  }, [setShowSuggestions]);
+
+  const handleSuggestionClick = (s) => {
+    setQuery(s.text);
+    saveToHistory(s.text);
+    setShowSuggestions(false);
+    if (s.type === 'category') {
+      const cat = categories.find(c => c.name.toLowerCase() === s.text.toLowerCase());
+      if (cat) { setCategory(cat.id); setQuery(''); setSearchResults(null); }
+    }
+  };
+
+  const handleSearchSubmit = () => {
+    if (query.trim()) {
+      saveToHistory(query.trim());
+      setShowSuggestions(false);
+    }
+  };
 
   const displayProducts = searchResults || products;
   const filtered = displayProducts.filter(p => {
-    if (searchResults) return true;
-    const matchCat = category === 'all'
-      || (category === 'ofertas' ? (p.tag === 'Oferta' || p.oldPrice) : p.category === category);
-    return matchCat;
+    if (searchResults && !dietaryFilter) return true;
+    const matchCat = searchResults ? true : (category === 'all'
+      || (category === 'ofertas' ? (p.tag === 'Oferta' || p.oldPrice) : p.category === category));
+    const matchDiet = !dietaryFilter || matchesDietaryFilter(p, dietaryFilter);
+    return matchCat && matchDiet;
   });
 
-  // Agrupar por categoria, max 10 por categoria
   const grouped = {};
-  if (category === 'all' && !search && !searchResults) {
+  if (category === 'all' && !query && !searchResults) {
     filtered.forEach(p => {
       const cat = p.category || 'outros';
       if (!grouped[cat]) grouped[cat] = [];
       if (grouped[cat].length < MAX_PER_CATEGORY) grouped[cat].push(p);
     });
   } else if (!searchResults) {
-    // Categoria específica selecionada — ainda agrupar como seção única
     grouped[category] = filtered.slice(0, MAX_PER_CATEGORY);
   }
 
-  // Busca mostra tudo horizontal numa seção só
   if (searchResults) {
     grouped['resultados'] = filtered.slice(0, 30);
   }
 
   const showGrouped = Object.keys(grouped).length > 0;
-
   const totalFiltered = filtered.length;
 
   return (
     <div style={{ padding: '0 16px' }}>
-      {/* Busca */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 5, marginTop: 8,
-        background: colors.card, borderRadius: 11,
-        padding: '2px 3px 2px 10px', border: `1px solid ${colors.border}`,
-      }}>
-        <Icon name="search" size={13} color={colors.textMuted} />
-        <input
-          value={search}
-          onChange={e => setSearch(sanitizeInput(e.target.value))}
-          placeholder="Buscar produtos..."
-          style={{
-            flex: 1, border: 'none', outline: 'none', background: 'transparent',
-            fontSize: 12, color: colors.white, padding: '7px 0', fontFamily: fonts.text,
-          }}
-        />
-        {search && (
-          <button onClick={() => setSearch('')} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: colors.textMuted, fontSize: 15, padding: '2px 6px',
-          }}>x</button>
+      {/* Busca com autocomplete */}
+      <div ref={searchBoxRef} style={{ position: 'relative', marginTop: 8 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 5,
+          background: colors.card,
+          borderRadius: showSuggestions && suggestions.length > 0 && query ? '11px 11px 0 0' : 11,
+          padding: '2px 3px 2px 10px', border: `1px solid ${colors.border}`,
+        }}>
+          <Icon name="search" size={13} color={colors.textMuted} />
+          <input
+            value={query}
+            onChange={e => { setQuery(sanitizeInput(e.target.value)); setShowSuggestions(true); }}
+            onFocus={() => setShowSuggestions(true)}
+            onKeyDown={e => { if (e.key === 'Enter') handleSearchSubmit(); }}
+            placeholder="Buscar produtos..."
+            style={{
+              flex: 1, border: 'none', outline: 'none', background: 'transparent',
+              fontSize: 12, color: colors.white, padding: '7px 0', fontFamily: fonts.text,
+            }}
+          />
+          {query && (
+            <button onClick={() => { setQuery(''); setSearchResults(null); setShowSuggestions(false); }} style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: colors.textMuted, fontSize: 15, padding: '2px 6px',
+            }}>x</button>
+          )}
+        </div>
+
+        {/* Suggestions dropdown */}
+        {showSuggestions && suggestions.length > 0 && query && (
+          <div style={{
+            position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+            background: colors.bgDark || '#132E27',
+            border: `1px solid ${colors.border}`, borderTop: 'none',
+            borderRadius: '0 0 14px 14px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
+            maxHeight: 260, overflowY: 'auto',
+          }}>
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => handleSuggestionClick(s)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 14px', cursor: 'pointer',
+                  fontSize: 12, color: colors.white, width: '100%',
+                  background: 'transparent', border: 'none', textAlign: 'left',
+                  fontFamily: fonts.text,
+                  borderBottom: i < suggestions.length - 1 ? `1px solid rgba(255,255,255,0.05)` : 'none',
+                }}
+              >
+                <span style={{ fontSize: 13, width: 20, textAlign: 'center', flexShrink: 0 }}>
+                  {s.type === 'history' ? '\u{1F552}' : s.type === 'category' ? '\u{1F4C2}' : '\u{1F6D2}'}
+                </span>
+                <span style={{
+                  flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  color: s.type === 'history' ? 'rgba(255,255,255,0.6)' : colors.white,
+                }}>
+                  {s.text}
+                </span>
+                {s.type === 'product' && s.price != null && (
+                  <span style={{
+                    fontFamily: fonts.number, fontWeight: 700,
+                    color: colors.gold, fontSize: 12, flexShrink: 0,
+                  }}>
+                    {formatPrice(s.price)}
+                  </span>
+                )}
+                {s.type === 'category' && (
+                  <span style={{ fontSize: 10, color: colors.textMuted, flexShrink: 0 }}>categoria</span>
+                )}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
@@ -137,7 +239,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
         {categories.map(cat => {
           const active = category === cat.id;
           return (
-            <button key={cat.id} onClick={() => { setCategory(cat.id); setSearch(''); setSearchResults(null); }} style={{
+            <button key={cat.id} onClick={() => { setCategory(cat.id); setQuery(''); setSearchResults(null); setShowSuggestions(false); }} style={{
               padding: '6px 11px', borderRadius: 9,
               background: active ? colors.gold : colors.card,
               border: active ? 'none' : `1px solid ${colors.border}`,
@@ -147,6 +249,25 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
                 fontSize: 10, fontWeight: 700,
                 color: active ? colors.bgDeep : colors.textSecondary,
               }}>{cat.name}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Filtros por necessidade */}
+      <div style={{ display: 'flex', gap: 5, marginTop: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
+        {DIETARY_FILTERS.map(f => {
+          const active = dietaryFilter === f.key;
+          return (
+            <button key={f.key} onClick={() => setDietaryFilter(active ? null : f.key)} style={{
+              padding: '5px 10px', borderRadius: 16, whiteSpace: 'nowrap',
+              background: active ? 'rgba(90,228,167,0.15)' : 'transparent',
+              border: `1px solid ${active ? 'rgba(90,228,167,0.3)' : 'rgba(255,255,255,0.08)'}`,
+              cursor: 'pointer', fontFamily: fonts.text,
+              color: active ? '#5AE4A7' : 'rgba(255,255,255,0.45)',
+              fontSize: 10, fontWeight: 600,
+            }}>
+              {f.label}
             </button>
           );
         })}
@@ -175,7 +296,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
         Object.entries(grouped).map(([catKey, prods]) => {
           if (!prods || prods.length === 0) return null;
           const catInfo = categories.find(c => c.id === catKey);
-          const label = catKey === 'resultados' ? `Resultados para "${search}"` : (catInfo?.name || catKey);
+          const label = catKey === 'resultados' ? `Resultados para "${query}"` : (catInfo?.name || catKey);
           return (
             <div key={catKey} style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, gap: 8 }}>

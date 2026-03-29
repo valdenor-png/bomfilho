@@ -56,6 +56,8 @@ const paths = {
   creditCard: 'M1 4h22v16H1zM1 10h22',
   ticket: 'M2 9a3 3 0 010-6h20a3 3 0 010 6M2 15a3 3 0 000 6h20a3 3 0 000-6M13 3v18',
   info: 'M12 2a10 10 0 100 20 10 10 0 000-20zM12 16v-4M12 8h.01',
+  arrowLeft: 'M19 12H5M12 19l-7-7 7-7',
+  chart: 'M18 20V10M12 20V4M6 20v-6',
 };
 
 // Mapeamento categoria → ícone

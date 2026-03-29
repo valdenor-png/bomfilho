@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { colors, fonts, formatPrice, formatProductName } from '../theme';
 import Icon, { categoryIcons } from '../components/Icon';
 import SaveCartCTA from '../components/cart/SaveCartCTA';
+import { createSharedCart, validarCupom } from '../lib/api';
 import SaveCartModal from '../components/cart/SaveCartModal';
 import { useSavedLists } from '../hooks/useSavedLists';
 import DeliverySlots, { DayPicker } from '../components/DeliverySlots';
@@ -57,13 +58,38 @@ function ProgressBar({ step }) {
 
 /* ===== STEP 1: CARRINHO ===== */
 function CartStep({ cart, products, updateQty, onNext }) {
+  const [sharing, setSharing] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+
   const items = Object.entries(cart).map(([id, qty]) => ({
     product: products.find(p => p.id === Number(id)),
     qty,
   })).filter(i => i.product);
 
-  const total = items.reduce((s, i) => s + i.product.price * i.qty, 0);
+  const subtotal = items.reduce((s, i) => s + i.product.price * i.qty, 0);
+  const discount = appliedCoupon?.desconto || 0;
+  const total = Math.max(0, subtotal - discount);
   const count = items.reduce((s, i) => s + i.qty, 0);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setCouponLoading(true);
+    setCouponError('');
+    try {
+      const result = await validarCupom(couponCode.trim(), subtotal);
+      if (result.valido) {
+        setAppliedCoupon(result);
+        setCouponCode('');
+      }
+    } catch (err) {
+      setCouponError(err?.message || err?.erro || 'Cupom invalido.');
+    } finally {
+      setCouponLoading(false);
+    }
+  };
 
   if (items.length === 0) {
     return (
@@ -135,12 +161,84 @@ function CartStep({ cart, products, updateQty, onNext }) {
         </div>
       ))}
 
+      {/* Cupom */}
+      <div style={{ marginTop: 12 }}>
+        {appliedCoupon ? (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '10px 12px', borderRadius: 12,
+            background: 'rgba(226,184,74,0.1)', border: `1px solid ${colors.goldBorder}`,
+          }}>
+            <span style={{ fontSize: 15 }}>{'\u{1F3F7}\uFE0F'}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: 12, fontWeight: 800, color: colors.gold, margin: 0, fontFamily: fonts.number }}>
+                {appliedCoupon.codigo}
+              </p>
+              <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', margin: '1px 0 0', fontFamily: fonts.text }}>
+                {appliedCoupon.descricao}
+              </p>
+            </div>
+            <span style={{ fontFamily: fonts.number, fontWeight: 800, fontSize: 13, color: '#5AE4A7', flexShrink: 0 }}>
+              -{formatPrice(appliedCoupon.desconto)}
+            </span>
+            <button onClick={() => setAppliedCoupon(null)} style={{
+              width: 24, height: 24, borderRadius: 6,
+              background: 'rgba(255,255,255,0.07)', border: `1px solid ${colors.border}`,
+              color: 'rgba(255,255,255,0.5)', fontSize: 12, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>x</button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                value={couponCode}
+                onChange={e => { setCouponCode(e.target.value.toUpperCase()); setCouponError(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleApplyCoupon()}
+                placeholder="Codigo do cupom"
+                maxLength={20}
+                style={{
+                  flex: 1, padding: '9px 12px', borderRadius: 10,
+                  background: 'rgba(255,255,255,0.05)', border: `1px solid ${colors.border}`,
+                  color: colors.white, fontSize: 12, fontFamily: fonts.text,
+                  outline: 'none', textTransform: 'uppercase', letterSpacing: '0.05em',
+                }}
+              />
+              <button
+                onClick={handleApplyCoupon}
+                disabled={!couponCode.trim() || couponLoading}
+                style={{
+                  padding: '9px 16px', borderRadius: 10,
+                  background: colors.gold, border: 'none',
+                  color: colors.bgDeep, fontWeight: 800, fontSize: 12,
+                  cursor: 'pointer', fontFamily: fonts.text,
+                  opacity: (!couponCode.trim() || couponLoading) ? 0.5 : 1,
+                }}
+              >
+                {couponLoading ? '...' : 'Aplicar'}
+              </button>
+            </div>
+            {couponError && (
+              <p style={{ fontSize: 10, color: '#F87171', fontWeight: 600, margin: '4px 0 0', fontFamily: fonts.text }}>
+                {couponError}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Resumo */}
       <div style={{ marginTop: 12, paddingTop: 10, borderTop: `2px solid ${colors.border}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
           <span style={{ color: colors.textMuted, fontSize: 11 }}>Subtotal</span>
-          <span style={{ color: colors.textSecondary, fontFamily: fonts.number, fontSize: 11 }}>{formatPrice(total)}</span>
+          <span style={{ color: colors.textSecondary, fontFamily: fonts.number, fontSize: 11 }}>{formatPrice(subtotal)}</span>
         </div>
+        {appliedCoupon && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ color: '#5AE4A7', fontSize: 11, fontWeight: 600 }}>Desconto ({appliedCoupon.codigo})</span>
+            <span style={{ color: '#5AE4A7', fontFamily: fonts.number, fontSize: 11, fontWeight: 700 }}>-{formatPrice(discount)}</span>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
           <span style={{ color: colors.textMuted, fontSize: 11 }}>Frete</span>
           <span style={{ color: colors.success, fontFamily: fonts.number, fontSize: 11, fontWeight: 600 }}>Gratis</span>
@@ -158,6 +256,49 @@ function CartStep({ cart, products, updateQty, onNext }) {
         cursor: 'pointer', fontFamily: fonts.text,
       }}>
         Ir para entrega
+      </button>
+
+      {/* Compartilhar via WhatsApp */}
+      <button
+        disabled={sharing}
+        onClick={async () => {
+          setSharing(true);
+          try {
+            const cartItems = items.map(({ product, qty }) => ({
+              productId: product.id,
+              name: product.name,
+              price: product.price,
+              quantity: qty,
+              category: product.category,
+            }));
+            const data = await createSharedCart({ items: cartItems, total, item_count: count });
+            const shareUrl = `${window.location.origin}/c/${data.id}`;
+            const message = encodeURIComponent(
+              `\u{1F6D2} Olha o que separei no BomFilho!\n` +
+              `${items.length} itens \u00B7 R$ ${total.toFixed(2).replace('.', ',')}\n\n` +
+              `\u{1F449} ${shareUrl}`
+            );
+            window.open(`https://wa.me/?text=${message}`, '_blank');
+          } catch {
+            // silently fail
+          } finally {
+            setSharing(false);
+          }
+        }}
+        style={{
+          width: '100%', marginTop: 6, padding: 11, borderRadius: 12,
+          background: 'rgba(255,255,255,0.07)', border: `1px solid ${colors.border}`,
+          color: colors.white, fontWeight: 700, fontSize: 12,
+          cursor: 'pointer', fontFamily: fonts.text,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          opacity: sharing ? 0.6 : 1,
+        }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#25D366">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+          <path d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2 22l4.832-1.438A9.955 9.955 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 01-4.243-1.216l-.256-.154-2.892.86.86-2.892-.154-.256A8 8 0 1112 20z"/>
+        </svg>
+        {sharing ? 'Gerando link...' : 'Compartilhar via WhatsApp'}
       </button>
     </div>
   );

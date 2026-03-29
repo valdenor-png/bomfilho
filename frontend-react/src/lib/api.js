@@ -1246,3 +1246,25 @@ export function adminGetCatalogoSaude() {
 export function adminGetCatalogoSaudeProdutos(params = {}) {
   return request(`/api/admin/catalogo/saude/produtos${buildQueryString(params)}`);
 }
+
+// ── Cupons ──
+export function validarCupom(codigo, valorPedido) {
+  return request('/api/cupons/validar', { method: 'POST', body: { codigo, valorPedido } });
+}
+
+export function getCuponsDisponiveis() {
+  return request('/api/cupons/disponiveis');
+}
+
+// ── Carrinho compartilhado ──
+export function createSharedCart({ items, total, item_count }) {
+  return request('/api/shared-cart', { method: 'POST', body: { items, total, item_count } });
+}
+
+export function getSharedCart(id) {
+  return request(`/api/shared-cart/${encodeURIComponent(id)}`);
+}
+
+export function trackSharedCartLoad(id) {
+  return request(`/api/shared-cart/${encodeURIComponent(id)}/load`, { method: 'POST' });
+}

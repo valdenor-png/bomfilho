@@ -2092,6 +2092,7 @@ app.use(require('./routes/health')({ protegerMetrics }));
 // ROTAS DE AVALIAÇÕES (routes/avaliacoes.js)
 // ============================================
 app.use(require('./routes/avaliacoes')({ autenticarToken, rateLimit, rateLimitValidateOptions }));
+app.use(require('./routes/shared-carts')({ autenticarToken }));
 
 if (SHOULD_SERVE_REACT && fs.existsSync(REACT_DIST_INDEX)) {
   app.get(/^\/(?!api).*/, (req, res) => {

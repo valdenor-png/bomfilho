@@ -3212,6 +3212,35 @@ export default function AdminPage() {
                                           ) : null}
                                         </div>
                                         <strong>{formatarMoeda(item.subtotal)}</strong>
+                                        {pedido.statusNormalizado === 'preparando' && pedido.clienteTelefone && (
+                                          <button
+                                            className="btn-avisar-cliente"
+                                            title="Avisar cliente via WhatsApp"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const tel = normalizarTelefoneWhatsapp(pedido.clienteTelefone);
+                                              if (!tel) return;
+                                              const msg = encodeURIComponent(
+                                                `Ola! Aqui e do BomFilho \u{1F6D2}\n\n` +
+                                                `Sobre seu pedido #${pedidoId}:\n` +
+                                                `O produto "${item.nome}" esta em falta.\n\n` +
+                                                `Posso substituir por outro similar?\n` +
+                                                `Responda SIM ou NAO, ou sugira outro produto.\n\n` +
+                                                `Se nao responder em 10 min, vamos remover o item e ajustar o valor.`
+                                              );
+                                              window.open(`https://wa.me/${tel}?text=${msg}`, '_blank');
+                                            }}
+                                            style={{
+                                              padding: '4px 8px', borderRadius: 6,
+                                              background: 'rgba(37,211,102,0.15)',
+                                              border: '1px solid rgba(37,211,102,0.3)',
+                                              color: '#25D366', fontSize: 10, fontWeight: 700,
+                                              cursor: 'pointer', marginLeft: 6, whiteSpace: 'nowrap',
+                                            }}
+                                          >
+                                            Avisar
+                                          </button>
+                                        )}
                                       </li>
                                     ))}
                                   </ul>

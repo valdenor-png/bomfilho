@@ -50,7 +50,7 @@ export default function LGPDBanner() {
         preferencias e historico de compras. Ao continuar navegando, voce
         concorda com nossa{' '}
         <a
-          href="/politica-privacidade"
+          href="/politica-de-privacidade"
           style={{ color: colors.gold, textDecoration: 'underline' }}
         >
           Politica de Privacidade
@@ -76,7 +76,7 @@ export default function LGPDBanner() {
           Aceitar e continuar
         </button>
         <a
-          href="/politica-privacidade"
+          href="/politica-de-privacidade"
           style={{
             padding: '10px 16px',
             borderRadius: 10,
