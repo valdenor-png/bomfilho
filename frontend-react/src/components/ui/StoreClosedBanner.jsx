@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { getStoreStatus } from '../../lib/storeHours';
 import { colors, fonts } from '../../theme';
 
-export default function StoreClosedBanner() {
+export default function StoreClosedBanner({ disabled }) {
+  if (disabled) return null;
   const [status, setStatus] = useState(null);
 
   useEffect(() => {

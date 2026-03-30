@@ -234,7 +234,7 @@ export default function App() {
     }}>
       {/* Offline + Store closed banners */}
       <OfflineBanner />
-      <StoreClosedBanner />
+      <StoreClosedBanner disabled />
       <SkeletonStyles />
 
       {/* Header — hide on checkout */}

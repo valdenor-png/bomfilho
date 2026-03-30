@@ -292,8 +292,6 @@ function CartStep({ cart, products, updateQty, onNext }) {
 
       <button
         onClick={() => {
-          const store = getStoreStatus();
-          if (!store.isOpen) return;
           const validation = validateCartMinimum(total, 'retirada');
           if (!validation.canProceed) return;
           onNext();
