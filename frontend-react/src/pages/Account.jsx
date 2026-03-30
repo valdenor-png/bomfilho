@@ -45,7 +45,8 @@ function AddressScreen({ onBack }) {
 
   useEffect(() => {
     getEndereco()
-      .then((data) => {
+      .then((resp) => {
+        const data = resp?.endereco || resp;
         if (data && (data.rua || data.cep)) {
           setEndereco(data);
           setForm({
