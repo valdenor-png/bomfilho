@@ -56,8 +56,17 @@ export default function ProductDetailModal({ product, isOpen, onClose, onAddToCa
         {/* Imagem */}
         <div style={{ position: 'relative', width: '100%', aspectRatio: '4/3', background: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
           {img && !imgError ? (
-            <img src={img} alt={displayName} onError={() => setImgError(true)}
-              style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 16 }} />
+            <>
+              <img src={img} alt={displayName} onError={() => setImgError(true)}
+                style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 16 }} />
+              <span style={{
+                position: 'absolute', bottom: 12, right: 12, padding: '4px 10px', borderRadius: 12,
+                background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)',
+                fontSize: 9, color: 'rgba(255,255,255,0.6)', fontFamily: fonts.text,
+              }}>
+                Foto ilustrativa. Preco valido somente no app.
+              </span>
+            </>
           ) : (
             <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ fontSize: 56, opacity: 0.6 }}>{emoji}</span>

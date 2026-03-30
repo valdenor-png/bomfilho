@@ -3051,6 +3051,16 @@ export default function AdminPage() {
                           >
                             Copiar resumo
                           </button>
+
+                          <button
+                            className="btn-secondary admin-order-util-btn"
+                            type="button"
+                            onClick={() => {
+                              window.open(`/admin/pedido/${pedido.id}/separacao`, '_blank');
+                            }}
+                          >
+                            Imprimir nota
+                          </button>
                         </div>
                       </div>
 

@@ -37,6 +37,7 @@ const TermosUsoPage = lazy(() => import('./pages/TermosUsoPage'));
 const PoliticaTrocaDevolucaoPage = lazy(() => import('./pages/PoliticaTrocaDevolucaoPage'));
 const PoliticaEntregaPage = lazy(() => import('./pages/PoliticaEntregaPage'));
 const SharedCartPage = lazy(() => import('./pages/SharedCartPage'));
+const NotaSeparacao = lazy(() => import('./pages/NotaSeparacao'));
 const RecipesPage = lazy(() => import('./pages/RecipesPage'));
 const PaymentResultPage = lazy(() => import('./pages/PaymentResultPage'));
 
@@ -219,6 +220,7 @@ export default function App() {
           <Routes>
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
+            <Route path="/admin/pedido/:id/separacao" element={<NotaSeparacao />} />
             <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
           </Routes>
         </Suspense>

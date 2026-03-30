@@ -16758,6 +16758,8 @@ body {
 .fila-detalhes-bloco { border: 1px solid var(--bf-border); border-radius: 8px; background: var(--bf-bg-card); padding: 0.45rem 0.5rem; }
 .fila-detalhes-linha { margin: 0.2rem 0 0; font-size: 0.74rem; color: rgba(255,255,255,0.70); word-break: break-word; }
 .fila-detalhes-total { margin: 0.45rem 0 0; font-size: 0.76rem; color: #FFFFFF; }
+.fila-detalhes-acoes { margin-top: 0.5rem; display: flex; gap: 0.4rem; }
+.fila-detalhes-acoes .fila-btn-acao { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; }
 
 .fila-drawer-overlay { position: fixed; inset: 0; background: rgba(2, 6, 23, 0.5); z-index: 1205; display: flex; justify-content: flex-end; }
 .fila-drawer { width: min(760px, 100vw); height: 100%; background: var(--bf-bg-card); padding: 0.8rem; overflow-y: auto; border: 1px solid var(--bf-border); box-shadow: -12px 0 30px rgba(15, 23, 42, 0.2); }

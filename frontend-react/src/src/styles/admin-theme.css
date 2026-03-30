@@ -1,0 +1,115 @@
+/* ============================================================
+   BOMFILHO ADMIN — DARK PREMIUM THEME
+   Importar este arquivo no entry point do admin:
+   import '../styles/admin-theme.css';
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Sora:wght@400;500;600;700;800&display=swap');
+
+/* ========== DESIGN TOKENS ========== */
+:root {
+  /* Backgrounds */
+  --admin-bg:              #0B1F1A;
+  --admin-bg-card:         #132E27;
+  --admin-bg-card-hover:   #1A3D33;
+  --admin-bg-sidebar:      #091A15;
+  --admin-bg-topbar:       rgba(11, 31, 26, 0.85);
+  --admin-bg-input:        #0E2420;
+
+  /* Brand */
+  --admin-teal:            #1F5C50;
+  --admin-teal-light:      #2A7A6A;
+  --admin-gold:            #E2B84A;
+  --admin-gold-dim:        #C9A23E;
+  --admin-gradient-brand:  linear-gradient(135deg, #1F5C50, #2A7A6A);
+  --admin-gradient-gold:   linear-gradient(135deg, #E2B84A, #C9A23E);
+  --admin-gradient-accent: linear-gradient(90deg, #E2B84A, #2A7A6A);
+
+  /* Text */
+  --admin-text-primary:    #F0F0F0;
+  --admin-text-secondary:  #8BADA3;
+  --admin-text-muted:      #5A8A7D;
+
+  /* Borders */
+  --admin-border:          rgba(255, 255, 255, 0.06);
+  --admin-border-active:   rgba(226, 184, 74, 0.3);
+  --admin-border-input:    rgba(255, 255, 255, 0.1);
+  --admin-border-input-focus: rgba(226, 184, 74, 0.5);
+
+  /* Status */
+  --admin-success:         #34D399;
+  --admin-success-bg:      rgba(52, 211, 153, 0.12);
+  --admin-success-border:  rgba(52, 211, 153, 0.2);
+  --admin-warning:         #FBBF24;
+  --admin-warning-bg:      rgba(251, 191, 36, 0.12);
+  --admin-warning-border:  rgba(251, 191, 36, 0.2);
+  --admin-danger:          #F87171;
+  --admin-danger-bg:       rgba(248, 113, 113, 0.12);
+  --admin-danger-border:   rgba(248, 113, 113, 0.2);
+  --admin-info:            #60A5FA;
+  --admin-info-bg:         rgba(96, 165, 250, 0.12);
+  --admin-info-border:     rgba(96, 165, 250, 0.2);
+
+  /* Shadows */
+  --admin-shadow-sm:       0 1px 3px rgba(0, 0, 0, 0.3);
+  --admin-shadow-md:       0 4px 12px rgba(0, 0, 0, 0.4);
+  --admin-shadow-lg:       0 8px 24px rgba(0, 0, 0, 0.5);
+  --admin-shadow-gold:     0 0 10px rgba(226, 184, 74, 0.3);
+
+  /* Radii */
+  --admin-radius-sm:       8px;
+  --admin-radius-md:       12px;
+  --admin-radius-lg:       14px;
+  --admin-radius-full:     9999px;
+
+  /* Fonts */
+  --admin-font-body:       'Plus Jakarta Sans', system-ui, sans-serif;
+  --admin-font-mono:       'Sora', system-ui, sans-serif;
+}
+
+/* ========== KEYFRAMES ========== */
+@keyframes adminFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes adminPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
+@keyframes adminSlideIn {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
+/* ========== BASE RESET for admin pages ========== */
+.admin-root {
+  font-family: var(--admin-font-body);
+  background: var(--admin-bg);
+  color: var(--admin-text-primary);
+  min-height: 100vh;
+  display: flex;
+}
+
+.admin-root *,
+.admin-root *::before,
+.admin-root *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-root ::selection {
+  background: rgba(226, 184, 74, 0.3);
+  color: var(--admin-text-primary);
+}
+
+.admin-root ::-webkit-scrollbar { width: 4px; height: 4px; }
+.admin-root ::-webkit-scrollbar-track { background: transparent; }
+.admin-root ::-webkit-scrollbar-thumb { background: var(--admin-teal); border-radius: 4px; }
+
+/* ========== PAGE TRANSITION ========== */
+.admin-page-enter {
+  animation: adminFadeIn 0.3s ease-out;
+}

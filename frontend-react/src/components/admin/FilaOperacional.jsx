@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { BadgeX, CircleCheck, ClipboardList, Clock3, Package, RefreshCw, Search, Store, Truck, Wallet, X } from '../../icons';
+import { BadgeX, CircleCheck, ClipboardList, Clock3, Package, Printer, RefreshCw, Search, Store, Truck, Wallet, X } from '../../icons';
 import {
   adminGetFilaOperacional,
   adminGetPedidoDetalhes,
@@ -254,6 +254,15 @@ function FilaPedidoCard({
                 ))}
               </ul>
               <p className="fila-detalhes-total"><strong>Total produtos:</strong> {R$(detalhesTotalProdutos)}</p>
+              <div className="fila-detalhes-acoes">
+                <button
+                  type="button"
+                  className="fila-btn-acao"
+                  onClick={() => window.open(`/admin/pedido/${pedido.id}/separacao`, '_blank')}
+                >
+                  <Printer size={12} aria-hidden="true" /> Imprimir nota
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -553,6 +562,10 @@ export default function FilaOperacional() {
     }
   }, [drawerPedidoId]);
 
+  const handleImprimirNota = useCallback((pedidoId) => {
+    window.open(`/admin/pedido/${pedidoId}/separacao`, '_blank');
+  }, []);
+
   const handleFecharDrawerDetalhes = useCallback(() => {
     setDrawerPedidoId(null);
   }, []);
@@ -820,6 +833,13 @@ export default function FilaOperacional() {
                     onClick={() => { void handleCopiarResumoDrawer(drawerDetalhes); }}
                   >
                     Copiar resumo
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => { handleImprimirNota(drawerPedidoId); }}
+                  >
+                    <Printer size={14} aria-hidden="true" /> Imprimir nota
                   </button>
                   {String(drawerPedido?.status || '').toLowerCase() === 'aguardando_revisao' ? (
                     <>
