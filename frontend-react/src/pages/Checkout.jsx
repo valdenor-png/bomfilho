@@ -164,6 +164,52 @@ function CartStep({ cart, products, updateQty, onNext }) {
         </div>
       ))}
 
+      {/* Vitrine de impulso — produtos baratos */}
+      {(() => {
+        const impulseIds = [58902, 58906, 49104, 49111, 48796, 48799, 45711, 45815];
+        const impulseProducts = impulseIds
+          .map(id => products.find(p => p.id === id))
+          .filter(Boolean)
+          .filter(p => !cart[p.id]);
+        if (impulseProducts.length === 0) return null;
+        return (
+          <div style={{ marginTop: 14 }}>
+            <p style={{
+              fontSize: 12, fontWeight: 800, color: colors.gold, margin: '0 0 8px',
+              fontFamily: fonts.text, display: 'flex', alignItems: 'center', gap: 4,
+            }}>
+              {'\u{1F36C}'} Aproveite e leve tambem!
+            </p>
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4 }}>
+              {impulseProducts.slice(0, 6).map(p => {
+                const name = (p.name || '').toLowerCase().split(/\s+/).map(w =>
+                  w.length <= 2 ? w : w.charAt(0).toUpperCase() + w.slice(1)
+                ).join(' ');
+                return (
+                  <button key={p.id} onClick={() => updateQty(p.id, 1)} style={{
+                    minWidth: 100, flex: '0 0 auto', padding: '8px 10px', borderRadius: 12,
+                    background: colors.card, border: `1px solid ${colors.border}`,
+                    cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4,
+                  }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: colors.white, fontFamily: fonts.text,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%',
+                    }}>{name}</span>
+                    <span style={{ fontFamily: fonts.number, fontWeight: 800, fontSize: 13, color: colors.gold }}>
+                      {formatPrice(p.price)}
+                    </span>
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, color: colors.bgDeep,
+                      background: colors.gold, borderRadius: 6, padding: '2px 6px',
+                      alignSelf: 'flex-start',
+                    }}>+ Adicionar</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Cupom */}
       <div style={{ marginTop: 12 }}>
         {appliedCoupon ? (
@@ -244,7 +290,7 @@ function CartStep({ cart, products, updateQty, onNext }) {
         )}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
           <span style={{ color: colors.textMuted, fontSize: 11 }}>Frete</span>
-          <span style={{ color: colors.success, fontFamily: fonts.number, fontSize: 11, fontWeight: 600 }}>Gratis</span>
+          <span style={{ color: colors.textMuted, fontFamily: fonts.number, fontSize: 11, fontWeight: 600 }}>A calcular</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
           <span style={{ color: colors.white, fontWeight: 600, fontSize: 13 }}>Total</span>
@@ -276,16 +322,7 @@ function CartStep({ cart, products, updateQty, onNext }) {
                 </div>
               </div>
             )}
-            {freeShipMissing > 0 && validation.canProceed && (
-              <div style={{
-                padding: '8px 12px', borderRadius: 10, marginTop: 8,
-                background: 'rgba(226,184,74,0.08)', border: `1px solid rgba(226,184,74,0.15)`,
-                color: colors.gold, fontSize: 11, fontWeight: 600, textAlign: 'center',
-                fontFamily: fonts.text,
-              }}>
-                Faltam {formatPrice(freeShipMissing)} para frete gratis!
-              </div>
-            )}
+            {false && freeShipMissing > 0 && validation.canProceed && null}
           </>
         );
       })()}
