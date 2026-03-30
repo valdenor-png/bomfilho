@@ -37,8 +37,8 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
         background: 'rgba(255,255,255,0.03)',
         position: 'relative',
       }}>
-        {/* Badge oferta */}
-        {product.tag && (
+        {/* Badge oferta ou estoque baixo */}
+        {product.tag ? (
           <span style={{
             position: 'absolute', top: 6, left: 6,
             fontSize: 8, fontWeight: 800,
@@ -48,7 +48,17 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
           }}>
             {product.tag}
           </span>
-        )}
+        ) : product.estoque != null && product.estoque > 0 && product.estoque <= 5 ? (
+          <span style={{
+            position: 'absolute', top: 6, left: 6,
+            fontSize: 7, fontWeight: 800,
+            padding: '2px 6px', borderRadius: 5,
+            background: 'rgba(239,83,80,0.15)', color: '#EF5350',
+            border: '1px solid rgba(239,83,80,0.3)',
+          }}>
+            {product.estoque === 1 ? 'Ultimo!' : `Ultimas ${product.estoque}`}
+          </span>
+        ) : null}
 
         {/* Badge desconto */}
         {discount > 0 && (
@@ -127,35 +137,35 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
           {/* Controle de quantidade */}
           {qty > 0 ? (
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 3,
-              background: colors.gold, borderRadius: 7, padding: 2,
+              display: 'flex', alignItems: 'center', gap: 2,
+              background: colors.gold, borderRadius: 9, padding: 2,
             }}>
               <button
                 onClick={(e) => { e.stopPropagation(); onRemove(product.id); }}
                 style={{
-                  width: 22, height: 22, borderRadius: 5,
+                  width: 28, height: 28, borderRadius: 7,
                   border: 'none', background: 'rgba(0,0,0,0.12)',
                   color: colors.bgDeep, cursor: 'pointer',
-                  fontSize: 12, fontWeight: 800,
+                  fontSize: 14, fontWeight: 800,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >
-                −
+                {'\u2212'}
               </button>
               <span style={{
                 fontFamily: fonts.number, fontWeight: 800,
-                fontSize: 11, color: colors.bgDeep,
-                minWidth: 12, textAlign: 'center',
+                fontSize: 13, color: colors.bgDeep,
+                minWidth: 18, textAlign: 'center',
               }}>
                 {qty}
               </span>
               <button
                 onClick={(e) => { e.stopPropagation(); onAdd(product.id); }}
                 style={{
-                  width: 22, height: 22, borderRadius: 5,
-                  border: 'none', background: 'rgba(0,0,0,0.08)',
+                  width: 28, height: 28, borderRadius: 7,
+                  border: 'none', background: 'rgba(0,0,0,0.1)',
                   color: colors.bgDeep, cursor: 'pointer',
-                  fontSize: 12, fontWeight: 800,
+                  fontSize: 14, fontWeight: 800,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}
               >

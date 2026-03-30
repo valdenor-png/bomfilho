@@ -214,6 +214,61 @@ export default function Orders({ onAdd, products = [] }) {
               {/* Detalhes expandidos */}
               {isExpanded && (
                 <div style={{ padding: '0 14px 14px', borderTop: `1px solid ${colors.border}` }}>
+                  {/* Timeline */}
+                  {(() => {
+                    const steps = [
+                      { key: 'pendente', label: 'Recebido', icon: '\u{1F4E5}' },
+                      { key: 'pago', label: 'Pago', icon: '\u2705' },
+                      { key: 'preparando', label: 'Separando', icon: '\u{1F4E6}' },
+                      { key: 'enviado', label: pedido.tipo_entrega === 'retirada' ? 'Pronto' : 'Saiu entrega', icon: '\u{1F69A}' },
+                      { key: 'entregue', label: pedido.tipo_entrega === 'retirada' ? 'Retirado' : 'Entregue', icon: '\u{1F389}' },
+                    ];
+                    const statusOrder = ['pendente', 'aguardando_revisao', 'pago', 'preparando', 'enviado', 'entregue', 'retirado'];
+                    const currentIdx = statusOrder.indexOf(String(pedido.status || '').toLowerCase());
+                    const isCanceled = ['cancelado', 'expirado', 'pagamento_recusado'].includes(String(pedido.status || '').toLowerCase());
+
+                    if (isCanceled) return null;
+
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 0, margin: '12px 0 8px', overflow: 'hidden' }}>
+                        {steps.map((step, i) => {
+                          const stepIdx = statusOrder.indexOf(step.key);
+                          const done = currentIdx >= stepIdx;
+                          const isCurrent = (i === 0 && currentIdx <= 1) ||
+                            (i === 1 && currentIdx === 2) ||
+                            (i === 2 && currentIdx === 3) ||
+                            (i === 3 && currentIdx === 4) ||
+                            (i === 4 && currentIdx >= 5);
+                          return (
+                            <div key={step.key} style={{ flex: 1, textAlign: 'center', position: 'relative' }}>
+                              <div style={{
+                                width: 24, height: 24, borderRadius: '50%', margin: '0 auto 3px',
+                                background: done ? colors.gold : 'rgba(255,255,255,0.08)',
+                                border: `2px solid ${done ? colors.gold : 'rgba(255,255,255,0.15)'}`,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 10, transition: 'all 0.3s',
+                              }}>
+                                {done ? step.icon : ''}
+                              </div>
+                              <span style={{
+                                fontSize: 7, fontWeight: isCurrent ? 800 : 600,
+                                color: done ? colors.gold : 'rgba(255,255,255,0.35)',
+                                fontFamily: fonts.text,
+                              }}>{step.label}</span>
+                              {i < steps.length - 1 && (
+                                <div style={{
+                                  position: 'absolute', top: 12, left: '60%', right: '-40%', height: 2,
+                                  background: done && currentIdx > stepIdx ? colors.gold : 'rgba(255,255,255,0.1)',
+                                  zIndex: 0,
+                                }} />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
                   {itens.length > 0 ? (
                     <div style={{ marginTop: 10 }}>
                       {itens.map((item, i) => (

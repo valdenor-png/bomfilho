@@ -6,6 +6,7 @@ import React from 'react';
 
 import { useState, useEffect } from 'react';
 import { useCart } from '../context/CartContext';
+import { useRecorrencia } from '../context/RecorrenciaContext';
 import { colors, fonts, formatPrice, formatProductName } from '../theme';
 import Icon, { categoryIcons } from '../components/Icon';
 import SaveCartCTA from '../components/cart/SaveCartCTA';
@@ -13,7 +14,7 @@ import { createSharedCart, validarCupom } from '../lib/api';
 import SaveCartModal from '../components/cart/SaveCartModal';
 import { useSavedLists } from '../hooks/useSavedLists';
 import DeliverySlots, { DayPicker } from '../components/DeliverySlots';
-import { validateCartMinimum, ORDER_RULES } from '../lib/orderRules';
+import { validateCartMinimum, ORDER_RULES, calculateDeliveryFee, getNextTierHint } from '../lib/orderRules';
 import { getDeliveryEstimate } from '../lib/deliveryEstimate';
 import { getStoreStatus } from '../lib/storeHours';
 
@@ -64,6 +65,7 @@ function ProgressBar({ step }) {
 function CartStep({ cart, products, updateQty, onAdd, onNext }) {
   const [sharing, setSharing] = useState(false);
   const { addItem } = useCart();
+  const { recomprasProdutos = [] } = useRecorrencia();
   const [couponCode, setCouponCode] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponError, setCouponError] = useState('');
@@ -216,6 +218,43 @@ function CartStep({ cart, products, updateQty, onAdd, onNext }) {
         );
       })()}
 
+      {/* Esqueceu algo? — produtos que o cliente costuma comprar */}
+      {(() => {
+        const forgot = recomprasProdutos
+          .filter(p => p && p.id && !cart[p.id])
+          .slice(0, 4);
+        if (forgot.length === 0) return null;
+        return (
+          <div style={{ marginTop: 14 }}>
+            <p style={{ fontSize: 12, fontWeight: 800, color: colors.white, margin: '0 0 8px', fontFamily: fonts.text }}>
+              Esqueceu algo?
+            </p>
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4 }}>
+              {forgot.map(p => {
+                const name = formatProductName(p.nome || p.name || '');
+                return (
+                  <button key={p.id} onClick={() => addItem({ id: p.id, nome: p.nome || p.name, preco: p.preco || p.price })} style={{
+                    minWidth: 110, flex: '0 0 auto', padding: '8px 10px', borderRadius: 12,
+                    background: 'rgba(226,184,74,0.06)', border: `1px solid rgba(226,184,74,0.15)`,
+                    cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 3,
+                  }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: colors.white, fontFamily: fonts.text,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%',
+                    }}>{name}</span>
+                    <span style={{ fontFamily: fonts.number, fontWeight: 800, fontSize: 12, color: colors.gold }}>
+                      {formatPrice(p.preco || p.price || 0)}
+                    </span>
+                    <span style={{ fontSize: 8, fontWeight: 700, color: colors.bgDeep, background: colors.gold,
+                      borderRadius: 5, padding: '2px 6px', alignSelf: 'flex-start',
+                    }}>+ Adicionar</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Cupom */}
       <div style={{ marginTop: 12 }}>
         {appliedCoupon ? (
@@ -295,8 +334,11 @@ function CartStep({ cart, products, updateQty, onAdd, onNext }) {
           </div>
         )}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ color: colors.textMuted, fontSize: 11 }}>Frete</span>
-          <span style={{ color: colors.textMuted, fontFamily: fonts.number, fontSize: 11, fontWeight: 600 }}>A calcular</span>
+          <span style={{ color: colors.textMuted, fontSize: 11 }}>Frete (entrega)</span>
+          <span style={{
+            color: calculateDeliveryFee(total).isFree ? '#5AE4A7' : colors.textSecondary,
+            fontFamily: fonts.number, fontSize: 11, fontWeight: 600,
+          }}>{calculateDeliveryFee(total).label}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
           <span style={{ color: colors.white, fontWeight: 600, fontSize: 13 }}>Total</span>
@@ -328,7 +370,18 @@ function CartStep({ cart, products, updateQty, onAdd, onNext }) {
                 </div>
               </div>
             )}
-            {false && freeShipMissing > 0 && validation.canProceed && null}
+            {(() => {
+              const hint = getNextTierHint(total);
+              if (!hint || !validation.canProceed) return null;
+              return (
+                <div style={{
+                  padding: '8px 12px', borderRadius: 10, marginTop: 8,
+                  background: 'rgba(226,184,74,0.08)', border: `1px solid rgba(226,184,74,0.15)`,
+                  color: colors.gold, fontSize: 11, fontWeight: 600, textAlign: 'center',
+                  fontFamily: fonts.text,
+                }}>{hint}</div>
+              );
+            })()}
           </>
         );
       })()}

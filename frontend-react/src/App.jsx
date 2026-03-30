@@ -15,6 +15,7 @@ import OfflineBanner from './components/ui/OfflineBanner';
 import { SkeletonStyles } from './components/ui/Skeleton';
 import NotFoundPage from './pages/NotFoundPage';
 import InstallPWABanner from './components/ui/InstallPWABanner';
+import CartAbandonmentReminder from './components/ui/CartAbandonmentReminder';
 import { requestPushPermission, onForegroundMessage } from './lib/firebase';
 import { getMainCategory } from './lib/formatProductName';
 import Home from './pages/Home';
@@ -93,6 +94,7 @@ export default function App() {
         category: getMainCategory(p.categoria || p.category || ''),
         tag: p.promocao || Number(p.desconto || 0) > 0 ? 'Oferta' : null,
         image_url: p.imagem || p.image_url || '',
+        estoque: p.estoque != null ? Number(p.estoque) : null,
       }));
       // Dedup by id
       const seen = new Set();
@@ -341,6 +343,9 @@ export default function App() {
 
       {/* PWA install banner */}
       <InstallPWABanner />
+
+      {/* Cart abandonment reminder */}
+      {!isPagamentoRoute && <CartAbandonmentReminder />}
 
       {/* Bottom nav — hide on checkout */}
       {!isPagamentoRoute ? (
