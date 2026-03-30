@@ -283,6 +283,7 @@ export default function App() {
                 <Checkout
                   cart={cart}
                   products={products}
+                  onAdd={handleAdd}
                   updateQty={(id, qty) => {
                     if (qty <= 0) {
                       removeItem(Number(id));

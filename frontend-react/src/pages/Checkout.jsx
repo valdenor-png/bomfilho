@@ -5,6 +5,7 @@ import React from 'react';
 // Integrar com: API de pedidos, CartContext, polling de status
 
 import { useState, useEffect } from 'react';
+import { useCart } from '../context/CartContext';
 import { colors, fonts, formatPrice, formatProductName } from '../theme';
 import Icon, { categoryIcons } from '../components/Icon';
 import SaveCartCTA from '../components/cart/SaveCartCTA';
@@ -60,8 +61,9 @@ function ProgressBar({ step }) {
 }
 
 /* ===== STEP 1: CARRINHO ===== */
-function CartStep({ cart, products, updateQty, onNext }) {
+function CartStep({ cart, products, updateQty, onAdd, onNext }) {
   const [sharing, setSharing] = useState(false);
+  const { addItem } = useCart();
   const [couponCode, setCouponCode] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponError, setCouponError] = useState('');
@@ -166,12 +168,16 @@ function CartStep({ cart, products, updateQty, onNext }) {
 
       {/* Vitrine de impulso — produtos baratos */}
       {(() => {
-        const impulseIds = [58902, 58906, 49104, 49111, 48796, 48799, 45711, 45815];
-        const impulseProducts = impulseIds
-          .map(id => products.find(p => p.id === id))
-          .filter(Boolean)
-          .filter(p => !cart[p.id]);
-        if (impulseProducts.length === 0) return null;
+        const impulseProducts = [
+          { id: 58902, name: 'Pacoca Rolha Tubitos', price: 0.50 },
+          { id: 58906, name: 'Pacoca Rolha Pacoquinha', price: 0.75 },
+          { id: 49104, name: 'Cocada Baiana', price: 1.22 },
+          { id: 49111, name: 'Cocada Quadrada', price: 2.00 },
+          { id: 48796, name: 'Baton Branco', price: 2.00 },
+          { id: 48799, name: 'Baton ao Leite', price: 2.00 },
+          { id: 45711, name: 'Pirulito Brigadeiro', price: 0.30 },
+          { id: 45815, name: 'Pirulito Babaloo', price: 0.25 },
+        ].filter(p => !cart[p.id]);
         return (
           <div style={{ marginTop: 14 }}>
             <p style={{
@@ -186,7 +192,7 @@ function CartStep({ cart, products, updateQty, onNext }) {
                   w.length <= 2 ? w : w.charAt(0).toUpperCase() + w.slice(1)
                 ).join(' ');
                 return (
-                  <button key={p.id} onClick={() => updateQty(p.id, 1)} style={{
+                  <button key={p.id} onClick={() => addItem({ id: p.id, nome: p.name, preco: p.price })} style={{
                     minWidth: 100, flex: '0 0 auto', padding: '8px 10px', borderRadius: 12,
                     background: colors.card, border: `1px solid ${colors.border}`,
                     cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4,
@@ -806,7 +812,7 @@ function ConfirmedStep({ orderId, onGoHome, cart = {}, products = [], total = 0,
 }
 
 /* ===== CHECKOUT PRINCIPAL ===== */
-export default function Checkout({ cart, products, updateQty, removeItem, onGoHome }) {
+export default function Checkout({ cart, products, updateQty, removeItem, onGoHome, onAdd }) {
   const [step, setStep] = useState(0);
   const [delivery, setDelivery] = useState('loja');
   const [payment, setPayment] = useState('pix');
@@ -892,7 +898,7 @@ export default function Checkout({ cart, products, updateQty, removeItem, onGoHo
 
       {/* Conteúdo da etapa */}
       <div style={{ padding: '0 16px 30px' }}>
-        {step === 0 && <CartStep cart={cart} products={products} updateQty={updateQty} onNext={next} />}
+        {step === 0 && <CartStep cart={cart} products={products} updateQty={updateQty} onAdd={onAdd} onNext={next} />}
         {step === 1 && <DeliveryStep delivery={delivery} setDelivery={setDelivery} onNext={next} onBack={back} />}
         {step === 2 && <WaitingStep status={orderStatus} issues={stockIssues} cart={cart} products={products} removeItem={removeItem} onNext={next} />}
         {step === 3 && <PaymentStep payment={payment} setPayment={setPayment} total={total} onNext={next} onBack={back} />}
