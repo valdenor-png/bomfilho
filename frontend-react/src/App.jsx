@@ -37,6 +37,7 @@ const PoliticaTrocaDevolucaoPage = lazy(() => import('./pages/PoliticaTrocaDevol
 const PoliticaEntregaPage = lazy(() => import('./pages/PoliticaEntregaPage'));
 const SharedCartPage = lazy(() => import('./pages/SharedCartPage'));
 const RecipesPage = lazy(() => import('./pages/RecipesPage'));
+const PaymentResultPage = lazy(() => import('./pages/PaymentResultPage'));
 
 function LoadingFallback() {
   return (
@@ -293,6 +294,9 @@ export default function App() {
               <Route path="/politica-de-troca-e-devolucao" element={<PoliticaTrocaDevolucaoPage />} />
               <Route path="/politica-de-entrega" element={<PoliticaEntregaPage />} />
               <Route path="/receitas" element={<RecipesPage onAdd={handleAdd} products={products} />} />
+              <Route path="/pagamento/sucesso" element={<PaymentResultPage type="sucesso" />} />
+              <Route path="/pagamento/falha" element={<PaymentResultPage type="falha" />} />
+              <Route path="/pagamento/pendente" element={<PaymentResultPage type="pendente" />} />
               <Route path="/c/:shareId" element={<SharedCartPage onAdd={handleAdd} products={products} />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>

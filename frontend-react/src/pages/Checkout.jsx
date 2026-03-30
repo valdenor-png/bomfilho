@@ -570,8 +570,7 @@ function WaitingStep({ status, issues = [], cart, products, removeItem, onNext }
 function PaymentStep({ payment, setPayment, total, onNext, onBack }) {
   const methods = [
     { id: 'pix', label: 'PIX', icon: 'zap', badge: 'Recomendado' },
-    { id: 'credit', label: 'Cartao credito', icon: 'creditCard' },
-    { id: 'debit', label: 'Cartao debito', icon: 'creditCard' },
+    { id: 'mercadopago', label: 'Mercado Pago', icon: 'creditCard', badge: 'Ate 6x' },
   ];
 
   return (
@@ -656,7 +655,7 @@ function ConfirmedStep({ orderId, onGoHome, cart = {}, products = [], total = 0,
     return p ? { id: p.id, name: p.name, quantity: qty, price: p.price, image_url: p.image_url } : null;
   }).filter(Boolean);
 
-  const labelPagamento = payment === 'pix' ? 'PIX' : payment === 'credit' ? 'Crédito' : 'Débito';
+  const labelPagamento = payment === 'pix' ? 'PIX' : payment === 'mercadopago' ? 'Mercado Pago' : payment === 'credit' ? 'Credito' : 'Debito';
   const labelEntrega = delivery === 'loja' ? 'Retirada' : 'Entrega';
 
   return (
