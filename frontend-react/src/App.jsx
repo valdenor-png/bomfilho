@@ -172,8 +172,14 @@ export default function App() {
   }, [products, addItem, showToast]);
 
   const handleRemove = useCallback((id) => {
-    removeItem(Number(id));
-  }, [removeItem]);
+    const numId = Number(id);
+    const currentQty = cart[numId] || 0;
+    if (currentQty <= 1) {
+      removeItem(numId);
+    } else {
+      updateItemQuantity(numId, currentQty - 1);
+    }
+  }, [cart, removeItem, updateItemQuantity]);
 
   const handleGoProducts = useCallback((cat, search) => {
     setInitialCategory(cat || null);
