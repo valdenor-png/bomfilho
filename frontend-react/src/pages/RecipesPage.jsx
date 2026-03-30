@@ -3,7 +3,7 @@ import { colors, fonts, formatProductName } from '../theme';
 import Icon from '../components/Icon';
 import { recipes } from '../data/recipes';
 
-const categoryFilters = ['Todos', 'Cafe da Manha', 'Almoco', 'Lanche', 'Jantar'];
+const categoryFilters = ['Todos', 'Cafe da Manha', 'Almoco', 'Lanche', 'Jantar', 'Sobremesa'];
 
 export default function RecipesPage({ onAdd, products = [] }) {
   const [filter, setFilter] = useState('Todos');
@@ -57,7 +57,16 @@ export default function RecipesPage({ onAdd, products = [] }) {
               background: colors.card, border: `1px solid ${colors.border}`,
               borderRadius: 16, padding: 16, cursor: 'pointer',
             }}>
-              <div style={{ fontSize: 28, marginBottom: 6 }}>{recipe.emoji}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ fontSize: 28, marginBottom: 6 }}>{recipe.emoji}</div>
+                {recipe.region && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, color: 'rgba(226,184,74,0.85)',
+                    background: 'rgba(226,184,74,0.1)', border: '1px solid rgba(226,184,74,0.2)',
+                    borderRadius: 8, padding: '3px 8px', fontFamily: fonts.text,
+                  }}>{recipe.region}</span>
+                )}
+              </div>
               <h3 style={{ fontSize: 14, fontWeight: 800, color: colors.white, margin: '0 0 3px', fontFamily: fonts.text }}>
                 {recipe.title}
               </h3>
@@ -102,7 +111,16 @@ export default function RecipesPage({ onAdd, products = [] }) {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
               <div>
-                <span style={{ fontSize: 28, display: 'block', marginBottom: 6 }}>{selectedRecipe.emoji}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 28 }}>{selectedRecipe.emoji}</span>
+                  {selectedRecipe.region && (
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, color: 'rgba(226,184,74,0.85)',
+                      background: 'rgba(226,184,74,0.1)', border: '1px solid rgba(226,184,74,0.2)',
+                      borderRadius: 8, padding: '3px 8px', fontFamily: fonts.text,
+                    }}>{selectedRecipe.region}</span>
+                  )}
+                </div>
                 <h2 style={{ fontSize: 18, fontWeight: 900, color: colors.white, margin: 0, fontFamily: fonts.text }}>
                   {selectedRecipe.title}
                 </h2>
