@@ -223,7 +223,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
         {categories.map(cat => {
           const active = category === cat.id;
           return (
-            <button key={cat.id} onClick={() => { setCategory(cat.id); setQuery(''); setSearchResults(null); setShowSuggestions(false); }} style={{
+            <button key={cat.id} onClick={() => { setCategory(cat.id); setQuery(''); setSearchResults(null); setIsOpen(false); }} style={{
               padding: '6px 11px', borderRadius: 9,
               background: active ? colors.gold : colors.card,
               border: active ? 'none' : `1px solid ${colors.border}`,
