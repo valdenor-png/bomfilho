@@ -21,12 +21,19 @@ export function calculateDeliveryFee(cartTotal) {
 }
 
 export function getNextTierHint(cartTotal) {
+  const currentFee = calculateDeliveryFee(cartTotal).fee;
   for (const tier of DELIVERY_TIERS) {
-    if (cartTotal < tier.maxTotal && tier.fee < calculateDeliveryFee(cartTotal).fee) {
+    if (tier.maxTotal === Infinity) continue;
+    if (cartTotal < tier.maxTotal && tier.fee < currentFee) {
       const missing = tier.maxTotal - cartTotal;
       if (tier.fee === 0) return `Faltam R$ ${missing.toFixed(2).replace('.', ',')} para frete gratis!`;
       return `Faltam R$ ${missing.toFixed(2).replace('.', ',')} para frete de ${tier.label}!`;
     }
+  }
+  // Check free shipping threshold
+  if (cartTotal < ORDER_RULES.freeShippingThreshold && currentFee > 0) {
+    const missing = ORDER_RULES.freeShippingThreshold - cartTotal;
+    return `Faltam R$ ${missing.toFixed(2).replace('.', ',')} para frete gratis!`;
   }
   return null;
 }
