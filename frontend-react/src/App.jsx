@@ -4,6 +4,8 @@ import { useCart } from './context/CartContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { getProdutos } from './lib/api';
 import { colors } from './theme';
+import { isProdutoPeso, formatPeso } from './lib/pesoUtils';
+import SeletorPeso from './components/SeletorPeso';
 
 // New design components
 import Header from './components/Header';
@@ -62,6 +64,7 @@ export default function App() {
   const [initialSearch, setInitialSearch] = useState('');
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
+  const [pesoProduct, setPesoProduct] = useState(null); // product for weight selector
 
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isPagamentoRoute = location.pathname.startsWith('/pagamento');
@@ -95,11 +98,13 @@ export default function App() {
         category: getMainCategory(p.categoria || p.category || ''),
         tag: p.promocao || Number(p.desconto || 0) > 0 ? 'Oferta' : null,
         image_url: p.imagem || p.image_url || '',
+        isPeso: false, // will be set below
         estoque: p.estoque != null ? Number(p.estoque) : null,
       }));
       // Dedup by id
       const seen = new Set();
-      const deduped = all.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+      const deduped = all.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; })
+        .map(p => ({ ...p, isPeso: isProdutoPeso(p) }));
       setProducts(deduped);
     });
   }, []);
@@ -118,6 +123,7 @@ export default function App() {
         category: getMainCategory(p.categoria || p.category || ''),
         tag: p.promocao || Number(p.desconto || 0) > 0 ? 'Oferta' : null,
         image_url: p.imagem || p.image_url || '',
+        isPeso: false, // will be set below
       }));
     } catch { return []; }
   }, []);
@@ -162,17 +168,39 @@ export default function App() {
 
   const handleAdd = useCallback((id) => {
     const product = products.find((p) => p.id === Number(id));
-    if (product) {
-      addItem({
-        id: product.id,
-        nome: product.name,
-        preco: product.price,
-        imagem: product.image_url,
-        categoria: product.category,
-      });
-      showToast(`${product.name.split(' ').slice(0, 3).join(' ')} adicionado`);
+    if (!product) return;
+
+    // Produto por peso — abrir seletor
+    if (product.isPeso) {
+      setPesoProduct(product);
+      return;
     }
+
+    // Produto por unidade — adicionar direto
+    addItem({
+      id: product.id,
+      nome: product.name,
+      preco: product.price,
+      imagem: product.image_url,
+      categoria: product.category,
+    });
+    showToast(`${product.name.split(' ').slice(0, 3).join(' ')} adicionado`);
   }, [products, addItem, showToast]);
+
+  const handleAddPeso = useCallback((pesoKg) => {
+    if (!pesoProduct) return;
+    addItem({
+      id: pesoProduct.id,
+      nome: pesoProduct.name,
+      preco: pesoProduct.price,
+      imagem: pesoProduct.image_url,
+      categoria: pesoProduct.category,
+      quantidade: 1,
+      peso_gramas: Math.round(pesoKg * 1000),
+    });
+    showToast(`${formatPeso(pesoKg)} de ${pesoProduct.name.split(' ').slice(0, 3).join(' ')} adicionado`);
+    setPesoProduct(null);
+  }, [pesoProduct, addItem, showToast]);
 
   const handleRemove = useCallback((id) => {
     const numId = Number(id);
@@ -317,6 +345,15 @@ export default function App() {
 
       {/* Toast */}
       <Toast message={toastMsg} visible={toastVisible} onHide={() => setToastVisible(false)} />
+
+      {/* Seletor de peso (bottom sheet) */}
+      {pesoProduct ? (
+        <SeletorPeso
+          product={pesoProduct}
+          onConfirm={handleAddPeso}
+          onClose={() => setPesoProduct(null)}
+        />
+      ) : null}
 
       {/* WhatsApp flutuante — centralizado dentro do max-width */}
       {!isPagamentoRoute ? (

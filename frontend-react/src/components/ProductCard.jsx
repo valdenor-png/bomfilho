@@ -74,6 +74,16 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
           </span>
         )}
 
+        {/* Badge peso */}
+        {product.isPeso && (
+          <span style={{
+            position: 'absolute', bottom: 6, left: 6, zIndex: 2,
+            fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 5,
+            background: 'rgba(226,184,74,0.15)', color: colors.gold,
+            border: '1px solid rgba(226,184,74,0.3)', fontFamily: fonts.text,
+          }}>⚖️ Por kg</span>
+        )}
+
         {/* Imagem ou placeholder */}
         {product.image_url && !imgError ? (
           <img
@@ -131,6 +141,7 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
               color: colors.gold, fontFamily: fonts.number,
             }}>
               {formatPrice(product.price)}
+              {product.isPeso && <span style={{ fontSize: '0.65em', opacity: 0.6, fontFamily: fonts.text }}>/kg</span>}
             </span>
           </div>
 
