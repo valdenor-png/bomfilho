@@ -830,7 +830,7 @@ function ConfirmedStep({ orderId, onGoHome, cart = {}, products = [], total = 0,
 
       {/* Ver listas salvas */}
       {savedCount > 0 && (
-        <button onClick={() => {}} style={{
+        <button onClick={() => { if (onGoHome) onGoHome(); setTimeout(() => window.location.href = '/conta', 100); }} style={{
           width: '100%', padding: 12, borderRadius: 12,
           background: 'transparent', border: '1px solid rgba(255,255,255,0.1)',
           color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer',
