@@ -1,297 +1,85 @@
-/* admin-dark-override.css — v3
-   Dark premium theme para o admin BomFilho.
-   Sobrescreve as variáveis --ck-* e classes específicas.
-   Importar DEPOIS do styles.css no AdminPage.jsx.
-*/
+/* admin-dark-override.css — BomFilho Admin v4
+   Overrides inline styles from legacy components to match new design system.
+   BG: #0A1F1A | Card: #122B24 | Teal: #1F5C50 | Gold: #E2B84A */
 
-/* ===== 1. VARIÁVEIS — de claro para dark ===== */
 :root {
-  --ck-bg: #0B1F1A !important;
-  --ck-surface: #132E27 !important;
+  --ck-bg: #0A1F1A !important;
+  --ck-surface: #122B24 !important;
   --ck-surface-2: #1A3D33 !important;
-  --ck-border: rgba(255,255,255,0.08) !important;
-  --ck-border-light: rgba(255,255,255,0.12) !important;
-  --ck-text: #F0F0F0 !important;
-  --ck-text-muted: #8BADA3 !important;
-  --ck-text-dim: #5A8A7D !important;
+  --ck-border: rgba(31,92,80,0.4) !important;
+  --ck-border-light: rgba(31,92,80,0.25) !important;
+  --ck-text: #FFF !important;
+  --ck-text-muted: #8BA8A0 !important;
+  --ck-text-dim: #5C7E74 !important;
   --ck-accent: #E2B84A !important;
   --ck-accent-glow: rgba(226,184,74,0.15) !important;
-  --ck-green: #34D399 !important;
-  --ck-green-bg: rgba(52,211,153,0.12) !important;
-  --ck-red: #F87171 !important;
-  --ck-red-bg: rgba(248,113,113,0.12) !important;
-  --ck-yellow: #FBBF24 !important;
-  --ck-yellow-bg: rgba(251,191,36,0.12) !important;
-  --ck-purple: #A78BFA !important;
-  --ck-shadow: 0 1px 3px rgba(0,0,0,0.30) !important;
-  --ck-shadow-lg: 0 4px 20px rgba(0,0,0,0.40) !important;
+  --ck-green: #4AE28A !important;
+  --ck-green-bg: rgba(74,226,138,0.12) !important;
+  --ck-red: #E25C5C !important;
+  --ck-red-bg: rgba(226,92,92,0.12) !important;
+  --ck-yellow: #E2A04A !important;
+  --ck-yellow-bg: rgba(226,160,74,0.12) !important;
+  --ck-purple: #A07AE2 !important;
+  --ck-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
+  --ck-shadow-lg: 0 4px 20px rgba(0,0,0,0.4) !important;
 }
 
-/* ===== 2. LAYOUT SHELL ===== */
-.ck-layout {
-  background: #0B1F1A !important;
-  color: #F0F0F0 !important;
-}
+/* Override inline styles from legacy components */
+[style*="background: #0f172a"],
+[style*="background:#0f172a"] { background: #0A1F1A !important; }
+[style*="background: #1e293b"],
+[style*="background:#1e293b"] { background: #122B24 !important; }
+[style*="background: #334155"],
+[style*="background:#334155"] { background: #1A3D33 !important; }
+[style*="color: #e2e8f0"],
+[style*="color:#e2e8f0"] { color: #FFF !important; }
+[style*="color: #94a3b8"],
+[style*="color:#94a3b8"] { color: #8BA8A0 !important; }
+[style*="color: #06b6d4"],
+[style*="color:#06b6d4"] { color: #E2B84A !important; }
+[style*="borderColor: #475569"],
+[style*="border-color: #475569"] { border-color: rgba(31,92,80,0.4) !important; }
+[style*="border: 1px solid #334155"] { border-color: rgba(31,92,80,0.4) !important; }
+[style*="color: #ef4444"],
+[style*="color:#ef4444"] { color: #E25C5C !important; }
+[style*="background: #06b6d4"],
+[style*="background:#06b6d4"] { background: linear-gradient(135deg, #E2B84A, #C9A040) !important; color: #0A1F1A !important; }
+[style*="borderColor: #06b6d4"],
+[style*="border-color: #06b6d4"] { border-color: #E2B84A !important; }
 
-/* ===== 3. SIDEBAR ===== */
-.ck-sidebar {
-  background: #091A15 !important;
-  border-right-color: rgba(255,255,255,0.06) !important;
-}
+/* Force all text white inside layout */
+.ck-layout, .ck-layout * { color: #FFF !important; }
+/* Restore muted colors for specific elements */
+.sb-item:not(.is-active) { color: #8BA8A0 !important; }
+.sb-item-icon { color: #5C7E74 !important; }
+.sb-item.is-active, .sb-item.is-active .sb-item-icon { color: #E2B84A !important; }
+.sb-section-toggle, .sb-section-label { color: #5C7E74 !important; }
+.sb-conn-label { color: #8BA8A0 !important; }
+.sb-conn-clock { color: #5C7E74 !important; }
+.sb-btn-logout { color: #5C7E74 !important; }
+.ck-topbar-clock { color: #5C7E74 !important; }
+.fila-etapa-label { color: #5C7E74 !important; }
+.fila-etapa.is-done .fila-etapa-label { color: #4AE28A !important; }
+.fila-etapa.is-current .fila-etapa-label { color: #E2B84A !important; }
+.fila-card-tempo { color: #8BA8A0 !important; }
+.fila-card-tipo { color: #8BA8A0 !important; }
+.fila-contador-label { color: #8BA8A0 !important; }
+.fila-detalhes-linha { color: #8BA8A0 !important; }
+.fila-detalhes-linha strong { color: #FFF !important; }
+.fila-revisao-item-subtotal { color: #8BA8A0 !important; }
+.fila-drawer-card p { color: #8BA8A0 !important; }
+.fila-drawer-card p strong { color: #FFF !important; }
 
-.sb-brand-mark {
-  background: linear-gradient(135deg, #1F5C50, #2A7A6A) !important;
-  color: #E2B84A !important;
-  box-shadow: 0 4px 12px rgba(31,92,80,0.4) !important;
-}
+/* Labels and muted text */
+.ck-kpi-label, .dash-kpi-titulo, .fin-kpi-l, .rel-kpi-l, .cli-kpi-l,
+.cs-subtitulo, .cs-contador-label, .cs-resumo-label, .cs-unidade, .cs-nome-marca,
+.ck-card-subtitle, .ck-live-label, .ck-feed-detalhe, .ck-feed-tempo,
+.ck-sla-detail-meta, .ck-hour-label, .dash-bar-label, .dash-hbar-label,
+.field-label, .error-text, .fila-revisao-detalhes-head,
+.cli-modal-secao h4, .fila-drawer-card h4, .fila-drawer-kicker { color: revert !important; }
 
-.sb-brand-name { color: #F0F0F0 !important; }
-.sb-brand-tag {
-  color: #E2B84A !important;
-  font-family: 'Sora', sans-serif !important;
-  letter-spacing: 0.12em !important;
-}
-
-.sb-status-pill.is-dim { background: rgba(255,255,255,0.04) !important; }
-
-.sb-nav { scrollbar-color: #1F5C50 transparent !important; }
-.sb-nav::-webkit-scrollbar-thumb { background: #1F5C50 !important; }
-
-.sb-item { color: #8BADA3 !important; }
-.sb-item:hover {
-  background: rgba(255,255,255,0.03) !important;
-  color: #F0F0F0 !important;
-}
-.sb-item.is-active {
-  background: rgba(226,184,74,0.08) !important;
-  color: #E2B84A !important;
-}
-.sb-item.is-active::before { background: #E2B84A !important; }
-.sb-item.is-active .sb-item-icon { color: #E2B84A !important; }
-.sb-item-icon { color: #5A8A7D !important; }
-.sb-item:hover .sb-item-icon { color: #8BADA3 !important; }
-
-.sb-badge { background: rgba(255,255,255,0.06) !important; }
-.sb-badge.crit { background: #F87171 !important; color: #fff !important; }
-.sb-badge.warn { background: #FBBF24 !important; color: #0B1F1A !important; }
-
-.sb-section-toggle { color: #5A8A7D !important; }
-.sb-section-toggle:hover { color: #8BADA3 !important; }
-
-.sb-footer { border-top-color: rgba(255,255,255,0.06) !important; }
-.sb-conn-dot { box-shadow: 0 0 5px rgba(248,113,113,0.4) !important; }
-.sb-conn-dot.is-on { box-shadow: 0 0 5px rgba(52,211,153,0.4) !important; }
-.sb-btn-logout {
-  background: rgba(255,255,255,0.02) !important;
-  color: #5A8A7D !important;
-}
-.sb-btn-logout:hover {
-  background: rgba(248,113,113,0.12) !important;
-  color: #F87171 !important;
-  border-color: rgba(248,113,113,0.25) !important;
-}
-
-/* ===== 4. TOPBAR ===== */
-.ck-topbar {
-  background: rgba(11,31,26,0.85) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-  border-bottom-color: rgba(255,255,255,0.06) !important;
-}
-.ck-topbar-title { color: #F0F0F0 !important; }
-.ck-topbar-clock { color: #5A8A7D !important; }
-.ck-topbar-refresh {
-  background: transparent !important;
-  border-color: rgba(255,255,255,0.08) !important;
-  color: #8BADA3 !important;
-}
-.ck-topbar-refresh:hover {
-  background: rgba(255,255,255,0.04) !important;
-  color: #E2B84A !important;
-  border-color: rgba(226,184,74,0.30) !important;
-}
-.ck-topbar-burger:hover { background: rgba(255,255,255,0.04) !important; }
-.ck-topbar-offline-pill { background: rgba(248,113,113,0.12) !important; color: #F87171 !important; }
-
-/* ===== 5. MAIN CONTENT ===== */
-.ck-main { background: #0B1F1A !important; }
-
-/* ===== 6. CARDS GENÉRICOS ===== */
-.ck-card {
-  background: #132E27 !important;
-  border-color: rgba(255,255,255,0.06) !important;
-}
-.ck-card-title { color: #F0F0F0 !important; }
-
-/* ===== 7. MOBILE OVERLAY ===== */
-.ck-overlay.show {
-  background: rgba(0,0,0,0.60) !important;
-  backdrop-filter: blur(4px) !important;
-}
-
-/* ===== 8. DASHBOARD ===== */
-.dash-filtros { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.dash-filtro-btn { background: rgba(255,255,255,0.04) !important; color: rgba(255,255,255,0.60) !important; border-color: rgba(255,255,255,0.08) !important; }
-.dash-filtro-btn.active { background: #1F5C50 !important; color: #fff !important; }
-.dash-filtro-select { background: rgba(255,255,255,0.04) !important; color: #F0F0F0 !important; border-color: rgba(255,255,255,0.08) !important; }
-.dash-filtro-date { background: rgba(255,255,255,0.04) !important; color: #F0F0F0 !important; border-color: rgba(255,255,255,0.08) !important; }
-
-.dash-secao-tab { background: rgba(255,255,255,0.04) !important; color: #8BADA3 !important; border-color: rgba(255,255,255,0.08) !important; }
-.dash-secao-tab.active { background: #E2B84A !important; color: #0B1F1A !important; border-color: #E2B84A !important; }
-
-.dash-kpi-card { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.dash-kpi-titulo { color: #5A8A7D !important; }
-.dash-kpi-valor { color: #F0F0F0 !important; }
-.dash-kpi-card.is-destaque { border-color: rgba(226,184,74,0.30) !important; }
-.dash-kpi-card.is-destaque .dash-kpi-valor { color: #E2B84A !important; }
-
-.dash-chart-box { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.dash-chart-titulo { color: #F0F0F0 !important; }
-.dash-bar-fill { background: #1F5C50 !important; }
-.dash-bar-label { color: #8BADA3 !important; }
-.dash-hbar-label { color: #8BADA3 !important; }
-.dash-hbar-track { background: rgba(255,255,255,0.06) !important; }
-.dash-hbar-fill { background: #1F5C50 !important; }
-.dash-hbar-valor { color: #F0F0F0 !important; }
-
-.dash-ranking-table th { background: transparent !important; color: rgba(255,255,255,0.50) !important; border-bottom-color: rgba(255,255,255,0.08) !important; }
-.dash-ranking-table td { color: #F0F0F0 !important; border-bottom-color: rgba(255,255,255,0.06) !important; }
-.dash-ranking-table tr:hover td { background: rgba(255,255,255,0.03) !important; }
-
-.dash-alertas-box { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.dash-alerta { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.dash-alerta strong { color: #F0F0F0 !important; }
-.dash-alerta p { color: #8BADA3 !important; }
-.dash-sem-alertas { color: #5A8A7D !important; }
-
-.dash-fechamento-item { color: #8BADA3 !important; }
-.dash-fechamento-item strong { color: #F0F0F0 !important; }
-.dash-erro { color: #F87171 !important; }
-.dash-loading { color: #5A8A7D !important; }
-
-/* ===== 9. FILA OPERACIONAL ===== */
-.fila-operacional { color: #F0F0F0 !important; }
-.fila-header { color: #F0F0F0 !important; }
-.fila-contadores > div { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.fila-contadores > div * { color: #F0F0F0 !important; }
-
-.fila-grupo { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.fila-grupo-header { color: #F0F0F0 !important; }
-.fila-grupo-badge { color: #fff !important; }
-
-.fila-card { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.fila-card * { color: rgba(255,255,255,0.80) !important; }
-.fila-card .fila-card-id { color: #E2B84A !important; font-family: 'Sora', sans-serif !important; }
-.fila-card .fila-card-valor { color: #E2B84A !important; font-family: 'Sora', sans-serif !important; }
-.fila-card.is-urgente { border-color: rgba(251,191,36,0.25) !important; }
-.fila-card.is-critico { border-color: rgba(248,113,113,0.25) !important; }
-
-.fila-status-badge { border-radius: 6px !important; }
-.fila-progresso-etapas * { color: rgba(255,255,255,0.65) !important; }
-
-.fila-drawer { background: #132E27 !important; border-color: rgba(255,255,255,0.08) !important; }
-.fila-drawer * { color: rgba(255,255,255,0.80) !important; }
-
-/* ===== 10. CLIENTES ===== */
-.cli-tabela th { background: rgba(255,255,255,0.04) !important; color: rgba(255,255,255,0.50) !important; border-bottom-color: rgba(255,255,255,0.08) !important; }
-.cli-tabela td { color: #F0F0F0 !important; border-bottom-color: rgba(255,255,255,0.06) !important; }
-.cli-tabela tr:hover td { background: rgba(255,255,255,0.03) !important; }
-
-.cli-modal-overlay { background: rgba(0,0,0,0.60) !important; }
-.cli-modal { background: #132E27 !important; border-color: rgba(255,255,255,0.08) !important; color: #F0F0F0 !important; }
-.cli-modal * { color: rgba(255,255,255,0.80) !important; }
-.cli-modal-kpis > div { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.cli-pedidos-lista { color: #F0F0F0 !important; }
-.cli-pedido-row { border-bottom-color: rgba(255,255,255,0.06) !important; }
-
-/* ===== 11. FINANCEIRO ===== */
-.financeiro-avancado { color: #F0F0F0 !important; }
-.fin-nav-btn { background: rgba(255,255,255,0.04) !important; color: #8BADA3 !important; border-color: rgba(255,255,255,0.08) !important; }
-.fin-nav-btn.ativo { background: #E2B84A !important; color: #0B1F1A !important; border-color: #E2B84A !important; }
-
-.fin-secao { color: #F0F0F0 !important; }
-.fin-kpis > div { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.fin-kpis > div * { color: rgba(255,255,255,0.70) !important; }
-.fin-kpi.is-destaque { border-color: rgba(226,184,74,0.30) !important; }
-
-.fin-tabela th { background: rgba(255,255,255,0.04) !important; color: rgba(255,255,255,0.50) !important; border-bottom-color: rgba(255,255,255,0.08) !important; }
-.fin-tabela td { color: #F0F0F0 !important; border-bottom-color: rgba(255,255,255,0.06) !important; }
-
-.fin-alerta-card { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.fin-alerta-card * { color: rgba(255,255,255,0.80) !important; }
-.fin-break-bar { background: rgba(255,255,255,0.05) !important; }
-
-/* ===== 12. AUDITORIA ===== */
-.aud-tabela th { background: rgba(255,255,255,0.04) !important; color: rgba(255,255,255,0.50) !important; border-bottom-color: rgba(255,255,255,0.08) !important; }
-.aud-tabela td { color: #F0F0F0 !important; border-bottom-color: rgba(255,255,255,0.06) !important; }
-.aud-row:hover td { background: rgba(255,255,255,0.03) !important; }
-.aud-json { background: #0E2420 !important; color: #F0F0F0 !important; }
-.aud-filtros select, .aud-filtros input { background: rgba(255,255,255,0.04) !important; color: #F0F0F0 !important; border-color: rgba(255,255,255,0.08) !important; }
-.aud-detalhes-panel { background: #132E27 !important; border-color: rgba(255,255,255,0.08) !important; }
-.aud-detalhes-panel * { color: rgba(255,255,255,0.80) !important; }
-.aud-paginacao button { background: rgba(255,255,255,0.04) !important; color: #8BADA3 !important; border-color: rgba(255,255,255,0.08) !important; }
-
-/* ===== 13. RELATÓRIOS ===== */
-.rel-filtros select, .rel-filtros input, .rel-filtros button {
-  background: rgba(255,255,255,0.04) !important;
-  color: #F0F0F0 !important;
-  border-color: rgba(255,255,255,0.08) !important;
-}
-.rel-resumo > div { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; }
-.rel-resumo > div * { color: rgba(255,255,255,0.70) !important; }
-.rel-tabela th { background: rgba(255,255,255,0.04) !important; color: rgba(255,255,255,0.50) !important; border-bottom-color: rgba(255,255,255,0.08) !important; }
-.rel-tabela td { color: #F0F0F0 !important; border-bottom-color: rgba(255,255,255,0.06) !important; }
-.rel-dist-bar { background: rgba(255,255,255,0.05) !important; }
-
-/* ===== 14. CATÁLOGO SAÚDE ===== */
-.cs-filtros { color: #F0F0F0 !important; }
-.cs-contador { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; color: #8BADA3 !important; }
-.cs-contador.ativo { background: #1F5C50 !important; color: #fff !important; border-color: #1F5C50 !important; }
-.cs-tabela th { background: rgba(255,255,255,0.04) !important; color: rgba(255,255,255,0.50) !important; border-bottom-color: rgba(255,255,255,0.08) !important; }
-.cs-tabela td { color: #F0F0F0 !important; border-bottom-color: rgba(255,255,255,0.06) !important; }
-.cs-tabela tr:hover td { background: rgba(255,255,255,0.03) !important; }
-.cs-paginacao button { background: rgba(255,255,255,0.04) !important; color: #8BADA3 !important; border-color: rgba(255,255,255,0.08) !important; }
-.cs-rodape-resumo { color: #5A8A7D !important; }
-
-/* ===== 15. COMMAND CENTER ===== */
-.ck-command-grid > div { background: rgba(255,255,255,0.04) !important; border-color: rgba(255,255,255,0.08) !important; border-radius: 12px !important; }
-.ck-command-grid > div * { color: rgba(255,255,255,0.80) !important; }
-
-/* ===== 16. ADMIN LOGIN ===== */
-.admin-shell { background: #0B1F1A !important; color: #F0F0F0 !important; }
-.admin-content { background: #0B1F1A !important; }
-
-/* ===== 17. BOTÕES ADMIN ===== */
-.btn-detalhes-revisao { background: #1F5C50 !important; color: #fff !important; }
-.btn-detalhes-revisao:hover { background: #2A7A6A !important; }
-
-/* ===== 18. INLINE STYLES OVERRIDE ===== */
-[style*="background: #0f172a"] { background: #0B1F1A !important; }
-[style*="background: #1e293b"] { background: #132E27 !important; }
-[style*="background: #334155"] { background: #0E2420 !important; }
-[style*="color: #e2e8f0"] { color: #F0F0F0 !important; }
-[style*="color: #94a3b8"] { color: #8BADA3 !important; }
-[style*="color: #06b6d4"] { color: #E2B84A !important; }
-[style*="borderColor: #475569"], [style*="border-color: #475569"] { border-color: rgba(255,255,255,0.10) !important; }
-[style*="border: 1px solid #334155"] { border-color: rgba(255,255,255,0.08) !important; }
-[style*="color: #ef4444"] { color: #F87171 !important; }
-[style*="background: #06b6d4"] { background: #E2B84A !important; color: #0B1F1A !important; }
-[style*="borderColor: #06b6d4"] { border-color: #E2B84A !important; }
-
-/* ===== 19. SCROLLBAR GLOBAL ===== */
-.ck-layout ::-webkit-scrollbar { width: 4px; height: 4px; }
-.ck-layout ::-webkit-scrollbar-track { background: transparent; }
-.ck-layout ::-webkit-scrollbar-thumb { background: #1F5C50; border-radius: 4px; }
-
-/* ===== 20. SELECTION ===== */
-.ck-layout ::selection { background: rgba(226,184,74,0.30); color: #F0F0F0; }
-
-/* ===== 21. BORDAS HARDCODED ===== */
-.fila-grupo, .dash-ranking-table, .cli-tabela, .fin-tabela, .aud-tabela, .rel-tabela, .cs-tabela {
-  border-color: rgba(255,255,255,0.08) !important;
-}
-
-/* ===== 22. TESTE: FORÇAR TODAS AS LETRAS BRANCAS ===== */
-.ck-layout, .ck-layout * {
-  color: #FFFFFF !important;
-}
+/* Gold accents */
+.fila-card-id, .fila-card-valor, .fila-revisao-item-qtd,
+.ck-recente-id, .ck-recente-valor, .ck-alerta-valor,
+.aud-id, .cli-ped-id, .cli-ped-valor, .fin-break-valor,
+.rel-valor, .cs-linha-preco { color: #E2B84A !important; }
