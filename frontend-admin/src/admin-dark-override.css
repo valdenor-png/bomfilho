@@ -47,39 +47,6 @@
 [style*="borderColor: #06b6d4"],
 [style*="border-color: #06b6d4"] { border-color: #E2B84A !important; }
 
-/* Force all text white inside layout */
-.ck-layout, .ck-layout * { color: #FFF !important; }
-/* Restore muted colors for specific elements */
-.sb-item:not(.is-active) { color: #8BA8A0 !important; }
-.sb-item-icon { color: #5C7E74 !important; }
-.sb-item.is-active, .sb-item.is-active .sb-item-icon { color: #E2B84A !important; }
-.sb-section-toggle, .sb-section-label { color: #5C7E74 !important; }
-.sb-conn-label { color: #8BA8A0 !important; }
-.sb-conn-clock { color: #5C7E74 !important; }
-.sb-btn-logout { color: #5C7E74 !important; }
-.ck-topbar-clock { color: #5C7E74 !important; }
-.fila-etapa-label { color: #5C7E74 !important; }
-.fila-etapa.is-done .fila-etapa-label { color: #4AE28A !important; }
-.fila-etapa.is-current .fila-etapa-label { color: #E2B84A !important; }
-.fila-card-tempo { color: #8BA8A0 !important; }
-.fila-card-tipo { color: #8BA8A0 !important; }
-.fila-contador-label { color: #8BA8A0 !important; }
-.fila-detalhes-linha { color: #8BA8A0 !important; }
-.fila-detalhes-linha strong { color: #FFF !important; }
-.fila-revisao-item-subtotal { color: #8BA8A0 !important; }
-.fila-drawer-card p { color: #8BA8A0 !important; }
-.fila-drawer-card p strong { color: #FFF !important; }
-
-/* Labels and muted text */
-.ck-kpi-label, .dash-kpi-titulo, .fin-kpi-l, .rel-kpi-l, .cli-kpi-l,
-.cs-subtitulo, .cs-contador-label, .cs-resumo-label, .cs-unidade, .cs-nome-marca,
-.ck-card-subtitle, .ck-live-label, .ck-feed-detalhe, .ck-feed-tempo,
-.ck-sla-detail-meta, .ck-hour-label, .dash-bar-label, .dash-hbar-label,
-.field-label, .error-text, .fila-revisao-detalhes-head,
-.cli-modal-secao h4, .fila-drawer-card h4, .fila-drawer-kicker { color: revert !important; }
-
-/* Gold accents */
-.fila-card-id, .fila-card-valor, .fila-revisao-item-qtd,
-.ck-recente-id, .ck-recente-valor, .ck-alerta-valor,
-.aud-id, .cli-ped-id, .cli-ped-valor, .fin-break-valor,
-.rel-valor, .cs-linha-preco { color: #E2B84A !important; }
+/* Base text color — only on layout root, not * wildcard */
+.ck-layout { color: #FFF; }
+.ck-main { color: #FFF; }
