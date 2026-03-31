@@ -226,7 +226,66 @@
 .adm-table-wrap tr:hover td { background: rgba(31,92,80,0.08); }
 
 /* ═══════════════════════════════════════════
+   FINANCEIRO — Filters, Table, Badges
+   ═══════════════════════════════════════════ */
+.adm-filter-group { display: flex; flex-direction: column; gap: 3px; min-width: 140px; }
+.adm-filter-group.wide { min-width: 200px; flex: 1; }
+.adm-filter-label { font-size: 10px; font-weight: 600; color: #5C7E74; text-transform: uppercase; letter-spacing: 0.8px; }
+.adm-filter-actions { display: flex; align-items: flex-end; gap: 6px; }
+
+.adm-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.adm-table th { text-align: left; padding: 10px 12px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; background: rgba(31,92,80,0.1); color: #5C7E74; border-bottom: 1px solid rgba(31,92,80,0.3); }
+.adm-table td { padding: 10px 12px; border-bottom: 1px solid rgba(31,92,80,0.15); color: #FFF; }
+.adm-table tr:hover td { background: rgba(31,92,80,0.08); }
+.adm-table .empty-row td { text-align: center; color: #5C7E74; padding: 24px; }
+.adm-table .col-id { font-family: 'Sora', sans-serif; font-weight: 700; color: #E2B84A; }
+.adm-table .col-num { font-family: 'Sora', sans-serif; font-weight: 600; color: #E2B84A; text-align: right; }
+.adm-table .col-muted { color: #5C7E74; font-size: 11px; }
+
+.adm-status-pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; white-space: nowrap; display: inline-block; }
+.adm-status-pill.st-pendente { background: rgba(226,160,74,0.3); color: #E2A04A; border: 1px solid rgba(226,160,74,0.2); }
+.adm-status-pill.st-pago { background: rgba(74,138,226,0.3); color: #4A8AE2; border: 1px solid rgba(74,138,226,0.2); }
+.adm-status-pill.st-preparando { background: rgba(160,122,226,0.3); color: #A07AE2; border: 1px solid rgba(160,122,226,0.2); }
+.adm-status-pill.st-pronto_para_retirada { background: rgba(74,226,138,0.3); color: #4AE28A; border: 1px solid rgba(74,226,138,0.2); }
+.adm-status-pill.st-enviado { background: rgba(226,160,74,0.3); color: #E2A04A; border: 1px solid rgba(226,160,74,0.2); }
+.adm-status-pill.st-entregue { background: rgba(74,226,138,0.3); color: #4AE28A; border: 1px solid rgba(74,226,138,0.2); }
+.adm-status-pill.st-retirado { background: rgba(74,226,138,0.3); color: #4AE28A; border: 1px solid rgba(74,226,138,0.2); }
+.adm-status-pill.st-cancelado { background: rgba(226,92,92,0.3); color: #E25C5C; border: 1px solid rgba(226,92,92,0.2); }
+.adm-status-pill.st-aguardando_revisao,
+.adm-status-pill.st-em\ analise,
+.adm-status-pill[class*="analise"] { background: rgba(226,160,74,0.3); color: #E2A04A; border: 1px solid rgba(226,160,74,0.2); }
+.adm-pay-pill { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: rgba(31,92,80,0.15); color: #8BA8A0; }
+
+/* ═══════════════════════════════════════════
    IMPORTACAO
    ═══════════════════════════════════════════ */
 .adm-section { margin-bottom: 16px; }
-.adm-section h3 { font-size: 14px; font-weight: 800; margin: 0 0 8px; }
+.adm-section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.adm-section-title { font-size: 14px; font-weight: 800; margin: 0; }
+.adm-section-actions { display: flex; gap: 6px; }
+
+.importacao-dropzone {
+  padding: 32px 20px; border-radius: 14px; text-align: center;
+  border: 2px dashed rgba(31,92,80,0.4); background: rgba(31,92,80,0.05);
+  transition: border-color 0.2s, background 0.2s; margin-bottom: 14px;
+}
+.importacao-dropzone.dragover { border-color: rgba(226,184,74,0.5); background: rgba(226,184,74,0.05); }
+.importacao-dropzone p { margin: 4px 0; font-size: 13px; }
+.importacao-file-input { display: none; }
+.importacao-select-btn { margin-top: 10px !important; display: inline-flex !important; cursor: pointer; }
+.importacao-file-meta { display: flex; align-items: center; gap: 6px; justify-content: center; margin-top: 10px; font-size: 12px; color: #4AE28A; }
+
+.adm-import-options { padding: 12px 14px; border-radius: 14px; background: #122B24; border: 1px solid rgba(31,92,80,0.4); margin-bottom: 12px; }
+.importacao-checkbox { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: #FFF; cursor: pointer; line-height: 1.5; }
+.importacao-checkbox input[type="checkbox"] { accent-color: #E2B84A; width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; }
+
+.adm-import-actions { display: flex; gap: 8px; }
+
+.importacao-log-box { padding: 12px; border-radius: 12px; background: rgba(10,31,26,0.6); border: 1px solid rgba(31,92,80,0.25); margin-top: 10px; }
+.importacao-log-box p { font-size: 12px; margin: 0 0 6px; }
+.importacao-log-list { list-style: none; padding: 0; margin: 0; }
+.importacao-log-list li { font-size: 11px; color: #8BA8A0; padding: 3px 0; border-bottom: 1px solid rgba(31,92,80,0.1); }
+
+.adm-metrics-grid.compact { gap: 6px; }
+.adm-metrics-grid.compact .adm-metric-card { padding: 10px; }
+.adm-metrics-grid.compact .adm-metric-value { font-size: 18px; }
