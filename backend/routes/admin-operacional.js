@@ -1927,7 +1927,7 @@ module.exports = function createAdminOperacionalRoutes({ exigirAcessoLocalAdmin,
           SUM(pi.subtotal) AS receita, p2.imagem_url, p2.ativo
          FROM pedido_itens pi JOIN pedidos ped ON pi.pedido_id=ped.id LEFT JOIN produtos p2 ON pi.produto_id=p2.id
          WHERE ped.criado_em >= DATE_SUB(NOW(), INTERVAL 30 DAY) AND ped.status NOT IN ('cancelado')
-         GROUP BY pi.produto_id ORDER BY receita DESC LIMIT 10`);
+         GROUP BY pi.produto_id, pi.nome_produto, p2.imagem_url, p2.ativo ORDER BY receita DESC LIMIT 10`);
 
       // Produtos sem saída (ativos mas sem vendas em 30 dias)
       const [semSaida] = await pool.query(

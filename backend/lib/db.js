@@ -145,7 +145,9 @@ function normalizeSqlForPostgres(sql) {
   let normalized = String(sql);
 
   normalized = normalized
-    .replace(/\bIFNULL\s*\(/gi, 'COALESCE(');
+    .replace(/\bIFNULL\s*\(/gi, 'COALESCE(')
+    .replace(/\bativo\s*=\s*1\b/gi, 'ativo = true')
+    .replace(/\bativo\s*=\s*0\b/gi, 'ativo = false');
 
   normalized = rewriteFunctionCalls(normalized, 'DATE_SUB', (argsRaw, originalCall) => {
     const args = splitTopLevelArgs(argsRaw);

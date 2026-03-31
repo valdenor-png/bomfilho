@@ -226,6 +226,10 @@ export function adminLogin(usuario, senha) {
   return request('/api/admin/login', { method: 'POST', body: { usuario, senha } });
 }
 
+export function adminVerify2FA(codigo) {
+  return request('/api/admin/login/verify', { method: 'POST', body: { codigo } });
+}
+
 export async function adminLogout() {
   try { return await request('/api/admin/logout', { method: 'POST' }); }
   finally { clearAdminAccessToken(); }

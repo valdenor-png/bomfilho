@@ -103,24 +103,30 @@ export function useSmartSearch(products) {
     const nq = normalizeText(q);
     const sections = [];
 
-    const cats = [...new Set(
-      searchIndex.filter(p => p._sc.includes(nq)).map(p => p.category || p.categoria)
-    )].slice(0, 2);
+    // Single pass: collect matching categories + scored products
+    const catCounts = {};
+    const catOrder = [];
+    const scored = [];
+    for (const p of searchIndex) {
+      const cat = p.category || p.categoria;
+      if (p._sc.includes(nq)) {
+        if (!catCounts[cat]) { catCounts[cat] = 0; catOrder.push(cat); }
+        catCounts[cat]++;
+      }
+      const score = calcScore(nq, p);
+      if (score > 0) scored.push({ product: p, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+
+    const cats = catOrder.slice(0, 2);
     if (cats.length > 0) {
       sections.push({
         type: 'section', label: 'Categorias',
-        items: cats.map(c => ({
-          type: 'category', text: c,
-          count: searchIndex.filter(p => (p.category || p.categoria) === c).length,
-        })),
+        items: cats.map(c => ({ type: 'category', text: c, count: catCounts[c] })),
       });
     }
 
-    const scored = searchIndex
-      .map(p => ({ product: p, score: calcScore(nq, p) }))
-      .filter(r => r.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 8);
+    scored.length = Math.min(scored.length, 8);
 
     if (scored.length > 0) {
       sections.push({

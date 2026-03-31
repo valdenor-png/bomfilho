@@ -1,58 +1,76 @@
 import React from 'react';
-// components/ProductCard.jsx — Card de produto
-// Props: product, qty, onAdd(id), onRemove(id), compact
-// product: { id, name, description, price, oldPrice?, category, tag?, image_url? }
-
-import { useState } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { colors, fonts, formatPrice, formatProductName } from '../theme';
 import Icon, { ProductPlaceholder } from './Icon';
 
-export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
-  const [hovered, setHovered] = useState(false);
+function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
   const [imgError, setImgError] = useState(false);
+  const [addPulse, setAddPulse] = useState(false);
+  const prevQty = useRef(qty);
   const discount = product.oldPrice
     ? Math.round((1 - product.price / product.oldPrice) * 100)
     : 0;
 
+  // Trigger pulse when qty increases
+  useEffect(() => {
+    if (qty > prevQty.current && qty > 0) {
+      setAddPulse(true);
+      const t = setTimeout(() => setAddPulse(false), 400);
+      prevQty.current = qty;
+      return () => clearTimeout(t);
+    }
+    prevQty.current = qty;
+  }, [qty]);
+
+  const handleAdd = useCallback((e) => {
+    e.stopPropagation();
+    onAdd(product.id);
+  }, [onAdd, product.id]);
+
+  const handleRemove = useCallback((e) => {
+    e.stopPropagation();
+    onRemove(product.id);
+  }, [onRemove, product.id]);
+
   return (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className="bf-product-card"
       style={{
-        background: hovered ? colors.cardHover : colors.card,
-        backdropFilter: 'blur(10px)',
-        borderRadius: compact ? 11 : 14,
+        background: colors.card,
+        borderRadius: compact ? 12 : 14,
         overflow: 'hidden',
         border: `1px solid ${colors.border}`,
-        transition: 'all 0.22s cubic-bezier(.4,0,.2,1)',
-        transform: hovered ? 'translateY(-3px)' : 'none',
-        boxShadow: hovered ? '0 10px 28px rgba(0,0,0,0.18)' : '0 1px 6px rgba(0,0,0,0.08)',
         display: 'flex', flexDirection: 'column', height: '100%',
+        transition: 'transform 0.25s cubic-bezier(.4,0,.2,1), box-shadow 0.25s cubic-bezier(.4,0,.2,1)',
+        willChange: 'transform',
       }}
     >
-      {/* Área da imagem */}
+      {/* Image area */}
       <div style={{
-        height: compact ? 80 : 96,
+        height: compact ? 84 : 100,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'rgba(255,255,255,0.03)',
         position: 'relative',
+        overflow: 'hidden',
       }}>
-        {/* Badge oferta ou estoque baixo */}
+        {/* Badge: oferta ou estoque baixo */}
         {product.tag ? (
           <span style={{
-            position: 'absolute', top: 6, left: 6,
-            fontSize: 8, fontWeight: 800,
-            padding: '2px 6px', borderRadius: 5,
-            background: colors.gold, color: colors.bgDeep,
+            position: 'absolute', top: 6, left: 6, zIndex: 2,
+            fontSize: 7.5, fontWeight: 800,
+            padding: '2.5px 7px', borderRadius: 6,
+            background: `linear-gradient(135deg, ${colors.gold} 0%, #C9A03A 100%)`,
+            color: colors.bgDeep,
             textTransform: 'uppercase', letterSpacing: '0.04em',
+            boxShadow: '0 2px 8px rgba(226,184,74,0.3)',
           }}>
             {product.tag}
           </span>
         ) : product.estoque != null && product.estoque > 0 && product.estoque <= 5 ? (
           <span style={{
-            position: 'absolute', top: 6, left: 6,
+            position: 'absolute', top: 6, left: 6, zIndex: 2,
             fontSize: 7, fontWeight: 800,
-            padding: '2px 6px', borderRadius: 5,
+            padding: '2.5px 7px', borderRadius: 6,
             background: 'rgba(239,83,80,0.15)', color: '#EF5350',
             border: '1px solid rgba(239,83,80,0.3)',
           }}>
@@ -60,12 +78,12 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
           </span>
         ) : null}
 
-        {/* Badge desconto */}
+        {/* Badge: desconto */}
         {discount > 0 && (
           <span style={{
-            position: 'absolute', top: 6, right: 6,
+            position: 'absolute', top: 6, right: 6, zIndex: 2,
             fontSize: 8, fontWeight: 800,
-            padding: '2px 5px', borderRadius: 4,
+            padding: '2.5px 6px', borderRadius: 5,
             background: colors.goldBg, color: colors.gold,
             border: `1px solid ${colors.goldBorder}`,
             fontFamily: fonts.number,
@@ -74,24 +92,27 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
           </span>
         )}
 
-        {/* Badge peso */}
+        {/* Badge: peso */}
         {product.isPeso && (
           <span style={{
             position: 'absolute', bottom: 6, left: 6, zIndex: 2,
-            fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 5,
+            fontSize: 8, fontWeight: 700, padding: '2.5px 7px', borderRadius: 6,
             background: 'rgba(226,184,74,0.15)', color: colors.gold,
             border: '1px solid rgba(226,184,74,0.3)', fontFamily: fonts.text,
-          }}>⚖️ Por kg</span>
+          }}>/kg</span>
         )}
 
-        {/* Imagem ou placeholder */}
+        {/* Image */}
         {product.image_url && !imgError ? (
           <img
             src={product.image_url}
             alt={product.name}
             onError={() => setImgError(true)}
             loading="lazy"
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+              transition: 'transform 0.35s cubic-bezier(.4,0,.2,1)',
+            }}
           />
         ) : (
           <ProductPlaceholder category={product.category} size={compact ? 26 : 32} />
@@ -100,7 +121,7 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
 
       {/* Info */}
       <div style={{
-        padding: compact ? '6px 9px 9px' : '9px 11px 11px',
+        padding: compact ? '7px 10px 10px' : '9px 12px 12px',
         flex: 1, display: 'flex', flexDirection: 'column',
       }}>
         <p style={{
@@ -114,18 +135,11 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
           {formatProductName(product.name)}
         </p>
 
-        <p style={{
-          fontSize: 9, color: colors.textMuted,
-          margin: '2px 0 0', fontFamily: fonts.text,
-        }}>
-          {product.description}
-        </p>
-
         <div style={{
-          marginTop: 'auto', paddingTop: 7,
+          marginTop: 'auto', paddingTop: 8,
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
-          {/* Preço */}
+          {/* Price */}
           <div>
             {product.oldPrice && (
               <span style={{
@@ -137,7 +151,7 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
               </span>
             )}
             <span style={{
-              fontSize: compact ? 13 : 15, fontWeight: 800,
+              fontSize: compact ? 13.5 : 15, fontWeight: 800,
               color: colors.gold, fontFamily: fonts.number,
             }}>
               {formatPrice(product.price)}
@@ -145,20 +159,27 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
             </span>
           </div>
 
-          {/* Controle de quantidade */}
+          {/* Qty controls with animation */}
           {qty > 0 ? (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 2,
-              background: colors.gold, borderRadius: 9, padding: 2,
-            }}>
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 1,
+                background: `linear-gradient(135deg, ${colors.gold} 0%, #C9A03A 100%)`,
+                borderRadius: 10, padding: 2,
+                boxShadow: '0 2px 10px rgba(226,184,74,0.3)',
+                animation: addPulse ? 'bf-cart-pop 0.4s cubic-bezier(.36,1.56,.64,1)' : 'none',
+              }}
+            >
               <button
-                onClick={(e) => { e.stopPropagation(); onRemove(product.id); }}
+                onClick={handleRemove}
+                className="bf-qty-btn"
                 style={{
-                  width: 28, height: 28, borderRadius: 7,
+                  width: 28, height: 28, borderRadius: 8,
                   border: 'none', background: 'rgba(0,0,0,0.12)',
                   color: colors.bgDeep, cursor: 'pointer',
-                  fontSize: 14, fontWeight: 800,
+                  fontSize: 15, fontWeight: 800,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'background 0.15s',
                 }}
               >
                 {'\u2212'}
@@ -166,18 +187,22 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
               <span style={{
                 fontFamily: fonts.number, fontWeight: 800,
                 fontSize: 13, color: colors.bgDeep,
-                minWidth: 18, textAlign: 'center',
+                minWidth: 20, textAlign: 'center',
+                transition: 'transform 0.2s cubic-bezier(.4,0,.2,1)',
+                transform: addPulse ? 'scale(1.2)' : 'scale(1)',
               }}>
                 {qty}
               </span>
               <button
-                onClick={(e) => { e.stopPropagation(); onAdd(product.id); }}
+                onClick={handleAdd}
+                className="bf-qty-btn"
                 style={{
-                  width: 28, height: 28, borderRadius: 7,
-                  border: 'none', background: 'rgba(0,0,0,0.1)',
+                  width: 28, height: 28, borderRadius: 8,
+                  border: 'none', background: 'rgba(0,0,0,0.08)',
                   color: colors.bgDeep, cursor: 'pointer',
-                  fontSize: 14, fontWeight: 800,
+                  fontSize: 15, fontWeight: 800,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'background 0.15s',
                 }}
               >
                 +
@@ -185,15 +210,18 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
             </div>
           ) : (
             <button
-              onClick={(e) => { e.stopPropagation(); onAdd(product.id); }}
+              onClick={handleAdd}
+              className="bf-add-btn"
               style={{
-                width: 30, height: 30, borderRadius: 8,
-                background: colors.gold, border: 'none', cursor: 'pointer',
+                width: 32, height: 32, borderRadius: 9,
+                background: `linear-gradient(135deg, ${colors.gold} 0%, #C9A03A 100%)`,
+                border: 'none', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 2px 6px rgba(226,184,74,0.25)',
+                boxShadow: '0 2px 10px rgba(226,184,74,0.3)',
+                transition: 'transform 0.2s cubic-bezier(.4,0,.2,1), box-shadow 0.2s',
               }}
             >
-              <Icon name="plus" size={13} color={colors.bgDeep} strokeWidth={3} />
+              <Icon name="plus" size={14} color={colors.bgDeep} strokeWidth={3} />
             </button>
           )}
         </div>
@@ -201,3 +229,5 @@ export default function ProductCard({ product, qty = 0, onAdd, onRemove, compact
     </div>
   );
 }
+
+export default React.memo(ProductCard);

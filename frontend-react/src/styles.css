@@ -27233,3 +27233,127 @@ html {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════
+   BomFilho UI Polish — Micro-interactions & Transitions
+   ═══════════════════════════════════════════════════ */
+
+/* ── Cart badge pop ─────────────────────────────── */
+@keyframes bf-badge-pop {
+  0%   { transform: scale(0.5); opacity: 0; }
+  50%  { transform: scale(1.25); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ── Cart qty stepper pop ───────────────────────── */
+@keyframes bf-cart-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+/* ── Toast enter/exit ───────────────────────────── */
+.bf-toast {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-14px) scale(0.96);
+  transition: opacity 0.3s cubic-bezier(.4,0,.2,1),
+              transform 0.3s cubic-bezier(.4,0,.2,1);
+}
+.bf-toast--enter {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+.bf-toast--exit {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-10px) scale(0.97);
+}
+
+/* ── Product card hover (desktop) ───────────────── */
+.bf-product-card {
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .bf-product-card:hover {
+    transform: translateY(-3px) !important;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.22) !important;
+    border-color: rgba(255,255,255,0.12) !important;
+  }
+  .bf-product-card:hover img {
+    transform: scale(1.05);
+  }
+}
+.bf-product-card:active {
+  transform: scale(0.97) !important;
+  transition-duration: 0.1s !important;
+}
+
+/* ── Add button tap ─────────────────────────────── */
+.bf-add-btn:active {
+  transform: scale(0.88) !important;
+  transition-duration: 0.08s !important;
+}
+
+/* ── Qty button tap ─────────────────────────────── */
+.bf-qty-btn:active {
+  background: rgba(0,0,0,0.22) !important;
+  transform: scale(0.9);
+  transition-duration: 0.08s;
+}
+
+/* ── Header cart button ─────────────────────────── */
+.bf-header-cart-btn:active {
+  transform: scale(0.9) !important;
+  transition-duration: 0.08s !important;
+}
+
+/* ── BottomNav tap ──────────────────────────────── */
+.bf-nav-tab:active {
+  transform: scale(0.9) !important;
+  transition-duration: 0.08s !important;
+}
+
+/* ── Page transition ────────────────────────────── */
+main > * {
+  animation: bf-page-in 0.3s cubic-bezier(.4,0,.2,1) both;
+}
+@keyframes bf-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Respect reduced motion ─────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .bf-toast,
+  .bf-toast--enter,
+  .bf-toast--exit {
+    transition-duration: 0.01ms !important;
+  }
+  main > * {
+    animation: none !important;
+  }
+}
+
+/* ── Recipe modal bottom sheet animation ────────── */
+@keyframes bf-sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes bf-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

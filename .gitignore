@@ -123,3 +123,4 @@ backup/
 
 # Evitar clone dentro do repo
 /bomfilho/
+.vercel

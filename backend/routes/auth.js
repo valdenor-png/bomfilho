@@ -5,12 +5,20 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const logger = require('../lib/logger');
 const { pool } = require('../lib/db');
+const crypto = require('crypto');
 const {
   JWT_SECRET,
   USER_AUTH_COOKIE_NAME, ADMIN_AUTH_COOKIE_NAME, CSRF_COOKIE_NAME,
   USER_AUTH_COOKIE_MAX_AGE, ADMIN_AUTH_COOKIE_MAX_AGE,
   ADMIN_USER, ADMIN_PASSWORD_HASH, ADMIN_PASSWORD,
 } = require('../lib/config');
+
+// ── Admin 2FA state (in-memory, short-lived) ──
+const ADMIN_2FA_WHATSAPP = String(process.env.ADMIN_2FA_WHATSAPP || '').trim();
+const ADMIN_2FA_ENABLED = Boolean(ADMIN_2FA_WHATSAPP);
+const ADMIN_2FA_TTL_MS = 5 * 60 * 1000; // 5 min
+const ADMIN_2FA_MAX_ATTEMPTS = 5;
+let admin2faPending = null; // { code, expiresAt, attempts, ip }
 const { validatePassword } = require('../lib/passwordValidator');
 
 /**
@@ -36,6 +44,7 @@ module.exports = function createAuthRoutes(deps) {
     autenticarToken, autenticarAdminToken, exigirAcessoLocalAdmin,
     validarRecaptcha, emitirCsrfToken, definirCookieAuth, limparCookie,
     compararTextoSegura, registrarAuditoria, extrairIpRequisicao,
+    enviarWhatsappTexto,
   } = deps;
 
   // Cadastro de usuário
@@ -156,7 +165,7 @@ module.exports = function createAuthRoutes(deps) {
     }
   });
 
-  // Login administrativo
+  // Login administrativo (com 2FA opcional via WhatsApp)
   router.post('/api/admin/login', adminAuthLimiter, exigirAcessoLocalAdmin, async (req, res) => {
     try {
       const { usuario, senha } = req.body || {};
@@ -187,6 +196,54 @@ module.exports = function createAuthRoutes(deps) {
         return res.status(401).json({ erro: 'Usuário ou senha de administrador inválidos.' });
       }
 
+      // ── 2FA: se habilitado, gera código e exige verificação ──
+      if (ADMIN_2FA_ENABLED) {
+        const code = String(crypto.randomInt(100000, 999999));
+        admin2faPending = {
+          code,
+          expiresAt: Date.now() + ADMIN_2FA_TTL_MS,
+          attempts: 0,
+          ip: extrairIpRequisicao(req),
+        };
+
+        // Tenta enviar por WhatsApp via Evolution API
+        let enviado = false;
+        if (typeof enviarWhatsappTexto === 'function') {
+          try {
+            enviado = await enviarWhatsappTexto({
+              telefone: ADMIN_2FA_WHATSAPP,
+              mensagem: `BomFilho Admin\n\nSeu codigo de acesso: *${code}*\n\nExpira em 5 minutos. Nao compartilhe.`,
+            });
+          } catch {
+            // Evolution API não disponível
+          }
+        }
+
+        if (!enviado) {
+          // Fallback: código no log do servidor
+          logger.warn(`🔐 [ADMIN 2FA] Código: ${code} (Evolution API indisponível — código exibido no log)`);
+        } else {
+          logger.info(`🔐 [ADMIN 2FA] Código enviado por WhatsApp para ...${ADMIN_2FA_WHATSAPP.slice(-4)}`);
+        }
+
+        registrarAuditoria(pool, {
+          acao: 'admin_2fa_enviado',
+          entidade: 'admin',
+          detalhes: { canal: enviado ? 'whatsapp' : 'log', telefone_final: ADMIN_2FA_WHATSAPP.slice(-4) },
+          admin_usuario: ADMIN_USER,
+          ip: extrairIpRequisicao(req),
+        }).catch(() => {});
+
+        return res.json({
+          requires2FA: true,
+          mensagem: enviado
+            ? 'Código de verificação enviado para seu WhatsApp.'
+            : 'Código de verificação gerado. Verifique o terminal do servidor.',
+          canal: enviado ? 'whatsapp' : 'log',
+        });
+      }
+
+      // ── Sem 2FA: login direto ──
       const token = jwt.sign(
         { role: 'admin', usuario: ADMIN_USER },
         JWT_SECRET,
@@ -199,7 +256,7 @@ module.exports = function createAuthRoutes(deps) {
       registrarAuditoria(pool, {
         acao: 'admin_login',
         entidade: 'admin',
-        detalhes: { metodo: ADMIN_PASSWORD_HASH ? 'bcrypt' : 'legacy_plaintext' },
+        detalhes: { metodo: ADMIN_PASSWORD_HASH ? 'bcrypt' : 'legacy_plaintext', twoFA: false },
         admin_usuario: ADMIN_USER,
         ip: extrairIpRequisicao(req)
       }).catch(() => {});
@@ -212,6 +269,69 @@ module.exports = function createAuthRoutes(deps) {
     } catch (erro) {
       logger.error('Erro no login admin:', erro);
       return res.status(500).json({ erro: 'Não foi possível concluir o login administrativo.' });
+    }
+  });
+
+  // Verificação 2FA admin
+  router.post('/api/admin/login/verify', adminAuthLimiter, exigirAcessoLocalAdmin, async (req, res) => {
+    try {
+      const { codigo } = req.body || {};
+      const codigoLimpo = String(codigo || '').trim();
+
+      if (!admin2faPending) {
+        return res.status(400).json({ erro: 'Nenhuma verificação pendente. Faça login novamente.' });
+      }
+
+      if (Date.now() > admin2faPending.expiresAt) {
+        admin2faPending = null;
+        return res.status(410).json({ erro: 'Código expirado. Faça login novamente.' });
+      }
+
+      if (admin2faPending.attempts >= ADMIN_2FA_MAX_ATTEMPTS) {
+        admin2faPending = null;
+        return res.status(429).json({ erro: 'Muitas tentativas incorretas. Faça login novamente.' });
+      }
+
+      if (!codigoLimpo || codigoLimpo.length !== 6) {
+        return res.status(400).json({ erro: 'Informe o código de 6 dígitos.' });
+      }
+
+      if (codigoLimpo !== admin2faPending.code) {
+        admin2faPending.attempts += 1;
+        const restantes = ADMIN_2FA_MAX_ATTEMPTS - admin2faPending.attempts;
+        return res.status(401).json({
+          erro: `Código incorreto. ${restantes} tentativa${restantes !== 1 ? 's' : ''} restante${restantes !== 1 ? 's' : ''}.`,
+        });
+      }
+
+      // Código correto — limpa e emite JWT
+      admin2faPending = null;
+
+      const token = jwt.sign(
+        { role: 'admin', usuario: ADMIN_USER },
+        JWT_SECRET,
+        { expiresIn: '12h' }
+      );
+
+      const csrfToken = emitirCsrfToken(res);
+      definirCookieAuth(res, ADMIN_AUTH_COOKIE_NAME, token, ADMIN_AUTH_COOKIE_MAX_AGE);
+
+      registrarAuditoria(pool, {
+        acao: 'admin_login',
+        entidade: 'admin',
+        detalhes: { metodo: 'bcrypt', twoFA: true },
+        admin_usuario: ADMIN_USER,
+        ip: extrairIpRequisicao(req),
+      }).catch(() => {});
+
+      return res.json({
+        mensagem: 'Acesso administrativo liberado com sucesso.',
+        usuario: ADMIN_USER,
+        csrfToken,
+      });
+    } catch (erro) {
+      logger.error('Erro na verificação 2FA admin:', erro);
+      return res.status(500).json({ erro: 'Falha na verificação do código.' });
     }
   });
 

@@ -1953,6 +1953,7 @@ app.use(require('./routes/auth')({
   autenticarToken, autenticarAdminToken, exigirAcessoLocalAdmin,
   validarRecaptcha, emitirCsrfToken, definirCookieAuth, limparCookie,
   compararTextoSegura, registrarAuditoria, extrairIpRequisicao,
+  enviarWhatsappTexto,
 }));
 
 // ============================================

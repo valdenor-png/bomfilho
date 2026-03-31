@@ -1,5 +1,5 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useCart } from './context/CartContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { getProdutos } from './lib/api';
@@ -20,14 +20,12 @@ import InstallPWABanner from './components/ui/InstallPWABanner';
 import CartAbandonmentReminder from './components/ui/CartAbandonmentReminder';
 import { requestPushPermission, onForegroundMessage } from './lib/firebase';
 import { getMainCategory } from './lib/formatProductName';
-import Home from './pages/Home';
-import Products from './pages/Products';
-import Orders from './pages/Orders';
-import Account from './pages/Account';
-
-// New checkout from prototype
-import Checkout from './pages/Checkout';
-// Legacy checkout kept as backup
+// All pages lazy-loaded for smaller initial bundle
+const Home = lazy(() => import('./pages/Home'));
+const Products = lazy(() => import('./pages/Products'));
+const Orders = lazy(() => import('./pages/Orders'));
+const Account = lazy(() => import('./pages/Account'));
+const Checkout = lazy(() => import('./pages/Checkout'));
 const PagamentoPageLegacy = lazy(() => import('./pages/PagamentoPage'));
 const PedidosPage = lazy(() => import('./pages/PedidosPage'));
 const ContaPage = lazy(() => import('./pages/ContaPage'));
@@ -68,9 +66,22 @@ export default function App() {
   const isContaRoute = location.pathname.startsWith('/conta');
   const isLegacyRoute = isPagamentoRoute || isPedidosRoute || isContaRoute;
 
-  // Scroll detection for header
+  // Scroll detection for header — throttled with rAF
+  const scrolledRef = useRef(false);
   useEffect(() => {
-    const handler = () => setScrolled(window.scrollY > 16);
+    let ticking = false;
+    const handler = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const isScrolled = window.scrollY > 16;
+        if (scrolledRef.current !== isScrolled) {
+          scrolledRef.current = isScrolled;
+          setScrolled(isScrolled);
+        }
+        ticking = false;
+      });
+    };
     window.addEventListener('scroll', handler, { passive: true });
     return () => window.removeEventListener('scroll', handler);
   }, []);
@@ -133,11 +144,24 @@ export default function App() {
     return obj;
   }, [itens]);
 
-  const cartCount = Object.values(cart).reduce((a, b) => a + b, 0);
-  const cartTotal = Object.entries(cart).reduce((sum, [id, qty]) => {
-    const p = products.find((x) => x.id === Number(id));
-    return sum + (p ? p.price * qty : 0);
-  }, 0);
+  // O(1) product lookup via Map instead of O(n) Array.find
+  const productMap = useMemo(() => {
+    const map = new Map();
+    for (const p of products) map.set(p.id, p);
+    return map;
+  }, [products]);
+
+  const cartCount = useMemo(
+    () => Object.values(cart).reduce((a, b) => a + b, 0),
+    [cart]
+  );
+  const cartTotal = useMemo(
+    () => Object.entries(cart).reduce((sum, [id, qty]) => {
+      const p = productMap.get(Number(id));
+      return sum + (p ? p.price * qty : 0);
+    }, 0),
+    [cart, productMap]
+  );
 
   // Handlers
   const showToast = useCallback((msg) => {
@@ -148,7 +172,7 @@ export default function App() {
   // Push notifications — after showToast is defined
   useEffect(() => {
     if (!localStorage.getItem('bomfilho_push_asked')) return;
-    try { onForegroundMessage((payload) => showToast(payload?.notification?.body || 'Nova notificacao')); } catch {}
+    onForegroundMessage((payload) => showToast(payload?.notification?.body || 'Nova notificacao'));
   }, [showToast]);
 
   useEffect(() => {
@@ -163,7 +187,7 @@ export default function App() {
   }, [cart]);
 
   const handleAdd = useCallback((id) => {
-    const product = products.find((p) => p.id === Number(id));
+    const product = productMap.get(Number(id));
     if (!product) return;
 
     // Produto por peso — abrir seletor
@@ -181,7 +205,7 @@ export default function App() {
       categoria: product.category,
     });
     showToast(`${product.name.split(' ').slice(0, 3).join(' ')} adicionado`);
-  }, [products, addItem, showToast]);
+  }, [productMap, addItem, showToast]);
 
   const handleAddPeso = useCallback((pesoKg) => {
     if (!pesoProduct) return;
@@ -218,6 +242,19 @@ export default function App() {
   const handleGoCategory = useCallback((catId) => {
     handleGoProducts(catId);
   }, [handleGoProducts]);
+
+  const handleUpdateQty = useCallback((id, qty) => {
+    if (qty <= 0) {
+      removeItem(Number(id));
+    } else {
+      updateItemQuantity(Number(id), qty);
+    }
+  }, [removeItem, updateItemQuantity]);
+
+  const handleGoHome = useCallback(() => {
+    navigate('/');
+    window.scrollTo(0, 0);
+  }, [navigate]);
 
   const handleCartClick = useCallback(() => {
     navigate('/pagamento');
@@ -296,15 +333,9 @@ export default function App() {
                   cart={cart}
                   products={products}
                   onAdd={handleAdd}
-                  updateQty={(id, qty) => {
-                    if (qty <= 0) {
-                      removeItem(Number(id));
-                    } else {
-                      updateItemQuantity(Number(id), qty);
-                    }
-                  }}
+                  updateQty={handleUpdateQty}
                   removeItem={handleRemove}
-                  onGoHome={() => { navigate('/'); window.scrollTo(0, 0); }}
+                  onGoHome={handleGoHome}
                 />
               } />
               <Route path="/sobre" element={<SobrePage />} />

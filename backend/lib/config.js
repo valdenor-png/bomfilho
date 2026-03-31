@@ -236,8 +236,8 @@ const CORS_ORIGENS_FIXAS_PRODUCAO = [
   'https://bomfilhoadmin.vercel.app'
 ];
 const CORS_ORIGENS_FIXAS_DESENVOLVIMENTO = [
-  'http://localhost:5173', 'http://localhost:5174',
-  'http://127.0.0.1:5173', 'http://127.0.0.1:5174'
+  'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175',
+  'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175'
 ];
 const origensPadrao = IS_PRODUCTION
   ? CORS_ORIGENS_FIXAS_PRODUCAO

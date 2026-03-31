@@ -1030,6 +1030,9 @@ export default function AdminPage() {
   const contextoPedidosInicial = useMemo(() => obterContextoPedidosOperacionaisInicial(), []);
   const [adminUsuario, setAdminUsuario] = useState('admin');
   const [adminSenha, setAdminSenha] = useState('');
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [codigo2FA, setCodigo2FA] = useState('');
+  const [msg2FA, setMsg2FA] = useState('');
   const [adminAutenticado, setAdminAutenticado] = useState(null);
   const [tab, setTab] = useState('operacao');
   const [pedidos, setPedidos] = useState([]);
@@ -1471,11 +1474,43 @@ export default function AdminPage() {
 
     try {
       const data = await adminLogin(adminUsuario.trim(), adminSenha);
+
+      // Backend exige 2FA
+      if (data?.requires2FA) {
+        setNeeds2FA(true);
+        setMsg2FA(data.mensagem || 'Código enviado.');
+        setCodigo2FA('');
+        return;
+      }
+
       setAdminAutenticado(true);
+      setNeeds2FA(false);
       if (data?.usuario) {
         setAdminUsuario(String(data.usuario));
       }
       setAdminSenha('');
+    } catch (error) {
+      setErro(error.message);
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  async function handleVerify2FA(event) {
+    event.preventDefault();
+    setErro('');
+    setCarregando(true);
+
+    try {
+      const { adminVerify2FA } = await import('../lib/api');
+      const data = await adminVerify2FA(codigo2FA.trim());
+      setAdminAutenticado(true);
+      setNeeds2FA(false);
+      setCodigo2FA('');
+      setAdminSenha('');
+      if (data?.usuario) {
+        setAdminUsuario(String(data.usuario));
+      }
     } catch (error) {
       setErro(error.message);
     } finally {
@@ -2504,34 +2539,68 @@ export default function AdminPage() {
           <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Informe suas credenciais para acessar o cockpit de gestão.</p>
         </div>
 
-        <form className="form-box" onSubmit={handleAdminLogin} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.5rem', maxWidth: '360px', width: '100%' }}>
-          <label className="field-label" htmlFor="admin-usuario" style={{ color: '#94a3b8' }}>Usuário</label>
-          <input
-            id="admin-usuario"
-            className="field-input"
-            style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0' }}
-            value={adminUsuario}
-            onChange={(event) => setAdminUsuario(event.target.value)}
-            required
-          />
+        {!needs2FA ? (
+          <form className="form-box" onSubmit={handleAdminLogin} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.5rem', maxWidth: '360px', width: '100%' }}>
+            <label className="field-label" htmlFor="admin-usuario" style={{ color: '#94a3b8' }}>Usuário</label>
+            <input
+              id="admin-usuario"
+              className="field-input"
+              style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0' }}
+              value={adminUsuario}
+              onChange={(event) => setAdminUsuario(event.target.value)}
+              required
+            />
 
-          <label className="field-label" htmlFor="admin-senha" style={{ color: '#94a3b8' }}>Senha</label>
-          <input
-            id="admin-senha"
-            className="field-input"
-            style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0' }}
-            type="password"
-            value={adminSenha}
-            onChange={(event) => setAdminSenha(event.target.value)}
-            required
-          />
+            <label className="field-label" htmlFor="admin-senha" style={{ color: '#94a3b8' }}>Senha</label>
+            <input
+              id="admin-senha"
+              className="field-input"
+              style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0' }}
+              type="password"
+              value={adminSenha}
+              onChange={(event) => setAdminSenha(event.target.value)}
+              required
+            />
 
-          {erro ? <p className="error-text">{erro}</p> : null}
+            {erro ? <p className="error-text">{erro}</p> : null}
 
-          <button className="btn-primary" type="submit" disabled={carregando} style={{ background: '#06b6d4', borderColor: '#06b6d4' }}>
-            {carregando ? 'Validando acesso...' : 'Entrar no cockpit'}
-          </button>
-        </form>
+            <button className="btn-primary" type="submit" disabled={carregando} style={{ background: '#06b6d4', borderColor: '#06b6d4' }}>
+              {carregando ? 'Validando acesso...' : 'Entrar no cockpit'}
+            </button>
+          </form>
+        ) : (
+          <form className="form-box" onSubmit={handleVerify2FA} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.5rem', maxWidth: '360px', width: '100%' }}>
+            <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🔐</div>
+              <p style={{ color: '#34D399', fontSize: '0.85rem', fontWeight: 600 }}>{msg2FA}</p>
+            </div>
+
+            <label className="field-label" htmlFor="admin-2fa" style={{ color: '#94a3b8' }}>Código de verificação</label>
+            <input
+              id="admin-2fa"
+              className="field-input"
+              style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0', textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.3em', fontFamily: 'Sora, sans-serif' }}
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="000000"
+              value={codigo2FA}
+              onChange={(event) => setCodigo2FA(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              autoFocus
+              required
+            />
+
+            {erro ? <p className="error-text">{erro}</p> : null}
+
+            <button className="btn-primary" type="submit" disabled={carregando || codigo2FA.length !== 6} style={{ background: '#06b6d4', borderColor: '#06b6d4' }}>
+              {carregando ? 'Verificando...' : 'Verificar código'}
+            </button>
+
+            <button type="button" onClick={() => { setNeeds2FA(false); setCodigo2FA(''); setErro(''); setMsg2FA(''); }} style={{ marginTop: '0.75rem', background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer', width: '100%', textAlign: 'center' }}>
+              Voltar ao login
+            </button>
+          </form>
+        )}
       </section>
     );
   }

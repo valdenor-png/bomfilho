@@ -19,6 +19,10 @@ function criarManualChunks(id) {
     return 'vendor-virtualized';
   }
 
+  if (caminhoNormalizado.includes('lucide-react')) {
+    return 'vendor-icons';
+  }
+
   if (caminhoNormalizado.includes('react-router-dom') || caminhoNormalizado.includes('@remix-run/router')) {
     return 'vendor-router';
   }
@@ -51,6 +55,9 @@ export default defineConfig(({ mode }) => {
       }
     },
     build: {
+      target: 'es2020',
+      sourcemap: false,
+      cssCodeSplit: true,
       rollupOptions: {
         output: {
           manualChunks: criarManualChunks

@@ -1,6 +1,3 @@
-import { initializeApp } from 'firebase/app';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-
 const firebaseConfig = {
   apiKey: "AIzaSyAPrrX6MTM3JkuZjXkmPvTZWcOJI8q202g",
   authDomain: "bomfilho.firebaseapp.com",
@@ -12,18 +9,23 @@ const firebaseConfig = {
 
 const VAPID_KEY = 'BO-jXHnjrOqvTsq4ZMkRZ1CH69FNKEn7fZU3FZg_UdfCpdj7gH4vDuTc8vGwRU68Cj8iOMVUQjIzE80p5nXT4aY';
 
-let app, messaging;
+let messagingInstance = null;
 
-try {
-  app = initializeApp(firebaseConfig);
-  messaging = getMessaging(app);
-} catch (err) {
-  console.warn('Firebase init failed:', err);
+async function getMessagingLazy() {
+  if (messagingInstance) return messagingInstance;
+  const [{ initializeApp }, { getMessaging }] = await Promise.all([
+    import('firebase/app'),
+    import('firebase/messaging'),
+  ]);
+  const app = initializeApp(firebaseConfig);
+  messagingInstance = getMessaging(app);
+  return messagingInstance;
 }
 
 export async function requestPushPermission() {
-  if (!messaging) return null;
   try {
+    const messaging = await getMessagingLazy();
+    const { getToken } = await import('firebase/messaging');
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') return null;
     const token = await getToken(messaging, { vapidKey: VAPID_KEY });
@@ -37,9 +39,14 @@ export async function requestPushPermission() {
   }
 }
 
-export function onForegroundMessage(callback) {
-  if (!messaging) return;
-  onMessage(messaging, (payload) => {
-    callback(payload);
-  });
+export async function onForegroundMessage(callback) {
+  try {
+    const messaging = await getMessagingLazy();
+    const { onMessage } = await import('firebase/messaging');
+    onMessage(messaging, (payload) => {
+      callback(payload);
+    });
+  } catch {
+    // Firebase not available
+  }
 }

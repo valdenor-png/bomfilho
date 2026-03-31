@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildCartEventPayload,
   buildProductEventPayload,
@@ -165,13 +165,19 @@ export function CartProvider({ children }) {
   const [pendenciaAlcool, setPendenciaAlcool] = useState(null);
   const toast = useToast();
 
+  // Refs to keep callbacks stable while reading latest values
+  const ageGateRef = useRef(ageGateConfirmado);
+  ageGateRef.current = ageGateConfirmado;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+
   useEffect(() => {
     localStorage.setItem(CART_KEY, JSON.stringify(itens));
   }, [itens]);
 
-  function addItem(produto, quantidade = 1, meta = {}) {
+  const addItem = useCallback(function addItem(produto, quantidade = 1, meta = {}) {
     if (!isProdutoVisivelNoCatalogo(produto || {})) {
-      toast.error('Este item nao esta disponivel para venda online.');
+      toastRef.current.error('Este item nao esta disponivel para venda online.');
       return false;
     }
 
@@ -198,7 +204,7 @@ export function CartProvider({ children }) {
       return false;
     }
 
-    if (itemBase.eh_alcoolico && !ageGateConfirmado && !meta?.skipAgeGate) {
+    if (itemBase.eh_alcoolico && !ageGateRef.current && !meta?.skipAgeGate) {
       setPendenciaAlcool({ produto, quantidade, meta: { ...meta, peso_gramas: pesoGramas } });
       return false;
     }
@@ -257,11 +263,11 @@ export function CartProvider({ children }) {
       captureCommerceEvent('add_to_cart', payloadEvento);
     }
 
-    toast.success(`${itemBase.nome} adicionado ao carrinho`);
+    toastRef.current.success(`${itemBase.nome} adicionado ao carrinho`);
     return true;
-  }
+  }, []);
 
-  function updateItemQuantity(itemKeyOrId, quantidade) {
+  const updateItemQuantity = useCallback((itemKeyOrId, quantidade) => {
     const qtd = normalizarQuantidade(quantidade || 1);
     setItens((atual) =>
       atual.map((item) =>
@@ -270,9 +276,9 @@ export function CartProvider({ children }) {
           : item
       )
     );
-  }
+  }, []);
 
-  function updateItemWeight(itemKeyOrId, pesoGramas) {
+  const updateItemWeight = useCallback((itemKeyOrId, pesoGramas) => {
     setItens((atual) => {
       const index = atual.findIndex((item) => itemMatchesTarget(item, itemKeyOrId));
       if (index === -1) {
@@ -311,37 +317,37 @@ export function CartProvider({ children }) {
 
       return atual.map((item, idx) => (idx === index ? atualizado : item));
     });
-  }
+  }, []);
 
-  function removeItem(itemKeyOrId) {
+  const removeItem = useCallback((itemKeyOrId) => {
     setItens((atual) => atual.filter((item) => !itemMatchesTarget(item, itemKeyOrId)));
-  }
+  }, []);
 
-  function clearCart() {
+  const clearCart = useCallback(() => {
     setItens([]);
-  }
+  }, []);
 
-  function confirmarMaioridadeAlcool() {
+  const confirmarMaioridadeAlcool = useCallback(() => {
     setAgeGateConfirmado(true);
     saveAgeGateSession(true);
+    setPendenciaAlcool((prev) => {
+      if (prev) {
+        // Schedule addItem on next tick so state is settled
+        queueMicrotask(() => {
+          addItem(prev.produto, prev.quantidade, {
+            ...prev.meta,
+            skipAgeGate: true
+          });
+        });
+      }
+      return null;
+    });
+  }, [addItem]);
 
-    if (pendenciaAlcool) {
-      const pendencia = pendenciaAlcool;
-      setPendenciaAlcool(null);
-      addItem(pendencia.produto, pendencia.quantidade, {
-        ...pendencia.meta,
-        skipAgeGate: true
-      });
-      return;
-    }
-
+  const cancelarMaioridadeAlcool = useCallback(() => {
     setPendenciaAlcool(null);
-  }
-
-  function cancelarMaioridadeAlcool() {
-    setPendenciaAlcool(null);
-    toast.info('Adicao de bebida alcoolica cancelada.');
-  }
+    toastRef.current.info('Adicao de bebida alcoolica cancelada.');
+  }, []);
 
   const resumo = useMemo(() => resumirCarrinho(itens), [itens]);
 
@@ -351,7 +357,7 @@ export function CartProvider({ children }) {
     produtoNome: String(pendenciaAlcool?.produto?.nome || '').trim() || 'Bebida alcoolica',
     confirmar: confirmarMaioridadeAlcool,
     cancelar: cancelarMaioridadeAlcool
-  }), [ageGateConfirmado, pendenciaAlcool]);
+  }), [ageGateConfirmado, pendenciaAlcool, confirmarMaioridadeAlcool, cancelarMaioridadeAlcool]);
 
   const value = useMemo(
     () => ({
@@ -364,7 +370,7 @@ export function CartProvider({ children }) {
       clearCart,
       alcoholAgeGate
     }),
-    [itens, resumo, alcoholAgeGate]
+    [itens, resumo, addItem, updateItemQuantity, updateItemWeight, removeItem, clearCart, alcoholAgeGate]
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

@@ -41,7 +41,7 @@ const scrollCardStyle = {
   scrollSnapAlign: 'start',
 };
 
-function HorizontalRow({ products, cart, onAdd, onRemove, onProductClick }) {
+const HorizontalRow = React.memo(function HorizontalRow({ products, cart, onAdd, onRemove, onProductClick }) {
   return (
     <div style={scrollRowStyle} className="hide-scrollbar">
       {products.map(p => (
@@ -51,7 +51,7 @@ function HorizontalRow({ products, cart, onAdd, onRemove, onProductClick }) {
       ))}
     </div>
   );
-}
+});
 
 const DIETARY_FILTERS = [
   { key: 'sem_gluten', label: 'Sem Gluten', keywords: ['sem gluten', 'gluten free', 'tapioca'] },

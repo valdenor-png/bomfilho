@@ -6,6 +6,10 @@ import { login as apiLogin, cadastrar, logout as apiLogout, getMe, getEndereco, 
 import SavedListsPage from '../components/cart/SavedListsPage';
 import MeuGasto from '../components/conta/MeuGasto';
 import RecurringPage from '../components/recurring/RecurringPage';
+import { tryGetRecaptchaToken } from '../lib/recaptchaEnterprise';
+import { RECAPTCHA_SITE_KEY } from '../config/api';
+
+const AUTH_RECAPTCHA_ENABLED = String(import.meta.env.VITE_RECAPTCHA_AUTH_ENABLED || 'false').trim().toLowerCase() === 'true';
 
 const menuItems = [
   { icon: 'pin', label: 'Meus enderecos', action: 'enderecos' },
@@ -577,7 +581,8 @@ export default function Account() {
     setError('');
     setSubmitting(true);
     try {
-      const data = await apiLogin(form.email, form.senha);
+      const recaptchaToken = await tryGetRecaptchaToken('auth_login', RECAPTCHA_SITE_KEY, AUTH_RECAPTCHA_ENABLED);
+      const data = await apiLogin(form.email, form.senha, recaptchaToken);
       setUser(data?.usuario || null);
     } catch (err) {
       setError(err?.message || 'Email ou senha incorretos');
@@ -594,9 +599,11 @@ export default function Account() {
     }
     setSubmitting(true);
     try {
+      const recaptchaToken = await tryGetRecaptchaToken('auth_cadastro', RECAPTCHA_SITE_KEY, AUTH_RECAPTCHA_ENABLED);
       const data = await cadastrar({
         nome: form.nome, email: form.email, senha: form.senha,
         telefone: form.telefone, whatsappOptIn: true,
+        recaptchaToken,
       });
       setUser(data?.usuario || null);
     } catch (err) {
