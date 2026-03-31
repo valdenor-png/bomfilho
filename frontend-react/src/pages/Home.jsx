@@ -8,6 +8,7 @@ import { colors, fonts, formatPrice } from '../theme';
 import Icon from '../components/Icon';
 import ProductCard from '../components/ProductCard';
 import KitCard from '../components/KitCard';
+import KitDetailModal from '../components/KitDetailModal';
 import { kits } from '../data/kits';
 import { recipes } from '../data/recipes';
 import { useSmartSearch } from '../hooks/useSmartSearch';
@@ -32,6 +33,7 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
   const ofertas = products.filter(p => p.tag === 'Oferta' || p.oldPrice).slice(0, 8);
   const recentes = products.slice(0, 4);
   const searchBoxRef = useRef(null);
+  const [selectedKit, setSelectedKit] = useState(null);
   const { query, setQuery, suggestions, isOpen, setIsOpen, saveToHistory, removeFromHistory, clearSearch } = useSmartSearch(products);
 
   useEffect(() => {
@@ -202,7 +204,7 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
         <div style={{ display: 'flex', gap: 10, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4 }}>
           {kits.map(kit => (
             <div key={kit.id} style={{ minWidth: 180, maxWidth: 180, flex: '0 0 auto' }}>
-              <KitCard kit={kit} compact onAdd={(k) => {
+              <KitCard kit={kit} compact onViewDetails={setSelectedKit} onAdd={(k) => {
                 k.items.forEach(item => onAdd(item.productId));
               }} />
             </div>
@@ -310,6 +312,15 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
           </div>
         </div>
       </div>
+
+      {/* Kit Detail Modal */}
+      {selectedKit && (
+        <KitDetailModal
+          kit={selectedKit}
+          onClose={() => setSelectedKit(null)}
+          onAddKit={(k) => k.items.forEach(item => onAdd(item.productId))}
+        />
+      )}
     </div>
   );
 }

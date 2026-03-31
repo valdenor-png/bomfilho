@@ -1,16 +1,17 @@
 import React from 'react';
 import { colors, fonts, formatPrice } from '../theme';
 
-export default function KitCard({ kit, onAdd, compact = false }) {
+export default function KitCard({ kit, onAdd, onViewDetails, compact = false }) {
   const savings = kit.originalPrice - kit.price;
 
   return (
-    <div style={{
+    <div onClick={() => onViewDetails && onViewDetails(kit)} style={{
       background: 'rgba(226,184,74,0.06)',
       border: '1px solid rgba(226,184,74,0.15)',
       borderRadius: 14, padding: compact ? 12 : 14,
       position: 'relative', overflow: 'hidden', height: '100%',
       display: 'flex', flexDirection: 'column',
+      cursor: 'pointer', transition: 'all 0.2s ease',
     }}>
       {/* Badge economia */}
       <span style={{
@@ -83,7 +84,7 @@ export default function KitCard({ kit, onAdd, compact = false }) {
             {formatPrice(kit.price)}
           </span>
         </div>
-        <button onClick={() => onAdd(kit)} style={{
+        <button onClick={(e) => { e.stopPropagation(); onAdd(kit); }} style={{
           padding: '7px 12px', background: colors.gold,
           border: 'none', borderRadius: 8, color: colors.bgDeep,
           fontWeight: 800, fontSize: 11, cursor: 'pointer',
