@@ -11,6 +11,7 @@ const {
   USER_AUTH_COOKIE_MAX_AGE, ADMIN_AUTH_COOKIE_MAX_AGE,
   ADMIN_USER, ADMIN_PASSWORD_HASH, ADMIN_PASSWORD,
 } = require('../lib/config');
+const { validatePassword } = require('../lib/passwordValidator');
 
 /**
  * @param {object} deps
@@ -51,8 +52,9 @@ module.exports = function createAuthRoutes(deps) {
         return res.status(400).json({ erro: 'Informe um e-mail válido.' });
       }
 
-      if (String(senha).length < 8) {
-        return res.status(400).json({ erro: 'A senha deve ter no mínimo 8 caracteres.' });
+      const senhaCheck = validatePassword(senha);
+      if (!senhaCheck.valid) {
+        return res.status(400).json({ erro: senhaCheck.errors.join(' ') });
       }
 
       const [usuariosExistentes] = await pool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
@@ -334,8 +336,9 @@ module.exports = function createAuthRoutes(deps) {
         return res.status(400).json({ erro: 'Informe a senha atual e a nova senha.' });
       }
 
-      if (String(novaSenha).length < 6) {
-        return res.status(400).json({ erro: 'A nova senha deve ter no mínimo 6 caracteres.' });
+      const senhaCheck = validatePassword(novaSenha);
+      if (!senhaCheck.valid) {
+        return res.status(400).json({ erro: senhaCheck.errors.join(' ') });
       }
 
       const [rows] = await pool.query('SELECT senha FROM usuarios WHERE id = ?', [req.usuario.id]);

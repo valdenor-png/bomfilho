@@ -1,0 +1,115 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', 'Sora', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0B1F1A;
+  color: #F0F0F0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+}
+
+input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.error-boundary-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 24px;
+}
+
+.error-boundary-card {
+  text-align: center;
+  max-width: 400px;
+}
+
+.error-boundary-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.error-boundary-copy {
+  font-size: 14px;
+  color: #8BADA3;
+  margin-bottom: 16px;
+}
+
+.error-boundary-retry {
+  padding: 10px 24px;
+  border-radius: 8px;
+  background: #1F5C50;
+  color: #F0F0F0;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.error-boundary-retry:hover {
+  background: #2A7A6A;
+}
+
+/* SmartImage states */
+.smart-image {
+  transition: opacity 0.25s ease;
+}
+.smart-image--loading {
+  opacity: 0;
+}
+.smart-image--loaded {
+  opacity: 1;
+}
+.smart-image--error {
+  opacity: 0;
+}
+.smart-image-shell {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+}
+.smart-image-blur-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(12px);
+  transform: scale(1.05);
+}
+.smart-image-main-layer {
+  position: relative;
+  z-index: 1;
+}
+.smart-image-shell--loaded .smart-image-blur-layer {
+  opacity: 0;
+}

@@ -38,7 +38,15 @@ const REACT_DIST_INDEX = path.join(FRONTEND_DIST_PATH, 'index.html');
 const FRONTEND_APP_URL = String(process.env.FRONTEND_APP_URL || '').trim();
 const SHOULD_SERVE_REACT = parseBooleanEnv('SERVE_REACT', !IS_PRODUCTION);
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
-const TRUST_PROXY = parseBooleanEnv('TRUST_PROXY', IS_PRODUCTION);
+const TRUST_PROXY = (() => {
+  const raw = String(process.env.TRUST_PROXY || '').trim().toLowerCase();
+  if (!raw) return IS_PRODUCTION ? 1 : false;
+  if (['true', 'yes', 'on', 'sim'].includes(raw)) return true;
+  if (['false', '0', 'no', 'off', 'nao', 'não'].includes(raw)) return false;
+  const num = Number(raw);
+  if (Number.isFinite(num) && num > 0) return num;
+  return raw;
+})();
 
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL nao configurada no ambiente.');

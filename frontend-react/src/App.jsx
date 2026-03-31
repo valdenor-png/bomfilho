@@ -29,8 +29,6 @@ import Account from './pages/Account';
 import Checkout from './pages/Checkout';
 // Legacy checkout kept as backup
 const PagamentoPageLegacy = lazy(() => import('./pages/PagamentoPage'));
-const AdminPage = lazy(() => import('./pages/AdminPage'));
-const AdminGerenciaPage = lazy(() => import('./pages/AdminGerenciaPage'));
 const PedidosPage = lazy(() => import('./pages/PedidosPage'));
 const ContaPage = lazy(() => import('./pages/ContaPage'));
 const SobrePage = lazy(() => import('./pages/SobrePage'));
@@ -39,7 +37,6 @@ const TermosUsoPage = lazy(() => import('./pages/TermosUsoPage'));
 const PoliticaTrocaDevolucaoPage = lazy(() => import('./pages/PoliticaTrocaDevolucaoPage'));
 const PoliticaEntregaPage = lazy(() => import('./pages/PoliticaEntregaPage'));
 const SharedCartPage = lazy(() => import('./pages/SharedCartPage'));
-const NotaSeparacao = lazy(() => import('./pages/NotaSeparacao'));
 const RecipesPage = lazy(() => import('./pages/RecipesPage'));
 const PaymentResultPage = lazy(() => import('./pages/PaymentResultPage'));
 
@@ -66,7 +63,6 @@ export default function App() {
   const [toastVisible, setToastVisible] = useState(false);
   const [pesoProduct, setPesoProduct] = useState(null); // product for weight selector
 
-  const isAdminRoute = location.pathname.startsWith('/admin');
   const isPagamentoRoute = location.pathname.startsWith('/pagamento');
   const isPedidosRoute = location.pathname.startsWith('/pedidos');
   const isContaRoute = location.pathname.startsWith('/conta');
@@ -239,22 +235,6 @@ export default function App() {
     navigate(routes[tab] || '/');
     window.scrollTo(0, 0);
   }, [navigate]);
-
-  // Admin routes — keep legacy
-  if (isAdminRoute) {
-    return (
-      <ErrorBoundary resetKeys={[location.pathname]}>
-        <Suspense fallback={<LoadingFallback />}>
-          <Routes>
-            <Route path="/admin" element={<AdminPage />} />
-            <Route path="/admin/gerencia" element={<AdminGerenciaPage />} />
-            <Route path="/admin/pedido/:id/separacao" element={<NotaSeparacao />} />
-            <Route path="*" element={<Navigate to="/admin/gerencia" replace />} />
-          </Routes>
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
 
   // Main app shell
   return (
