@@ -2523,39 +2523,37 @@ export default function AdminPage() {
 
   if (!isLocalHost) {
     return (
-      <section className="page" style={{ background: '#0f172a', color: '#e2e8f0', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <h1 style={{ color: '#ef4444' }}>Acesso Restrito</h1>
-        <p style={{ color: '#94a3b8' }}>O acesso administrativo está disponível apenas no computador da loja.</p>
+      <section className="page">
+        <h1 style={{ color: '#E25C5C' }}>Acesso Restrito</h1>
+        <p className="muted-text">O acesso administrativo está disponível apenas no computador da loja.</p>
       </section>
     );
   }
 
   if (adminAutenticado !== true) {
     return (
-      <section className="page" style={{ background: '#0f172a', color: '#e2e8f0', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      <section className="page">
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-          <span style={{ fontSize: '2.5rem' }}><ShieldCheck size={32} aria-hidden="true" /></span>
-          <h1 style={{ color: '#06b6d4', fontSize: '1.4rem', marginTop: '0.5rem' }}>BomFilho Admin</h1>
-          <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Informe suas credenciais para acessar o cockpit de gestão.</p>
+          <ShieldCheck size={32} style={{ color: '#E2B84A' }} aria-hidden="true" />
+          <h1 style={{ color: '#E2B84A', fontSize: '1.4rem', marginTop: '0.5rem' }}>BomFilho Admin</h1>
+          <p className="muted-text">Informe suas credenciais para acessar o cockpit de gestão.</p>
         </div>
 
         {!needs2FA ? (
-          <form className="form-box" onSubmit={handleAdminLogin} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.5rem', maxWidth: '360px', width: '100%' }}>
-            <label className="field-label" htmlFor="admin-usuario" style={{ color: '#94a3b8' }}>Usuário</label>
+          <form className="form-box" onSubmit={handleAdminLogin}>
+            <label className="field-label" htmlFor="admin-usuario">Usuário</label>
             <input
               id="admin-usuario"
               className="field-input"
-              style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0' }}
               value={adminUsuario}
               onChange={(event) => setAdminUsuario(event.target.value)}
               required
             />
 
-            <label className="field-label" htmlFor="admin-senha" style={{ color: '#94a3b8' }}>Senha</label>
+            <label className="field-label" htmlFor="admin-senha">Senha</label>
             <input
               id="admin-senha"
               className="field-input"
-              style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0' }}
               type="password"
               value={adminSenha}
               onChange={(event) => setAdminSenha(event.target.value)}
@@ -2564,22 +2562,22 @@ export default function AdminPage() {
 
             {erro ? <p className="error-text">{erro}</p> : null}
 
-            <button className="btn-primary" type="submit" disabled={carregando} style={{ background: '#06b6d4', borderColor: '#06b6d4' }}>
+            <button className="btn-primary" type="submit" disabled={carregando}>
               {carregando ? 'Validando acesso...' : 'Entrar no cockpit'}
             </button>
           </form>
         ) : (
-          <form className="form-box" onSubmit={handleVerify2FA} style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '1.5rem', maxWidth: '360px', width: '100%' }}>
+          <form className="form-box" onSubmit={handleVerify2FA}>
             <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>🔐</div>
-              <p style={{ color: '#34D399', fontSize: '0.85rem', fontWeight: 600 }}>{msg2FA}</p>
+              <p style={{ color: '#4AE28A', fontSize: '0.85rem', fontWeight: 600 }}>{msg2FA}</p>
             </div>
 
-            <label className="field-label" htmlFor="admin-2fa" style={{ color: '#94a3b8' }}>Código de verificação</label>
+            <label className="field-label" htmlFor="admin-2fa">Código de verificação</label>
             <input
               id="admin-2fa"
               className="field-input"
-              style={{ background: '#334155', borderColor: '#475569', color: '#e2e8f0', textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.3em', fontFamily: 'Sora, sans-serif' }}
+              style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.3em', fontFamily: 'Sora, sans-serif' }}
               type="text"
               inputMode="numeric"
               maxLength={6}
@@ -2592,11 +2590,11 @@ export default function AdminPage() {
 
             {erro ? <p className="error-text">{erro}</p> : null}
 
-            <button className="btn-primary" type="submit" disabled={carregando || codigo2FA.length !== 6} style={{ background: '#06b6d4', borderColor: '#06b6d4' }}>
+            <button className="btn-primary" type="submit" disabled={carregando || codigo2FA.length !== 6}>
               {carregando ? 'Verificando...' : 'Verificar código'}
             </button>
 
-            <button type="button" onClick={() => { setNeeds2FA(false); setCodigo2FA(''); setErro(''); setMsg2FA(''); }} style={{ marginTop: '0.75rem', background: 'none', border: 'none', color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer', width: '100%', textAlign: 'center' }}>
+            <button type="button" className="btn-secondary" onClick={() => { setNeeds2FA(false); setCodigo2FA(''); setErro(''); setMsg2FA(''); }} style={{ marginTop: '0.75rem', width: '100%', justifyContent: 'center' }}>
               Voltar ao login
             </button>
           </form>

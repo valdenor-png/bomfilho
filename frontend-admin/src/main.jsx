@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './styles.css';
 import './admin-layout.css';
+import './admin-pages.css';
+import './admin-adminpage.css';
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
