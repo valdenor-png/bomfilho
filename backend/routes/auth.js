@@ -303,7 +303,7 @@ module.exports = function createAuthRoutes(deps) {
   // Atualizar perfil do usuário
   router.put('/api/auth/profile', autenticarToken, async (req, res) => {
     try {
-      const { nome, email, telefone, cpf } = req.body;
+      const { nome, telefone } = req.body;
       const updates = [];
       const values = [];
 
@@ -317,7 +317,7 @@ module.exports = function createAuthRoutes(deps) {
       values.push(req.usuario.id);
       await pool.query(`UPDATE usuarios SET ${updates.join(', ')} WHERE id = ?`, values);
 
-      const [rows] = await pool.query('SELECT id, nome, email, telefone, cpf FROM usuarios WHERE id = ?', [req.usuario.id]);
+      const [rows] = await pool.query('SELECT id, nome, email, telefone FROM usuarios WHERE id = ?', [req.usuario.id]);
       res.json(rows[0] || {});
     } catch (erro) {
       logger.error('Erro ao atualizar perfil:', erro);
