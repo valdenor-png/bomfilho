@@ -316,3 +316,13 @@ textarea { resize: vertical; min-height: 60px; }
 .aud-paginacao { display: flex; justify-content: center; gap: 4px; margin-top: 12px; }
 .aud-paginacao button { padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; background: rgba(31,92,80,0.1); border: 1px solid rgba(31,92,80,0.4); color: #8BA8A0; cursor: pointer; }
 .aud-paginacao button:disabled { opacity: 0.4; }
+
+/* Missing classes */
+.cli-row { transition: background 0.1s; }
+.cli-row:hover { background: rgba(31,92,80,0.08); }
+.aud-row { transition: background 0.1s; }
+.aud-row:hover td { background: rgba(31,92,80,0.08); }
+.is-alerta { border-color: rgba(226,160,74,0.3) !important; }
+.dash-alerta-icon { flex-shrink: 0; margin-top: 2px; color: #E2A04A; }
+.rel-kpi.is-alerta .rel-kpi-v { color: #E25C5C; }
+.fin-kpi.is-alerta .fin-kpi-v { color: #E25C5C; }
