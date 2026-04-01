@@ -27,6 +27,7 @@ import RelatoriosAdmin from '../components/admin/RelatoriosAdmin';
 import AdminShell from '../components/admin/AdminShell';
 import CommandCenter from '../components/admin/CommandCenter';
 import CatalogoSaude from '../components/admin/CatalogoSaude';
+import FinanceScreen from '../components/screens/FinanceScreen';
 import '../admin-dark-override.css';
 
 const STATUS_OPTIONS = ['pendente', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
@@ -3689,201 +3690,30 @@ export default function AdminPage() {
           {carregandoProdutos ? <p className="muted-text" style={{ marginTop: '0.5rem' }}>Carregando produtos...</p> : null}
         </>
       ) : tab === 'financeiro' ? (
-        <>
-          <div className="adm-page-header">
-            <div className="adm-page-header-main">
-              <h2 className="adm-page-title">Painel Financeiro</h2>
-              <p className="adm-page-subtitle">Visão consolidada de faturamento, pagamentos e movimentação.</p>
-            </div>
-            <div className="adm-page-meta">
-              <span className="adm-page-meta-pill">Página {paginacaoPedidos.pagina}/{paginacaoPedidos.total_paginas}</span>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={carregandoPedidos || paginacaoPedidos.pagina <= 1}
-                onClick={() => { void carregarPedidosPagina(paginacaoPedidos.pagina - 1); }}
-              >
-                ← Anterior
-              </button>
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={carregandoPedidos || !paginacaoPedidos.tem_mais}
-                onClick={() => { void carregarPedidosPagina(paginacaoPedidos.pagina + 1); }}
-              >
-                Próxima →
-              </button>
-            </div>
-          </div>
-
-          <div className="adm-metrics-grid">
-            <article className="adm-metric-card is-green">
-              <span className="adm-metric-label">Faturamento total</span>
-              <strong className="adm-metric-value">R$ {financeiro.faturamentoTotal.toFixed(2)}</strong>
-              <small className="adm-metric-sub">Todos os pedidos da página</small>
-            </article>
-            <article className="adm-metric-card is-accent">
-              <span className="adm-metric-label">Faturamento hoje</span>
-              <strong className="adm-metric-value">R$ {financeiro.faturamentoHoje.toFixed(2)}</strong>
-            </article>
-            <article className="adm-metric-card">
-              <span className="adm-metric-label">Faturamento mês</span>
-              <strong className="adm-metric-value">R$ {financeiro.faturamentoMes.toFixed(2)}</strong>
-            </article>
-            <article className="adm-metric-card">
-              <span className="adm-metric-label">Ticket médio</span>
-              <strong className="adm-metric-value">R$ {financeiro.ticketMedio.toFixed(2)}</strong>
-            </article>
-            <article className="adm-metric-card is-yellow">
-              <span className="adm-metric-label">Pendentes</span>
-              <strong className="adm-metric-value">R$ {financeiro.pendentesTotal.toFixed(2)}</strong>
-            </article>
-            <article className="adm-metric-card is-red">
-              <span className="adm-metric-label">Cancelados</span>
-              <strong className="adm-metric-value">R$ {financeiro.canceladosTotal.toFixed(2)}</strong>
-            </article>
-          </div>
-
-          <div className="adm-metrics-grid" style={{ marginTop: '0.5rem' }}>
-            <article className="adm-metric-card">
-              <span className="adm-metric-label">Pedidos filtrados</span>
-              <strong className="adm-metric-value">{resumoFinanceiroFiltrado.quantidade}</strong>
-            </article>
-            <article className="adm-metric-card">
-              <span className="adm-metric-label">Faturamento filtrado</span>
-              <strong className="adm-metric-value">R$ {resumoFinanceiroFiltrado.faturamento.toFixed(2)}</strong>
-            </article>
-            <article className="adm-metric-card">
-              <span className="adm-metric-label">Ticket filtrado</span>
-              <strong className="adm-metric-value">R$ {resumoFinanceiroFiltrado.ticket.toFixed(2)}</strong>
-            </article>
-          </div>
-
-          <div className="adm-filter-bar" style={{ marginTop: '0.75rem' }}>
-            <div className="adm-filter-group">
-              <span className="adm-filter-label">Período</span>
-              <select
-                className="field-input"
-                value={filtroFinanceiroPeriodo}
-                onChange={(event) => setFiltroFinanceiroPeriodo(event.target.value)}
-              >
-                <option value="hoje">Hoje</option>
-                <option value="semana">Ãšltimos 7 dias</option>
-                <option value="mes">Mês atual</option>
-                <option value="todos">Todo período</option>
-                <option value="custom">Personalizado</option>
-              </select>
-            </div>
-
-            {filtroFinanceiroPeriodo === 'custom' ? (
-              <>
-                <div className="adm-filter-group">
-                  <span className="adm-filter-label">Início</span>
-                  <input
-                    className="field-input"
-                    type="date"
-                    value={filtroFinanceiroInicio}
-                    onChange={(event) => setFiltroFinanceiroInicio(event.target.value)}
-                  />
-                </div>
-                <div className="adm-filter-group">
-                  <span className="adm-filter-label">Fim</span>
-                  <input
-                    className="field-input"
-                    type="date"
-                    value={filtroFinanceiroFim}
-                    onChange={(event) => setFiltroFinanceiroFim(event.target.value)}
-                  />
-                </div>
-              </>
-            ) : null}
-
-            <div className="adm-filter-group">
-              <span className="adm-filter-label">Status</span>
-              <select
-                className="field-input"
-                value={filtroFinanceiroStatus}
-                onChange={(event) => setFiltroFinanceiroStatus(event.target.value)}
-              >
-                <option value="todos">Todos os status</option>
-                {STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status}>{formatarStatusPedido(status)}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="adm-filter-group">
-              <span className="adm-filter-label">Ordenar</span>
-              <select
-                className="field-input"
-                value={filtroFinanceiroOrdem}
-                onChange={(event) => setFiltroFinanceiroOrdem(event.target.value)}
-              >
-                <option value="data_desc">Mais recente</option>
-                <option value="data_asc">Mais antiga</option>
-                <option value="valor_desc">Maior valor</option>
-                <option value="valor_asc">Menor valor</option>
-              </select>
-            </div>
-
-            <div className="adm-filter-group wide">
-              <span className="adm-filter-label">Buscar</span>
-              <input
-                className="field-input"
-                placeholder="Cliente ou #pedido"
-                value={filtroFinanceiroBusca}
-                onChange={(event) => setFiltroFinanceiroBusca(event.target.value)}
-              />
-            </div>
-
-            <div className="adm-filter-actions">
-              <button className="btn-secondary" type="button" onClick={exportarFinanceiroCsv}>
-                Exportar CSV
-              </button>
-            </div>
-          </div>
-
-          <div className="adm-table-wrap" style={{ marginTop: '0.75rem' }}>
-            <table className="adm-table">
-              <thead>
-                <tr>
-                  <th>Pedido</th>
-                  <th>Data</th>
-                  <th>Cliente</th>
-                  <th>Status</th>
-                  <th>Pagamento</th>
-                  <th style={{ textAlign: 'right' }}>Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linhasFinanceiro.length === 0 ? (
-                  <tr className="empty-row">
-                    <td colSpan={6}>Nenhum registro financeiro para os filtros aplicados.</td>
-                  </tr>
-                ) : (
-                  linhasFinanceiro.map((pedido) => (
-                    <tr key={pedido.id}>
-                      <td className="col-id">#{pedido.id}</td>
-                      <td className="col-muted">{pedido._data ? pedido._data.toLocaleString('pt-BR') : '-'}</td>
-                      <td>{pedido.cliente_nome || '-'}</td>
-                      <td>
-                        <span className={`adm-status-pill st-${String(pedido.status || '').toLowerCase()}`}>
-                          {formatarStatusPedido(pedido.status)}
-                        </span>
-                      </td>
-                      <td>
-                        <span className="adm-pay-pill">
-                          {FORMAS_PAGAMENTO_LABELS[pedido.forma_pagamento] || pedido.forma_pagamento || 'PIX'}
-                        </span>
-                      </td>
-                      <td className="col-num">R$ {Number(pedido._total || 0).toFixed(2)}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
+        <FinanceScreen
+          financeiro={financeiro}
+          resumoFinanceiroFiltrado={resumoFinanceiroFiltrado}
+          linhasFinanceiro={linhasFinanceiro}
+          filtroFinanceiroPeriodo={filtroFinanceiroPeriodo}
+          setFiltroFinanceiroPeriodo={setFiltroFinanceiroPeriodo}
+          filtroFinanceiroStatus={filtroFinanceiroStatus}
+          setFiltroFinanceiroStatus={setFiltroFinanceiroStatus}
+          filtroFinanceiroOrdem={filtroFinanceiroOrdem}
+          setFiltroFinanceiroOrdem={setFiltroFinanceiroOrdem}
+          filtroFinanceiroBusca={filtroFinanceiroBusca}
+          setFiltroFinanceiroBusca={setFiltroFinanceiroBusca}
+          filtroFinanceiroInicio={filtroFinanceiroInicio}
+          setFiltroFinanceiroInicio={setFiltroFinanceiroInicio}
+          filtroFinanceiroFim={filtroFinanceiroFim}
+          setFiltroFinanceiroFim={setFiltroFinanceiroFim}
+          paginacaoPedidos={paginacaoPedidos}
+          carregandoPedidos={carregandoPedidos}
+          carregarPedidosPagina={(p) => { void carregarPedidosPagina(p); }}
+          exportarFinanceiroCsv={exportarFinanceiroCsv}
+          statusOptions={STATUS_OPTIONS}
+          formatarStatusPedido={formatarStatusPedido}
+          formasPagamentoLabels={FORMAS_PAGAMENTO_LABELS}
+        />
       ) : tab === 'importacao' ? (
         <>
           <div className="adm-page-header">
