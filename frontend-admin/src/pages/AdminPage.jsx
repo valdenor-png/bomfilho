@@ -29,6 +29,7 @@ import CommandCenter from '../components/admin/CommandCenter';
 import CatalogoSaude from '../components/admin/CatalogoSaude';
 import FinanceScreen from '../components/screens/FinanceScreen';
 import ImportScreen from '../components/screens/ImportScreen';
+import CatalogScreen from '../components/screens/CatalogScreen';
 import '../admin-dark-override.css';
 
 const STATUS_OPTIONS = ['pendente', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
@@ -3522,174 +3523,20 @@ export default function AdminPage() {
           </section>
         </>
       ) : tab === 'produtos' ? (
-        <>
-          <form className="form-box" style={{ marginTop: '1rem' }} onSubmit={handleCadastrarProduto}>
-            <p><strong>Cadastro de produto</strong></p>
-            <div className="barcode-row">
-              <input
-                className="field-input"
-                placeholder="Código de barras (EAN)"
-                value={produtoForm.codigo_barras}
-                onChange={(event) => setProdutoForm((atual) => ({ ...atual, codigo_barras: event.target.value }))}
-              />
-              <button
-                className="btn-secondary"
-                type="button"
-                disabled={buscandoCodigo}
-                onClick={handleBuscarProdutoPorCodigoBarras}
-              >
-                {buscandoCodigo ? 'Buscando...' : 'Buscar produto'}
-              </button>
-            </div>
-            <input
-              className="field-input"
-              placeholder="Nome"
-              value={produtoForm.nome}
-              onChange={(event) => setProdutoForm((atual) => ({ ...atual, nome: event.target.value }))}
-            />
-            <textarea
-              className="field-input"
-              placeholder="Descrição"
-              rows={3}
-              value={produtoForm.descricao}
-              onChange={(event) => setProdutoForm((atual) => ({ ...atual, descricao: event.target.value }))}
-            />
-            <input
-              className="field-input"
-              placeholder="Marca"
-              value={produtoForm.marca}
-              onChange={(event) => setProdutoForm((atual) => ({ ...atual, marca: event.target.value }))}
-            />
-            <input
-              className="field-input"
-              placeholder="URL da imagem"
-              value={produtoForm.imagem}
-              onChange={(event) => setProdutoForm((atual) => ({ ...atual, imagem: event.target.value }))}
-            />
-            {produtoForm.imagem ? (
-              <SmartImage
-                className="produto-preview-image"
-                src={produtoForm.imagem}
-                alt="Prévia do produto"
-                onError={(event) => {
-                  event.currentTarget.style.display = 'none';
-                }}
-              />
-            ) : null}
-            <input
-              className="field-input"
-              placeholder="Preço"
-              type="number"
-              step="0.01"
-              min="0"
-              value={produtoForm.preco}
-              onChange={(event) => setProdutoForm((atual) => ({ ...atual, preco: event.target.value }))}
-            />
-            <input
-              className="field-input"
-              placeholder="Categoria"
-              value={produtoForm.categoria}
-              onChange={(event) => setProdutoForm((atual) => ({ ...atual, categoria: event.target.value }))}
-            />
-            <div className="toolbar-box">
-              <input
-                className="field-input"
-                placeholder="Unidade (ex: un, kg)"
-                value={produtoForm.unidade}
-                onChange={(event) => setProdutoForm((atual) => ({ ...atual, unidade: event.target.value }))}
-              />
-              <input
-                className="field-input"
-                placeholder="Referencia visual (opcional)"
-                value={produtoForm.emoji}
-                onChange={(event) => setProdutoForm((atual) => ({ ...atual, emoji: event.target.value }))}
-              />
-              <input
-                className="field-input"
-                placeholder="Estoque"
-                type="number"
-                min="0"
-                value={produtoForm.estoque}
-                onChange={(event) => setProdutoForm((atual) => ({ ...atual, estoque: event.target.value }))}
-              />
-            </div>
-
-            <button className="btn-primary" type="submit" disabled={salvandoProduto}>
-              {salvandoProduto ? 'Salvando...' : 'Salvar produto'}
-            </button>
-          </form>
-
-          <div className="table-wrap" style={{ marginTop: '1rem' }}>
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Produto</th>
-                  <th>Categoria</th>
-                  <th>Preço</th>
-                  <th>Estoque</th>
-                  <th>Ação</th>
-                </tr>
-              </thead>
-              <tbody>
-                {produtos.length === 0 ? (
-                  <tr>
-                    <td colSpan={6}>Nenhum produto cadastrado nesta página.</td>
-                  </tr>
-                ) : (
-                  produtos.map((produto) => (
-                    <tr key={produto.id}>
-                      <td>{produto.id}</td>
-                      <td><Package size={14} aria-hidden="true" /> {produto.nome}</td>
-                      <td>{produto.categoria || '-'}</td>
-                      <td>R$ {Number(produto.preco || 0).toFixed(2)}</td>
-                      <td>
-                        {(() => {
-                          const qty = Number(produto.estoque ?? 0);
-                          const cls = qty === 0 ? 'estoque-zerado' : qty <= 5 ? 'estoque-baixo' : 'estoque-ok';
-                          return <span className={`estoque-badge estoque-badge-sm ${cls}`}>{qty}</span>;
-                        })()}
-                      </td>
-                      <td>
-                        <button className="btn-secondary" type="button" onClick={() => handleExcluirProduto(produto.id)}>
-                          Remover
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="toolbar-box" style={{ marginTop: '0.8rem', alignItems: 'center' }}>
-            <p className="muted-text" style={{ margin: 0 }}>
-              Página {paginacaoProdutos.pagina} de {paginacaoProdutos.total_paginas} · {paginacaoProdutos.total} produto(s)
-            </p>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={carregandoProdutos || paginacaoProdutos.pagina <= 1}
-              onClick={() => {
-                void carregarProdutosPagina(paginacaoProdutos.pagina - 1);
-              }}
-            >
-              Página anterior
-            </button>
-            <button
-              className="btn-secondary"
-              type="button"
-              disabled={carregandoProdutos || !paginacaoProdutos.tem_mais}
-              onClick={() => {
-                void carregarProdutosPagina(paginacaoProdutos.pagina + 1);
-              }}
-            >
-              Próxima página
-            </button>
-          </div>
-
-          {carregandoProdutos ? <p className="muted-text" style={{ marginTop: '0.5rem' }}>Carregando produtos...</p> : null}
-        </>
+        <CatalogScreen
+          produtoForm={produtoForm}
+          setProdutoForm={setProdutoForm}
+          buscandoCodigo={buscandoCodigo}
+          handleBuscarProdutoPorCodigoBarras={handleBuscarProdutoPorCodigoBarras}
+          salvandoProduto={salvandoProduto}
+          handleCadastrarProduto={handleCadastrarProduto}
+          produtos={produtos}
+          handleExcluirProduto={handleExcluirProduto}
+          paginacaoProdutos={paginacaoProdutos}
+          carregandoProdutos={carregandoProdutos}
+          carregarProdutosPagina={carregarProdutosPagina}
+          SmartImage={SmartImage}
+        />
       ) : tab === 'financeiro' ? (
         <FinanceScreen
           financeiro={financeiro}
