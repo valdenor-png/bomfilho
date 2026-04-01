@@ -2,7 +2,15 @@ const { Pool } = require('pg');
 require('dotenv').config();
 const fs = require('fs');
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DB_SSL === 'true'
+    ? {
+      rejectUnauthorized: String(process.env.DB_SSL_REJECT_UNAUTHORIZED || 'true').trim().toLowerCase() !== 'false',
+      ...(process.env.DB_CA_CERT ? { ca: process.env.DB_CA_CERT } : {})
+    }
+    : undefined
+});
 
 async function run() {
   const ids = JSON.parse(fs.readFileSync('../tmp/ids_atualizar.json', 'utf8'));

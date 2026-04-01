@@ -323,7 +323,10 @@ async function run() {
     connectionTimeoutMillis: 10000,
     idleTimeoutMillis: 30000,
     ssl: String(process.env.DB_SSL || '').trim().toLowerCase() === 'true'
-      ? { rejectUnauthorized: false }
+      ? {
+        rejectUnauthorized: String(process.env.DB_SSL_REJECT_UNAUTHORIZED || 'true').trim().toLowerCase() !== 'false',
+        ...(process.env.DB_CA_CERT ? { ca: process.env.DB_CA_CERT } : {})
+      }
       : undefined
   });
 

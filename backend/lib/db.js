@@ -35,7 +35,10 @@ const pool = new Pool({
   connectionTimeoutMillis: DB_CONNECT_TIMEOUT_MS,
   idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
   ssl: String(process.env.DB_SSL || '').trim().toLowerCase() === 'true'
-    ? { rejectUnauthorized: false }
+    ? {
+      rejectUnauthorized: String(process.env.DB_SSL_REJECT_UNAUTHORIZED || 'true').trim().toLowerCase() !== 'false',
+      ...(process.env.DB_CA_CERT ? { ca: process.env.DB_CA_CERT } : {})
+    }
     : undefined
 });
 

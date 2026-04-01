@@ -124,3 +124,13 @@ backup/
 # Evitar clone dentro do repo
 /bomfilho/
 .vercel
+
+# ── GSD baseline (auto-generated) ──
+.gsd
+*.code-workspace
+__pycache__/
+*.pyc
+.venv/
+venv/
+target/
+vendor/

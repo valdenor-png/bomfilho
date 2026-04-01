@@ -11,6 +11,7 @@ const {
   USER_AUTH_COOKIE_NAME, ADMIN_AUTH_COOKIE_NAME, CSRF_COOKIE_NAME,
   USER_AUTH_COOKIE_MAX_AGE, ADMIN_AUTH_COOKIE_MAX_AGE,
   ADMIN_USER, ADMIN_PASSWORD_HASH, ADMIN_PASSWORD,
+  IS_PRODUCTION,
 } = require('../lib/config');
 
 // ── Admin 2FA state (in-memory, short-lived) ──
@@ -220,8 +221,16 @@ module.exports = function createAuthRoutes(deps) {
         }
 
         if (!enviado) {
-          // Fallback: código no log do servidor
-          logger.warn(`🔐 [ADMIN 2FA] Código: ${code} (Evolution API indisponível — código exibido no log)`);
+          if (IS_PRODUCTION) {
+            // SECURITY: nunca logar código 2FA em produção — logs podem ser acessados por terceiros
+            logger.error('🔐 [ADMIN 2FA] Falha ao enviar código por WhatsApp. Canal de entrega indisponível.');
+            admin2faPending = null;
+            return res.status(503).json({
+              erro: 'Não foi possível enviar o código de verificação. Verifique a configuração do WhatsApp e tente novamente.'
+            });
+          }
+          // Fallback: código no log apenas em desenvolvimento
+          logger.warn(`🔐 [ADMIN 2FA] Código: ${code} (Evolution API indisponível — código exibido no log, APENAS DEV)`);
         } else {
           logger.info(`🔐 [ADMIN 2FA] Código enviado por WhatsApp para ...${ADMIN_2FA_WHATSAPP.slice(-4)}`);
         }

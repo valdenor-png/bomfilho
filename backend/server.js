@@ -997,9 +997,9 @@ function extrairBearerToken(req) {
 }
 
 function extrairTokenUsuarioRequest(req) {
+  // SECURITY: token via query string removido — expõe JWT em logs, Referer e histórico do navegador
   return extrairBearerToken(req)
-    || String(req.cookies?.[USER_AUTH_COOKIE_NAME] || '').trim()
-    || String(req.query?.token || '').trim();
+    || String(req.cookies?.[USER_AUTH_COOKIE_NAME] || '').trim();
 }
 
 function extrairTokenAdminRequest(req) {
