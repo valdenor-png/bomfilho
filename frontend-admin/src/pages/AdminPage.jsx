@@ -28,6 +28,7 @@ import AdminShell from '../components/admin/AdminShell';
 import CommandCenter from '../components/admin/CommandCenter';
 import CatalogoSaude from '../components/admin/CatalogoSaude';
 import FinanceScreen from '../components/screens/FinanceScreen';
+import ImportScreen from '../components/screens/ImportScreen';
 import '../admin-dark-override.css';
 
 const STATUS_OPTIONS = ['pendente', 'preparando', 'pronto_para_retirada', 'enviado', 'retirado', 'entregue', 'cancelado'];
@@ -3715,210 +3716,26 @@ export default function AdminPage() {
           formasPagamentoLabels={FORMAS_PAGAMENTO_LABELS}
         />
       ) : tab === 'importacao' ? (
-        <>
-          <div className="adm-page-header">
-            <div className="adm-page-header-main">
-              <h2 className="adm-page-title">Importação de Produtos</h2>
-              <p className="adm-page-subtitle">Importe planilhas do ERP (.xlsx / .csv) para atualizar preço, nome, descrição e foto.</p>
-            </div>
-            <div className="adm-page-meta">
-              <a
-                className="btn-secondary"
-                href={modeloImportacaoUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                ↓ Baixar modelo CSV
-              </a>
-            </div>
-          </div>
-
-          <form className="adm-section" onSubmit={handleImportarPlanilha}>
-            <div className="adm-section-header">
-              <h3 className="adm-section-title">Upload de planilha</h3>
-            </div>
-
-            <div
-              className={`importacao-dropzone ${arrastandoImportacao ? 'dragover' : ''}`}
-              onDragEnter={handleDragOverImportacao}
-              onDragOver={handleDragOverImportacao}
-              onDragLeave={handleDragLeaveImportacao}
-              onDrop={handleDropImportacao}
-            >
-              <input
-                id="admin-importacao-arquivo"
-                className="importacao-file-input"
-                type="file"
-                accept=".xlsx,.csv"
-                onChange={handleArquivoImportacaoChange}
-              />
-
-              <p><strong>Arraste e solte sua planilha aqui</strong></p>
-              <p className="muted-text">ou clique no botão abaixo para selecionar um arquivo.</p>
-
-              <label htmlFor="admin-importacao-arquivo" className="btn-secondary importacao-select-btn">
-                Selecionar arquivo
-              </label>
-
-              {arquivoImportacao ? (
-                <p className="importacao-file-meta">
-                  <FileText size={14} aria-hidden="true" /> <strong>{arquivoImportacao.name}</strong> ({formatarTamanhoArquivo(arquivoImportacao.size)})
-                </p>
-              ) : (
-                <p className="muted-text">Formatos aceitos: .xlsx e .csv</p>
-              )}
-            </div>
-
-            <div className="adm-import-options">
-              <label className="importacao-checkbox">
-                <input
-                  type="checkbox"
-                  checked={importarCriarNovos}
-                  onChange={(event) => setImportarCriarNovos(event.target.checked)}
-                />
-                Criar produtos novos automaticamente quando não existir correspondência por código.
-              </label>
-            </div>
-
-            <div className="adm-import-actions">
-              <button className="btn-secondary" type="button" disabled={importandoPlanilha} onClick={handleSimularPlanilha}>
-                {importandoPlanilha ? 'Processando⬦' : 'Simular planilha'}
-              </button>
-              <button className="btn-primary" type="submit" disabled={importandoPlanilha}>
-                {importandoPlanilha ? 'Importando⬦' : 'Importar de verdade'}
-              </button>
-            </div>
-          </form>
-
-          {resultadoImportacao ? (
-            <div className="adm-section" style={{ marginTop: '0.75rem' }}>
-              <div className="adm-section-header">
-                <h3 className="adm-section-title">
-                  {resultadoImportacao?.simulacao ? 'Resultado da simulação' : 'Resultado da importação'}
-                </h3>
-              </div>
-
-              {resultadoImportacao?.simulacao ? (
-                <p className="muted-text" style={{ marginBottom: '0.75rem' }}>
-                  Simulação ? nenhum dado foi alterado. Use "Importar de verdade" para aplicar.
-                </p>
-              ) : null}
-
-              <div className="adm-metrics-grid compact">
-                <article className="adm-metric-card">
-                  <span className="adm-metric-label">Total linhas</span>
-                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_linhas || 0)}</strong>
-                </article>
-                <article className="adm-metric-card is-green">
-                  <span className="adm-metric-label">Atualizados</span>
-                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_atualizados || 0)}</strong>
-                </article>
-                <article className="adm-metric-card is-accent">
-                  <span className="adm-metric-label">Criados</span>
-                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_criados || 0)}</strong>
-                </article>
-                <article className="adm-metric-card is-yellow">
-                  <span className="adm-metric-label">Ignorados</span>
-                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_ignorados || 0)}</strong>
-                </article>
-                <article className="adm-metric-card is-red">
-                  <span className="adm-metric-label">Erros</span>
-                  <strong className="adm-metric-value">{Number(resultadoImportacao.total_erros || 0)}</strong>
-                </article>
-              </div>
-
-              <p className="muted-text" style={{ marginTop: '0.5rem' }}>Arquivo: {resultadoImportacao.arquivo || '-'}</p>
-              <p className="muted-text">
-                Colunas: {
-                  Object.entries(resultadoImportacao.colunas_mapeadas || {})
-                    .map(([chave, valor]) => `${chave}: ${valor}`)
-                    .join(' · ') || 'Não informado'
-                }
-              </p>
-
-              {Array.isArray(resultadoImportacao?.logs?.erros) && resultadoImportacao.logs.erros.length > 0 ? (
-                <div className="importacao-log-box">
-                  <p><strong>Erros identificados</strong></p>
-                  <ul className="importacao-log-list">
-                    {resultadoImportacao.logs.erros.slice(0, 8).map((item, index) => (
-                      <li key={`erro-importacao-${index}`}>
-                        Linha {item?.linha || '-'}: {item?.motivo || 'Erro sem detalhe.'}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {Array.isArray(resultadoImportacao?.logs?.ignorados) && resultadoImportacao.logs.ignorados.length > 0 ? (
-                <div className="importacao-log-box">
-                  <p><strong>Itens ignorados</strong></p>
-                  <ul className="importacao-log-list">
-                    {resultadoImportacao.logs.ignorados.slice(0, 8).map((item, index) => (
-                      <li key={`ignorado-importacao-${index}`}>
-                        Linha {item?.linha || '-'}: {item?.motivo || 'Sem detalhe.'}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="adm-section" style={{ marginTop: '0.75rem' }}>
-            <div className="adm-section-header">
-              <h3 className="adm-section-title">Histórico de importações</h3>
-              <div className="adm-section-actions">
-                <button
-                  className="btn-secondary"
-                  type="button"
-                  disabled={carregandoImportacoes}
-                  onClick={() => { void carregarHistoricoImportacoes(); }}
-                >
-                  {carregandoImportacoes ? 'Atualizando⬦' : 'Atualizar'}
-                </button>
-              </div>
-            </div>
-
-            <div className="adm-table-wrap">
-              <table className="adm-table">
-                <thead>
-                  <tr>
-                    <th>Data</th>
-                    <th>Arquivo</th>
-                    <th>Status</th>
-                    <th style={{ textAlign: 'right' }}>Atualizados</th>
-                    <th style={{ textAlign: 'right' }}>Criados</th>
-                    <th style={{ textAlign: 'right' }}>Ignorados</th>
-                    <th style={{ textAlign: 'right' }}>Erros</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historicoImportacoes.length === 0 ? (
-                    <tr className="empty-row">
-                      <td colSpan={7}>Nenhuma importação registrada.</td>
-                    </tr>
-                  ) : (
-                    historicoImportacoes.map((importacao) => (
-                      <tr key={importacao.id}>
-                        <td className="col-muted">{importacao.criado_em ? new Date(importacao.criado_em).toLocaleString('pt-BR') : '-'}</td>
-                        <td>{importacao.nome_arquivo || '-'}</td>
-                        <td>
-                          <span className={`adm-status-pill st-${String(importacao.status || '').toLowerCase()}`}>
-                            {formatarStatusImportacao(importacao.status)}
-                          </span>
-                        </td>
-                        <td className="col-num">{Number(importacao.total_atualizados || 0)}</td>
-                        <td className="col-num">{Number(importacao.total_criados || 0)}</td>
-                        <td className="col-num">{Number(importacao.total_ignorados || 0)}</td>
-                        <td className="col-num">{Number(importacao.total_erros || 0)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
+        <ImportScreen
+          modeloImportacaoUrl={modeloImportacaoUrl}
+          arquivoImportacao={arquivoImportacao}
+          arrastandoImportacao={arrastandoImportacao}
+          importarCriarNovos={importarCriarNovos}
+          setImportarCriarNovos={setImportarCriarNovos}
+          importandoPlanilha={importandoPlanilha}
+          resultadoImportacao={resultadoImportacao}
+          historicoImportacoes={historicoImportacoes}
+          carregandoImportacoes={carregandoImportacoes}
+          handleArquivoImportacaoChange={handleArquivoImportacaoChange}
+          handleDragOverImportacao={handleDragOverImportacao}
+          handleDragLeaveImportacao={handleDragLeaveImportacao}
+          handleDropImportacao={handleDropImportacao}
+          handleImportarPlanilha={handleImportarPlanilha}
+          handleSimularPlanilha={handleSimularPlanilha}
+          carregarHistoricoImportacoes={carregarHistoricoImportacoes}
+          formatarStatusImportacao={formatarStatusImportacao}
+          formatarTamanhoArquivo={formatarTamanhoArquivo}
+        />
       ) : tab === 'operacao' ? (
         <FilaOperacional />
       ) : tab === 'clientes' ? (
