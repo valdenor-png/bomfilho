@@ -2650,7 +2650,7 @@ export default function AdminPage() {
           statusChipsOperacionais={statusChipsOperacionais}
           filtrosPedidosAplicados={filtrosPedidosAplicados}
           atualizandoStatusPedidoId={atualizandoStatusPedidoId}
-          avisoNovosPedidos={avisoNovosPedidos}
+          avisoNovosPedidos={novosPedidosDetectados}
           limparAvisoNovosPedidos={limparAvisoNovosPedidos}
           resumoAuditoriaSessao={resumoAuditoriaSessao}
           historicoAcoesSessao={historicoAcoesSessao}
