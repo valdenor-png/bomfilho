@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 18
+          node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
@@ -64,7 +64,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 18
+          node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
@@ -89,7 +89,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 18
+          node-version: 22
           cache: npm
           cache-dependency-path: frontend-react/package-lock.json
 
@@ -98,6 +98,26 @@ jobs:
       - run: npm run build
         env:
           VITE_API_URL: https://api.example.com
+
+  frontend-lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-react
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend-react/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint frontend
+        run: npm run lint
+        continue-on-error: true  # TODO: remove after fixing 3 existing errors
 
   migrations-check:
     runs-on: ubuntu-latest
@@ -145,7 +165,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 18
+          node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
 

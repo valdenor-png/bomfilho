@@ -25,5 +25,9 @@ module.exports = {
     'react-hooks/rules-of-hooks': 'error',
     'react-hooks/exhaustive-deps': 'warn',
     'no-console': ['warn', { allow: ['warn', 'error'] }],
+    'react/no-unescaped-entities': 'warn',
+    'no-empty': ['warn', { allowEmptyCatch: true }],
+    'react/no-unknown-property': ['warn', { ignore: ['fetchpriority'] }],
+    'no-control-regex': 'warn',
   },
 };

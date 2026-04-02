@@ -1,3 +1,5 @@
+[![CI](https://github.com/valdenor-png/bomfilho/actions/workflows/ci.yml/badge.svg)](https://github.com/valdenor-png/bomfilho/actions/workflows/ci.yml)
+
 # Bom Filho Web
 
 Plataforma web de supermercado com delivery local, focada em uma experiência de compra clara, rápida e confiável.
