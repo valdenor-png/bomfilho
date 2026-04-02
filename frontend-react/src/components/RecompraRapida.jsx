@@ -56,7 +56,7 @@ export default function RecompraRapida({ onAdd }) {
             <div style={styles.lastOrderInfo}>
               <span style={styles.sectionLabel}>Repetir ultimo pedido</span>
               <span style={styles.orderMeta}>
-                {ultimo_pedido.data} &middot; {ultimo_pedido.itens.length} {ultimo_pedido.itens.length === 1 ? 'item' : 'itens'} &middot; {formatPrice(ultimo_pedido.total)}
+                {ultimo_pedido.data ? new Date(ultimo_pedido.data).toLocaleDateString('pt-BR') : ''} &middot; {ultimo_pedido.itens.length} {ultimo_pedido.itens.length === 1 ? 'item' : 'itens'} &middot; {formatPrice(ultimo_pedido.total || 0)}
               </span>
             </div>
             <button onClick={handleRepeatAll} style={styles.repeatBtn}>
@@ -85,9 +85,9 @@ export default function RecompraRapida({ onAdd }) {
                   }}>
                     {/* Image or placeholder */}
                     <div style={styles.productImg}>
-                      {item.image_url ? (
+                      {item.imagem_url ? (
                         <img
-                          src={item.image_url}
+                          src={item.imagem_url}
                           alt={item.nome}
                           style={styles.productImgEl}
                           loading="lazy"
@@ -103,10 +103,7 @@ export default function RecompraRapida({ onAdd }) {
                     {/* Price */}
                     {item.disponivel ? (
                       <div style={styles.priceRow}>
-                        {item.preco_antigo && item.preco_antigo !== item.preco && (
-                          <span style={styles.oldPrice}>{formatPrice(item.preco_antigo)}</span>
-                        )}
-                        <span style={styles.price}>{formatPrice(item.preco)}</span>
+                        <span style={styles.price}>{item.preco_atual != null ? formatPrice(item.preco_atual) : '—'}</span>
                       </div>
                     ) : (
                       <span style={styles.unavailable}>Indisponivel</span>
