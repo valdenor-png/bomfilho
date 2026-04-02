@@ -357,6 +357,70 @@ module.exports = function createProdutosPublicRoutes({
     });
   }
 
+  /**
+   * @swagger
+   * /api/produtos:
+   *   get:
+   *     summary: Listar produtos ativos do catálogo
+   *     tags: [Produtos]
+   *     parameters:
+   *       - in: query
+   *         name: search
+   *         schema:
+   *           type: string
+   *         description: Termo de busca por nome do produto
+   *       - in: query
+   *         name: categoria
+   *         schema:
+   *           type: string
+   *         description: Filtrar por slug da categoria
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *         description: Número da página
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 20
+   *         description: Itens por página
+   *     responses:
+   *       200:
+   *         description: Lista paginada de produtos
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 produtos:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       id:
+   *                         type: integer
+   *                       nome:
+   *                         type: string
+   *                       preco:
+   *                         type: number
+   *                       categoria:
+   *                         type: string
+   *                       imagem_url:
+   *                         type: string
+   *                 paginacao:
+   *                   type: object
+   *                   properties:
+   *                     pagina:
+   *                       type: integer
+   *                     totalPaginas:
+   *                       type: integer
+   *                     totalItens:
+   *                       type: integer
+   *       400:
+   *         description: Parâmetros inválidos
+   */
   // Listar todos os produtos ativos
   router.get('/api/produtos', async (req, res) => {
     const requestId = String(req.requestId || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`);

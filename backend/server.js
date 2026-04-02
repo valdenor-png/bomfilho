@@ -825,6 +825,14 @@ async function _buscarProdutoUpcItemDb(codigo) {
 }
 
 // ============================================
+// SWAGGER / OPENAPI DOCS
+// ============================================
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger');
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get('/api/docs.json', (req, res) => res.json(swaggerSpec));
+
+// ============================================
 // ROTAS DE AUTENTICAÇÃO (routes/auth.js)
 // ============================================
 app.use(require('./routes/auth')({

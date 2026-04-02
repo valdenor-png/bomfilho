@@ -48,6 +48,45 @@ module.exports = function createAuthRoutes(deps) {
     enviarWhatsappTexto,
   } = deps;
 
+  /**
+   * @swagger
+   * /api/auth/cadastro:
+   *   post:
+   *     summary: Registrar novo usuário
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [nome, email, senha, telefone]
+   *             properties:
+   *               nome:
+   *                 type: string
+   *               email:
+   *                 type: string
+   *                 format: email
+   *               senha:
+   *                 type: string
+   *                 format: password
+   *               telefone:
+   *                 type: string
+   *               whatsapp_opt_in:
+   *                 type: boolean
+   *     responses:
+   *       201:
+   *         description: Usuário criado com sucesso
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 mensagem:
+   *                   type: string
+   *       400:
+   *         description: Campos obrigatórios faltando ou email já cadastrado
+   */
   // Cadastro de usuário
   router.post('/api/auth/cadastro', authLimiter, async (req, res) => {
     try {
@@ -109,6 +148,50 @@ module.exports = function createAuthRoutes(deps) {
     }
   });
 
+  /**
+   * @swagger
+   * /api/auth/login:
+   *   post:
+   *     summary: Login de usuário
+   *     tags: [Auth]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [email, senha]
+   *             properties:
+   *               email:
+   *                 type: string
+   *                 format: email
+   *               senha:
+   *                 type: string
+   *                 format: password
+   *     responses:
+   *       200:
+   *         description: Login bem-sucedido, cookie JWT definido
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 mensagem:
+   *                   type: string
+   *                 usuario:
+   *                   type: object
+   *                   properties:
+   *                     id:
+   *                       type: integer
+   *                     nome:
+   *                       type: string
+   *                     email:
+   *                       type: string
+   *       400:
+   *         description: Credenciais inválidas
+   *       401:
+   *         description: Email ou senha incorretos
+   */
   // Login
   router.post('/api/auth/login', loginLimiter, async (req, res) => {
     try {
@@ -349,6 +432,23 @@ module.exports = function createAuthRoutes(deps) {
     return res.json({ csrfToken });
   });
 
+  /**
+   * @swagger
+   * /api/auth/logout:
+   *   post:
+   *     summary: Logout do usuário (limpa cookie de autenticação)
+   *     tags: [Auth]
+   *     responses:
+   *       200:
+   *         description: Logout realizado com sucesso
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 mensagem:
+   *                   type: string
+   */
   router.post('/api/auth/logout', (req, res) => {
     limparCookie(res, USER_AUTH_COOKIE_NAME, { httpOnly: true });
     limparCookie(res, CSRF_COOKIE_NAME, { httpOnly: false });
@@ -365,6 +465,33 @@ module.exports = function createAuthRoutes(deps) {
     return res.json({ mensagem: 'Sessão administrativa encerrada com sucesso.' });
   });
 
+  /**
+   * @swagger
+   * /api/auth/me:
+   *   get:
+   *     summary: Obter dados do usuário autenticado
+   *     tags: [Auth]
+   *     security:
+   *       - cookieAuth: []
+   *     responses:
+   *       200:
+   *         description: Dados do usuário
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 id:
+   *                   type: integer
+   *                 nome:
+   *                   type: string
+   *                 email:
+   *                   type: string
+   *                 telefone:
+   *                   type: string
+   *       401:
+   *         description: Não autenticado
+   */
   // Obter dados do usuário logado
   router.get('/api/auth/me', autenticarToken, async (req, res) => {
     try {

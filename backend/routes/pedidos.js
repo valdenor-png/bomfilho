@@ -372,6 +372,54 @@ function enrichReviewStatusPayload(payload = {}) {
 module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveInt, montarPaginacao }) {
   const router = express.Router();
 
+  /**
+   * @swagger
+   * /api/pedidos:
+   *   get:
+   *     summary: Listar pedidos do usuário autenticado
+   *     tags: [Pedidos]
+   *     security:
+   *       - cookieAuth: []
+   *     parameters:
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *         description: Número da página
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 10
+   *         description: Itens por página
+   *     responses:
+   *       200:
+   *         description: Lista paginada de pedidos do usuário
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 pedidos:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       id:
+   *                         type: integer
+   *                       status:
+   *                         type: string
+   *                       total:
+   *                         type: number
+   *                       criado_em:
+   *                         type: string
+   *                         format: date-time
+   *                 paginacao:
+   *                   type: object
+   *       401:
+   *         description: Não autenticado
+   */
   // Listar pedidos do usuário
   router.get('/api/pedidos', autenticarToken, async (req, res) => {
     try {
@@ -511,6 +559,53 @@ module.exports = function createPedidosRoutes({ autenticarToken, parsePositiveIn
     }
   });
 
+  /**
+   * @swagger
+   * /api/pedidos/{id}:
+   *   get:
+   *     summary: Detalhes de um pedido específico
+   *     tags: [Pedidos]
+   *     security:
+   *       - cookieAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID do pedido
+   *     responses:
+   *       200:
+   *         description: Detalhes completos do pedido com itens
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 id:
+   *                   type: integer
+   *                 status:
+   *                   type: string
+   *                 total:
+   *                   type: number
+   *                 itens:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       produto_id:
+   *                         type: integer
+   *                       nome:
+   *                         type: string
+   *                       quantidade:
+   *                         type: integer
+   *                       preco_unitario:
+   *                         type: number
+   *       401:
+   *         description: Não autenticado
+   *       400:
+   *         description: ID inválido ou pedido não encontrado
+   */
   // Detalhes de um pedido
   router.get('/api/pedidos/:id', autenticarToken, async (req, res) => {
     try {

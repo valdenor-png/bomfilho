@@ -32,6 +32,43 @@ async function getEnderecoColumns() {
 module.exports = function createEnderecosRoutes({ autenticarToken }) {
   const router = express.Router();
 
+  /**
+   * @swagger
+   * /api/endereco:
+   *   get:
+   *     summary: Obter endereço do usuário autenticado
+   *     tags: [Enderecos]
+   *     security:
+   *       - cookieAuth: []
+   *     responses:
+   *       200:
+   *         description: Endereço do usuário (ou null se não cadastrado)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 id:
+   *                   type: integer
+   *                 cep:
+   *                   type: string
+   *                 rua:
+   *                   type: string
+   *                 numero:
+   *                   type: string
+   *                 complemento:
+   *                   type: string
+   *                 referencia:
+   *                   type: string
+   *                 bairro:
+   *                   type: string
+   *                 cidade:
+   *                   type: string
+   *                 estado:
+   *                   type: string
+   *       401:
+   *         description: Não autenticado
+   */
   // Obter endereço do usuário
   router.get('/api/endereco', autenticarToken, async (req, res) => {
     try {
@@ -73,6 +110,54 @@ module.exports = function createEnderecosRoutes({ autenticarToken }) {
   });
 
   // Salvar/atualizar endereço
+  /**
+   * @swagger
+   * /api/endereco:
+   *   post:
+   *     summary: Criar ou atualizar endereço do usuário
+   *     tags: [Enderecos]
+   *     security:
+   *       - cookieAuth: []
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [rua, numero, bairro, cidade, estado, cep]
+   *             properties:
+   *               rua:
+   *                 type: string
+   *               numero:
+   *                 type: string
+   *               bairro:
+   *                 type: string
+   *               cidade:
+   *                 type: string
+   *               estado:
+   *                 type: string
+   *                 maxLength: 2
+   *               cep:
+   *                 type: string
+   *               complemento:
+   *                 type: string
+   *               referencia:
+   *                 type: string
+   *     responses:
+   *       200:
+   *         description: Endereço salvo com sucesso
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 mensagem:
+   *                   type: string
+   *       400:
+   *         description: Campos obrigatórios faltando
+   *       401:
+   *         description: Não autenticado
+   */
   router.post('/api/endereco', autenticarToken, async (req, res) => {
     try {
       const columns = await getEnderecoColumns();
