@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { colors, fonts } from '../theme';
 import Icon from '../components/Icon';
 
-const NotFoundPage: React.FC = () => {
+const NotFoundPage = () => {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center',
