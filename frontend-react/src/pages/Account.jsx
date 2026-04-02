@@ -8,6 +8,15 @@ import MeuGasto from '../components/conta/MeuGasto';
 import RecurringPage from '../components/recurring/RecurringPage';
 import { tryGetRecaptchaToken } from '../lib/recaptchaEnterprise';
 import { RECAPTCHA_SITE_KEY } from '../config/api';
+import {
+  FONT_SCALE_OPTIONS,
+  getStoredFontScale,
+  setStoredFontScale,
+  getStoredHighContrast,
+  setStoredHighContrast,
+  getStoredReducedMotion,
+  setStoredReducedMotion,
+} from '../lib/accessibility';
 
 const AUTH_RECAPTCHA_ENABLED = String(import.meta.env.VITE_RECAPTCHA_AUTH_ENABLED || 'false').trim().toLowerCase() === 'true';
 
@@ -20,6 +29,7 @@ const menuItems = [
   { icon: 'clock', label: 'Compras Recorrentes', action: 'recorrencias' },
   { icon: 'user', label: 'Meu perfil', action: 'perfil' },
   { icon: 'info', label: 'Seguranca', action: 'seguranca' },
+  { icon: 'sparkle', label: 'Acessibilidade', action: 'acessibilidade' },
   { icon: 'message', label: 'Atendimento', action: 'whatsapp' },
 ];
 
@@ -559,6 +569,115 @@ function CouponsScreen({ onBack }) {
   );
 }
 
+/* ===== SUB-TELA: ACESSIBILIDADE ===== */
+function AccessibilityScreen({ onBack }) {
+  const [fontScale, setFontScale] = useState(() => getStoredFontScale());
+  const [highContrast, setHighContrast] = useState(() => getStoredHighContrast());
+  const [reducedMotion, setReducedMotion] = useState(() => getStoredReducedMotion());
+
+  const handleFontScale = (value) => {
+    setFontScale(setStoredFontScale(value));
+  };
+  const handleHighContrast = (value) => {
+    setHighContrast(setStoredHighContrast(value));
+  };
+  const handleReducedMotion = (value) => {
+    setReducedMotion(setStoredReducedMotion(value));
+  };
+
+  const previewSize = fontScale === 1.15 ? 15 : fontScale === 0.9 ? 11 : 13;
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <button onClick={onBack} style={{
+          width: 34, height: 34, borderRadius: 10,
+          background: colors.card, border: `1px solid ${colors.border}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}>
+          <Icon name="back" size={14} color={colors.textSecondary} />
+        </button>
+        <h2 style={{ fontSize: 15, fontWeight: 800, color: colors.white, margin: 0, fontFamily: fonts.text }}>
+          Acessibilidade
+        </h2>
+      </div>
+
+      {/* Font scale */}
+      <div style={{
+        background: colors.card, border: `1px solid ${colors.border}`,
+        borderRadius: 14, padding: 16, marginBottom: 12,
+      }}>
+        <p style={{ fontSize: 12, fontWeight: 700, color: colors.white, margin: '0 0 4px', fontFamily: fonts.text }}>
+          Tamanho do texto
+        </p>
+        <p style={{ fontSize: previewSize, color: colors.textSecondary, margin: '0 0 12px', fontFamily: fonts.text, transition: 'font-size 0.2s' }}>
+          Visualizacao de leitura
+        </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {FONT_SCALE_OPTIONS.map((opt) => (
+            <button key={opt.label} onClick={() => handleFontScale(opt.value)} style={{
+              flex: 1, padding: '10px 0', borderRadius: 10,
+              background: fontScale === opt.value ? colors.gold : 'rgba(255,255,255,0.05)',
+              border: fontScale === opt.value ? 'none' : `1px solid ${colors.border}`,
+              color: fontScale === opt.value ? colors.bgDeep : colors.textSecondary,
+              fontWeight: 800, fontSize: 14, cursor: 'pointer', fontFamily: fonts.text,
+            }}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Toggles */}
+      <div style={{
+        background: colors.card, border: `1px solid ${colors.border}`,
+        borderRadius: 14, padding: 16,
+      }}>
+        {[
+          { label: 'Alto contraste', desc: 'Aumenta contraste de textos e elementos.', value: highContrast, onChange: handleHighContrast },
+          { label: 'Reduzir animacoes', desc: 'Diminui efeitos e transicoes visuais.', value: reducedMotion, onChange: handleReducedMotion },
+        ].map((item, i) => (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '12px 0',
+            borderBottom: i === 0 ? `1px solid ${colors.border}` : 'none',
+          }}>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: colors.white, margin: 0, fontFamily: fonts.text }}>
+                {item.label}
+              </p>
+              <p style={{ fontSize: 10, color: colors.textMuted, margin: '2px 0 0', fontFamily: fonts.text }}>
+                {item.desc}
+              </p>
+            </div>
+            <button onClick={() => item.onChange(!item.value)} style={{
+              width: 44, height: 24, borderRadius: 12, border: 'none',
+              background: item.value ? colors.gold : 'rgba(255,255,255,0.1)',
+              position: 'relative', cursor: 'pointer', transition: 'background 0.2s',
+            }}>
+              <span style={{
+                position: 'absolute', top: 2, left: item.value ? 22 : 2,
+                width: 20, height: 20, borderRadius: '50%',
+                background: item.value ? colors.bgDeep : colors.textMuted,
+                transition: 'left 0.2s',
+              }} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        background: colors.goldBg, border: `1px solid ${colors.goldBorder}`,
+        borderRadius: 10, padding: '10px 14px', marginTop: 12,
+      }}>
+        <p style={{ fontSize: 11, color: colors.gold, fontWeight: 600, margin: 0, fontFamily: fonts.text }}>
+          As preferencias sao salvas localmente no seu navegador.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /* ===== ACCOUNT PRINCIPAL ===== */
 export default function Account() {
   const [user, setUser] = useState(null);
@@ -630,6 +749,7 @@ export default function Account() {
     else if (action === 'recorrencias') setScreen('recorrencias');
     else if (action === 'perfil') setScreen('perfil');
     else if (action === 'seguranca') setScreen('seguranca');
+    else if (action === 'acessibilidade') setScreen('acessibilidade');
     else if (action === 'soon') alert('Em breve!');
   };
 
@@ -648,6 +768,7 @@ export default function Account() {
   if (screen === 'cupons') return <CouponsScreen onBack={() => setScreen('main')} />;
   if (screen === 'perfil' && user) return <ProfileScreen user={user} onBack={() => setScreen('main')} onUserUpdate={setUser} />;
   if (screen === 'seguranca' && user) return <SecurityScreen onBack={() => setScreen('main')} onLogout={handleLogout} />;
+  if (screen === 'acessibilidade') return <AccessibilityScreen onBack={() => setScreen('main')} />;
 
   // ===== LOGADO =====
   if (user) {

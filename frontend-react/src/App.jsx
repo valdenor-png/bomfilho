@@ -27,8 +27,6 @@ const Orders = lazy(() => import('./pages/Orders'));
 const Account = lazy(() => import('./pages/Account'));
 const Checkout = lazy(() => import('./pages/Checkout'));
 const PagamentoPageLegacy = lazy(() => import('./pages/PagamentoPage'));
-const PedidosPage = lazy(() => import('./pages/PedidosPage'));
-const ContaPage = lazy(() => import('./pages/ContaPage'));
 const SobrePage = lazy(() => import('./pages/SobrePage'));
 const PoliticaPrivacidadePage = lazy(() => import('./pages/PoliticaPrivacidadePage'));
 const TermosUsoPage = lazy(() => import('./pages/TermosUsoPage'));
