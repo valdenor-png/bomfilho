@@ -150,8 +150,10 @@ export default function App() {
   }, [products]);
 
   const cartCount = useMemo(
-    () => Object.values(cart).reduce((a, b) => a + b, 0),
-    [cart]
+    () => Object.entries(cart).reduce((sum, [id, qty]) => {
+      return productMap.has(Number(id)) ? sum + qty : sum;
+    }, 0),
+    [cart, productMap]
   );
   const cartTotal = useMemo(
     () => Object.entries(cart).reduce((sum, [id, qty]) => {

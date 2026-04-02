@@ -10,8 +10,8 @@ export default function RecompraRapida({ onAdd }) {
   useEffect(() => {
     fetch('/api/recompra', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
-      .catch(() => null)
-      .then(d => setData(d));
+      .then(d => { if (d) setData(d); })
+      .catch(() => {});
   }, []);
 
   if (!data?.ultimo_pedido) return null;

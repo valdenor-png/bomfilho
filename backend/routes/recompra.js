@@ -31,7 +31,7 @@ module.exports = function createRecompraRoutes({ autenticarToken }) {
         [usuarioId]
       );
 
-      const pedidos = ordersResult.rows ?? ordersResult;
+      const [pedidos] = ordersResult;
 
       if (!pedidos || pedidos.length === 0) {
         return res.json({ ultimo_pedido: null, mais_comprados: [] });
@@ -41,19 +41,19 @@ module.exports = function createRecompraRoutes({ autenticarToken }) {
       const pedidoIds = pedidos.map((p) => p.id);
 
       const itemsResult = await queryWithRetry(
-        `SELECT ip.pedido_id, ip.produto_id, ip.quantidade, ip.preco_unitario, ip.nome,
+        `SELECT ip.pedido_id, ip.produto_id, ip.quantidade, ip.preco AS preco_unitario, ip.nome_produto AS nome,
                 p.nome   AS nome_atual,
                 p.preco  AS preco_atual,
                 p.estoque,
                 p.ativo,
                 p.imagem_url
-           FROM itens_pedido ip
+           FROM pedido_itens ip
            LEFT JOIN produtos p ON p.id = ip.produto_id
           WHERE ip.pedido_id = ANY($1)`,
         [pedidoIds]
       );
 
-      const itens = itemsResult.rows ?? itemsResult;
+      const [itens] = itemsResult;
 
       // ── 3. Build ultimo_pedido (most recent order) ─────────────────────
       const ultimoPedido = pedidos[0];
