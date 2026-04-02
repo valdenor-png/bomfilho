@@ -134,3 +134,4 @@ __pycache__/
 venv/
 target/
 vendor/
+.bg-shell/
