@@ -41,6 +41,7 @@ function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
         overflow: 'hidden',
         border: `1px solid ${colors.border}`,
         display: 'flex', flexDirection: 'column', height: '100%',
+        opacity: product.estoque_status === 'esgotado' ? 0.5 : 1,
         transition: 'transform 0.25s cubic-bezier(.4,0,.2,1), box-shadow 0.25s cubic-bezier(.4,0,.2,1)',
         willChange: 'transform',
       }}
@@ -53,8 +54,19 @@ function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
         position: 'relative',
         overflow: 'hidden',
       }}>
-        {/* Badge: oferta ou estoque baixo */}
-        {product.tag ? (
+        {/* Badge: esgotado / estoque baixo / tag / novo */}
+        {product.estoque_status === 'esgotado' ? (
+          <span style={{
+            position: 'absolute', top: 6, left: 6, zIndex: 2,
+            fontSize: 7.5, fontWeight: 800,
+            padding: '2.5px 7px', borderRadius: 6,
+            background: 'rgba(239,83,80,0.2)', color: '#EF5350',
+            border: '1px solid rgba(239,83,80,0.3)',
+            textTransform: 'uppercase', letterSpacing: '0.04em',
+          }}>
+            Esgotado
+          </span>
+        ) : product.tag ? (
           <span style={{
             position: 'absolute', top: 6, left: 6, zIndex: 2,
             fontSize: 7.5, fontWeight: 800,
@@ -75,6 +87,17 @@ function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
             border: '1px solid rgba(239,83,80,0.3)',
           }}>
             {product.estoque === 1 ? 'Ultimo!' : `Ultimas ${product.estoque}`}
+          </span>
+        ) : product.badges?.includes('novo') ? (
+          <span style={{
+            position: 'absolute', top: 6, left: 6, zIndex: 2,
+            fontSize: 7, fontWeight: 800,
+            padding: '2.5px 7px', borderRadius: 6,
+            background: 'rgba(31,92,80,0.3)', color: '#5AE4A7',
+            border: '1px solid rgba(90,228,167,0.3)',
+            textTransform: 'uppercase', letterSpacing: '0.04em',
+          }}>
+            Novo
           </span>
         ) : null}
 
@@ -208,6 +231,13 @@ function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
                 +
               </button>
             </div>
+          ) : product.estoque_status === 'esgotado' ? (
+            <span style={{
+              fontSize: 9, fontWeight: 700, color: colors.textMuted,
+              fontFamily: fonts.text,
+            }}>
+              Indisponivel
+            </span>
           ) : (
             <button
               onClick={handleAdd}

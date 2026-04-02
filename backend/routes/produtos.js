@@ -474,6 +474,8 @@ module.exports = function createProdutosPublicRoutes({
         colunas.has('validade') ? 'p.validade' : 'NULL AS validade'
       ];
 
+      campos.push(colunas.has('criado_em') ? 'p.criado_em' : 'NULL AS criado_em');
+      campos.push(colunas.has('em_oferta') ? 'p.em_oferta' : 'FALSE AS em_oferta');
       campos.push(colunas.has('unidade_venda') ? 'p.unidade_venda' : 'NULL AS unidade_venda');
       campos.push(colunas.has('tipo_venda') ? 'p.tipo_venda' : 'NULL AS tipo_venda');
       campos.push(colunas.has('vendido_por_peso') ? 'p.vendido_por_peso' : 'NULL AS vendido_por_peso');
@@ -804,6 +806,7 @@ module.exports = function createProdutosPublicRoutes({
 
       etapa = 'serializacao_resposta';
       const inicioSerializacaoMs = Date.now();
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const produtosEnriquecidos = produtosPaginados
         .map((produto) => {
           const enriquecido = enriquecerProdutoParaCatalogo(produto);
@@ -815,8 +818,15 @@ module.exports = function createProdutosPublicRoutes({
         })
         .filter((produto) => produto?._visivel_publico)
         .map((produto) => {
-          const { _visivel_publico, ...resto } = produto;
-          return resto;
+          const { _visivel_publico, criado_em, em_oferta, ...resto } = produto;
+          const estoque = Number(resto.estoque || 0);
+          const badges = [];
+          if (estoque <= 0) badges.push('esgotado');
+          else if (estoque <= 5) badges.push('baixo_estoque');
+          if (em_oferta || resto.preco_promocional) badges.push('oferta');
+          if (criado_em && new Date(criado_em) > sevenDaysAgo) badges.push('novo');
+          const estoqueStatus = estoque <= 0 ? 'esgotado' : estoque <= 5 ? 'baixo_estoque' : 'disponivel';
+          return { ...resto, estoque_status: estoqueStatus, badges };
         });
 
       const payload = {
