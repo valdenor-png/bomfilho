@@ -794,7 +794,7 @@ function ConfirmedStep({ orderId, onGoHome, cart = {}, products = [], total = 0,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
                 {item.image_url ? (
-                  <img src={item.image_url} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
+                  <img src={item.image_url} alt="" loading="lazy" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
                 ) : (
                   <span style={{ fontSize: 16, width: 28, textAlign: 'center' }}>{'\u{1F4E6}'}</span>
                 )}

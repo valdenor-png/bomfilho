@@ -57,7 +57,7 @@ export default function ProductDetailModal({ product, isOpen, onClose, onAddToCa
         <div style={{ position: 'relative', width: '100%', aspectRatio: '4/3', background: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
           {img && !imgError ? (
             <>
-              <img src={img} alt={displayName} onError={() => setImgError(true)}
+              <img src={img} alt={displayName} loading="lazy" onError={() => setImgError(true)}
                 style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 16 }} />
               <span style={{
                 position: 'absolute', bottom: 12, right: 12, padding: '4px 10px', borderRadius: 12,
