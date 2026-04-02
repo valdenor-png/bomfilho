@@ -278,8 +278,22 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
                 {r.title}
               </p>
               <p style={{ fontSize: 9, color: colors.textMuted, margin: 0, fontFamily: fonts.text }}>
-                {r.prep_time + r.cook_time}min \u00B7 {r.ingredients.length} ingredientes
+                {r.prep_time + r.cook_time}min {'\u00B7'} {r.ingredients.length} ingredientes
               </p>
+              {products.length > 0 && (() => {
+                const avail = r.ingredients.filter(ing => {
+                  if (ing.productId) return products.some(p => p.id === Number(ing.productId));
+                  const t = (ing.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                  return t.split(/\s+/).filter(w => w.length > 2).some(w =>
+                    products.some(p => (p.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(w))
+                  );
+                }).length;
+                return avail > 0 ? (
+                  <span style={{ fontSize: 8, color: colors.success, fontWeight: 700, marginTop: 2, display: 'block', fontFamily: fonts.text }}>
+                    {avail} disponiveis no BomFilho
+                  </span>
+                ) : null;
+              })()}
             </a>
           ))}
         </div>

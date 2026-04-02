@@ -14,16 +14,27 @@ export default function RecipesPage({ onAdd, products = [] }) {
     ? recipes
     : recipes.filter(r => r.category === filter);
 
+  const findProductForIngredient = (ing) => {
+    if (ing.productId) {
+      return products.find(p => p.id === Number(ing.productId)) || null;
+    }
+    const term = (ing.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const words = term.split(/\s+/).filter(w => w.length > 2);
+    if (!words.length) return null;
+    return products.find(p => {
+      const pName = (p.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return words.some(w => pName.includes(w));
+    }) || null;
+  };
+
+  const countAvailable = (recipe) =>
+    recipe.ingredients.filter(ing => findProductForIngredient(ing)).length;
+
   const handleAddIngredients = (recipe) => {
     let added = 0;
     for (const ing of recipe.ingredients) {
-      if (ing.productId && onAdd) {
-        const product = products.find(p => p.id === Number(ing.productId));
-        if (product) { onAdd(product.id); added++; }
-      }
-    }
-    if (added > 0) {
-      // feedback handled by parent toast
+      const product = findProductForIngredient(ing);
+      if (product && onAdd) { onAdd(product.id); added++; }
     }
   };
 
@@ -52,7 +63,7 @@ export default function RecipesPage({ onAdd, products = [] }) {
       {/* Lista */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {filtered.map(recipe => {
-          const availableCount = recipe.ingredients.filter(i => i.productId).length;
+          const availableCount = countAvailable(recipe);
           return (
             <div key={recipe.id} onClick={() => setSelectedRecipe(recipe)} style={{
               background: colors.card, border: `1px solid ${colors.border}`,
@@ -178,11 +189,11 @@ export default function RecipesPage({ onAdd, products = [] }) {
                   display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0',
                   borderBottom: i < selectedRecipe.ingredients.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
                   fontSize: 12, color: colors.white, fontFamily: fonts.text,
-                  opacity: ing.productId ? 1 : 0.5,
+                  opacity: findProductForIngredient(ing) ? 1 : 0.5,
                 }}>
                   <span style={{
                     width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                    background: ing.productId ? colors.success : 'rgba(255,255,255,0.2)',
+                    background: findProductForIngredient(ing) ? colors.success : 'rgba(255,255,255,0.2)',
                   }} />
                   <span style={{ flex: 1 }}>{ing.name}</span>
                   <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontFamily: fonts.number }}>
@@ -228,7 +239,7 @@ export default function RecipesPage({ onAdd, products = [] }) {
                 fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: fonts.text,
                 boxShadow: '0 4px 16px rgba(226,184,74,0.35)',
               }}>
-                Adicionar {selectedRecipe.ingredients.filter(i => i.productId).length} ingredientes ao carrinho
+                Adicionar {countAvailable(selectedRecipe)} ingredientes ao carrinho
               </button>
             </div>
           </div>
