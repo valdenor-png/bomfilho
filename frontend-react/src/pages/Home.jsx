@@ -15,6 +15,7 @@ import { useSmartSearch } from '../hooks/useSmartSearch';
 import SearchDropdown from '../components/search/SearchDropdown';
 import { sanitizeInput } from '../lib/sanitize';
 import VoiceSearchButton from '../components/VoiceSearchButton';
+import RecompraRapida from '../components/RecompraRapida';
 
 const promos = [
   { title: 'PRIMEIRA COMPRA', subtitle: '20% OFF com Pix', code: 'BOM20', dark: true },
@@ -160,6 +161,9 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
           </div>
         ))}
       </div>
+
+      {/* Recompra rapida (logado + com pedidos) */}
+      <RecompraRapida onAdd={onAdd} />
 
       {/* Categorias */}
       <div style={{ marginTop: 16 }}>

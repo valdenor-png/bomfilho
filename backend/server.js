@@ -912,6 +912,7 @@ app.use(require('./routes/pedidos-criar')({
 
 // Listar/detalhar pedidos do usuário (routes/pedidos.js)
 app.use(require('./routes/pedidos')({ autenticarToken, parsePositiveInt, montarPaginacao }));
+app.use('/api/recompra', require('./routes/recompra')({ autenticarToken }));
 
 // Delivery Uber (cotação em tempo real + criação segura + cancelamento)
 app.use(require('./routes/delivery')({
