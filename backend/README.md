@@ -75,9 +75,9 @@ MP_ENV=test
 MP_ACCESS_TOKEN=SEU_ACCESS_TOKEN_MERCADO_PAGO
 MP_WEBHOOK_SECRET=SEU_WEBHOOK_SECRET_MERCADO_PAGO
 MP_NOTIFICATION_URL=https://SUA_URL_PUBLICA/api/webhooks/mercadopago
-MP_SUCCESS_URL=https://SEU_FRONTEND/#/pagamento?status=success
-MP_PENDING_URL=https://SEU_FRONTEND/#/pagamento?status=pending
-MP_FAILURE_URL=https://SEU_FRONTEND/#/pagamento?status=failure
+MP_SUCCESS_URL=https://SEU_FRONTEND/pagamento?status=success
+MP_PENDING_URL=https://SEU_FRONTEND/pagamento?status=pending
+MP_FAILURE_URL=https://SEU_FRONTEND/pagamento?status=failure
 BASE_URL=https://SUA_URL_PUBLICA
 
 # Evolution API (WhatsApp)

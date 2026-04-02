@@ -5,7 +5,7 @@
 - Critério: `CreationTime` do Windows/OneDrive.
 - Escopo: todos os arquivos do workspace, exceto `node_modules` e `.git`.
 
-> Observação (27/02/2026): os arquivos legados de admin (`js/admin*.js` e `css/admin-*.css`) foram removidos na migração para React. As páginas `admin.html`, `admin-pedidos.html` e `painel-admin.html` foram mantidas como redirecionamento para `/#/admin`.
+> Observação (27/02/2026): os arquivos legados de admin (`js/admin*.js` e `css/admin-*.css`) foram removidos na migração para React. As páginas `admin.html`, `admin-pedidos.html` e `painel-admin.html` foram mantidas como redirecionamento para `/admin`.
 
 site/
 ├── [001] index.html  (2026-01-08 20:07:36)

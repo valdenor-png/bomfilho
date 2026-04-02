@@ -109,7 +109,7 @@ mysql -u root < backend\database.sql
    - Escolha um método de pagamento
    - Confirme o pedido
 4. **Verifique no Admin**:
-   - Abra `/#/admin` (ou `legacy/admin.html`, que redireciona)
+   - Abra `/admin` (ou `legacy/admin.html`, que redireciona)
    - O pedido deve aparecer com o método de pagamento
 
 ---

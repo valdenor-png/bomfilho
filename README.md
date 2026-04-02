@@ -33,15 +33,15 @@ Essa arquitetura centraliza o desenvolvimento em JavaScript e preserva as rotas 
 
 ### Rotas React atuais
 
-- `/#/` catálogo e busca de produtos
-- `/#/pagamento` carrinho, pedido e PIX
-- `/#/conta` autenticação e perfil
-- `/#/sobre` informações do negócio
-- `/#/admin` painel administrativo (pedidos e produtos)
-- `/#/politica-de-privacidade` política de privacidade
-- `/#/termos-de-uso` termos de uso
-- `/#/politica-de-troca-e-devolucao` política de troca e devolução
-- `/#/politica-de-entrega` política de entrega
+- `/` catálogo e busca de produtos
+- `/pagamento` carrinho, pedido e PIX
+- `/conta` autenticação e perfil
+- `/sobre` informações do negócio
+- `/admin` painel administrativo (pedidos e produtos)
+- `/politica-de-privacidade` política de privacidade
+- `/termos-de-uso` termos de uso
+- `/politica-de-troca-e-devolucao` política de troca e devolução
+- `/politica-de-entrega` política de entrega
 
 ## Objetivo do projeto
 
@@ -165,9 +165,9 @@ MP_ENV=test
 MP_ACCESS_TOKEN=seu_access_token_do_mercado_pago
 MP_WEBHOOK_SECRET=seu_webhook_secret_do_mercado_pago
 MP_NOTIFICATION_URL=http://localhost:3000/api/webhooks/mercadopago
-MP_SUCCESS_URL=http://localhost:5173/#/pagamento?status=success
-MP_PENDING_URL=http://localhost:5173/#/pagamento?status=pending
-MP_FAILURE_URL=http://localhost:5173/#/pagamento?status=failure
+MP_SUCCESS_URL=http://localhost:5173/pagamento?status=success
+MP_PENDING_URL=http://localhost:5173/pagamento?status=pending
+MP_FAILURE_URL=http://localhost:5173/pagamento?status=failure
 ```
 
 No frontend (`frontend-react/.env.local`), use apenas a chave pública:
