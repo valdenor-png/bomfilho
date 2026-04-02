@@ -14,6 +14,7 @@ import { recipes } from '../data/recipes';
 import { useSmartSearch } from '../hooks/useSmartSearch';
 import SearchDropdown from '../components/search/SearchDropdown';
 import { sanitizeInput } from '../lib/sanitize';
+import VoiceSearchButton from '../components/VoiceSearchButton';
 
 const promos = [
   { title: 'PRIMEIRA COMPRA', subtitle: '20% OFF com Pix', code: 'BOM20', dark: true },
@@ -89,6 +90,7 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
               fontSize: 14, color: colors.white, fontFamily: fonts.text, fontWeight: 500, minWidth: 0,
             }}
           />
+          <VoiceSearchButton onResult={(text) => { setQuery(text); saveToHistory(text); setIsOpen(false); onGoProducts(null, text); }} size={16} />
           {query ? (
             <button onClick={() => { clearSearch(); }} style={{
               width: 28, height: 28, borderRadius: '50%',

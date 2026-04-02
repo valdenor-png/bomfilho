@@ -8,6 +8,7 @@ import { sanitizeInput } from '../lib/sanitize';
 import { useSmartSearch } from '../hooks/useSmartSearch';
 import { SkeletonProductCard } from '../components/ui/Skeleton';
 import SearchDropdown from '../components/search/SearchDropdown';
+import VoiceSearchButton from '../components/VoiceSearchButton';
 
 const MAX_PER_CATEGORY = 10;
 
@@ -194,6 +195,7 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
               fontSize: 14, color: colors.white, fontFamily: fonts.text, fontWeight: 500, minWidth: 0,
             }}
           />
+          <VoiceSearchButton onResult={(text) => { setQuery(text); saveToHistory(text); setIsOpen(false); }} size={16} />
           {query && (
             <button onClick={() => { clearSearch(); setSearchResults(null); }} style={{
               width: 28, height: 28, borderRadius: '50%',
