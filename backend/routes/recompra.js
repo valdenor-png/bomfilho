@@ -23,7 +23,7 @@ module.exports = function createRecompraRoutes({ autenticarToken }) {
 
       // ── 1. Last 3 orders (most recent first) ──────────────────────────
       const ordersResult = await queryWithRetry(
-        `SELECT id, total, frete, metodo_pagamento, criado_em
+        `SELECT id, total, frete, forma_pagamento, criado_em
            FROM pedidos
           WHERE usuario_id = $1
           ORDER BY criado_em DESC
