@@ -857,6 +857,8 @@ app.use(require('./routes/produtos')({
   obterCacheLeitura, salvarCacheLeitura
 }));
 
+app.use(require('./routes/substitutos')());
+
 // ============================================
 // ROTAS OFERTAS DO DIA (routes/ofertas-dia.js)
 // ============================================

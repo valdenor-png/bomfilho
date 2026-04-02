@@ -2,10 +2,12 @@ import React from 'react';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { colors, fonts, formatPrice, formatProductName } from '../theme';
 import Icon, { ProductPlaceholder } from './Icon';
+import SubstitutosSheet from './SubstitutosSheet';
 
 function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
   const [imgError, setImgError] = useState(false);
   const [addPulse, setAddPulse] = useState(false);
+  const [showSubstitutos, setShowSubstitutos] = useState(false);
   const prevQty = useRef(qty);
   const discount = product.oldPrice
     ? Math.round((1 - product.price / product.oldPrice) * 100)
@@ -232,12 +234,17 @@ function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
               </button>
             </div>
           ) : product.estoque_status === 'esgotado' ? (
-            <span style={{
-              fontSize: 9, fontWeight: 700, color: colors.textMuted,
-              fontFamily: fonts.text,
-            }}>
-              Indisponivel
-            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowSubstitutos(true); }}
+              style={{
+                fontSize: 9, fontWeight: 700, color: colors.gold,
+                fontFamily: fonts.text, background: 'rgba(226,184,74,0.1)',
+                border: `1px solid rgba(226,184,74,0.2)`, borderRadius: 6,
+                padding: '4px 8px', cursor: 'pointer',
+              }}
+            >
+              Ver alternativas
+            </button>
           ) : (
             <button
               onClick={handleAdd}
@@ -256,6 +263,15 @@ function ProductCard({ product, qty = 0, onAdd, onRemove, compact = false }) {
           )}
         </div>
       </div>
+      {showSubstitutos && (
+        <SubstitutosSheet
+          productId={product.id}
+          productName={product.name}
+          isOpen={showSubstitutos}
+          onClose={() => setShowSubstitutos(false)}
+          onAdd={onAdd}
+        />
+      )}
     </div>
   );
 }
