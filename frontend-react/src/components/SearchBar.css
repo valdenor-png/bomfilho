@@ -17,8 +17,17 @@
 }
 
 .search-bar--focused {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.28);
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+/* Kill any focus ring on the form itself */
+.search-bar:focus,
+.search-bar:focus-within,
+.search-bar:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
 }
 
 /* Lupa icon */
@@ -33,19 +42,28 @@
 }
 
 /* Input */
-.search-bar__input {
+.search-bar__input,
+.search-bar__input:focus,
+.search-bar__input:active,
+.search-bar__input:focus-visible,
+.search-bar__input:focus-within {
   flex: 1;
-  background: none;
-  border: none;
+  background: none !important;
+  border: none !important;
   outline: none !important;
+  outline-width: 0 !important;
+  outline-style: none !important;
+  outline-color: transparent !important;
   box-shadow: none !important;
+  -webkit-box-shadow: none !important;
   color: #FFFFFF;
   font-size: 15px;
   font-family: 'Plus Jakarta Sans', sans-serif;
   caret-color: #E2B84A;
   min-width: 0;
-  -webkit-appearance: none;
-  -webkit-tap-highlight-color: transparent;
+  -webkit-appearance: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+  -moz-appearance: none !important;
 }
 
 .search-bar__input::placeholder {
