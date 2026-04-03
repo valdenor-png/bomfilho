@@ -243,6 +243,33 @@ html {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+input,
+input:focus,
+input:active,
+input:focus-visible {
+  outline: none !important;
+  outline-width: 0 !important;
+  box-shadow: none !important;
+  -webkit-appearance: none !important;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 999px #0A1F1A inset !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  caret-color: #E2B84A !important;
+  transition: background-color 5000s ease-in-out 0s !important;
+  border-color: transparent !important;
+}
+
+input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 body {
