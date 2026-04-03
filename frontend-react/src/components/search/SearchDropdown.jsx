@@ -33,7 +33,7 @@ export default function SearchDropdown({ sections, query, onSelectProduct, onSel
   return (
     <div style={{
       position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50,
-      background: '#132E27', border: `1px solid ${colors.border}`, borderRadius: 16,
+      background: '#132E27', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16,
       boxShadow: '0 12px 40px rgba(0,0,0,0.4)',
       maxHeight: 'min(400px, 60vh)', overflowY: 'auto',
       animation: 'searchDropIn 0.15s ease-out',

@@ -11,6 +11,9 @@
   height: 48px;
   width: 100%;
   transition: all 0.3s ease;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .search-bar--focused {
