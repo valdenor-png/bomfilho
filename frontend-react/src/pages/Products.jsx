@@ -9,6 +9,7 @@ import { useSmartSearch } from '../hooks/useSmartSearch';
 import { SkeletonProductCard } from '../components/ui/Skeleton';
 import SearchDropdown from '../components/search/SearchDropdown';
 import VoiceSearchButton from '../components/VoiceSearchButton';
+import SearchBar from '../components/SearchBar';
 
 const MAX_PER_CATEGORY = 10;
 
@@ -174,40 +175,15 @@ export default function Products({ cart = {}, onAdd, onRemove, products = [], in
     <div style={{ padding: '0 16px' }}>
       {/* Busca com autocomplete */}
       <div ref={searchBoxRef} style={{ position: 'relative', marginTop: 8 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: 'rgba(255,255,255,0.08)',
-          border: `1.5px solid ${isOpen ? 'rgba(226,184,74,0.4)' : 'rgba(255,255,255,0.1)'}`,
-          borderRadius: 14, padding: '0 14px', height: 46,
-          boxShadow: isOpen ? '0 0 0 3px rgba(226,184,74,0.08)' : 'none',
-          transition: 'border-color 0.15s, box-shadow 0.15s',
-        }}>
-          <Icon name="search" size={16} color={isOpen ? colors.gold : 'rgba(255,255,255,0.4)'} />
-          <input
-            value={query}
-            onChange={e => { setQuery(sanitizeInput(e.target.value)); setIsOpen(true); }}
-            onFocus={() => setIsOpen(true)}
-            onKeyDown={e => { if (e.key === 'Enter' && query.trim()) { saveToHistory(query.trim()); setIsOpen(false); } }}
-            placeholder="O que voce procura?"
-            autoComplete="off"
-            style={{
-              flex: 1, border: 'none', outline: 'none', background: 'transparent',
-              fontSize: 14, color: colors.white, fontFamily: fonts.text, fontWeight: 500, minWidth: 0,
-            }}
-          />
-          <VoiceSearchButton onResult={(text) => { setQuery(text); saveToHistory(text); setIsOpen(false); }} size={16} />
-          {query && (
-            <button onClick={() => { clearSearch(); setSearchResults(null); }} style={{
-              width: 28, height: 28, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.1)', border: 'none',
-              color: 'rgba(255,255,255,0.5)', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <Icon name="close" size={12} color="rgba(255,255,255,0.5)" />
-            </button>
-          )}
-        </div>
-
+        <SearchBar
+          value={query}
+          onChange={(text) => { setQuery(sanitizeInput(text)); setIsOpen(true); }}
+          onSearch={(text) => { saveToHistory(text); setIsOpen(false); }}
+          onClear={() => { clearSearch(); setSearchResults(null); }}
+          onFocus={() => setIsOpen(true)}
+          onMicResult={(text) => { setQuery(text); saveToHistory(text); setIsOpen(false); }}
+          placeholder="O que voce procura?"
+        />
         {isOpen && (
           <SearchDropdown
             sections={suggestions}

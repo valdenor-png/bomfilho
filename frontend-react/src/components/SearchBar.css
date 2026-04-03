@@ -1,0 +1,104 @@
+/* SearchBar.css — Pill Premium search bar */
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1.5px solid rgba(255, 255, 255, 0.06);
+  border-radius: 50px;
+  padding: 0 6px 0 16px;
+  height: 48px;
+  width: 100%;
+  transition: all 0.3s ease;
+}
+
+.search-bar--focused {
+  border-color: rgba(226, 184, 74, 0.5);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Lupa icon */
+.search-bar__icon {
+  display: flex;
+  color: rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
+  transition: color 0.3s;
+}
+.search-bar--focused .search-bar__icon {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Input */
+.search-bar__input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none !important;
+  box-shadow: none !important;
+  color: #FFFFFF;
+  font-size: 15px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  caret-color: #E2B84A;
+  min-width: 0;
+  -webkit-appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.search-bar__input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* Fix autofill amarelo do Chrome */
+.search-bar__input:-webkit-autofill,
+.search-bar__input:-webkit-autofill:hover,
+.search-bar__input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 50px rgba(0, 0, 0, 0.2) inset !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  caret-color: #E2B84A;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Clear button */
+.search-bar__clear {
+  background: none;
+  border: none;
+  border-radius: 50px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+  padding: 0;
+  transition: color 0.15s;
+}
+.search-bar__clear:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Mic button */
+.search-bar__mic {
+  background: #E2B84A;
+  border: none;
+  border-radius: 50px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #1F5C50;
+  flex-shrink: 0;
+  padding: 0;
+  transition: all 0.2s;
+}
+.search-bar__mic:hover {
+  background: #d4a73e;
+  transform: scale(1.05);
+}
+.search-bar__mic:active {
+  transform: scale(0.95);
+}

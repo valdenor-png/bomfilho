@@ -16,6 +16,7 @@ import SearchDropdown from '../components/search/SearchDropdown';
 import { sanitizeInput } from '../lib/sanitize';
 import VoiceSearchButton from '../components/VoiceSearchButton';
 import RecompraRapida from '../components/RecompraRapida';
+import SearchBar from '../components/SearchBar';
 
 const promos = [
   { title: 'PRIMEIRA COMPRA', subtitle: '20% OFF com Pix', code: 'BOM20', dark: true },
@@ -64,53 +65,15 @@ export default function Home({ cart = {}, onAdd, onRemove, onGoProducts, onGoCat
 
       {/* Busca */}
       <div ref={searchBoxRef} style={{ position: 'relative', marginTop: 12 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: 'rgba(255,255,255,0.08)',
-          border: `1.5px solid ${isOpen ? 'rgba(226,184,74,0.4)' : 'rgba(255,255,255,0.1)'}`,
-          borderRadius: 14, padding: '0 14px', height: 46,
-          boxShadow: isOpen ? '0 0 0 3px rgba(226,184,74,0.08)' : 'none',
-          transition: 'border-color 0.15s, box-shadow 0.15s',
-        }}>
-          <Icon name="search" size={16} color={isOpen ? colors.gold : 'rgba(255,255,255,0.4)'} />
-          <input
-            value={query}
-            onChange={e => { setQuery(sanitizeInput(e.target.value)); setIsOpen(true); }}
-            onFocus={() => setIsOpen(true)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && query.trim()) {
-                saveToHistory(query.trim());
-                setIsOpen(false);
-                onGoProducts(null, query.trim());
-              }
-            }}
-            placeholder="O que voce procura?"
-            autoComplete="off"
-            style={{
-              flex: 1, border: 'none', outline: 'none', background: 'transparent',
-              fontSize: 14, color: colors.white, fontFamily: fonts.text, fontWeight: 500, minWidth: 0,
-            }}
-          />
-          <VoiceSearchButton onResult={(text) => { setQuery(text); saveToHistory(text); setIsOpen(false); onGoProducts(null, text); }} size={16} />
-          {query ? (
-            <button onClick={() => { clearSearch(); }} style={{
-              width: 28, height: 28, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.1)', border: 'none',
-              color: 'rgba(255,255,255,0.5)', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <Icon name="close" size={12} color="rgba(255,255,255,0.5)" />
-            </button>
-          ) : (
-            <button onClick={onGoProducts} style={{
-              background: colors.gold, border: 'none', borderRadius: 8,
-              color: colors.bgDeep, padding: '8px 13px', cursor: 'pointer',
-              fontWeight: 800, fontSize: 11, fontFamily: fonts.text, flexShrink: 0,
-            }}>
-              Buscar
-            </button>
-          )}
-        </div>
+        <SearchBar
+          value={query}
+          onChange={(text) => { setQuery(sanitizeInput(text)); setIsOpen(true); }}
+          onSearch={(text) => { saveToHistory(text); setIsOpen(false); onGoProducts(null, text); }}
+          onClear={clearSearch}
+          onFocus={() => setIsOpen(true)}
+          onMicResult={(text) => { setQuery(text); saveToHistory(text); setIsOpen(false); onGoProducts(null, text); }}
+          placeholder="O que voce procura?"
+        />
         {isOpen && (
           <SearchDropdown
             sections={suggestions}
