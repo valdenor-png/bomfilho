@@ -39,7 +39,7 @@ export default React.memo(function Header({ cartCount = 0, onCartClick, scrolled
           <img
             src="/img/logo.svg"
             alt="BomFilho Supermercado"
-            style={{ height: 44 }}
+            style={{ height: 55 }}
           />
         </div>
 
