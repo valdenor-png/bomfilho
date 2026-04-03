@@ -326,7 +326,7 @@ export default function AdminShell({ tab, setTab, onLogout, onRefresh, carregand
         {/* Brand header */}
         <div className="sb-header">
           <div className="sb-brand">
-            <img src="/img/logo.svg" alt="BomFilho" style={{ height: 38 }} />
+            <img src="/img/logo.svg" alt="BomFilho" style={{ height: 46 }} />
             <span className="sb-brand-tag">ADMIN</span>
           </div>
           <SidebarStatusPill
