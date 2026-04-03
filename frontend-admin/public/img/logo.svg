@@ -2,29 +2,29 @@
 <svg viewBox="0 0 300 180" width="600" height="360" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="cartGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1F5C50" />
-      <stop offset="100%" stop-color="#174740" />
+      <stop offset="0%" stop-color="#E2B84A" />
+      <stop offset="100%" stop-color="#D4A43A" />
     </linearGradient>
   </defs>
-  <!-- Cart body forming a stylized B -->
+  <!-- Cart -->
   <g transform="translate(30, 15)">
     <!-- Cart handle -->
-    <path d="M 5,50 L 20,50 L 30,20" fill="none" stroke="#1F5C50" stroke-width="5" stroke-linecap="round" />
+    <path d="M 5,50 L 20,50 L 30,20" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" />
     <!-- Cart body -->
     <path d="M 20,50 L 25,95 L 95,95 L 105,45 L 28,45 Z" fill="url(#cartGrad)" />
     <!-- B inside cart -->
-    <text x="62" y="80" text-anchor="middle" font-family="Georgia, serif" font-size="38" font-weight="bold" fill="#E2B84A">B</text>
+    <text x="62" y="80" text-anchor="middle" font-family="Georgia, serif" font-size="38" font-weight="bold" fill="#1F5C50">B</text>
     <!-- Wheels -->
-    <circle cx="40" cy="105" r="8" fill="none" stroke="#1F5C50" stroke-width="4" />
+    <circle cx="40" cy="105" r="8" fill="none" stroke="#FFFFFF" stroke-width="4" />
     <circle cx="40" cy="105" r="2.5" fill="#E2B84A" />
-    <circle cx="82" cy="105" r="8" fill="none" stroke="#1F5C50" stroke-width="4" />
+    <circle cx="82" cy="105" r="8" fill="none" stroke="#FFFFFF" stroke-width="4" />
     <circle cx="82" cy="105" r="2.5" fill="#E2B84A" />
   </g>
-  <!-- Text -->
-  <text x="175" y="62" font-family="Trebuchet MS, sans-serif" font-size="40" font-weight="800" fill="#1F5C50" letter-spacing="-1">Bom</text>
+  <!-- Text in white -->
+  <text x="175" y="62" font-family="Trebuchet MS, sans-serif" font-size="40" font-weight="800" fill="#FFFFFF" letter-spacing="-1">Bom</text>
   <text x="175" y="100" font-family="Trebuchet MS, sans-serif" font-size="40" font-weight="800" fill="#E2B84A" letter-spacing="-1">Filho</text>
   <!-- Tagline -->
-  <text x="175" y="124" font-family="Trebuchet MS, sans-serif" font-size="10.5" fill="#1F5C50" letter-spacing="4" opacity="0.5">SUPERMERCADO</text>
+  <text x="175" y="124" font-family="Trebuchet MS, sans-serif" font-size="10.5" fill="rgba(255,255,255,0.6)" letter-spacing="4">SUPERMERCADO</text>
   <!-- Accent line -->
   <rect x="175" y="130" width="45" height="2.5" rx="1" fill="#E2B84A" />
 </svg>
