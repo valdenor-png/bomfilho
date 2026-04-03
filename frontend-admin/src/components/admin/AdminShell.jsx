@@ -326,11 +326,8 @@ export default function AdminShell({ tab, setTab, onLogout, onRefresh, carregand
         {/* Brand header */}
         <div className="sb-header">
           <div className="sb-brand">
-            <span className="sb-brand-mark">B</span>
-            <div className="sb-brand-text">
-              <span className="sb-brand-name">BomFilho</span>
-              <span className="sb-brand-tag">Admin</span>
-            </div>
+            <img src="/img/logo.svg" alt="BomFilho" style={{ height: 38 }} />
+            <span className="sb-brand-tag">ADMIN</span>
           </div>
           <SidebarStatusPill
             online={online}

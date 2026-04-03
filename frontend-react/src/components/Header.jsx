@@ -35,32 +35,12 @@ export default React.memo(function Header({ cartCount = 0, onCartClick, scrolled
         height: 52,
       }}>
         {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 10,
-            background: `linear-gradient(135deg, ${colors.gold} 0%, #C9A03A 100%)`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 2px 12px rgba(226,184,74,0.35)',
-            transition: 'transform 0.2s cubic-bezier(.4,0,.2,1), box-shadow 0.2s',
-          }}>
-            <Icon name="cart" size={15} color="#fff" />
-          </div>
-          <div>
-            <div style={{
-              fontWeight: 900, fontSize: 16,
-              fontFamily: fonts.text, color: colors.white,
-              letterSpacing: '-0.01em',
-            }}>
-              Bom<span style={{ color: colors.gold }}>Filho</span>
-            </div>
-            <div style={{
-              fontSize: 7.5, color: colors.textMuted,
-              letterSpacing: '0.12em', textTransform: 'uppercase',
-              fontWeight: 600, marginTop: -1,
-            }}>
-              supermercado
-            </div>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+          <img
+            src="/img/logo.svg"
+            alt="BomFilho Supermercado"
+            style={{ height: 36 }}
+          />
         </div>
 
         {/* Right side: location + cart */}
